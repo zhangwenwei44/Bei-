@@ -62,11 +62,14 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
+            CODE_ENTITLEMENTS="" \
             CODE_SIGN_ENTITLEMENTS="" \
             DEVELOPMENT_TEAM="" \
             build \
             2>&1 | tee build.log
-          echo "BUILD_EXIT=${PIPESTATUS[0]}" | tee -a build.log
+          # 结果写进独立标记文件：xcodebuild 的日志里混有二进制，
+          # 拿 grep 去判断会被非法字节干扰。
+          echo "${PIPESTATUS[0]}" > build.exit
 
       - name: Report compiler errors
         if: always()
@@ -76,12 +79,13 @@ jobs:
             echo "## 编译诊断"
             echo
             echo '```'
-            grep -E "(error|warning):" build.log | sort -u | head -60 || echo "(无 error/warning 行)"
+            # -a：日志里有二进制字节，当作文本处理
+            grep -aE "(error|warning):" build.log 2>/dev/null | sort -u | head -60 || echo "(无 error/warning 行)"
             echo '```'
             echo
-            echo "最后 30 行："
+            echo "最后 20 行："
             echo '```'
-            tail -30 build.log
+            tr -d '\000' < build.log 2>/dev/null | tail -20
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -90,7 +94,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-log
-          path: ios/build.log
+          path: |
+            ios/build.log
+            ios/build.exit
           if-no-files-found: warn
           retention-days: 14
 
@@ -103,7 +109,8 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p /tmp/diag
-          cp build.log /tmp/diag/build.log
+          tr -d '\000' < build.log > /tmp/diag/build.log 2>/dev/null || true
+          cp build.exit /tmp/diag/build.exit 2>/dev/null || true
           cd /tmp/diag
           git init -q
           git config user.name  "github-actions[bot]"
@@ -114,9 +121,16 @@ jobs:
           git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$DIAG_BRANCH"
           echo "published to $DIAG_BRANCH"
 
-      - name: Fail if build failed
+      - name: Check build result
         working-directory: ios
-        run: grep -q "^BUILD_EXIT=0" build.log
+        run: |
+          status="$(cat build.exit 2>/dev/null | tr -d '[:space:]' || true)"
+          if [ "$status" = "0" ]; then
+            echo "编译通过，开始打包"
+          else
+            echo "::error::编译失败 (xcodebuild exit=${status:-未知})，详见 build.log"
+            exit 1
+          fi
 
       - name: Package unsigned IPA
         working-directory: ios

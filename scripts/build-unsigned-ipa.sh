@@ -50,7 +50,8 @@ VERSION="$(git describe --tags --always 2>/dev/null || echo dev)"
 OUT="$ROOT/dist/AuroraMusic-${VERSION}-unsigned.ipa"
 mkdir -p "$ROOT/dist"
 rm -f "$OUT"
-zip -qry "$OUT" Payload
+# -X 让 zip 忽略额外属性
+zip -qryX "$OUT" Payload
 rm -rf Payload
 
 echo "==> 完成: $OUT"
