@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 
 /// 鏀惰棌鐨勫湪绾挎瓕鍗曪紙鍙 ID锛屽鐢ㄥ嵆鍙級銆?enum CollectionState {
     private static let key = "aurora.collected.playlists"

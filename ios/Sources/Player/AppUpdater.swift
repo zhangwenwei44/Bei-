@@ -10,13 +10,13 @@ import UIKit
 final class AppUpdater: ObservableObject {
     static let shared = AppUpdater()
 
-    struct Asset: Decodable {
+    struct Asset: Decodable, Equatable {
         var name: String
         var browser_download_url: String
         var size: Int
     }
 
-    struct Release: Decodable {
+    struct Release: Decodable, Equatable {
         var tag_name: String
         var name: String?
         var body: String?

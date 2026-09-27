@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 
 /// 鎼滅储椤碉細鍗曟洸 / 姝屽崟 / 姝屾墜 / 涓撹緫銆?struct SearchView: View {
     var initialKeyword: String = ""
