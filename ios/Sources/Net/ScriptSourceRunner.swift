@@ -211,7 +211,7 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
     }
 
     func toHexEncode(_ text: String) -> String {
-        hexString(Data(text.utf8))
+        ScriptBridge.hexString(Data(text.utf8))
     }
 
     func fromHexDecode(_ hex: String) -> String {
@@ -488,7 +488,7 @@ final class ScriptSourceRunner {
             "source": song.source.code,
             "info": [
                 "type": quality.sourceValue,
-                "musicInfo": Self.musicInfo(for: song),
+                "musicInfo": Self.musicInfo(for: song, quality: quality),
             ],
         ]
 
@@ -521,7 +521,7 @@ final class ScriptSourceRunner {
     /// `songmid`(kw) / `copyrightId`+`songId`(wy) / `songmid`(tx) / `hash`(kg)，
     /// 另外会读 `types` 和 `meta` 判断音质支持。缺的字段一律补齐，
     /// 这样一份洛雪脚本不用改就能跑。
-    private static func musicInfo(for song: Song) -> [String: Any] {
+    private static func musicInfo(for song: Song, quality: MusicQuality) -> [String: Any] {
         let songID = song.neteaseID.map(String.init) ?? song.id
         let artistList = song.artist
             .components(separatedBy: CharacterSet(charactersIn: "/&,"))
