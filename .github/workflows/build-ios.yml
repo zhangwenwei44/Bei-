@@ -27,7 +27,13 @@ jobs:
 
       - name: Select Xcode
         run: |
-          sudo xcode-select -s /Applications/Xcode_15.4.app
+          set -euo pipefail
+          # 优先 15.4（project.yml 已锁 xcodeVersion 15.4），否则退回已装最新版
+          if [ -d /Applications/Xcode_15.4.app ]; then
+            sudo xcode-select -s /Applications/Xcode_15.4.app
+          else
+            sudo xcode-select -s /Applications/Xcode.app
+          fi
           xcodebuild -version
 
       - name: Install XcodeGen
@@ -40,7 +46,10 @@ jobs:
 
       - name: Generate Xcode project
         working-directory: ios
-        run: xcodegen generate
+        run: |
+          set -euo pipefail
+          xcodegen generate
+          grep -m1 objectVersion AuroraMusic.xcodeproj/project.pbxproj
 
       - name: Build (device, no signing)
         working-directory: ios
