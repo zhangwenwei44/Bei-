@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Aurora Music · 低保真线框稿</title>
+<style>
+  :root{
+    --ink:#1c1f22; --ink-2:#5b6167; --ink-3:#9aa1a8;
+    --line:#d5d9dd; --line-2:#e9ecef; --fill:#f4f5f7; --fill-2:#eceef0;
+    --bg:#fbfbfc; --dark:#15181b;
+    --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s7:32px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font:13px/1.5 -apple-system,"SF Pro Text","PingFang SC",Segoe UI,sans-serif;background:var(--bg);color:var(--ink);padding:40px 32px 64px}
+  h1{font-size:22px;font-weight:700;letter-spacing:-.2px}
+  .sub{color:var(--ink-2);margin-top:6px;margin-bottom:32px}
+  h2{font-size:14px;font-weight:600;margin:40px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  .row{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+  .screen-wrap{width:300px}
+  .cap{font-size:11px;color:var(--ink-3);margin-bottom:8px;letter-spacing:.4px;text-transform:uppercase}
+  .phone{width:300px;height:620px;border:1.5px solid var(--ink);border-radius:28px;background:#fff;position:relative;overflow:hidden;display:flex;flex-direction:column}
+  .status{height:26px;flex:0 0 26px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:9px;color:var(--ink-3)}
+  .navbar{height:40px;flex:0 0 40px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid var(--line-2)}
+  .navtitle{font-size:13px;font-weight:600}
+  .body{flex:1;overflow:hidden;padding:0 16px;display:flex;flex-direction:column}
+  .home{height:20px;flex:0 0 20px}
+  .tabbar{height:52px;flex:0 0 52px;border-top:1px solid var(--line-2);display:flex;align-items:center;justify-content:space-around;font-size:10px;color:var(--ink-3)}
+  .tabbar .on{color:var(--ink);font-weight:600}
+  .mini{height:52px;flex:0 0 52px;border-top:1px solid var(--line-2);display:flex;align-items:center;gap:10px;padding:0 12px}
+
+  /* 通用元件 */
+  .t{font-size:9px;color:var(--ink-3);letter-spacing:.3px;margin-bottom:5px}
+  .bar{background:var(--fill);border:1px solid var(--line);border-radius:6px}
+  .pill{background:var(--fill-2);border:1px solid var(--line);border-radius:999px}
+  .ph{background:var(--fill);border:1px dashed var(--line);border-radius:8px;color:var(--ink-3);font-size:9px;display:flex;align-items:center;justify-content:center}
+  .sq{background:var(--fill-2);border-radius:6px}
+  .artist{color:var(--ink-2)}
+  .muted{color:var(--ink-3)}
+  .gap{height:12px;flex:0 0 12px}
+  .line{height:1px;background:var(--line-2);margin:12px 0}
+
+  .search{height:34px;border:1px solid var(--line);border-radius:10px;background:var(--fill);display:flex;align-items:center;padding:0 10px;font-size:10px;color:var(--ink-3)}
+  .tabs{display:flex;gap:16px;font-size:11px;padding:12px 0 10px;border-bottom:1px solid var(--line-2)}
+  .tabs .on{font-weight:600;position:relative}
+  .tabs .on:after{content:"";position:absolute;left:0;right:0;bottom:-11px;height:2px;background:var(--ink);border-radius:2px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding-top:12px}
+  .grid .art{aspect-ratio:1;border-radius:8px}
+  .tile-name{font-size:10px;margin-top:6px;line-height:1.3}
+  .listrow{display:flex;align-items:center;gap:10px;padding:8px 0}
+  .listrow .art{width:36px;height:36px;flex:0 0 36px}
+  .rank{width:16px;font-size:12px;font-weight:700;color:var(--ink-3);font-variant-numeric:tabular-nums}
+  .rank.top{color:#e0483c}
+  .lines{flex:1}
+  .ln{height:8px;background:var(--fill);border-radius:3px;margin-bottom:6px}
+  .ln.s{width:45%}
+  .ell{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+
+  /* 播放页 */
+  .player{background:var(--dark);color:#fff;position:absolute;inset:0;display:flex;flex-direction:column}
+  .player .status{color:rgba(255,255,255,.5)}
+  .pc-nav{height:40px;flex:0 0 40px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-size:11px;color:rgba(255,255,255,.75)}
+  .pc-nav .mid{font-size:11px;color:rgba(255,255,255,.55);letter-spacing:1px}
+  .stage{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 26px;position:relative}
+  .disc{width:190px;height:190px;border-radius:50%;border:1px solid rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:9px;color:rgba(255,255,255,.35);letter-spacing:2px}
+  .disc .hole{width:52px;height:52px;border-radius:50%;border:1px solid rgba(255,255,255,.2)}
+  .lyric{position:absolute;inset:auto 0 0 0;height:78%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center}
+  .lyric div{font-size:11px;color:rgba(255,255,255,.32)}
+  .lyric div.on{font-size:13px;color:#fff;font-weight:600}
+  .pinfo{padding:0 20px 12px}
+  .pname{font-size:16px;font-weight:700}
+  .psinger{font-size:11px;color:rgba(255,255,255,.6);margin-top:4px}
+  .tags{display:flex;gap:6px;margin-top:10px}
+  .tags span{font-size:9px;color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.25);border-radius:4px;padding:2px 6px}
+  .acts{display:flex;justify-content:space-between;margin-top:16px;padding:0 2px}
+  .acts i{width:26px;height:26px;border-radius:50%;border:1px solid rgba(255,255,255,.22);display:block}
+  .acts i.big{width:34px;height:34px;background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.3)}
+  .prog{margin-top:16px}
+  .track{height:2px;background:rgba(255,255,255,.22);border-radius:2px;position:relative}
+  .track i{position:absolute;left:0;top:0;bottom:0;width:38%;background:#fff;border-radius:2px}
+  .times{display:flex;justify-content:space-between;font-size:9px;color:rgba(255,255,255,.55);margin-top:6px;font-variant-numeric:tabular-nums}
+  .ctrl{display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding:0 6px}
+  .ctrl i{width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,.3);display:block}
+  .ctrl i.play{width:48px;height:48px;background:#fff;border:none}
+  .ctrl i.play:after{content:"";display:block;width:0;height:0;margin:16px auto;border-left:12px solid #15181b;border-top:8px solid transparent;border-bottom:8px solid transparent}
+  .vip{margin-top:14px;height:32px;border-radius:8px;background:linear-gradient(90deg,rgba(244,210,74,.18),rgba(244,210,74,.06));border:1px solid rgba(244,210,74,.35);display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:10px;color:#f4d24a}
+  .sheet{position:absolute;left:8px;right:8px;bottom:0;height:64%;background:rgba(30,34,38,.97);border-radius:16px 16px 0 0;padding:8px 14px 0;display:flex;flex-direction:column}
+
+  /* ── 沉浸式播放页 ── */
+  .player.immersive{background:#5b3a6e}
+  .bgart{position:absolute;inset:-6%;background:
+      radial-gradient(120% 70% at 30% 12%, #f0a9c0 0%, rgba(240,169,192,0) 60%),
+      radial-gradient(90% 50% at 78% 22%, #f6b38c 0%, rgba(246,179,140,0) 65%),
+      radial-gradient(120% 60% at 50% 46%, #8fb0d8 0%, rgba(143,176,216,0) 70%),
+      linear-gradient(180deg,#c98fae 0%,#a26fa8 34%,#6d4a86 62%,#3a2b52 100%);
+      filter:blur(18px) saturate(1.15)}
+  .scrim{position:absolute;inset:0;background:linear-gradient(180deg,
+      rgba(0,0,0,.28) 0%, rgba(0,0,0,0) 18%,
+      rgba(20,6,30,0) 42%, rgba(28,10,40,.55) 66%, rgba(24,8,34,.88) 88%, rgba(20,6,30,.94) 100%)}
+  .player.immersive .status,.player.immersive .pc-nav,.player.immersive .pinfo{position:relative;z-index:2}
+  .pc-nav .chev{font-size:15px}
+  .dots{position:absolute;left:50%;transform:translateX(-50%);display:flex;gap:5px}
+  .dots i{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.4)}
+  .dots i.on{width:14px;border-radius:3px;background:rgba(255,255,255,.9)}
+  .singer{display:flex;flex-direction:column;align-items:center;gap:1px;font-size:8px;color:#fff}
+  .singer em{width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.35);display:block}
+  .ic{font-size:13px;margin-left:12px}
+  .pc-nav .ic:first-of-type{margin-left:14px}
+  .chip{position:absolute;z-index:3;top:70px;left:8px;font-size:8px;color:#fff;background:rgba(0,0,0,.35);border-radius:4px;padding:3px 7px;letter-spacing:.3px}
+  .player.immersive .stage{padding:0 18px 0}
+  .player.immersive .lyric{position:absolute;inset:0;height:auto;padding:0 18px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:13px}
+  .player.immersive .lyric div{font-size:12px;color:rgba(255,255,255,.55);line-height:1.4}
+  .player.immersive .lyric div.on{font-size:15px;color:#fff;font-weight:600}
+  .player.immersive .pinfo{padding:0 18px 14px}
+  .player.immersive .pname{font-size:18px;font-weight:700;letter-spacing:.2px}
+  .player.immersive .tags{margin-top:10px;gap:6px;flex-wrap:wrap}
+  .player.immersive .tags span{font-size:9px;color:rgba(255,255,255,.82);border:1px solid rgba(255,255,255,.3);border-radius:5px;padding:3px 7px;background:rgba(255,255,255,.06)}
+  .player.immersive .tags .singer-t{border:none;background:none;padding:3px 0;font-size:11px;color:#fff;margin-right:2px}
+  .player.immersive .acts{margin-top:16px;gap:0;justify-content:space-between}
+  .player.immersive .acts i{position:relative;width:24px;height:24px;border:none;border-radius:0;background:none;
+      border-bottom:1.6px solid rgba(255,255,255,.9);opacity:.92}
+  .player.immersive .acts i.vip:after{content:"VIP";position:absolute;right:-4px;bottom:-7px;font-size:6px;color:#f4d24a;font-weight:700}
+  .player.immersive .acts i.bell{border-radius:50% 50% 4px 4px;height:20px}
+  .player.immersive .acts i.heart{border-radius:50% 50% 6px 6px;height:20px;transform:rotate(-8deg)}
+  .player.immersive .acts i.cmt{width:20px;height:16px;border-radius:4px}
+  .player.immersive .acts i.more{border:none;width:20px;background:radial-gradient(circle,rgba(255,255,255,.95) 1.4px,transparent 1.6px) 50% 3px/4px 9px repeat-y}
+  .player.immersive .acts i b{position:absolute;left:50%;transform:translateX(-50%);top:-12px;font-size:8px;font-weight:400;color:rgba(255,255,255,.75);white-space:nowrap}
+  .player.immersive .prog{margin-top:20px}
+  .player.immersive .track i{width:6%}
+  .player.immersive .track s{position:absolute;left:22%;width:4px;height:4px;border-radius:50%;background:#fff;top:-1px}
+  .player.immersive .ctrl{margin-top:12px;padding:0 2px}
+  .player.immersive .ctrl i{width:auto;height:auto;border:none;background:none;position:relative}
+  .player.immersive .ctrl i.mode:before,.player.immersive .ctrl i.mode:after{content:"";position:absolute;left:2px;width:14px;height:1.6px;background:#fff;border-radius:2px}
+  .player.immersive .ctrl i.mode:before{top:5px;box-shadow:0 7px 0 #fff}
+  .player.immersive .ctrl i.mode:after{top:8.5px;width:10px}
+  .player.immersive .ctrl i.prev:before{content:"";position:absolute;left:4px;top:2px;width:0;height:0;border-right:11px solid #fff;border-top:8px solid transparent;border-bottom:8px solid transparent}
+  .player.immersive .ctrl i.next:before{content:"";position:absolute;right:4px;top:2px;width:0;height:0;border-left:11px solid #fff;border-top:8px solid transparent;border-bottom:8px solid transparent}
+  .player.immersive .ctrl i.play{width:52px;height:52px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);border-radius:50%;position:relative}
+  .player.immersive .ctrl i.play:before,.player.immersive .ctrl i.play:after{content:"";position:absolute;top:16px;width:4px;height:20px;background:#fff;border-radius:1px}
+  .player.immersive .ctrl i.play:before{left:20px}
+  .player.immersive .ctrl i.play:after{left:28px}
+  .player.immersive .ctrl i.list:before{content:"";position:absolute;left:3px;top:2px;width:16px;height:1.6px;background:#fff;box-shadow:0 6px 0 #fff,0 12px 0 #fff;width:12px}
+  .player.immersive .ctrl i.list:after{content:"";position:absolute;right:3px;top:1px;width:0;height:0;border-top:4px solid transparent;border-bottom:4px solid transparent;border-right:6px solid #fff}
+  .player.immersive .vip{height:34px;border:none;background:none;padding:0;justify-content:center;gap:8px;font-size:9.5px;color:rgba(255,255,255,.72)}
+  .player.immersive .vip .vip-go{color:#f4d24a;font-weight:600}
+  .bgart.cool{background:
+      radial-gradient(120% 70% at 30% 12%, #7fd0e8 0%, rgba(127,208,232,0) 60%),
+      radial-gradient(90% 50% at 78% 22%, #5b8fd6 0%, rgba(91,143,214,0) 65%),
+      radial-gradient(120% 60% at 50% 46%, #3f5aa8 0%, rgba(63,90,168,0) 70%),
+      linear-gradient(180deg,#4d7fb5 0%,#3a5a96 36%,#24355f 66%,#1b2340 100%)}
+  .bgart.hot{background:
+      radial-gradient(120% 70% at 30% 12%, #ff8a3d 0%, rgba(255,138,61,0) 60%),
+      radial-gradient(90% 50% at 78% 22%, #e0344a 0%, rgba(224,52,74,0) 65%),
+      radial-gradient(120% 60% at 50% 46%, #7a1f3d 0%, rgba(122,31,61,0) 70%),
+      linear-gradient(180deg,#b8382f 0%,#7a1f3d 38%,#4a1428 68%,#2a0f1c 100%)}
+  .palette{display:flex;gap:5px;margin-top:8px}
+  .palette i{width:30px;height:8px;border-radius:2px;border:1px solid rgba(0,0,0,.08)}
+  .grab{width:32px;height:3px;border-radius:2px;background:rgba(255,255,255,.25);margin:0 auto 12px}
+  .srow{display:flex;align-items:center;gap:10px;padding:9px 0;font-size:11px}
+  .srow .art{width:34px;height:34px;flex:0 0 34px}
+  .srow.on{color:#fff}
+  .srow .x{margin-left:auto;color:rgba(255,255,255,.3)}
+
+  .spec{display:grid;grid-template-columns:repeat(4,auto);gap:0 40px;font-size:11px;color:var(--ink-2)}
+  .spec div{padding:5px 0}
+  .spec b{color:var(--ink);font-weight:600}
+  .key{display:flex;gap:20px;font-size:11px;color:var(--ink-2);flex-wrap:wrap}
+  .key b{color:var(--ink)}
+  .dot{width:10px;height:10px;border-radius:3px;display:inline-block;vertical-align:-1px;margin-right:5px;border:1px solid var(--line)}
+</style>
+</head>
+<body>
+<h1>Aurora Music · iOS 低保真线框稿</h1>
+<p class="sub">基准 390 × 844pt · 8pt 栅格 · 侧边距 16pt · 简约优先：单栏 + 留白 + 弱分割线，无多余卡片阴影</p>
+
+<h2>1. 四个主屏</h2>
+<div class="row">
+
+  <!-- 发现 -->
+  <div class="screen-wrap">
+    <div class="cap">① 发现 / 首页</div>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>●●●● ᯤ</span></div>
+      <div class="navbar"><span style="font-size:15px;font-weight:700">发现</span><span style="font-size:11px">搜</span></div>
+      <div class="body">
+        <div style="height:12px"></div>
+        <div class="search">⌕&nbsp;&nbsp;搜索歌曲 / 歌手 / 歌单</div>
+        <div class="tabs"><span class="on">推荐</span><span>榜单</span><span>新歌</span><span>歌手</span><span>电台</span></div>
+        <div class="ph" style="height:88px">焦点 Banner</div>
+        <div style="height:18px"></div>
+        <div class="t">编辑精选 · 每日更新</div>
+        <div class="grid">
+          <div><div class="ph art"></div><div class="tile-name ell">华语热歌 · 每周歌单</div><div class="muted" style="font-size:9px;margin-top:2px">128 首</div></div>
+          <div><div class="ph art"></div><div class="tile-name ell">深夜独处 · 轻音乐</div><div class="muted" style="font-size:9px;margin-top:2px">64 首</div></div>
+          <div><div class="ph art"></div><div class="tile-name ell">运动燃脂 · 电子</div><div class="muted" style="font-size:9px;margin-top:2px">91 首</div></div>
+          <div><div class="ph art"></div><div class="tile-name ell">通勤路上 · 民谣</div><div class="muted" style="font-size:9px;margin-top:2px">53 首</div></div>
+        </div>
+        <div style="height:18px"></div>
+        <div class="t">飙升榜</div>
+        <div class="listrow"><span class="rank top">1</span><span class="sq art"></span><div class="lines"><div class="ell" style="font-size:11px">晴天</div><div class="ln s"></div></div></div>
+        <div class="listrow"><span class="rank top">2</span><span class="sq art"></span><div class="lines"><div class="ell" style="font-size:11px">光年之外</div><div class="ln s"></div></div></div>
+        <div class="listrow"><span class="rank">3</span><span class="sq art"></span><div class="lines"><div class="ell" style="font-size:11px">起风了</div><div class="ln s"></div></div></div>
+      </div>
+      <div class="mini"><span class="sq" style="width:32px;height:32px"></span><div class="lines"><div style="font-size:10px">起风了</div><div class="ln s" style="margin:4px 0 0"></div></div><span style="margin-left:auto;font-size:11px">▶</span><span style="font-size:11px">☰</span></div>
+      <div class="tabbar"><span class="on">发现</span><span>排行榜</span><span>我的</span></div>
+    </div>
+  </div>
+
+  <!-- 搜索 -->
+  <div class="screen-wrap">
+    <div class="cap">② 搜索</div>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>●●●● ᯤ</span></div>
+      <div class="navbar"><span style="font-size:13px">取消</span><span style="font-size:13px;color:var(--ink-3)">⌕</span></div>
+      <div class="body">
+        <div style="height:12px"></div>
+        <div class="search" style="border-color:var(--ink)">起风了<span style="margin-left:auto;color:var(--ink-3)">✕</span></div>
+        <div style="height:20px"></div>
+        <div class="t">搜索结果 · 综合</div>
+        <div class="listrow"><span class="sq art"></span><div class="lines"><div class="ell" style="font-size:11px">起风了</div><div class="artist" style="font-size:9px">买辣椒也用券 · 翻唱</div></div><span class="pill" style="margin-left:auto;font-size:9px;padding:3px 8px">播放</span></div>
+        <div class="line"></div>
+        <div class="listrow"><span class="sq art"></span><div class="lines"><div class="ell" style="font-size:11px">起风了 (Live)</div><div class="artist" style="font-size:9px">吴青峰 · 现场版</div></div><span class="pill" style="margin-left:auto;font-size:9px;padding:3px 8px">播放</span></div>
+        <div class="line"></div>
+        <div class="listrow"><span class="sq art"></span><div class="lines"><div class="ell" style="font-size:11px">起风了 (DJ 版)</div><div class="artist" style="font-size:9px">Various · 2:52</div></div><span class="pill" style="margin-left:auto;font-size:9px;padding:3px 8px">播放</span></div>
+        <div style="height:22px"></div>
+        <div class="t">相关歌手</div>
+        <div style="display:flex;gap:14px;padding-top:10px">
+          <div style="text-align:center;width:52px"><div class="ph" style="width:52px;height:52px;border-radius:50%"></div><div style="font-size:9px;margin-top:5px">买辣椒也用券</div></div>
+          <div style="text-align:center;width:52px"><div class="ph" style="width:52px;height:52px;border-radius:50%"></div><div style="font-size:9px;margin-top:5px">吴青峰</div></div>
+        </div>
+        <div style="height:22px"></div>
+        <div class="t">热搜榜</div>
+        <div class="listrow"><span class="rank top">1</span><div class="lines"><div class="ell" style="font-size:11px">华语金曲100首</div></div><span class="pill" style="margin-left:auto;font-size:9px;padding:3px 8px">热</span></div>
+        <div class="listrow"><span class="rank">2</span><div class="lines"><div class="ell" style="font-size:11px">新歌首发</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 播放页 -->
+  <div class="screen-wrap">
+    <div class="cap">③ 播放页（沉浸式 · 全屏模糊封面）</div>
+    <div class="phone">
+      <div class="player immersive">
+        <div class="bgart"></div>
+        <div class="scrim"></div>
+        <div class="status"><span>9:41</span><span>●●●● ᯤ</span></div>
+        <div class="pc-nav"><span class="chev">⌄</span><span class="dots"><i class="on"></i><i></i><i></i></span><span class="singer"><em></em>正在唱</span><span class="ic">▤</span><span class="ic">↗</span></div>
+        <div class="chip">▼ 320 KB/s</div>
+        <div class="stage">
+          <div class="lyric"><div>我从前很慢</div><div class="on">独自空等我怕你会不知</div><div>这份爱多么想告知你</div></div>
+        </div>
+        <div class="pinfo">
+          <div class="pname">真的爱着你</div>
+          <div class="tags"><span class="singer-t">明慧</span><span>关注</span><span>限免</span><span>标准</span><span>音效</span><span>伴唱</span><span>视频</span></div>
+          <div class="acts">
+            <i></i><i class="vip"></i><i class="bell"><b>设铃声</b></i><i class="heart"><b>623w</b></i><i class="cmt"><b>2w</b></i><i class="more"></i>
+          </div>
+          <div class="prog">
+            <div class="track"><i></i><s></s></div>
+            <div class="times"><span>00:01</span><span>04:45</span></div>
+          </div>
+          <div class="ctrl"><i class="mode"></i><i class="prev"></i><i class="play"></i><i class="next"></i><i class="list"></i></div>
+          <div class="vip"><span>◇ 会员歌曲限时免费试听</span><span class="vip-go">开通会员无限畅享 ›</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 队列 -->
+  <div class="screen-wrap">
+    <div class="cap">④ 播放列表抽屉（bottom sheet）</div>
+    <div class="phone">
+      <div class="player immersive" style="opacity:.3"><div class="bgart"></div><div class="scrim"></div></div>
+      <div class="sheet">
+        <div class="grab"></div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+          <div style="font-size:12px;font-weight:600">当前播放 · 24 首</div>
+          <div style="font-size:10px;color:rgba(255,255,255,.45)">清空</div>
+        </div>
+        <div class="t" style="color:rgba(255,255,255,.4)">即将播放</div>
+        <div class="srow on"><span class="sq art" style="background:rgba(255,255,255,.18)"></span><div class="lines"><div class="ell">晴天</div><div style="font-size:9px;color:rgba(255,255,255,.45)">周杰伦</div></div><span style="font-size:10px;color:rgba(255,255,255,.5)">▶</span></div>
+        <div class="srow"><span class="sq art"></span><div class="lines"><div class="ell">光年之外</div><div style="font-size:9px;color:rgba(255,255,255,.45)">邓紫棋</div></div><span class="x">✕</span></div>
+        <div class="srow"><span class="sq art"></span><div class="lines"><div class="ell">海阔天空</div><div style="font-size:9px;color:rgba(255,255,255,.45)">Beyond</div></div><span class="x">✕</span></div>
+        <div class="srow"><span class="sq art"></span><div class="lines"><div class="ell">晴天 (Live)</div><div style="font-size:9px;color:rgba(255,255,255,.45)">李荣浩</div></div><span class="x">✕</span></div>
+        <div class="srow"><span class="sq art"></span><div class="lines"><div class="ell">稻香</div><div style="font-size:9px;color:rgba(255,255,255,.45)">周杰伦</div></div><span class="x">✕</span></div>
+        <div class="srow"><span class="sq art"></span><div class="lines"><div class="ell">小幸运</div><div style="font-size:9px;color:rgba(255,255,255,.45)">田馥甄</div></div><span class="x">✕</span></div>
+        <div class="srow"><span class="sq art"></span><div class="lines"><div class="ell">夜空中最亮的星</div><div style="font-size:9px;color:rgba(255,255,255,.45)">逃跑计划</div></div><span class="x">✕</span></div>
+        <div style="height:14px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>2. 列表行组件（统一复用）</h2>
+<div class="phone" style="width:300px;height:auto;padding:14px">
+  <div class="listrow"><span class="rank top">1</span><span class="sq art"></span><div class="lines"><div class="ell" style="font-size:11px">歌名 · 单行截断</div><div class="artist" style="font-size:9px;margin-top:3px">歌手 · 时长 03:52</div></div><span style="font-size:11px;color:var(--ink-3)">⋯</span></div>
+  <div class="line"></div>
+  <div class="listrow"><span class="rank">4</span><span class="ph art" style="border-radius:8px"></span><div class="lines"><div class="ell" style="font-size:11px">歌名 · 单行截断</div><div class="artist" style="font-size:9px;margin-top:3px">歌手 · 时长 03:52</div></div><span class="pill" style="font-size:9px;padding:3px 8px">VIP</span></div>
+  <div style="font-size:10px;color:var(--ink-3);margin-top:6px">行高 56pt · 封面 36pt · 右侧固定 44pt 触控区 · 分隔线仅列表内，不外扩</div>
+</div>
+
+<h2>3. 栅格与间距</h2>
+<div class="spec">
+  <div>侧边距 <b>16pt</b></div><div>栏间距 <b>12pt</b></div>
+  <div>模块间距 <b>24pt</b></div><div>列表行高 <b>56pt</b></div>
+  <div>封面 列表 <b>36pt</b></div><div>封面 网格 <b>1:1</b></div>
+  <div>圆角 小 <b>6pt</b></div><div>圆角 中 <b>10pt</b></div>
+  <div>圆角 大 <b>16pt</b></div><div>圆角 全 <b>胶囊</b></div>
+  <div>图标行 6 等分</div><div>触控区 <b>≥44pt</b></div>
+  <div>分隔线 <b>0.5pt</b></div><div>播放键 <b>56pt</b></div>
+</div>
+
+<h2>4. 字号阶梯（SF Pro / 苹方）</h2>
+<div class="spec">
+  <div>页面大标题 <b>24 / 700</b></div><div>区块标题 <b>15 / 600</b></div>
+  <div>列表主文案 <b>14 / 500</b></div><div>列表副文案 <b>12 / 400</b></div>
+  <div>标签胶囊 <b>10 / 500</b></div><div>时间/码率 <b>11 / 400 等宽</b></div>
+  <div>播放页歌名 <b>20 / 700</b></div><div>播放页歌手 <b>13 / 400</b></div>
+  <div>歌词当前行 <b>17 / 700</b></div><div>歌词普通行 <b>15 / 400</b></div>
+</div>
+
+<h2>5. 色彩与层级（弱化色彩，强化排版）</h2>
+<div class="key">
+  <span><span class="dot" style="background:#15181b"></span>主文字 #15181B</span>
+  <span><span class="dot" style="background:#5B6167"></span>次文字 #5B6167</span>
+  <span><span class="dot" style="background:#9AA1A8"></span>弱文字 #9AA1A8</span>
+  <span><span class="dot" style="background:#F4F5F7"></span>填充 #F4F5F7</span>
+  <span><span class="dot" style="background:#E5E8EB"></span>分隔 #E5E8EB</span>
+  <span><span class="dot" style="background:#E0483C"></span>榜单热 #E0483C</span>
+  <span><span class="dot" style="background:#F4D24A"></span>VIP 金 #F4D24A</span>
+  <span><span class="dot" style="background:#15181b"></span>播放页固定深色</span>
+</div>
+
+<h2>6. 简约原则（自我约束）</h2>
+<div class="spec" style="grid-template-columns:repeat(2,auto)">
+  <div>① 全局只用 1 种强调色，榜单红除外</div>
+  <div>② 首页不做九宫格，2 列 + 大留白</div>
+  <div>③ 不用卡片阴影，仅靠间距分组</div>
+  <div>④ 播放页功能 ≤ 5 组，分 3 段呼吸</div>
+  <div>⑤ 歌词态默认展示，不常驻大封面</div>
+  <div>⑥ 所有列表行结构统一，不混排</div>
+  <div>⑦ 文字层级 ≤ 3 级</div>
+  <div>⑧ 背景必须由封面取色生成</div>
+</div>
+
+<h2>7. 配色引擎：背景随封面自动改色</h2>
+<p class="sub" style="margin:-8px 0 20px">不预设主题色。切歌重新取色，整屏背景 / 遮罩 / 歌词高亮一起过渡，视觉上永远是「这张封面」。</p>
+<div class="row" style="gap:20px">
+  <div class="screen-wrap" style="width:172px">
+    <div class="cap">暖调封面 → 玫瑰金</div>
+    <div class="phone" style="width:172px;height:300px">
+      <div class="player immersive"><div class="bgart"></div><div class="scrim"></div>
+        <div style="position:relative;z-index:2;padding:18px 14px;color:#fff">
+          <div style="font-size:13px;font-weight:700">真的爱着你</div>
+          <div style="font-size:9px;color:rgba(255,255,255,.6);margin-top:4px">明慧</div>
+          <div style="margin-top:18px;font-size:11px;line-height:1.8;color:rgba(255,255,255,.5)">独自空等我怕你会不知<br><span style="color:#fff;font-weight:600;font-size:12px">这份爱多么想告知你</span><br>在暮色降临以前</div>
+        </div>
+      </div>
+    </div>
+    <div class="palette"><i style="background:#f0a9c0"></i><i style="background:#f6b38c"></i><i style="background:#a26fa8"></i><i style="background:#3a2b52"></i></div>
+  </div>
+  <div class="screen-wrap" style="width:172px">
+    <div class="cap">冷调封面 → 青蓝</div>
+    <div class="phone" style="width:172px;height:300px">
+      <div class="player immersive"><div class="bgart cool"></div><div class="scrim"></div>
+        <div style="position:relative;z-index:2;padding:18px 14px;color:#fff">
+          <div style="font-size:13px;font-weight:700">Night Drive</div>
+          <div style="font-size:9px;color:rgba(255,255,255,.6);margin-top:4px">Retro Lane</div>
+          <div style="margin-top:18px;font-size:11px;line-height:1.8;color:rgba(255,255,255,.5)">路灯拉长影子<br><span style="color:#fff;font-weight:600;font-size:12px">霓虹在雨里游泳</span><br>一直到天亮</div>
+        </div>
+      </div>
+    </div>
+    <div class="palette"><i style="background:#7fd0e8"></i><i style="background:#5b8fd6"></i><i style="background:#3f5aa8"></i><i style="background:#1b2340"></i></div>
+  </div>
+  <div class="screen-wrap" style="width:172px">
+    <div class="cap">高饱和封面 → 压缩后</div>
+    <div class="phone" style="width:172px;height:300px">
+      <div class="player immersive"><div class="bgart hot"></div><div class="scrim"></div>
+        <div style="position:relative;z-index:2;padding:18px 14px;color:#fff">
+          <div style="font-size:13px;font-weight:700">起风了</div>
+          <div style="font-size:9px;color:rgba(255,255,255,.6);margin-top:4px">买辣椒也用券</div>
+          <div style="margin-top:18px;font-size:11px;line-height:1.8;color:rgba(255,255,255,.5)">我曾将青春翻涌成她<br><span style="color:#fff;font-weight:600;font-size:12px">也曾指尖弹出盛夏</span><br>心之所动且就随它去</div>
+        </div>
+      </div>
+    </div>
+    <div class="palette"><i style="background:#ff8a3d"></i><i style="background:#e0344a"></i><i style="background:#7a1f3d"></i><i style="background:#2a0f1c"></i></div>
+  </div>
+  <div class="screen-wrap" style="width:300px">
+    <div class="cap">取色管线</div>
+    <div style="border:1px solid var(--line);border-radius:8px;padding:14px;font-size:11px;color:var(--ink-2);line-height:1.85;width:300px">
+      ① 封面下采样 <b>32 × 32</b>（够快、够稳）<br>
+      ② 丢弃 <b>亮度 &lt; 0.12 或 &gt; 0.92</b> 的像素<br>
+      ③ 24 桶色相直方图，取峰值色相族<br>
+      ④ 转 <b>OKLCh</b>：L 夹 <b>0.22 – 0.55</b>、C 夹 <b>≤ 0.19</b><br>
+      ⑤ 同色相 <b>+25° / +180°</b> 派生 4 段渐变<br>
+      &nbsp;&nbsp;<code>亮 / 主 / 暗 / 近黑</code><br>
+      ⑥ 遮罩取第 4 段，<b>0 → .55 → .90</b> 三段
+      <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line-2);color:var(--ink-3);font-size:10px">
+        C 上限保证白字对比度 ≥ 4.5:1；无封面时回退到歌名哈希色板。
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>8. 沉浸式播放页 · 排版与动效</h2>
+<div class="spec" style="grid-template-columns:repeat(4,auto)">
+  <div>背景 <b>封面 blur 18 · 1.12</b></div><div>出血 <b>全屏，忽略安全区</b></div>
+  <div>歌词区 <b>垂直居中偏上</b></div><div>当前行 <b>15 / 600</b></div>
+  <div>普通行 <b>12 / 400 · 55%</b></div><div>歌名 <b>18 / 700</b></div>
+  <div>标签 <b>9 / 高 20 · 描边 30%</b></div><div>图标行 <b>6 等分 · 线性</b></div>
+  <div>进度条 <b>2pt · 缓冲点 4pt</b></div><div>播放键 <b>52pt · 白 16%</b></div>
+  <div>会员条 <b>纯文字，无底</b></div><div>切歌换色 <b>0.5s easeInOut</b></div>
+  <div>歌词滚动 <b>0.45s</b></div><div>下拉关闭 <b>&gt; 90pt</b></div>
+</div>
+<div class="key" style="margin-top:12px">
+  <span>全页仅白 + 金色会员强调</span>
+  <span>背景色只来自封面，不来自品牌色</span>
+  <span>描边图标统一 1.6pt 线宽</span>
+  <span>深浅背景共用一套层级，靠遮罩保证可读</span>
+</div>
+
+</body>
+</html>

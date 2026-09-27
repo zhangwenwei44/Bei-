@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct RootView: View {
     @EnvironmentObject private var store: PlayerStore
@@ -6,7 +7,7 @@ struct RootView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            LinearGradient(colors: store.palette,
+            LinearGradient(colors: store.currentPalette.gradient,
                            startPoint: .topLeading,
                            endPoint: .bottomTrailing)
                 .ignoresSafeArea()
@@ -55,7 +56,7 @@ struct RootView: View {
 
     private var miniPlayer: some View {
         HStack(spacing: 12) {
-            ArtworkView(song: store.current, size: 44)
+            ArtworkView(song: store.current, size: 44, image: store.artwork)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(store.current?.title ?? "")
@@ -125,19 +126,28 @@ struct LibraryRow: View {
 struct ArtworkView: View {
     let song: Song?
     var size: CGFloat
+    var image: UIImage?
 
     var body: some View {
         RoundedRectangle(cornerRadius: size * 0.18, style: .continuous)
             .fill(
-                LinearGradient(colors: ArtworkPalette.colors(for: song ?? Song(title: "-", artist: "-")),
+                LinearGradient(colors: ArtworkPaletteEngine.palette(for: image,
+                                                                    seed: "\(song?.artist ?? "-")-\(song?.title ?? "-")").gradient,
                                startPoint: .topLeading,
                                endPoint: .bottomTrailing)
             )
             .frame(width: size, height: size)
             .overlay {
-                Circle()
-                    .fill(.white.opacity(0.14))
-                    .frame(width: size * 0.48, height: size * 0.48)
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Circle()
+                        .fill(.white.opacity(0.14))
+                        .frame(width: size * 0.48, height: size * 0.48)
+                }
             }
+            .clipShape(RoundedRectangle(cornerRadius: size * 0.18, style: .continuous))
     }
 }

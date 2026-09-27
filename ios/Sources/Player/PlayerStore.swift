@@ -12,6 +12,8 @@ final class PlayerStore: ObservableObject {
     @Published private(set) var lyrics: [LyricLine] = []
     @Published private(set) var currentLyricIndex: Int? = nil
     @Published private(set) var bufferedFraction: Double = 0
+    @Published private(set) var artwork: UIImage?
+    @Published private(set) var currentPalette = ArtworkPaletteEngine.palette(for: nil, seed: "-")
 
     @Published var mode: PlaybackMode = .order
     @Published var isLiked = false
@@ -74,6 +76,7 @@ final class PlayerStore: ObservableObject {
         currentLyricIndex = nil
         currentTime = 0
         isLiked = LikedStore.shared.contains(song)
+        refreshPalette()
 
         guard let url = song.url else { return }
         player.replaceCurrentItem(with: AVPlayerItem(url: url))
@@ -164,9 +167,44 @@ final class PlayerStore: ObservableObject {
         Haptics.light()
     }
 
-    var palette: [Color] {
-        guard let song = current else { return [Color(red: 0.18, green: 0.35, blue: 0.31), .black] }
-        return ArtworkPalette.colors(for: song)
+    private func refreshPalette() {
+        guard let song = current else {
+            artwork = nil
+            currentPalette = ArtworkPaletteEngine.palette(for: nil, seed: "-")
+            return
+        }
+        let seed = "\(song.artist)-\(song.title)"
+        if let cached = artwork {
+            currentPalette = ArtworkPaletteEngine.palette(for: cached, seed: seed)
+            return
+        }
+        let id = song.id
+        let fallback = artwork
+        Task { [weak self] in
+            guard let self else { return }
+            let image = await Self.loadArtwork(for: song)
+            let next = ArtworkPaletteEngine.palette(for: image ?? fallback, seed: seed)
+            await MainActor.run {
+                guard let current = self.current, current.id == id else { return }
+                self.artwork = image
+                withAnimation(.easeInOut(duration: 0.5)) { self.currentPalette = next }
+            }
+        }
+    }
+
+    private static func loadArtwork(for song: Song) async -> UIImage? {
+        if let url = song.artworkURL, let data = try? await URLSession.shared.data(from: url),
+           let image = UIImage(data: data) {
+            return image
+        }
+        guard let url = song.url else { return nil }
+        let asset = AVURLAsset(url: url)
+        if let metadata = try? await asset.load(.commonMetadata) {
+            for item in metadata where item.commonKey == .commonKeyArtwork {
+                if let image = item.load(.value) as? UIImage { return image }
+            }
+        }
+        return nil
     }
 
     private func installTimeObserver() {
@@ -297,20 +335,5 @@ enum Haptics {
     }
     static func success() {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-    }
-}
-
-enum ArtworkPalette {
-    static func colors(for song: Song) -> [Color] {
-        var hash: UInt64 = 5381
-        for byte in Array("\(song.artist)-\(song.title)".utf8) {
-            hash = (hash &* 33) &+ UInt64(byte)
-        }
-        let hue = Double(hash % 360) / 360
-        let hue2 = Double((hash >> 8) % 360) / 360
-        return [
-            Color(hue: hue, saturation: 0.45, brightness: 0.55),
-            Color(hue: hue2, saturation: 0.55, brightness: 0.22)
-        ]
     }
 }
