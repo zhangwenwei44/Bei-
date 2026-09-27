@@ -130,6 +130,13 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "1.4.0", date: "", items: [
+            "音源改为内置：洛雪脚本随包发布，音源页一键添加，不用再选文件",
+            "内置墨澜聚合音源 v2.3.3（MIT，作者白姬9527），随仓库分发",
+            "没有 license 声明的音源（如长青 SVIP）走本地槽位：你的包里有，仓库里没有",
+            "新增「从剪贴板导入」，作为文件选择器的兜底",
+            "关于页列出内置音源的署名与许可",
+        ]),
         Entry(version: "1.3.0", date: "", items: [
             "只保留酷狗接口并设为默认：搜索 / 排行榜 / 歌词直连，封面用酷狗专辑图",
             "第三方音源支持洛雪（lx-music）脚本：补齐 EVENT_NAMES、console、require",
