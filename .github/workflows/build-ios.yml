@@ -98,39 +98,25 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Publish diagnostics to ci/diagnostics branch
+      - name: Publish diagnostics to ci branch
         if: always()
         working-directory: ios
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DIAG_BRANCH: ci/diagnostics-${{ github.run_number }}
         run: |
-          set -euo pipefail
-          {
-            echo "# build.log (${GITHUB_SHA})"
-            echo
-            grep -E "(error|warning):" build.log | sort -u | head -60 || true
-            echo
-            echo '```'
-            tail -40 build.log
-            echo '```'
-          } > diagnostics.md
-          cd ..
+          set -uo pipefail
+          mkdir -p /tmp/diag
+          cp build.log /tmp/diag/build.log
+          cd /tmp/diag
+          git init -q
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin ci/diagnostics --depth=1 2>/dev/null || true
-          if git rev-parse --verify origin/ci/diagnostics >/dev/null 2>&1; then
-            git checkout -B ci/diagnostics origin/ci/diagnostics
-          else
-            git checkout --orphan ci/diagnostics
-            git rm -rf --cached . >/dev/null 2>&1 || true
-          fi
-          rm -f .git/index.lock
-          find . -path ./.git -prune -o -type f -print | grep -v '^\./ios/build' | xargs -r rm -f
-          cp "$OLDPWD/ios/diagnostics.md" ./diagnostics.md 2>/dev/null || cp ios/diagnostics.md ./diagnostics.md 2>/dev/null || true
+          git checkout -q -b "$DIAG_BRANCH"
           git add -A
-          git commit -q -m "ci: diagnostics for ${GITHUB_SHA}" || echo "no change"
-          git push -q origin ci/diagnostics --force
-          echo "published"
+          git commit -q -m "ci: build log for ${GITHUB_SHA}"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$DIAG_BRANCH"
+          echo "published to $DIAG_BRANCH"
 
       - name: Fail if build failed
         working-directory: ios
