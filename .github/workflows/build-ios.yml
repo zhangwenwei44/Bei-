@@ -51,6 +51,9 @@ jobs:
         working-directory: ios
         continue-on-error: true
         run: |
+          # 关键：先 set +e，保证失败时也会把退出码写进 build.exit，
+          # 不会在写标记文件之前就被 -e 掐掉。
+          set +e
           set -o pipefail
           xcodebuild \
             -project AuroraMusic.xcodeproj \
@@ -67,9 +70,10 @@ jobs:
             DEVELOPMENT_TEAM="" \
             build \
             2>&1 | tee build.log
-          # 结果写进独立标记文件：xcodebuild 的日志里混有二进制，
-          # 拿 grep 去判断会被非法字节干扰。
-          echo "${PIPESTATUS[0]}" > build.exit
+          code=$?
+          set -e
+          printf '%s' "$code" > build.exit
+          echo "xcodebuild exit=$code"
 
       - name: Report compiler errors
         if: always()
@@ -124,11 +128,21 @@ jobs:
       - name: Check build result
         working-directory: ios
         run: |
-          status="$(cat build.exit 2>/dev/null | tr -d '[:space:]' || true)"
-          if [ "$status" = "0" ]; then
-            echo "编译通过，开始打包"
+          set -uo pipefail
+          APP="build/Build/Products/Release-iphoneos/AuroraMusic.app"
+          {
+            echo "### 打包前置检查"
+            echo '```'
+            echo "pwd        : $(pwd)"
+            echo "build.exit : [$(cat build.exit 2>&1)]"
+            echo "产物目录   : $(ls -d "$APP" 2>&1)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # 以产物为准，不依赖任何跨步骤的中间文件
+          if [ -f "$APP/AuroraMusic" ]; then
+            echo "产物就绪，开始打包"
           else
-            echo "::error::编译失败 (xcodebuild exit=${status:-未知})，详见 build.log"
+            echo "::error::没有可打包的产物（xcodebuild exit=$(cat build.exit 2>/dev/null || echo 未知)）"
             exit 1
           fi
 
