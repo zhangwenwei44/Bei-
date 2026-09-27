@@ -1,0 +1,20 @@
+Command line invocation:
+    /Applications/Xcode_15.4.app/Contents/Developer/usr/bin/xcodebuild -project AuroraMusic.xcodeproj -scheme AuroraMusic -configuration Release -sdk iphoneos -derivedDataPath build -destination generic/platform=iOS CODE_SIGN_IDENTITY= CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO CODE_SIGN_ENTITLEMENTS= DEVELOPMENT_TEAM= build
+
+User defaults from command line:
+    IDEDerivedDataPathOverride = /Users/runner/work/Bei-/Bei-/ios/build
+    IDEPackageSupportUseBuiltinSCM = YES
+
+Build settings from command line:
+    CODE_SIGN_ENTITLEMENTS = 
+    CODE_SIGN_IDENTITY = 
+    CODE_SIGNING_ALLOWED = NO
+    CODE_SIGNING_REQUIRED = NO
+    DEVELOPMENT_TEAM = 
+    SDKROOT = iphoneos17.5
+
+2026-09-27 12:37:29.980 xcodebuild[26660:66738] Writing error result bundle to /var/folders/s6/5hzmn6lx4dz5nxs7k_0slzph0000gn/T/ResultBundle_2026-27-09_12-37-0029.xcresult
+xcodebuild: error: Unable to read project 'AuroraMusic.xcodeproj'.
+	Reason: The project ‘AuroraMusic’ cannot be opened because it is in a future Xcode project file format (77). Adjust the project format using a compatible version of Xcode to allow it to be opened by this version of Xcode.
+
+
