@@ -130,13 +130,23 @@ struct UpdateView: View {
                         .foregroundStyle(.black)
                 }
                 .buttonStyle(.plain)
-                Text("点了之后由 AppSync / Zebra 接管并弹出安装确认。")
+
+                ShareLink(item: fileURL) {
+                    Label("用别的应用打开", systemImage: "square.and.arrow.up")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(AppStyle.surfaceHigh, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .foregroundStyle(AppStyle.primaryText)
+                }
+
+                Text("点第一个按钮应由 AppSync / Zebra 弹出安装确认；装不上就用下面的分享面板手动选安装器。")
                     .font(.system(size: 11))
                     .foregroundStyle(AppStyle.tertiaryText)
+                    .multilineTextAlignment(.center)
             }
             .padding(.horizontal, 20)
             .padding(.top, 20)
-            .overlay(alignment: .bottom) { fallbackLink(at: fileURL) }
 
         case .failed(let message):
             statusBlock(icon: "exclamationmark.triangle.fill",
@@ -198,16 +208,6 @@ struct UpdateView: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 24)
-    }
-
-    @ViewBuilder
-    private func fallbackLink(at fileURL: URL) -> some View {
-        Link(destination: fileURL) {
-            Text("用别的工具打开这个包")
-                .font(.system(size: 11))
-                .foregroundStyle(AppStyle.tertiaryText)
-        }
-        .padding(.bottom, 16)
     }
 
     private func statusBlock(icon: String, tint: Color, title: String, message: String) -> some View {

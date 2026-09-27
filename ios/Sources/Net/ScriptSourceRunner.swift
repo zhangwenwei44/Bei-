@@ -12,6 +12,18 @@ import JavaScriptCore
 @objc protocol ScriptUtilsBridge: JSExport {
     func md5(_ value: String) -> String
     func aesEncrypt(_ data: String, _ mode: String, _ key: String, _ iv: String) -> NSDictionary
+    func aesDecrypt(_ data: String, _ mode: String, _ key: String, _ iv: String) -> String
+    func toBase64(_ text: String) -> String
+    func fromBase64(_ text: String) -> String
+    func toHexEncode(_ text: String) -> String
+    func fromHexDecode(_ hex: String) -> String
+    func urlEncode(_ text: String) -> String
+    func urlDecode(_ text: String) -> String
+    func dateFormat(_ time: NSNumber, _ pattern: String) -> String
+    func nowMillis() -> NSNumber
+    func nowSeconds() -> NSNumber
+    func randomInt(_ min: NSNumber, _ max: NSNumber) -> NSNumber
+    func guid() -> String
 }
 
 @objc protocol ScriptDoneBridge: JSExport {
@@ -160,6 +172,120 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
         let out = Data(outBytes.prefix(outLen))
         return ["data": out.base64EncodedString(), "hex": ScriptBridge.hexString(out)]
     }
+
+    func aesDecrypt(_ data: String, _ mode: String, _ key: String, _ iv: String) -> String {
+        let keyData = Data(key.utf8)
+        let ivData = Data(iv.utf8)
+        // 洛雪的 aesDecrypt 收的是 base64
+        guard let input = Data(base64Encoded: data) else { return "" }
+        let isCBC = mode.lowercased().contains("cbc")
+
+        var outBytes = [UInt8](repeating: 0, count: input.count + 32)
+        var outLen: size_t = 0
+        let options = isCBC ? CCOptions(kCCOptionPKCS7Padding) : CCOptions(kCCOptionPKCS7Padding | kCCOptionECBMode)
+        let status = keyData.withUnsafeBytes { keyBytes -> Int32 in
+            ivData.withUnsafeBytes { ivBytes -> Int32 in
+                input.withUnsafeBytes { dataBytes -> Int32 in
+                    CCCrypt(CCOperation(kCCDecrypt),
+                            CCAlgorithm(kCCAlgorithmAES),
+                            options,
+                            keyBytes.baseAddress, keyData.count,
+                            isCBC ? ivBytes.baseAddress : nil,
+                            dataBytes.baseAddress, input.count,
+                            &outBytes, outBytes.count,
+                            &outLen)
+                }
+            }
+        }
+        guard status == kCCSuccess else { return "" }
+        return String(data: Data(outBytes.prefix(outLen)), encoding: .utf8) ?? ""
+    }
+
+    func toBase64(_ text: String) -> String {
+        Data(text.utf8).base64EncodedString()
+    }
+
+    func fromBase64(_ text: String) -> String {
+        guard let data = Data(base64Encoded: text) else { return "" }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    func toHexEncode(_ text: String) -> String {
+        hexString(Data(text.utf8))
+    }
+
+    func fromHexDecode(_ hex: String) -> String {
+        String(data: Data(hexString: hex), encoding: .utf8) ?? ""
+    }
+
+    func urlEncode(_ text: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-_.~")
+        return text.addingPercentEncoding(withAllowedCharacters: allowed) ?? text
+    }
+
+    func urlDecode(_ text: String) -> String {
+        text.removingPercentEncoding ?? text
+    }
+
+    /// 洛雪脚本常用 `lx.utils.dateFormat(new Date(), 'YYYY-MM-DD HH:mm:ss')`。
+    func dateFormat(_ time: NSNumber, _ pattern: String) -> String {
+        let seconds = time.doubleValue
+        let date = seconds > 1_000_000_000 ? Date(timeIntervalSince1970: seconds / 1000) : Date(timeIntervalSince1970: seconds)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        // JS 的时间戳是毫秒
+        formatter.dateFormat = Self.jsPattern(from: pattern)
+        return formatter.string(from: date)
+    }
+
+    private static func jsPattern(from pattern: String) -> String {
+        var map: [String: String] = [
+            "YYYY": "yyyy", "YY": "yy",
+            "MM": "MM", "DD": "dd", "dd": "dd",
+            "HH": "HH", "mm": "mm", "ss": "ss",
+            "SSS": "SSS", "A": "a",
+        ]
+        var out = ""
+        var index = pattern.startIndex
+        while index < pattern.endIndex {
+            let ch = pattern[index]
+            let next = pattern.index(after: index)
+            if let end = pattern[next...].firstIndex(of: ch) {
+                let token = String(pattern[index...end])
+                if let mapped = map[token] {
+                    out += mapped
+                } else {
+                    out += token
+                }
+                index = pattern.index(after: end)
+            } else {
+                out.append(ch)
+                index = next
+            }
+        }
+        return out
+    }
+
+    func nowMillis() -> NSNumber {
+        NSNumber(value: Int64(Date().timeIntervalSince1970 * 1000))
+    }
+
+    func nowSeconds() -> NSNumber {
+        NSNumber(value: Int64(Date().timeIntervalSince1970))
+    }
+
+    func randomInt(_ min: NSNumber, _ max: NSNumber) -> NSNumber {
+        let low = min.intValue
+        let high = max.intValue
+        guard high > low else { return NSNumber(value: low) }
+        return NSNumber(value: Int.random(in: low...high))
+    }
+
+    func guid() -> String {
+        UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+    }
 }
 
 // MARK: - 运行时
@@ -215,19 +341,39 @@ final class ScriptRuntime {
         guard hasEntry == 1 else { return nil }
     }
 
-    /// 注入 lx / MusicPlugin 兼容层，并定义 __beansCall。
+    /// 注入洛雪（lx）兼容层：lx.utils 全套、lx.request、lx.on，
+    /// 另外兼容 module.exports.musicUrl 与 MusicPlugin.getMusicUrl。
     private static let bootstrap = """
     (function () {
       var handlers = {};
       globalThis.module = globalThis.module || { exports: {} };
+      var utils = {
+        md5: function (v) { return __beansUtils.md5(String(v)); },
+        aesEncrypt: function (d, m, k, i) { return __beansUtils.aesEncrypt(String(d), String(m), String(k), String(i || '')); },
+        aesDecrypt: function (d, m, k, i) { return __beansUtils.aesDecrypt(String(d), String(m), String(k), String(i || '')); },
+        base64Encode: function (v) { return __beansUtils.toBase64(String(v)); },
+        base64Decode: function (v) { return __beansUtils.fromBase64(String(v)); },
+        hexEncode: function (v) { return __beansUtils.toHexEncode(String(v)); },
+        hexDecode: function (v) { return __beansUtils.fromHexDecode(String(v)); },
+        urlEncode: function (v) { return __beansUtils.urlEncode(String(v)); },
+        urlDecode: function (v) { return __beansUtils.urlDecode(String(v)); },
+        dateFormat: function (t, p) { return __beansUtils.dateFormat(t, String(p)); },
+        getTime13: function () { return __beansUtils.nowMillis(); },
+        getTime10: function () { return __beansUtils.nowSeconds(); },
+        rand: function (a, b) { return __beansUtils.randomInt(a, b); },
+        guid: function () { return __beansUtils.guid(); }
+      };
+      // 洛雪部分脚本会读 buffer / toBuffer，给个最小可用实现
+      utils.toBuffer = function (v) { return { __auroraBuffer: String(v) }; };
+      utils.fromBuffer = function (b) { return b && b.__auroraBuffer ? b.__auroraBuffer : ''; };
+      utils.buffer = { from: utils.toBuffer, toString: function (b) { return b.__auroraBuffer; } };
+
       var lx = {
-        version: '2.8.0',
+        version: '2.9.0',
         env: 'mobile',
         currentScriptInfo: __beansInfo,
-        utils: {
-          md5: function (v) { return __beansUtils.md5(String(v)); },
-          aesEncrypt: function (d, m, k, i) { return __beansUtils.aesEncrypt(String(d), String(m), String(k), String(i || '')); }
-        },
+        utils: utils,
+        status: { appVersion: '2.9.0' },
         on: function (event, handler) {
           handlers[event] = handler;
           globalThis.__beansHandler = handler;
@@ -369,7 +515,12 @@ final class ScriptSourceRunner {
         }
     }
 
-    /// 脚本里常见的字段名，尽量都带上。
+    /// 按洛雪的 musicInfo 约定投递。
+    ///
+    /// 洛雪的 custom source 脚本只认这几个字段：
+    /// `songmid`(kw) / `copyrightId`+`songId`(wy) / `songmid`(tx) / `hash`(kg)，
+    /// 另外会读 `types` 和 `meta` 判断音质支持。缺的字段一律补齐，
+    /// 这样一份洛雪脚本不用改就能跑。
     private static func musicInfo(for song: Song) -> [String: Any] {
         let songID = song.neteaseID.map(String.init) ?? song.id
         let artistList = song.artist
@@ -399,7 +550,10 @@ final class ScriptSourceRunner {
             "albumId": "",
             "interval": Int(song.duration),
             "source": song.source.code,
-            "types": [String: Any](),
+            // 洛雪脚本常读 musicInfo.types 判断自己支持哪些音质档位
+            "types": quality.lxTypes.reduce(into: [String: Any]()) { map, type in
+                map[type] = true
+            },
             "meta": [String: Any](),
         ]
     }

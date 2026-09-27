@@ -39,14 +39,25 @@ enum MusicQuality: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// 第三方音源模板的 {quality} 变量。
+    /// 第三方音源模板的 {quality} 变量，用洛雪那套通用词汇。
     var sourceValue: String {
         switch self {
         case .standard: return "128k"
         case .higher: return "320k"
         case .exHigh: return "320k"
         case .lossless: return "flac"
-        case .hires: return "flac"
+        case .hires: return "flac24bit"
+        }
+    }
+
+    /// 洛雪脚本在 musicInfo.types 里查自己支持哪些档位，这里给出候选全集。
+    var lxTypes: [String] {
+        switch self {
+        case .standard: return ["128k"]
+        case .higher: return ["128k", "320k"]
+        case .exHigh: return ["128k", "320k", "flac"]
+        case .lossless: return ["128k", "320k", "flac", "flac24bit"]
+        case .hires: return ["128k", "320k", "flac", "flac24bit", "flac24bit_5_1", "aac", "ogg", "ape", "wav"]
         }
     }
 

@@ -70,6 +70,30 @@ final class CoverResolver {
     func bindArtist(_ artistID: String, from songs: [Song]) {
         bind(from: songs, to: [artistID])
     }
+
+    /// 列表里缺封面的歌，一次性去接口补齐。
+    ///
+    /// 搜索 / 歌单返回的数据经常不带 `al.picUrl`，不补的话就是一片渐变兜底色。
+    /// 拿到后按 `wy:<id>` 登记，`CoverImage` 的 fallbackKeys 就能取到。
+    @MainActor
+    func prefetchCovers(for songs: [Song]) async {
+        let missingIDs = Set(songs.compactMap { song -> Int? in
+            guard song.artworkURL == nil, let id = song.neteaseID else { return nil }
+            return id
+        })
+        guard !missingIDs.isEmpty else { return }
+
+        // 已经有覆盖图的先跳过，避免重复请求
+        let already = missingIDs.filter { url(for: "wy:\($0)") != nil }
+        let need = missingIDs.subtracting(already)
+        guard !need.isEmpty else { return }
+
+        let covers = await NetEaseClient.shared.missingCovers(for: songs)
+        guard !covers.isEmpty else { return }
+        for (id, url) in covers {
+            register(url, for: "wy:\(id)")
+        }
+    }
 }
 
 /// 本地导入音频时把内嵌封面抽出来存到 Caches，返回可长期引用的文件地址。

@@ -232,6 +232,7 @@ struct PlaylistDetailView: View {
             songs = try await NetEaseClient.shared.playlistTracks(id: neteaseID)
             // 歌单没封面时用第一首歌的专辑图顶上
             CoverResolver.shared.bind(from: songs, to: [playlist.id])
+            await CoverResolver.shared.prefetchCovers(for: songs)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -304,6 +305,7 @@ struct ArtistView: View {
             songs = try await NetEaseClient.shared.artistHotSongs(id: neteaseID, limit: 60)
             // 歌手的图也用来补上歌单 / 专辑的封面
             CoverResolver.shared.bindArtist(artist.id, from: songs)
+            await CoverResolver.shared.prefetchCovers(for: songs)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -375,6 +377,7 @@ struct AlbumView: View {
         do {
             songs = try await NetEaseClient.shared.albumSongs(id: neteaseID)
             CoverResolver.shared.bind(from: songs, to: [album.id])
+            await CoverResolver.shared.prefetchCovers(for: songs)
         } catch {
             errorMessage = error.localizedDescription
         }

@@ -1,0 +1,155 @@
+import SwiftUI
+
+/// 更新日志：内置历次改动 + 抓取 GitHub 最新 Release 的说明。
+struct ChangelogView: View {
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var updater = AppUpdater.shared
+    @State private var remoteNotes: [String] = []
+    @State private var remoteVersion: String?
+    @State private var isLoadingRemote = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    latestSection
+                    ForEach(Changelog.entries, id: \.version) { entry in
+                        entrySection(entry)
+                    }
+                }
+                .padding(20)
+            }
+            .background(AppStyle.background)
+            .navigationTitle("更新日志")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+            .task { await loadRemote() }
+        }
+    }
+
+    // MARK: 最新版本
+
+    @ViewBuilder
+    private var latestSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("最新版本")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(AppStyle.primaryText)
+                if let remoteVersion {
+                    TagChip(text: remoteVersion, isSelected: true)
+                }
+            }
+
+            if isLoadingRemote {
+                HStack(spacing: 8) {
+                    ProgressView().tint(AppStyle.accent)
+                    Text("正在读取 Release…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(AppStyle.secondaryText)
+                }
+            } else if remoteNotes.isEmpty {
+                Text("没有读到线上说明，可能是网络或限流。下面是内置记录。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppStyle.tertiaryText)
+            } else {
+                ForEach(Array(remoteNotes.enumerated()), id: \.offset) { _, line in
+                    bullet(line)
+                }
+            }
+        }
+    }
+
+    private func entrySection(_ entry: Changelog.Entry) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(entry.version)
+                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(AppStyle.accent)
+                if entry.date.isEmpty {
+                    EmptyView()
+                } else {
+                    Text(entry.date)
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+                if entry.version == updater.versionText {
+                    Text("当前")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(AppStyle.accent, in: Capsule())
+                }
+            }
+            ForEach(Array(entry.items.enumerated()), id: \.offset) { _, item in
+                bullet(item)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func bullet(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 7) {
+            Circle()
+                .fill(AppStyle.accent.opacity(0.7))
+                .frame(width: 4, height: 4)
+                .padding(.top, 7)
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundStyle(AppStyle.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func loadRemote() async {
+        isLoadingRemote = true
+        defer { isLoadingRemote = false }
+        await updater.check(force: true)
+        if case let .available(release) = updater.phase {
+            remoteVersion = release.tag_name
+            remoteNotes = AppUpdater.notes(from: release.body, limit: 12)
+        } else if case let .upToDate(current) = updater.phase {
+            remoteVersion = current
+        }
+    }
+}
+
+/// 内置更新日志。新版本加在最前面。
+enum Changelog {
+    struct Entry {
+        var version: String
+        var date: String
+        var items: [String]
+    }
+
+    static let entries: [Entry] = [
+        Entry(version: "1.2.0", date: "", items: [
+            "新增 App 图标",
+            "第三方音源支持从文件导入，修掉选完文件没反应的问题",
+            "适配洛雪（lx-music）音源脚本：补齐 lx.utils 全套（md5 / AES 加解密 / base64 / hex / 时间格式化 / 随机数等）",
+            "歌曲封面补拉：搜索和列表里缺图的歌会自动去接口取回，不再一片兜底渐变",
+            "检查更新下载完成后会把安装包落到公共下载目录，唤起 AppSync 弹安装确认；失败可用分享面板手动打开",
+            "新增更新日志页面（内置记录 + 线上 Release 说明）",
+        ]),
+        Entry(version: "1.1.0", date: "", items: [
+            "我的音乐重新设计：顶部数据磁贴 + 最近播放横滑带 + 分组标题行",
+            "第三方音源新增从文件导入（JSON / JS / txt）",
+            "新增应用内检查更新，下载 IPA 后可直接唤起安装",
+            "封面回退：歌单 / 歌手 / 专辑缺图时用关联歌曲的专辑图顶上",
+            "本地导入抽内嵌封面，没有就按歌名生成",
+            "播放页音质徽标移到歌手后面，播放模式按钮移到图标行",
+        ]),
+        Entry(version: "1.0.0", date: "", items: [
+            "首个可用版本：网易云在线播放、搜索、下载、收藏、歌单",
+            "第三方音源解析（接口模板 + JS 脚本）",
+            "酷狗风格播放页：封面取色渐变背景、歌词逐行高亮",
+        ]),
+    ]
+}

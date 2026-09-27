@@ -132,24 +132,37 @@ struct SourceSettingsView: View {
     }
 
     private static var importableTypes: [UTType] {
-        var types: [UTType] = [.json]
-        if let plain = UTType(filenameExtension: "txt") { types.append(plain) }
-        if let text = UTType(filenameExtension: "conf") { types.append(text) }
+        // 放宽到能覆盖洛雪音源的 .js，以及没扩展名的配置文件
+        var types: [UTType] = [.json, .plainText, .data]
+        for ext in ["txt", "conf", "js", "json5", "ini"] {
+            if let type = UTType(filenameExtension: ext) { types.append(type) }
+        }
         return types
     }
 
-    /// 从文件导入：优先按 JSON 解析，失败则把整个文件当 JS 脚本存一条音源。
+    /// 从文件导入：优先按 JSON 解析，失败则把整个文件当 JS 脚本音源。
+    ///
+    /// 整个函数标 @MainActor：之前它是普通 async 方法，跨 await 之后在通用执行器上
+    /// 写 @State，弹窗不弹，用户看到的就是「选完没反应」。
+    @MainActor
     private func importFromFiles(_ urls: [URL]) async {
         var added = 0
+        var addedNames: [String] = []
         var failures: [String] = []
 
         for url in urls {
             let accessed = url.startAccessingSecurityScopedResource()
             defer { if accessed { url.stopAccessingSecurityScopedResource() } }
 
-            guard let data = try? Data(contentsOf: url),
-                  let text = String(data: data, encoding: .utf8) else {
-                failures.append(url.lastPathComponent)
+            guard let data = try? Data(contentsOf: url) else {
+                failures.append("\(url.lastPathComponent)（读不到文件，检查一下权限）")
+                continue
+            }
+            // 洛雪的脚本多半是 UTF-8，但也有 GBK 的兜一下
+            let text = String(data: data, encoding: .utf8)
+                ?? String(data: data, encoding: .init(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))))
+            guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                failures.append("\(url.lastPathComponent)（空文件或非文本）")
                 continue
             }
 
@@ -157,26 +170,36 @@ struct SourceSettingsView: View {
             if !parsed.isEmpty {
                 for source in parsed { store.upsert(source) }
                 added += parsed.count
+                addedNames.append(contentsOf: parsed.map(\.name))
                 continue
             }
 
-            // 不是 JSON：当成 JS 脚本音源，文件名当名称
-            let name = url.deletingPathExtension().lastPathComponent
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty, trimmed.contains("function") || trimmed.contains("=>") || trimmed.contains("lx.") {
-                store.upsert(ThirdPartySource(name: name.isEmpty ? "导入的脚本音源" : name,
-                                              kind: .script,
-                                              script: text))
+            // 不是 JSON 配置：按 JS 脚本音源导入（.js 扩展名直接认，其余看内容）
+            let isScriptFile = url.pathExtension.lowercased() == "js"
+            let looksLikeScript = text.contains("lx.on(")
+                || text.contains("lx.utils")
+                || text.contains("musicUrl")
+                || text.contains("module.exports")
+                || text.contains("getMusicUrl")
+            if isScriptFile || looksLikeScript {
+                let name = url.deletingPathExtension().lastPathComponent
+                let finalName = name.isEmpty ? "导入的脚本音源" : name
+                store.upsert(ThirdPartySource(name: finalName, kind: .script, script: text))
                 added += 1
+                addedNames.append(finalName)
             } else {
-                failures.append(url.lastPathComponent)
+                failures.append("\(url.lastPathComponent)（不是音源配置，也看不出是脚本）")
             }
         }
 
         if failures.isEmpty {
-            importMessage = added > 0 ? "成功导入 \(added) 条音源" : "文件里没解析出音源"
+            importMessage = added > 0
+                ? "成功导入 \(added) 条：\(addedNames.joined(separator: "、"))"
+                : "文件里没解析出音源"
         } else {
-            importMessage = "导入 \(added) 条，失败 \(failures.count) 个：\(failures.joined(separator: "、"))"
+            importMessage = added > 0
+                ? "导入 \(added) 条（\(addedNames.joined(separator: "、"))）；失败 \(failures.count) 个：\(failures.joined(separator: "、"))"
+                : "全部失败：\(failures.joined(separator: "、"))"
         }
     }
 }

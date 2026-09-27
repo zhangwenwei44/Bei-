@@ -282,6 +282,22 @@ struct BigUInt {
 }
 
 extension Data {
+    init(hexString: String) {
+        var hex = hexString
+        if hex.hasPrefix("0x") { hex.removeFirst(2) }
+        if !hex.count.isMultiple(of: 2) { hex = "0" + hex }
+        var bytes: [UInt8] = []
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let next = hex.index(index, offsetBy: 2)
+            if let byte = UInt8(hex[index..<next], radix: 16) {
+                bytes.append(byte)
+            }
+            index = next
+        }
+        self.init(bytes)
+    }
+
     func md5Hex() -> String {
         var digest = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
         _ = withUnsafeBytes { buffer in

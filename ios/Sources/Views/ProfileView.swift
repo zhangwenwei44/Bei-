@@ -9,6 +9,7 @@ struct ProfileView: View {
     @StateObject private var updater = AppUpdater.shared
     @State private var isAboutPresented = false
     @State private var isUpdatePresented = false
+    @State private var isChangelogPresented = false
 
     var body: some View {
         List {
@@ -105,6 +106,17 @@ struct ProfileView: View {
                     }
                 }
                 .disabled(updater.phase.isBusy)
+                Button {
+                    isChangelogPresented = true
+                } label: {
+                    HStack {
+                        Label("更新日志", systemImage: "list.bullet.rectangle")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                    }
+                }
             } header: {
                 headerText("版本")
             } footer: {
@@ -138,6 +150,9 @@ struct ProfileView: View {
         }
         .sheet(isPresented: $isUpdatePresented) {
             UpdateView()
+        }
+        .sheet(isPresented: $isChangelogPresented) {
+            ChangelogView()
         }
         .task {
             if case .idle = updater.phase {

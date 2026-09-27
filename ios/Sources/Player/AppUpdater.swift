@@ -145,13 +145,41 @@ final class AppUpdater: ObservableObject {
     }
 
     /// 调起安装：越狱机由 AppSync 弹「选取软件安装」。
+    ///
+    /// 关键在于路径：安装器跑在 SpringBoard 进程里，读不到 App 沙盒，
+    /// 所以必须先落到 /var/mobile/Media 下的公共下载目录再 open。
     func openInstaller(_ fileURL: URL) {
-        UIApplication.shared.open(fileURL, options: [:]) { [weak self] success in
+        let shared = Self.shareToPublicDownloads(fileURL)
+        UIApplication.shared.open(shared, options: [:]) { [weak self] success in
             guard !success else { return }
             Task { @MainActor [weak self] in
                 self?.phase = .failed("系统没接住这个安装包。越狱设备请确认已安装 AppSync / Zebra，然后重试或用浏览器下载")
             }
         }
+    }
+
+    /// 拷贝到越狱常见的公共下载目录。AppSync / Zebra / Filza 都在这几个位置找包。
+    private static func shareToPublicDownloads(_ fileURL: URL) -> URL {
+        let candidates = [
+            "/var/mobile/Media/Public/Downloads",
+            "/var/mobile/Media/Downloads",
+        ]
+        for path in candidates {
+            let dir = URL(fileURLWithPath: path)
+            guard FileManager.default.fileExists(atPath: dir.path) else { continue }
+            let target = dir.appendingPathComponent(fileURL.lastPathComponent)
+            do {
+                if FileManager.default.fileExists(atPath: target.path) {
+                    try FileManager.default.removeItem(at: target)
+                }
+                try FileManager.default.copyItem(at: fileURL, to: target)
+                return target
+            } catch {
+                continue
+            }
+        }
+        // 目录不存在或没权限时，退回沙盒路径，至少让分享面板能拿到
+        return fileURL
     }
 
     /// 把 IPA 收进 Documents 下的 Updates 目录（Downloads 目录在安装后可能被清）。

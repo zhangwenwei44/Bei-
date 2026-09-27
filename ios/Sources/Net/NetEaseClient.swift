@@ -232,6 +232,33 @@ final class NetEaseClient {
         return (json["songs"] as? [[String: Any]] ?? []).compactMap(Song.init(neteaseJSON:))
     }
 
+    // MARK: - 封面
+
+    /// 批量补封面。搜索、歌单返回的歌曲不一定带 `al.picUrl`，
+    /// 这时用 song/detail 一次性把缺的补齐，避免列表里一堆灰块。
+    func missingCovers(for songs: [Song]) async -> [Int: URL] {
+        let missing = songs
+            .filter { $0.artworkURL == nil }
+            .compactMap { $0.neteaseID }
+        guard !missing.isEmpty else { return [:] }
+
+        // 去重 + 分批，song/detail 一次别塞太多
+        let ids = Array(Set(missing)).prefix(200)
+        let json = try? await request("/api/v3/song/detail",
+                                     payload: ["c": "[" + ids.map(String.init).joined(separator: ",") + "]"],
+                                     crypto: "weapi")
+        let list = json?["songs"] as? [[String: Any]] ?? []
+        var result: [Int: URL] = [:]
+        for item in list {
+            guard let id = NetEaseClient.intValue(item["id"]),
+                  let pic = (item["al"] as? [String: Any])?["picUrl"] as? String,
+                  !pic.isEmpty,
+                  let url = URL(string: pic) else { continue }
+            result[id] = url
+        }
+        return result
+    }
+
     // MARK: - 歌词
 
     /// 原文 + 翻译。

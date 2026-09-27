@@ -300,6 +300,8 @@ struct SearchView: View {
                                        albums: await albums ?? [])
         guard submitted == text else { return }
         results = newResults
+        // 补齐缺封面的歌，别让列表全是渐变兜底
+        await CoverResolver.shared.prefetchCovers(for: newResults.songs)
         if newResults.isEmpty {
             errorMessage = "换个关键词试试"
         }

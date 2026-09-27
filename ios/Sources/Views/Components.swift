@@ -75,6 +75,8 @@ struct CoverImage: View {
         var request = URLRequest(url: target)
         request.timeoutInterval = 10
         request.setValue("AuroraMusic/1.0", forHTTPHeaderField: "User-Agent")
+        // 网易云图床在没有 Referer 时会 403
+        request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")
         guard let (data, _) = try? await URLSession.shared.data(for: request),
               let loaded = UIImage(data: data) else { return }
         CoverCache.shared.store(loaded, for: target)
