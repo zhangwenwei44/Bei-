@@ -44,6 +44,7 @@ jobs:
 
       - name: Build (device, no signing)
         working-directory: ios
+        continue-on-error: true
         run: |
           set -o pipefail
           xcodebuild \
@@ -59,7 +60,38 @@ jobs:
             CODE_SIGN_ENTITLEMENTS="" \
             DEVELOPMENT_TEAM="" \
             build \
-            | tee build.log
+            2>&1 | tee build.log
+          echo "BUILD_EXIT=${PIPESTATUS[0]}" | tee -a build.log
+
+      - name: Report compiler errors
+        if: always()
+        working-directory: ios
+        run: |
+          {
+            echo "## 编译诊断"
+            echo
+            echo '```'
+            grep -E "(error|warning):" build.log | sort -u | head -60 || echo "(无 error/warning 行)"
+            echo '```'
+            echo
+            echo "最后 30 行："
+            echo '```'
+            tail -30 build.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ios/build.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Fail if build failed
+        working-directory: ios
+        run: grep -q "^BUILD_EXIT=0" build.log
 
       - name: Package unsigned IPA
         working-directory: ios
