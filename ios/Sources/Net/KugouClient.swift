@@ -104,7 +104,7 @@ final class KugouClient {
         for group in groups where (Self.string(group["type"]) ?? "").lowercased() == "song" {
             let rows = (group["info"] as? [[String: Any]] ?? [])
                 + (group["lists"] as? [[String: Any]] ?? [])
-            songs.append(contentsOf: rows.compactMap(Song(kugouJSON:)))
+            songs.append(contentsOf: rows.compactMap { Song(kugouJSON: $0) })
             if songs.count >= limit { break }
         }
         return Array(songs.prefix(limit))
@@ -231,7 +231,6 @@ final class KugouClient {
                             trackCount: KugouClient.intValue(item["songcount"]) ?? 0,
                             creatorName: "酷狗音乐",
                             source: .kugou,
-                            kugouRankID: rankID,
                             kugouRankID: rankID,
                             updateFrequency: KugouClient.string(item["update_frequency"]) ?? "")
         }
