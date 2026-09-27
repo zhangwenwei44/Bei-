@@ -111,27 +111,17 @@ struct LibraryView: View {
 
     private var songList: some View {
         List {
-            Section {
-                ForEach(songs) { song in
-                    SongRow(song: song,
-                            isCurrent: store.current?.id == song.id,
-                            isPlaying: store.isPlaying,
-                            trailing: trailing(for: song))
-                        .songMenu(song)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparatorTint(Color.white.opacity(0.06))
-                        .onTapGesture { play(song) }
-                }
-                .onDelete(perform: delete)
-            } header: {
-                HStack {
-                    Text("\(songs.count) 首")
-                    Spacer()
-                    Button("全部播放") { store.play(songs) }
-                        .font(.system(size: 12))
-                }
-                .foregroundStyle(AppStyle.tertiaryText)
+            ForEach(songs) { song in
+                SongRow(song: song,
+                        isCurrent: store.current?.id == song.id,
+                        isPlaying: store.isPlaying,
+                        trailing: trailing(for: song))
+                    .songMenu(song)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparatorTint(Color.white.opacity(0.06))
+                    .onTapGesture { play(song) }
             }
+            .onDelete(perform: delete)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)

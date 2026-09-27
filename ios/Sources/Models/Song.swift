@@ -101,7 +101,7 @@ struct Song: Identifiable, Hashable, Codable {
          source: SongSource = .netease,
          neteaseID: Int? = nil,
          playCount: Int = 0) {
-        self.id = id ?? "\(source.code):\(neteaseID ?? UUID().uuidString)"
+        self.id = id ?? (neteaseID.map { "\(source.code):\($0)" } ?? "\(source.code):\(UUID().uuidString)")
         self.title = title
         self.artist = artist
         self.album = album

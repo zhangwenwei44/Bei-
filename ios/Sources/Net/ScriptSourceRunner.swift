@@ -125,6 +125,11 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
         Data(value.utf8).md5Hex()
     }
 
+    /// 与 NetEaseCrypto 同样的坑：Data 没有 baseAddress。
+    private static func hexString(_ data: Data) -> String {
+        data.map { String(format: "%02x", $0) }.joined()
+    }
+
     func aesEncrypt(_ data: String, _ mode: String, _ key: String, _ iv: String) -> NSDictionary {
         let keyData = Data(key.utf8)
         let ivData = Data(iv.utf8)
@@ -134,23 +139,26 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
         var outBytes = [UInt8](repeating: 0, count: input.count + 32)
         var outLen: size_t = 0
         let options = isCBC ? CCOptions(kCCOptionPKCS7Padding) : CCOptions(kCCOptionPKCS7Padding | kCCOptionECBMode)
-        let status = keyData.withUnsafeBytes { keyBytes in
-            input.withUnsafeBytes { dataBytes in
-                CCCrypt(CCOperation(kCCEncrypt),
-                        CCAlgorithm(kCCAlgorithmAES),
-                        options,
-                        keyBytes.baseAddress, keyData.count,
-                        isCBC ? ivData.baseAddress : nil,
-                        dataBytes.baseAddress, input.count,
-                        &outBytes, outBytes.count,
-                        &outLen)
+        let status = keyData.withUnsafeBytes { keyBytes -> Int32 in
+            // Data 没有 baseAddress，用 withUnsafeBytes 包一层拿到裸指针
+            ivData.withUnsafeBytes { ivBytes -> Int32 in
+                input.withUnsafeBytes { dataBytes -> Int32 in
+                    CCCrypt(CCOperation(kCCEncrypt),
+                            CCAlgorithm(kCCAlgorithmAES),
+                            options,
+                            keyBytes.baseAddress, keyData.count,
+                            isCBC ? ivBytes.baseAddress : nil,
+                            dataBytes.baseAddress, input.count,
+                            &outBytes, outBytes.count,
+                            &outLen)
+                }
             }
         }
         guard status == kCCSuccess else {
             return ["data": "", "hex": ""]
         }
         let out = Data(outBytes.prefix(outLen))
-        return ["data": out.base64EncodedString(), "hex": out.map { String(format: "%02x", $0) }.joined()]
+        return ["data": out.base64EncodedString(), "hex": ScriptBridge.hexString(out)]
     }
 }
 

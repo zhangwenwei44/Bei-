@@ -142,6 +142,6 @@ struct MiniPlayer: View {
     }
 
     private func expand() {
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.86)) { isPlayerExpanded = true }
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.86)) { isExpanded = true }
     }
 }

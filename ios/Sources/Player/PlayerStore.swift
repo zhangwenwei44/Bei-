@@ -438,7 +438,9 @@ final class PlayerStore: ObservableObject {
     /// 播放失败：如果是第三方地址，把该域名拉黑并换源重试一次。
     private func handlePlaybackFailure() {
         guard current != nil else { return }
-        guard itemThirdParty, let host = player.currentItem?.url?.host?.lowercased() else {
+        guard itemThirdParty,
+              let asset = player.currentItem?.asset as? AVURLAsset,
+              let host = asset.url.host?.lowercased() else {
             playbackError = "播放失败，换个音源试试"
             pause()
             return

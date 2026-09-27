@@ -106,9 +106,10 @@ struct ThirdPartySource: Identifiable, Codable, Hashable {
             ? .script
             : .template
 
-        template = (try container.decodeIfPresent(String.self, forKey: .template))
-            ?? (try container.decodeIfPresent(String.self, forKey: .url))
-            ?? ""
+        // try 不能横跨 ?? 运算符，整条链只抛一次
+        let rawTemplate = try container.decodeIfPresent(String.self, forKey: .template)
+        let rawURL = try container.decodeIfPresent(String.self, forKey: .url)
+        template = rawTemplate ?? rawURL ?? ""
         urlPath = (try container.decodeIfPresent(String.self, forKey: .urlPath))?.nilIfEmpty ?? "url"
         headers = try container.decodeIfPresent([String: String].self, forKey: .headers) ?? [:]
         quality = (try container.decodeIfPresent(String.self, forKey: .quality))
@@ -123,7 +124,8 @@ struct ThirdPartySource: Identifiable, Codable, Hashable {
 
     /// 导出时用 template，避免和导入端的兼容字段混在一起。
     func encode(to encoder: Encoder) throws {
-        let container = encoder.container(keyedBy: CodingKeys.self)
+        // KeyedEncodingContainer 的 encode 是 mutating，必须用 var
+        var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
         try container.encode(kind.rawValue, forKey: .kind)
