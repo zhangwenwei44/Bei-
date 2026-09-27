@@ -1,0 +1,113 @@
+name: Build iOS (unsigned IPA)
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.4.app
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Install ldid
+        run: brew install ldid || echo "brew ldid 不可用，将跳过伪签名"
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build (device, no signing)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project AuroraMusic.xcodeproj \
+            -scheme AuroraMusic \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM="" \
+            build \
+            | tee build.log
+
+      - name: Package unsigned IPA
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          APP="build/Build/Products/Release-iphoneos/AuroraMusic.app"
+          test -d "$APP"
+          rm -rf Payload "$APP/_CodeSignature" "$APP/embedded.mobileprovision"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          # ldid 伪签名：越狱设备上用 AppSync/AppSyncUnified / Sileo 需伪签名才能装
+          if command -v ldid >/dev/null 2>&1; then
+            ldid -S"Payload/AuroraMusic.app" || echo "ldid pseudo-sign failed, continuing"
+          fi
+          zip -qry "AuroraMusic-$(git describe --tags --always 2>/dev/null || echo dev).ipa" Payload
+          rm -rf Payload
+          ls -lh *.ipa
+
+      - name: Bundle ID / min iOS report
+        working-directory: ios
+        run: |
+          {
+            echo "## 构建信息"
+            echo
+            echo "- commit: ${GITHUB_SHA}"
+            echo "- bundle id: com.aurora.music"
+            echo "- min iOS: 16.0"
+            echo "- 签名: 无（ldid 伪签名，供越狱设备安装）"
+            echo
+            echo "## 文件校验"
+            echo '```'
+            shasum -a 256 ./*.ipa || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AuroraMusic-unsigned-ipa
+          path: ios/*.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ios/*.ipa
+          body: |
+            越狱设备安装：下载 `.ipa` → 用 AppSync/Filza 打开 → 伪签名已处理，直接安装。
+            永久签名可用 TrollStore 导入同包。

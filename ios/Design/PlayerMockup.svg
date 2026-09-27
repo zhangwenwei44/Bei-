@@ -1,0 +1,288 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1520" height="700" viewBox="0 0 1520 700" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+  <defs>
+    <linearGradient id="bgA" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#2b8b7b"/>
+      <stop offset="0.5" stop-color="#15594a"/>
+      <stop offset="1" stop-color="#06231c"/>
+    </linearGradient>
+    <linearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#000" stop-opacity="0.35"/>
+      <stop offset="0.22" stop-color="#000" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#000" stop-opacity="0"/>
+      <stop offset="0.85" stop-color="#000" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.8"/>
+    </linearGradient>
+    <linearGradient id="vipBadge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3cc0ff"/>
+      <stop offset="1" stop-color="#1a63ff"/>
+    </linearGradient>
+    <radialGradient id="cloud" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur24"><feGaussianBlur stdDeviation="24"/></filter>
+    <filter id="blur6"><feGaussianBlur stdDeviation="6"/></filter>
+    <filter id="shadow"><feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity="0.35"/></filter>
+    <clipPath id="frameClip"><rect x="0" y="0" width="300" height="640" rx="42"/></clipPath>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0 0 L6 3 L0 6 z" fill="#ff5f8f"/>
+    </marker>
+  </defs>
+
+  <rect width="1520" height="700" fill="#101417"/>
+
+  <text x="40" y="40" fill="#8fa3ad" font-size="13" letter-spacing="2">AURORA MUSIC · 播放页设计稿  390 × 844 @3x  ·  单位 pt</text>
+
+  <g transform="translate(40,60)">
+    <rect width="300" height="640" rx="42" fill="#0b2a22" filter="url(#shadow)"/>
+    <g clip-path="url(#frameClip)">
+      <rect width="300" height="640" fill="url(#bgA)"/>
+      <g filter="url(#blur24)" opacity="0.75">
+        <ellipse cx="70" cy="150" rx="90" ry="46" fill="url(#cloud)"/>
+        <ellipse cx="225" cy="205" rx="100" ry="40" fill="url(#cloud)" opacity="0.7"/>
+        <ellipse cx="150" cy="300" rx="150" ry="70" fill="#1f6b52" opacity="0.6"/>
+      </g>
+      <rect width="300" height="640" fill="url(#scrim)"/>
+
+      <g fill="#fff" font-size="9" opacity="0.9">
+        <text x="22" y="26" font-weight="700">21:23</text>
+        <rect x="222" y="16" width="16" height="10" rx="3" fill="none" stroke="#fff" stroke-width="1.4"/>
+        <rect x="241" y="19" width="2" height="4" fill="#fff"/>
+        <rect x="250" y="17" width="18" height="9" rx="3" fill="none" stroke="#fff" stroke-width="1.4"/>
+        <rect x="251" y="18.5" width="12" height="6" rx="1.6" fill="#fff"/>
+      </g>
+
+      <g transform="translate(16,42)">
+        <path d="M0 0 L9 9 L18 0" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <rect x="88" y="-10" width="124" height="30" rx="15" fill="#ffffff" fill-opacity="0.18"/>
+        <circle cx="105" cy="5" r="10" fill="url(#vipBadge)"/>
+        <text x="105" y="8.5" font-size="9" fill="#fff" text-anchor="middle" font-weight="700">免</text>
+        <text x="121" y="8.5" font-size="10" fill="#fff" letter-spacing="0.5">解锁你的专属音色</text>
+        <path d="M199 1 l4 4 -4 4" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>
+        <g transform="translate(238,-10)">
+          <circle cx="15" cy="15" r="15" fill="#ffffff" fill-opacity="0.14"/>
+          <path d="M8 20a9 9 0 0 1 16-4" fill="none" stroke="#5ce08a" stroke-width="2" stroke-linecap="round"/>
+          <path d="M25 12 l2 -4 -4 1" fill="none" stroke="#5ce08a" stroke-width="1.6" stroke-linecap="round"/>
+        </g>
+      </g>
+
+      <g transform="translate(14,84)">
+        <rect width="72" height="18" rx="5" fill="#000" fill-opacity="0.3"/>
+        <path d="M8 6 l5 5 -5 5 z" fill="#fff" fill-opacity="0.75"/>
+        <text x="18" y="12.5" font-size="9" fill="#fff" fill-opacity="0.8">320 KB/s</text>
+      </g>
+
+      <text x="150" y="300" font-size="30" font-weight="800" fill="#fff" text-anchor="middle" letter-spacing="6" filter="url(#shadow)">有风无风皆自由</text>
+      <text x="150" y="330" font-size="14" font-weight="600" fill="#fff" fill-opacity="0.92" text-anchor="middle" letter-spacing="3">王一佳</text>
+
+      <g text-anchor="middle" fill="#fff">
+        <text x="150" y="404" font-size="19" fill-opacity="0.58">行走人海中 做个某某某</text>
+        <text x="150" y="440" font-size="22" font-weight="700">心若无所求</text>
+        <text x="150" y="476" font-size="19" fill-opacity="0.58">有风无风皆自由</text>
+        <text x="150" y="512" font-size="19" fill-opacity="0.58">路太长 弯太多</text>
+      </g>
+
+      <g transform="translate(22,524)">
+        <text font-size="22" font-weight="700" fill="#fff">有风无风皆自由</text>
+        <g transform="translate(0,34)">
+          <text font-size="14" fill="#fff" fill-opacity="0.75">王一佳</text>
+          <g font-size="10" fill="#fff" fill-opacity="0.75">
+            <rect x="58" y="-9" width="32" height="18" rx="5" fill="none" stroke="#fff" stroke-opacity="0.35"/>
+            <text x="74" y="4" text-anchor="middle">关注</text>
+            <rect x="96" y="-9" width="32" height="18" rx="5" fill="none" stroke="#fff" stroke-opacity="0.35"/>
+            <text x="112" y="4" text-anchor="middle">原唱</text>
+            <rect x="134" y="-9" width="32" height="18" rx="5" fill="none" stroke="#fff" stroke-opacity="0.35"/>
+            <text x="150" y="4" text-anchor="middle">限免</text>
+            <rect x="172" y="-9" width="32" height="18" rx="5" fill="none" stroke="#fff" stroke-opacity="0.35"/>
+            <text x="188" y="4" text-anchor="middle">标准</text>
+            <rect x="210" y="-9" width="32" height="18" rx="5" fill="none" stroke="#fff" stroke-opacity="0.35"/>
+            <text x="226" y="4" text-anchor="middle">音效</text>
+          </g>
+        </g>
+      </g>
+
+      <g transform="translate(14,586)">
+        <g stroke="#fff" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 4a8 8 0 0 1 8 8c0 4-3 6-6 8h-6c-3-2-6-4-6-8a8 8 0 0 1 8-8z"/>
+          <path d="M78 4v12M72 10l6 6 6-6M64 20h28"/>
+          <path d="M140 18v-5a6 6 0 1 0-12 0v5l-3 3v2h18v-2z"/>
+          <path d="M204 22s-7-4.6-7-9.4A4 4 0 0 1 204 10a4 4 0 0 1 7 2.6C211 17.4 204 22 204 22z"/>
+          <path d="M240 6h16v12h-9l-5 4v-4h-2z"/>
+        </g>
+        <g fill="#fff" fill-opacity="0.65" font-size="9" text-anchor="middle">
+          <text x="22" y="38">评论</text><text x="82" y="38">下载</text><text x="140" y="38">设铃声</text>
+          <text x="204" y="38">421w</text><text x="246" y="38">4K</text>
+        </g>
+        <g fill="#fff">
+          <circle cx="82" cy="14" r="6" fill="url(#vipBadge)"/>
+          <text x="82" y="17" font-size="6" font-weight="700" text-anchor="middle">V</text>
+          <circle cx="272" cy="6" r="1.6"/><circle cx="272" cy="13" r="1.6"/><circle cx="272" cy="20" r="1.6"/>
+        </g>
+      </g>
+    </g>
+    <rect width="300" height="640" rx="42" fill="none" stroke="#ffffff" stroke-opacity="0.18"/>
+  </g>
+
+  <g transform="translate(380,60)">
+    <rect width="300" height="640" rx="42" fill="#0b2a22" filter="url(#shadow)"/>
+    <g clip-path="url(#frameClip)">
+      <rect width="300" height="640" fill="url(#bgA)"/>
+      <g filter="url(#blur24)" opacity="0.7">
+        <ellipse cx="90" cy="140" rx="90" ry="42" fill="url(#cloud)"/>
+        <ellipse cx="200" cy="240" rx="120" ry="50" fill="#1f6b52" opacity="0.6"/>
+      </g>
+      <rect width="300" height="640" fill="url(#scrim)"/>
+
+      <g transform="translate(16,42)">
+        <path d="M0 0 L9 9 L18 0" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <rect x="88" y="-10" width="124" height="30" rx="15" fill="#ffffff" fill-opacity="0.18"/>
+        <circle cx="105" cy="5" r="10" fill="url(#vipBadge)"/>
+        <text x="105" y="8.5" font-size="9" fill="#fff" text-anchor="middle" font-weight="700">免</text>
+        <text x="121" y="8.5" font-size="10" fill="#fff" letter-spacing="0.5">解锁你的专属音色</text>
+        <path d="M199 1 l4 4 -4 4" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>
+      </g>
+
+      <g transform="translate(22,120)">
+        <text font-size="22" font-weight="700" fill="#fff">有风无风皆自由</text>
+        <text y="30" font-size="13" fill="#fff" fill-opacity="0.75">王一佳</text>
+      </g>
+
+      <g transform="translate(22,196)">
+        <g stroke="#fff" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 4a8 8 0 0 1 8 8c0 4-3 6-6 8H10C7 18 4 16 4 12a8 8 0 0 1 8-8z"/>
+          <path d="M70 4v12M64 10l6 6 6-6M56 20h28"/>
+          <path d="M130 18v-5a6 6 0 1 0-12 0v5l-3 3v2h18v-2z"/>
+          <path d="M190 22s-7-4.6-7-9.4A4 4 0 0 1 190 10a4 4 0 0 1 7 2.6C197 17.4 190 22 190 22z"/>
+          <path d="M226 6h16v12h-9l-5 4v-4h-2z"/>
+        </g>
+        <g fill="#fff" fill-opacity="0.65" font-size="9" text-anchor="middle">
+          <text x="18" y="38">评论</text><text x="72" y="38">下载</text><text x="128" y="38">设铃声</text>
+          <text x="192" y="38">421w</text><text x="234" y="38">4K</text>
+        </g>
+      </g>
+
+      <g transform="translate(26,268)">
+        <rect x="0" y="0" width="248" height="3" rx="1.5" fill="#fff" fill-opacity="0.3"/>
+        <rect x="0" y="0" width="152" height="3" rx="1.5" fill="#fff"/>
+        <circle cx="196" cy="1.5" r="6" fill="#fff"/>
+        <circle cx="122" cy="1.5" r="2" fill="#fff" fill-opacity="0.6"/>
+        <g font-size="10" fill="#fff" fill-opacity="0.7" font-family="Menlo, monospace">
+          <text y="24">02:30</text><text x="248" y="24" text-anchor="end">03:10</text>
+        </g>
+      </g>
+
+      <g transform="translate(22,340)">
+        <g stroke="#fff" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M0 6h10a4 4 0 0 1 0 8H4M4 2L0 6l4 4M4 16l-4 4 4 4"/>
+          <path d="M56 4v24M56 4l-16 12 16 12z" fill="#fff" fill-opacity="0.95"/>
+        </g>
+        <circle cx="150" cy="16" r="36" fill="#fff" fill-opacity="0.22" filter="url(#blur6)"/>
+        <circle cx="150" cy="16" r="36" fill="none" stroke="#fff" stroke-opacity="0.35"/>
+        <path d="M141 4l24 12-24 12z" fill="#fff"/>
+        <g fill="#fff" stroke="none">
+          <path d="M226 4l16 12-16 12z"/>
+          <path d="M262 4v24M262 4l16 12-16 12z"/>
+          <path d="M0 8h14M0 16h14M0 24h9M18 12l10 6-10 6z"/>
+        </g>
+      </g>
+
+      <g transform="translate(0,520)">
+        <rect x="0" y="0" width="300" height="120" fill="#0a1f1a" fill-opacity="0.5"/>
+        <text x="150" y="28" font-size="12" fill="#fff" fill-opacity="0.75" text-anchor="middle">播放列表 (4)</text>
+        <g transform="translate(18,40)" font-size="11" fill="#fff">
+          <text x="52" y="14" font-weight="700">有风无风皆自由</text>
+          <text x="52" y="28" font-size="9" fill-opacity="0.6">王一佳</text>
+          <rect x="-4" y="-4" width="288" height="44" rx="12" fill="#fff" fill-opacity="0.12"/>
+          <text x="52" y="58">Cloud Nine</text>
+          <text x="52" y="72" font-size="9" fill-opacity="0.6">Aurora Fields</text>
+          <text x="52" y="96">Night Drive</text>
+          <text x="52" y="110" font-size="9" fill-opacity="0.6">Retro Lane</text>
+        </g>
+      </g>
+
+      <g transform="translate(0,596)">
+        <rect width="300" height="44" fill="#000" fill-opacity="0.35"/>
+        <text x="94" y="27" font-size="11" fill="#f4d24a" text-anchor="middle">◆ 会员歌曲限时免费试听</text>
+        <text x="228" y="27" font-size="11" fill="#f4d24a" text-anchor="middle" font-weight="700">开会员无限畅享 ›</text>
+      </g>
+    </g>
+    <rect width="300" height="640" rx="42" fill="none" stroke="#ffffff" stroke-opacity="0.18"/>
+  </g>
+
+  <g font-size="12" fill="#ff5f8f" font-weight="700">
+    <g stroke="#ff5f8f" stroke-width="1" stroke-dasharray="3 3" fill="none" marker-end="url(#arrow)">
+      <path d="M60 108 L120 92"/>
+      <path d="M180 108 L200 300"/>
+      <path d="M200 380 L180 424"/>
+      <path d="M230 600 L170 660"/>
+      <path d="M320 740 L280 800"/>
+      <path d="M360 700 L200 660"/>
+    </g>
+    <text x="52" y="96">1</text>
+    <text x="212" y="300">2</text>
+    <text x="196" y="428">3</text>
+    <text x="244" y="656">4</text>
+    <text x="300" y="800">5</text>
+    <text x="212" y="660">6</text>
+  </g>
+
+  <g transform="translate(760,90)" font-size="13" fill="#c7d3d8">
+    <text y="0" font-size="15" fill="#fff" font-weight="700">标注说明</text>
+    <g transform="translate(0,26)">
+      <circle cx="10" cy="0" r="10" fill="#ff5f8f"/><text x="10" y="4" text-anchor="middle" font-size="11" fill="#fff" font-weight="700">1</text>
+      <text x="30" y="4" fill="#fff">顶部安全区 + VIP 胶囊</text>
+      <text x="30" y="22" fill="#8fa3ad" font-size="12">状态栏 44pt；收起 / 投屏 40×40 触控区；胶囊高 40，圆角 20，背景白 16% + blur(18)</text>
+    </g>
+    <g transform="translate(0,96)">
+      <circle cx="10" cy="0" r="10" fill="#ff5f8f"/><text x="10" y="4" text-anchor="middle" font-size="11" fill="#fff" font-weight="700">2</text>
+      <text x="30" y="4" fill="#fff">Hero 标题区（歌词未开始）</text>
+      <text x="30" y="22" fill="#8fa3ad" font-size="12">歌名 40pt ExtraBold，tracking 6；歌手 20pt Semibold，tracking 3</text>
+    </g>
+    <g transform="translate(0,150)">
+      <circle cx="10" cy="0" r="10" fill="#ff5f8f"/><text x="10" y="4" text-anchor="middle" font-size="11" fill="#fff" font-weight="700">3</text>
+      <text x="30" y="4" fill="#fff">歌词行（当前行高亮）</text>
+      <text x="30" y="22" fill="#8fa3ad" font-size="12">常规 19pt / 白 58%；当前行 22pt Bold / 白 100%，行距 36，居中锚定滚动</text>
+    </g>
+    <g transform="translate(0,204)">
+      <circle cx="10" cy="0" r="10" fill="#ff5f8f"/><text x="10" y="4" text-anchor="middle" font-size="11" fill="#fff" font-weight="700">4</text>
+      <text x="30" y="4" fill="#fff">曲名 + 关注 + 标签</text>
+      <text x="30" y="22" fill="#8fa3ad" font-size="12">27pt Bold；标签 13pt，描边 1pt/白 28%，圆角 6，横向可滚动</text>
+    </g>
+    <g transform="translate(0,258)">
+      <circle cx="10" cy="0" r="10" fill="#ff5f8f"/><text x="10" y="4" text-anchor="middle" font-size="11" fill="#fff" font-weight="700">5</text>
+      <text x="30" y="4" fill="#fff">功能图标行（6 等分）</text>
+      <text x="30" y="22" fill="#8fa3ad" font-size="12">图标 22pt 线性，文字 10pt/白 65%；收藏选中变粉红并轻微弹跳</text>
+    </g>
+    <g transform="translate(0,312)">
+      <circle cx="10" cy="0" r="10" fill="#ff5f8f"/><text x="10" y="4" text-anchor="middle" font-size="11" fill="#fff" font-weight="700">6</text>
+      <text x="30" y="4" fill="#fff">进度条</text>
+      <text x="30" y="22" fill="#8fa3ad" font-size="12">轨道 2pt，已播纯白，缓冲白 30%，未播白 28%；滑块 12pt 拖动时显形</text>
+    </g>
+    <g transform="translate(0,366)">
+      <circle cx="10" cy="0" r="10" fill="#ff5f8f"/><text x="10" y="4" text-anchor="middle" font-size="11" fill="#fff" font-weight="700">7</text>
+      <text x="30" y="4" fill="#fff">控制行</text>
+      <text x="30" y="22" fill="#8fa3ad" font-size="12">模式/上/下/列表 30pt 图标 56×56；播放键 72pt 毛玻璃圆，播放时外圈呼吸</text>
+    </g>
+    <g transform="translate(0,420)">
+      <circle cx="10" cy="0" r="10" fill="#ff5f8f"/><text x="10" y="4" text-anchor="middle" font-size="11" fill="#fff" font-weight="700">8</text>
+      <text x="30" y="4" fill="#fff">会员条 / 播放列表抽屉</text>
+      <text x="30" y="22" fill="#8fa3ad" font-size="12">底部 44pt，金色 #F4D24A；抽屉圆角 20，背景深色 90% + blur(28)，中/大两档</text>
+    </g>
+  </g>
+
+  <g transform="translate(760,560)" font-size="12">
+    <text y="0" font-size="15" fill="#fff" font-weight="700">设计令牌</text>
+    <g transform="translate(0,24)" font-family="Menlo, monospace">
+      <text y="0" fill="#8fa3ad">背景渐变   #2B8B7B → #15594A → #06231C</text>
+      <text y="20" fill="#8fa3ad">遮罩       上 35% 黑 → 中 0 → 底 80% 黑</text>
+      <text y="40" fill="#8fa3ad">主文字     #FFFFFF</text>
+      <text y="60" fill="#8fa3ad">次文字     rgba(255,255,255,0.72)</text>
+      <text y="80" fill="#8fa3ad">分割/描边  rgba(255,255,255,0.28)</text>
+      <text y="100" fill="#8fa3ad">强调金     #F4D24A</text>
+      <text y="120" fill="#8fa3ad">VIP 蓝     #3CC0FF → #1A63FF</text>
+      <text y="140" fill="#8fa3ad">收藏红     #FF5A76</text>
+      <text y="165" fill="#fff">圆角       胶囊 20 / 卡片 16 / 标签 6 / 抽屉 20</text>
+      <text y="185" fill="#fff">动效       歌词滚动 0.45s easeInOut；播放页 0.5s spring(0.86)</text>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Aurora Music · 播放页</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="app" class="app">
+  <div class="bg" id="bg">
+    <img id="bgArt" alt="" />
+    <div class="bg-scrim"></div>
+  </div>
+
+  <header class="topbar">
+    <button class="icon-btn" id="btnCollapse" aria-label="收起">
+      <svg viewBox="0 0 24 24"><path d="M5 9l7 7 7-7" /></svg>
+    </button>
+    <button class="vip-pill" id="btnVip">
+      <span class="vip-badge">免</span>
+      <span class="vip-text">解锁你的专属音色</span>
+      <svg class="chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" /></svg>
+    </button>
+    <button class="icon-btn" id="btnCast" aria-label="投屏">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2.5"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
+    </button>
+  </header>
+
+  <div class="bitrate-chip" id="bitrateChip">▼ 320 KB/s</div>
+
+  <main class="stage">
+    <section class="lyrics" id="lyrics">
+      <div class="lyrics-inner" id="lyricsInner">
+        <h1 class="hero-title" id="heroTitle">—</h1>
+        <p class="hero-artist" id="heroArtist">—</p>
+      </div>
+    </section>
+
+    <section class="meta">
+      <h2 class="song-title" id="songTitle">未选择歌曲</h2>
+      <div class="artist-row">
+        <span class="artist" id="songArtist">歌手</span>
+        <button class="tag follow" id="btnFollow">关注</button>
+        <span class="tag">原唱</span>
+        <span class="tag">高音质</span>
+        <span class="tag">标准</span>
+        <span class="tag">音效</span>
+        <span class="tag">伴唱</span>
+        <span class="tag">视频</span>
+      </div>
+
+      <div class="actions">
+        <button class="act" id="actComment"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H8l-4 3v-4.5A8 8 0 1 1 21 12z"/></svg><i>评论</i></button>
+        <button class="act" id="actDownload"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg><i>下载</i></button>
+        <button class="act" id="actRingtone"><svg viewBox="0 0 24 24"><path d="M18 16v-5a6 6 0 1 0-12 0v5l-2 2v2h16v-2z"/><circle cx="12" cy="20" r="1.2"/></svg><i>铃声</i></button>
+        <button class="act" id="actLike"><svg viewBox="0 0 24 24"><path d="M12 20s-7-4.6-7-9.4A4 4 0 0 1 12 8a4 4 0 0 1 7 2.6C19 15.4 12 20 12 20z"/></svg><i id="likeCount">0</i></button>
+        <button class="act" id="actComment2"><svg viewBox="0 0 24 24"><path d="M20 4H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h3v4l4-4h9a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1z"/></svg><i>4K</i></button>
+        <button class="act" id="actMore"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg><i></i></button>
+      </div>
+
+      <div class="progress">
+        <input type="range" id="seek" min="0" max="1000" value="0" aria-label="播放进度" />
+        <div class="times"><span id="curTime">00:00</span><span id="durTime">00:00</span></div>
+      </div>
+
+      <div class="controls">
+        <button class="ctl" id="btnMode" aria-label="播放模式"><svg viewBox="0 0 24 24"><path d="M4 7h11a4 4 0 0 1 0 8H8"/><path d="M8 3L4 7l4 4"/><path d="M8 13l-4 4 4 4"/></svg></button>
+        <button class="ctl" id="btnPrev" aria-label="上一首"><svg viewBox="0 0 24 24"><path d="M18 6v12L9 12z" fill="currentColor" stroke="none"/><rect x="5" y="5" width="2.4" height="14" rx="1" fill="currentColor" stroke="none"/></svg></button>
+        <button class="play" id="btnPlay" aria-label="播放/暂停">
+          <svg class="ico-play" viewBox="0 0 24 24"><path d="M8 5l12 7-12 7z" fill="currentColor" stroke="none"/></svg>
+          <svg class="ico-pause" viewBox="0 0 24 24"><rect x="7" y="5" width="3.6" height="14" rx="1.4" fill="currentColor" stroke="none"/><rect x="13.4" y="5" width="3.6" height="14" rx="1.4" fill="currentColor" stroke="none"/></svg>
+          <span class="ring"></span>
+        </button>
+        <button class="ctl" id="btnNext" aria-label="下一首"><svg viewBox="0 0 24 24"><path d="M6 6v12l9-6z" fill="currentColor" stroke="none"/><rect x="16.6" y="5" width="2.4" height="14" rx="1" fill="currentColor" stroke="none"/></svg></button>
+        <button class="ctl" id="btnQueue" aria-label="播放列表"><svg viewBox="0 0 24 24"><path d="M4 7h11"/><path d="M4 12h11"/><path d="M4 17h7"/><path d="M17 13l4 3-4 3z" fill="currentColor" stroke="none"/></svg></button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="vipbar">
+    <span class="gem">◆</span>
+    <span>会员歌曲限时免费试听</span>
+    <a href="#" id="btnVipOpen">开会员无限畅享</a>
+    <svg class="chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" /></svg>
+  </footer>
+
+  <div class="sheet-backdrop" id="sheetBackdrop"></div>
+  <section class="sheet" id="sheetQueue" aria-hidden="true">
+    <div class="sheet-head">
+      <span>播放列表 (<b id="queueCount">0</b>)</span>
+      <span class="source-label" id="sourceLabel">音源加载中</span>
+      <button class="text-btn" id="btnSwitchSource">切换</button>
+      <button class="text-btn" id="btnClearQueue">清空</button>
+      <button class="icon-btn" id="btnCloseQueue"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="sheet-search">
+      <input type="search" id="searchInput" placeholder="搜索歌曲 / 歌手" autocomplete="off" />
+    </div>
+    <div class="sheet-body" id="queueList"></div>
+    <div class="sheet-foot">
+      <label class="text-btn" for="fileInput">＋ 添加本地音频</label>
+      <input type="file" id="fileInput" accept="audio/*" multiple hidden />
+    </div>
+  </section>
+
+  <div class="toast" id="toast"></div>
+</div>
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

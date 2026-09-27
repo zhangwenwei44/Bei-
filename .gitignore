@@ -1,0 +1,33 @@
+# macOS / Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcodeproj/
+*.xcworkspace/
+
+# 打包产物
+*.ipa
+*.tipa
+*.dylib
+Payload/
+fastlane/report.xml
+fastlane/screenshots
+
+# 依赖 / 工具
+node_modules/
+.DS_Store
+Pods/
+Cartfile
+.respm
+
+# 签名与证书（严禁提交）
+*.mobileprovision
+*.p12
+*.cer
+*.certSigningRequest
+ios/ExportOptions.plist
+
+# 归档产物
+*.xcarchive
+*.ipa.manifest
