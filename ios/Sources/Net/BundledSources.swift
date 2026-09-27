@@ -93,7 +93,8 @@ enum BundledSources {
             return Preset(scriptName: fallbackName, displayName: fallbackName, version: "1.0",
                           author: nil, license: nil, homepage: nil, notes: nil)
         }
-        let header = String(text[text.startIndex..<end.lowerBound()])
+        // range(of:) 返回的 upperBound 已经是结束位置，不用再 lowerBound
+        let header = String(text[..<end.upperBound])
         return Preset(scriptName: fallbackName,
                       displayName: field("name", in: header) ?? fallbackName,
                       version: field("version", in: header) ?? "1.0",
