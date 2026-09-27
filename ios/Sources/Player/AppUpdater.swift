@@ -156,7 +156,7 @@ final class AppUpdater: ObservableObject {
     /// 真正的可靠路径是分享面板让用户选 AppSync / Zebra / Filza。
     func tryOpenInstaller(_ fileURL: URL) {
         let shared = prepareInstall(fileURL)
-        UIApplication.shared.open(shared, options: [.compatibilityMode: true]) { [weak self] success in
+        UIApplication.shared.open(shared) { [weak self] success in
             guard !success else { return }
             Task { @MainActor [weak self] in
                 self?.installHint = "系统没有直接弹出安装界面。请在下面的分享面板里选 AppSync / Zebra / Filza 打开。"

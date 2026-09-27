@@ -69,6 +69,16 @@ struct LibraryView: View {
         }
     }
 
+    /// 文件选择器有时会拒绝 iOS 沙盒里的文件（尤其是「我的 iPhone」下的），
+    /// 这里把能覆盖的类型都放开，flac / m4a 这些不声明 UTI 的后缀要手动补。
+    private static var audioImportTypes: [UTType] {
+        var types: [UTType] = [.audio, .mp3, .mpeg4Audio, .item, .data]
+        for ext in ["flac", "m4a", "aac", "caf", "wav", "aiff"] {
+            if let type = UTType(filenameExtension: ext) { types.append(type) }
+        }
+        return types
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
@@ -99,18 +109,6 @@ struct LibraryView: View {
         } message: {
             Text(importError ?? "")
         }
-    }
-
-    /// 文件选择器有时会拒绝 iOS 沙盒里的文件（尤其是「我的 iPhone」下的），
-    /// 这里把能覆盖的类型都放开，并提示一条肯定可行的替代路径。
-    private static var audioImportTypes: [UTType] {
-        var types: [UTType] = [.audio, .mp3, .mpeg4Audio, .item, .data]
-        if let flac = UTType(filenameExtension: "flac") { types.append(flac) }
-        if let m4a = UTType(filenameExtension: "m4a") { types.append(m4a) }
-        if let aac = UTType(filenameExtension: "aac") { types.append(aac) }
-        if let caf = UTType(filenameExtension: "caf") { types.append(caf) }
-        return types
-    }
         .alert("新建歌单", isPresented: $isCreatingPlaylist) {
             TextField("歌单名称", text: $newPlaylistName)
             Button("取消", role: .cancel) { newPlaylistName = "" }
