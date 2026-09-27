@@ -20,7 +20,7 @@ final class CoverResolver {
 
     private init() {}
 
-    /// key 用实体的稳定 id：`pl:123` / `ar:456` / `al:789` / `wy:12345`
+    /// key 用实体的稳定 id：`kg-rank:381` / `kg:B3A5...`
     func register(_ url: URL?, for key: String) {
         guard let url else { return }
         lock.lock()
@@ -54,14 +54,13 @@ final class CoverResolver {
 
     // MARK: - 从歌曲反查
 
-    /// 歌单 / 歌手 / 专辑详情加载完曲目后调用：把第一首歌的专辑图记到这个实体头上。
+    /// 绑定时顺带把每首歌自己的 key 也登记上（列表里的小图能直接命中）。
     func bind(from songs: [Song], to entities: [String]) {
         guard let cover = songs.compactMap({ $0.artworkURL }).first else { return }
         register(cover, for: entities)
-        // 顺带补上这些歌自己的图（搜索结果里有些歌没带专辑图）
         let songKeys = songs.compactMap { song -> String? in
-            guard let neteaseID = song.neteaseID else { return nil }
-            return "wy:\(neteaseID)"
+            guard !song.kugouHash.isEmpty else { return nil }
+            return "kg:\(song.kugouHash)"
         }
         register(cover, for: songKeys)
     }
@@ -69,30 +68,6 @@ final class CoverResolver {
     /// 歌手页：热门歌之外的专辑也用第一张图兜住。
     func bindArtist(_ artistID: String, from songs: [Song]) {
         bind(from: songs, to: [artistID])
-    }
-
-    /// 列表里缺封面的歌，一次性去接口补齐。
-    ///
-    /// 搜索 / 歌单返回的数据经常不带 `al.picUrl`，不补的话就是一片渐变兜底色。
-    /// 拿到后按 `wy:<id>` 登记，`CoverImage` 的 fallbackKeys 就能取到。
-    @MainActor
-    func prefetchCovers(for songs: [Song]) async {
-        let missingIDs = Set(songs.compactMap { song -> Int? in
-            guard song.artworkURL == nil, let id = song.neteaseID else { return nil }
-            return id
-        })
-        guard !missingIDs.isEmpty else { return }
-
-        // 已经有覆盖图的先跳过，避免重复请求
-        let already = missingIDs.filter { url(for: "wy:\($0)") != nil }
-        let need = missingIDs.subtracting(already)
-        guard !need.isEmpty else { return }
-
-        let covers = await NetEaseClient.shared.missingCovers(for: songs)
-        guard !covers.isEmpty else { return }
-        for (id, url) in covers {
-            register(url, for: "wy:\(id)")
-        }
     }
 }
 

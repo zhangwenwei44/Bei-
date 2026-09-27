@@ -24,7 +24,7 @@
 | `{name}` | 歌名（已 URL 编码） |
 | `{artist}` | 歌手（已 URL 编码） |
 | `{keyword}` | 歌名 + 歌手（已 URL 编码） |
-| `{source}` | 平台代码，网易云是 `wy` |
+| `{source}` | 平台代码，酷狗是 `kg` |
 | `{quality}` / `{br}` / `{level}` | 音质档位 |
 | `{apiKey}` / `{apikey}` / `{key}` | 密钥，配合请求头里的 `apiKey` |
 

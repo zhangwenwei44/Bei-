@@ -152,7 +152,7 @@ struct LibraryView: View {
                             } label: {
                                 VStack(spacing: 6) {
                                     CoverImage(url: song.artworkURL,
-                                               fallbackKeys: song.neteaseID.map { ["wy:\($0)"] } ?? [],
+                                               fallbackKeys: song.kugouHash.isEmpty ? [] : ["kg:\(song.kugouHash)"],
                                                seed: "\(song.artist)-\(song.title)",
                                                size: 108,
                                                corner: 10)

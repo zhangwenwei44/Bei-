@@ -31,6 +31,22 @@ import JavaScriptCore
     func reject(_ value: JSValue?)
 }
 
+@objc protocol ScriptLogBridge: JSExport {
+    func log(_ message: String)
+}
+
+final class ScriptLog: NSObject, ScriptLogBridge {
+    let name: String
+
+    init(name: String) {
+        self.name = name
+    }
+
+    func log(_ message: String) {
+        NSLog("[音源 %@] %@", name, message)
+    }
+}
+
 final class ScriptCompletion: NSObject, ScriptDoneBridge {
     private let lock = NSLock()
     private var finished = false
@@ -98,10 +114,12 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
         }
 
         session.dataTask(with: request) { [weak self] data, response, error in
+            let http = response as? HTTPURLResponse
             var result: [String: Any] = [:]
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            result["status"] = status
-            result["headers"] = (response as? HTTPURLResponse)?.allHeaderFields ?? [:]
+            // 洛雪脚本读 statusCode，不是 status
+            result["status"] = http?.statusCode ?? 0
+            result["statusCode"] = http?.statusCode ?? 0
+            result["headers"] = http?.allHeaderFields ?? [:]
             if let error {
                 result["error"] = error.localizedDescription
                 result["body"] = ""
@@ -123,11 +141,18 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
 
     private func respond(_ callback: JSValue?, _ result: [String: Any]) {
         guard let callback else { return }
-        let argument = NSDictionary(dictionary: result)
+        // 洛雪的约定是 (err, resp)，第一个参数必须是 null，
+        // 否则脚本会把响应体当成错误直接 reject。
+        var payload = result
+        if payload["status"] == nil, let status = payload["statusCode"] as? Int {
+            payload["status"] = status
+        }
+        let argument = NSDictionary(dictionary: payload)
+        let null = NSNull()
         if let owner {
-            owner.queue.async { callback.call(withArguments: [argument]) }
+            owner.queue.async { callback.call(withArguments: [null, argument]) }
         } else {
-            callback.call(withArguments: [argument])
+            callback.call(withArguments: [null, argument])
         }
     }
 
@@ -137,7 +162,7 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
         Data(value.utf8).md5Hex()
     }
 
-    /// 与 NetEaseCrypto 同样的坑：Data 没有 baseAddress。
+    /// 注意：Data 没有 baseAddress，得用 withUnsafeBytes 拿裸指针。
     private static func hexString(_ data: Data) -> String {
         data.map { String(format: "%02x", $0) }.joined()
     }
@@ -310,6 +335,7 @@ final class ScriptRuntime {
         context.setObject(bridge, forKeyedSubscript: "__beansRequest" as NSString)
         context.setObject(bridge, forKeyedSubscript: "__beansUtils" as NSString)
         context.setObject(bridge, forKeyedSubscript: "__beansCrypto" as NSString)
+        context.setObject(ScriptLog(name: source.name), forKeyedSubscript: "nativeLog" as NSString)
 
         let info: [String: Any] = [
             "name": source.name,
@@ -347,6 +373,44 @@ final class ScriptRuntime {
     (function () {
       var handlers = {};
       globalThis.module = globalThis.module || { exports: {} };
+
+      // 洛雪的脚本普遍这么写：const { EVENT_NAMES, request, on, send } = globalThis.lx
+      // EVENT_NAMES 的具体取值不重要（我们按注册的事件名回调），但必须存在，
+      // 否则 EVENT_NAMES[xxx] 直接抛 TypeError。用 Proxy 兜住任意取值。
+      var EVENT_NAMES = new Proxy({}, {
+        get: function (target, prop) {
+          if (typeof prop === 'symbol') { return undefined; }
+          return String(prop);
+        }
+      });
+
+      // JavaScriptCore 默认没有 console，脚本里的 console.log 会直接崩
+      function makeLog(level) {
+        return function () {
+          var parts = [];
+          for (var i = 0; i < arguments.length; i++) {
+            try { parts.push(String(arguments[i])); } catch (e) { parts.push('[unserializable]'); }
+          }
+          nativeLog(level + ' ' + parts.join(' '));
+        };
+      }
+      globalThis.console = {
+        log: makeLog('log'),
+        info: makeLog('info'),
+        warn: makeLog('warn'),
+        error: makeLog('error'),
+        debug: makeLog('debug'),
+        trace: makeLog('trace')
+      };
+
+      // 少数脚本会 require('./env') 拿自己的源码 / 配置，这里给个不报错的实现
+      globalThis.require = globalThis.require || function (name) {
+        if (String(name).indexOf('env') !== -1) {
+          return { scriptInfo: __beansInfo, name: __beansInfo.name || '' };
+        }
+        return {};
+      };
+
       var utils = {
         md5: function (v) { return __beansUtils.md5(String(v)); },
         aesEncrypt: function (d, m, k, i) { return __beansUtils.aesEncrypt(String(d), String(m), String(k), String(i || '')); },
@@ -373,6 +437,7 @@ final class ScriptRuntime {
         env: 'mobile',
         currentScriptInfo: __beansInfo,
         utils: utils,
+        EVENT_NAMES: EVENT_NAMES,
         status: { appVersion: '2.9.0' },
         on: function (event, handler) {
           handlers[event] = handler;
@@ -383,8 +448,7 @@ final class ScriptRuntime {
         request: function (url, options, callback) { __beansRequest.request(url, options, callback); },
         channel: { send: function () {}, on: function () {} },
         log: function () { if (typeof console !== 'undefined') console.log.apply(console, arguments); }
-      };
-      globalThis.lx = lx;
+      };      globalThis.lx = lx;
       globalThis.__beansCall = function (payload, done) {
         var info = payload.info || {};
         var invoke = null;
@@ -522,7 +586,8 @@ final class ScriptSourceRunner {
     /// 另外会读 `types` 和 `meta` 判断音质支持。缺的字段一律补齐，
     /// 这样一份洛雪脚本不用改就能跑。
     private static func musicInfo(for song: Song, quality: MusicQuality) -> [String: Any] {
-        let songID = song.neteaseID.map(String.init) ?? song.id
+        // 酷狗的音频标识是 hash，脚本普遍读 musicInfo.hash / musicInfo.id
+        let songID = song.kugouHash.isEmpty ? song.id : song.kugouHash
         let artistList = song.artist
             .components(separatedBy: CharacterSet(charactersIn: "/&,"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -540,6 +605,10 @@ final class ScriptSourceRunner {
             "media_mid": songID,
             "strMediaMid": songID,
             "hash": songID,
+            "albumId": song.kugouAlbumID,
+            "album_id": song.kugouAlbumID,
+            "audioId": song.kugouAudioID,
+            "audioid": song.kugouAudioID,
             "name": song.title,
             "songName": song.title,
             "artist": song.artist,
@@ -547,7 +616,10 @@ final class ScriptSourceRunner {
             "singer": song.artist,
             "album": song.album,
             "albumName": song.album,
-            "albumId": "",
+            "albumId": song.kugouAlbumID,
+            "album_id": song.kugouAlbumID,
+            "audioId": song.kugouAudioID,
+            "audioid": song.kugouAudioID,
             "interval": Int(song.duration),
             "source": song.source.code,
             // 洛雪脚本常读 musicInfo.types 判断自己支持哪些音质档位

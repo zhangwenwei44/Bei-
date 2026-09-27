@@ -15,14 +15,13 @@ struct SearchView: View {
     @FocusState private var isFieldFocused: Bool
 
     private enum Scope: Int, CaseIterable {
-        case songs, playlists, artists, albums
+        case songs, playlists, artists
 
         var title: String {
             switch self {
             case .songs: return "单曲"
-            case .playlists: return "歌单"
+            case .playlists: return "榜单"
             case .artists: return "歌手"
-            case .albums: return "专辑"
             }
         }
     }
@@ -169,41 +168,20 @@ struct SearchView: View {
                     }
                     .padding(.horizontal, 16)
                 case .artists:
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 14) {
-                            ForEach(results.artists) { artist in
-                                NavigationLink {
-                                    ArtistView(artist: artist)
-                                } label: {
-                                    SimpleCard(title: artist.name,
-                                               subtitle: artist.albumCount.map { "\($0) 张专辑" },
-                                               url: artist.coverURL,
-                                               fallbackKeys: [artist.id])
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                    }
-                case .albums:
-                    VStack(spacing: 0) {
-                        ForEach(results.albums) { album in
-                            NavigationLink {
-                                AlbumView(album: album)
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(results.artists) { artist in
+                            Button {
+                                runSearch(artist.name)
                             } label: {
                                 HStack(spacing: 12) {
-                                    CoverImage(url: album.coverURL, fallbackKeys: [album.id], seed: album.name, size: 52, corner: 6)
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(album.name)
-                                            .font(.system(size: 15, weight: .medium))
-                                            .foregroundStyle(AppStyle.primaryText)
-                                            .lineLimit(1)
-                                        Text(album.artistName)
-                                            .font(.system(size: 12))
-                                            .foregroundStyle(AppStyle.secondaryText)
-                                            .lineLimit(1)
-                                    }
+                                    CoverImage(url: artist.coverURL, seed: artist.name, size: 44, corner: 22)
+                                    Text(artist.name)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundStyle(AppStyle.primaryText)
                                     Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(AppStyle.tertiaryText)
                                 }
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 7)
@@ -288,23 +266,34 @@ struct SearchView: View {
         errorMessage = nil
         defer { isLoading = false }
 
-        let client = NetEaseClient.shared
+        let client = KugouClient.shared
         async let songs = try? client.searchSongs(keyword: text)
-        async let playlists = try? client.searchPlaylists(keyword: text)
-        async let artists = try? client.searchArtists(keyword: text)
-        async let albums = try? client.searchAlbums(keyword: text)
+        async let topLists = client.topLists()
 
-        let newResults = SearchResults(songs: await songs ?? [],
-                                       playlists: await playlists ?? [],
-                                       artists: await artists ?? [],
-                                       albums: await albums ?? [])
+        // 酷狗没有歌单/歌手搜索实体，榜单直接从榜单列表里按关键词过滤
+        let found = await songs ?? []
+        let ranks = await topLists
+        let filteredRanks = ranks.filter { $0.name.localizedCaseInsensitiveContains(text) }
+        let artists = Self.artistHints(from: found)
+
         guard submitted == text else { return }
-        results = newResults
-        // 补齐缺封面的歌，别让列表全是渐变兜底
-        await CoverResolver.shared.prefetchCovers(for: newResults.songs)
-        if newResults.isEmpty {
+        results = SearchResults(songs: found, playlists: filteredRanks, artists: artists)
+        if results.isEmpty {
             errorMessage = "换个关键词试试"
         }
+    }
+
+    /// 酷狗结果里没有独立歌手节点，这里从歌曲的歌手名聚合出「热门歌手」入口。
+    private static func artistHints(from songs: [Song]) -> [Artist] {
+        var seen = Set<String>()
+        var result: [Artist] = []
+        for song in songs {
+            for name in song.artist.components(separatedBy: "、").map({ $0.trimmingCharacters(in: .whitespaces) }) {
+                guard !name.isEmpty, seen.insert(name).inserted else { continue }
+                result.append(Artist(id: "kw:\(name)", name: name, coverURL: nil))
+            }
+        }
+        return Array(result.prefix(20))
     }
 
     private static let historyKey = "aurora.search.history"

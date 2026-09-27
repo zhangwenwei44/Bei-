@@ -12,9 +12,18 @@ struct SourceSettingsView: View {
     @State private var isImporting = false
     @State private var isExporting = false
     @State private var importMessage: String?
+    @State private var isImportingFiles = false
 
     var body: some View {
         List {
+            if importMessage != nil || isImportingFiles {
+                Section {
+                    importBanner
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
+            }
             Section {
                 if store.sources.isEmpty {
                     EmptyStateView(icon: "antenna.radiowaves.left.and.right",
@@ -72,7 +81,7 @@ struct SourceSettingsView: View {
                 Button {
                     isPasting = true
                 } label: {
-                    Label("粘贴 JSON 导入", systemImage: "text.alignleft")
+                    Label("粘贴内容导入", systemImage: "text.alignleft")
                 }
                 Button {
                     isExporting = true
@@ -123,29 +132,72 @@ struct SourceSettingsView: View {
                 importMessage = error.localizedDescription
             }
         }
-        .alert("导入结果", isPresented: Binding(get: { importMessage != nil },
-                                                set: { if !$0 { importMessage = nil } })) {
-            Button("好", role: .cancel) { importMessage = nil }
-        } message: {
-            Text(importMessage ?? "")
+    }
+
+    /// 导入结果直接显示在列表顶部。
+    ///
+    /// 之前用 alert 展示，选完文件经常「没反应」：alert 和同层的 sheet 抢呈现，
+    /// 加上弹窗被系统丢弃就什么都看不到。页内横幅不会被吞。
+    @ViewBuilder
+    private var importBanner: some View {
+        if let importMessage {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: importSucceeded ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .foregroundStyle(importSucceeded ? AppStyle.accent : AppStyle.like)
+                Text(importMessage)
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppStyle.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Button {
+                    withAnimation { self.importMessage = nil }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(12)
+            .background(AppStyle.surfaceHigh, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+        } else if isImportingFiles {
+            HStack(spacing: 10) {
+                ProgressView().tint(AppStyle.accent)
+                Text("正在读取并解析文件…")
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppStyle.secondaryText)
+                Spacer()
+            }
+            .padding(12)
+            .background(AppStyle.surfaceHigh, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
         }
     }
 
+    private var importSucceeded: Bool {
+        importMessage?.hasPrefix("成功") == true || importMessage?.hasPrefix("导入") == true
+    }
+
     private static var importableTypes: [UTType] {
-        // 放宽到能覆盖洛雪音源的 .js，以及没扩展名的配置文件
-        var types: [UTType] = [.json, .plainText, .data]
+        // 洛雪音源是 .js，配置是 .json / .txt；用 item 兜底，避免任何文件在选择器里被置灰
+        var types: [UTType] = [.item, .json, .plainText, .data]
         for ext in ["txt", "conf", "js", "json5", "ini"] {
             if let type = UTType(filenameExtension: ext) { types.append(type) }
         }
         return types
     }
 
-    /// 从文件导入：优先按 JSON 解析，失败则把整个文件当 JS 脚本音源。
+    /// 从文件导入：先按 JSON 配置解析，认不出来就当 JS 脚本音源存。
     ///
-    /// 整个函数标 @MainActor：之前它是普通 async 方法，跨 await 之后在通用执行器上
-    /// 写 @State，弹窗不弹，用户看到的就是「选完没反应」。
+    /// 整个函数标 @MainActor：普通 async 方法跨 await 后会在通用执行器上写 @State，
+    /// 表现就是「选完没反应」。
     @MainActor
     private func importFromFiles(_ urls: [URL]) async {
+        isImportingFiles = true
+        defer { isImportingFiles = false }
+
         var added = 0
         var addedNames: [String] = []
         var failures: [String] = []
@@ -154,11 +206,11 @@ struct SourceSettingsView: View {
             let accessed = url.startAccessingSecurityScopedResource()
             defer { if accessed { url.stopAccessingSecurityScopedResource() } }
 
-            guard let data = try? Data(contentsOf: url) else {
-                failures.append("\(url.lastPathComponent)（读不到文件，检查一下权限）")
+            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+                failures.append("\(url.lastPathComponent)（读不到，可能没给文件访问权限）")
                 continue
             }
-            // 洛雪的脚本多半是 UTF-8，但也有 GBK 的兜一下
+            // 洛雪的脚本基本都是 UTF-8，GBK 兜一下
             let text = String(data: data, encoding: .utf8)
                 ?? String(data: data, encoding: .init(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))))
             guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -174,13 +226,13 @@ struct SourceSettingsView: View {
                 continue
             }
 
-            // 不是 JSON 配置：按 JS 脚本音源导入（.js 扩展名直接认，其余看内容）
-            let isScriptFile = url.pathExtension.lowercased() == "js"
-            let looksLikeScript = text.contains("lx.on(")
-                || text.contains("lx.utils")
-                || text.contains("musicUrl")
+            // 混淆过的脚本里 lx.on 这些字面量是编码的，只能靠扩展名和整体特征判断
+            let isScriptFile = ["js", "mjs", "cjs", "txt"].contains(url.pathExtension.lowercased())
+            let looksLikeScript = text.contains("globalThis")
                 || text.contains("module.exports")
-                || text.contains("getMusicUrl")
+                || text.contains("require(")
+                || text.contains("=>")
+                || text.contains("function")
             if isScriptFile || looksLikeScript {
                 let name = url.deletingPathExtension().lastPathComponent
                 let finalName = name.isEmpty ? "导入的脚本音源" : name
@@ -335,7 +387,7 @@ struct SourceEditorView: View {
                 } header: {
                     Text("请求头")
                 } footer: {
-                    Text("特殊键：apiKey（密钥，多个用逗号分隔）、apiKeys、source（限定平台，网易云填 wy）、quality。")
+                    Text("特殊键：apiKey（密钥，多个用逗号分隔）、apiKeys、source（限定平台，酷狗填 kg）、quality。")
                         .font(.system(size: 11))
                 }
 
@@ -393,7 +445,15 @@ struct SourceEditorView: View {
         var probe = draft
         probe.headers = Self.parseHeaders(headersText)
         probe.enabled = true
-        let song = Song(id: "wy:150208236", title: "晴天", artist: "周杰伦", source: .netease, neteaseID: 150208236)
+        // 用酷狗一首大众都听过的歌做探针
+        let song = Song(title: "晴天",
+                        artist: "周杰伦",
+                        album: "叶惠美",
+                        duration: 269,
+                        source: .kugou,
+                        kugouHash: "B3A52A7A958BF0AED0EBFBA2E9A818B7",
+                        kugouAudioID: "20505418",
+                        kugouAlbumID: "966846")
 
         if let audio = await SourceResolver.thirdPartyURL(sources: [probe],
                                                           song: song,
@@ -447,7 +507,7 @@ struct SourceImportView: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
-                Text("粘贴音源配置 JSON，支持单条对象、数组，或带 sources 字段的对象。字段也可用 url 代替 template。")
+                Text("支持洛雪（lx-music）音源脚本。粘进来先按 JSON 配置试，认不出来就整段当 JS 脚本存。")
                     .font(.system(size: 12))
                     .foregroundStyle(AppStyle.secondaryText)
                 TextEditor(text: $text)
@@ -464,7 +524,7 @@ struct SourceImportView: View {
             }
             .padding(16)
             .background(AppStyle.background)
-            .navigationTitle("导入音源")
+            .navigationTitle("粘贴导入")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -479,13 +539,37 @@ struct SourceImportView: View {
     }
 
     private func importSources() {
-        let parsed = SourceStore.parseImport(text)
-        guard !parsed.isEmpty else {
-            message = "没解析出音源，检查 JSON 格式"
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            message = "内容是空的"
             return
         }
-        for source in parsed { store.upsert(source) }
+        let parsed = SourceStore.parseImport(trimmed)
+        if !parsed.isEmpty {
+            for source in parsed { store.upsert(source) }
+            dismiss()
+            return
+        }
+        // 整段当 JS 脚本，名字从 /*! @name xxx */ 里取
+        var name = "粘贴的脚本音源"
+        if trimmed.hasPrefix("/*!"), let firstLine = trimmed.components(separatedBy: .newlines).first,
+           let parsedName = Self.scriptName(from: firstLine), !parsedName.isEmpty {
+            name = parsedName
+        }
+        store.upsert(ThirdPartySource(name: name, kind: .script, script: trimmed))
         dismiss()
+    }
+
+    /// 从 `/*! @name 音源名 */` 里取音源名。
+    static func scriptName(from headerLine: String) -> String? {
+        for key in ["@name", "@名称"] {
+            guard let range = headerLine.range(of: key) else { continue }
+            let rest = headerLine[range.upperBound...]
+            let end = rest.firstIndex(where: { $0 == "*" || $0 == "\n" }) ?? rest.endIndex
+            let value = rest[..<end].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty { return value }
+        }
+        return nil
     }
 }
 

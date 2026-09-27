@@ -1,23 +1,23 @@
 import Foundation
 
-/// 歌曲来源平台。第三方音源解析按平台分派（wy / tx / kg）。
+/// 歌曲来源平台。第三方音源脚本按平台分派（kg / kw / tx / wy）。
 enum SongSource: String, Codable, CaseIterable, Identifiable, Hashable {
-    case netease
+    case kugou
     case local
 
     var id: String { rawValue }
 
-    /// 供第三方音源脚本识别的平台代码。
+    /// 洛雪那套的平台代码。
     var code: String {
         switch self {
-        case .netease: return "wy"
+        case .kugou: return "kg"
         case .local: return "local"
         }
     }
 
     var title: String {
         switch self {
-        case .netease: return "网易云音乐"
+        case .kugou: return "酷狗音乐"
         case .local: return "本地音频"
         }
     }
@@ -28,7 +28,7 @@ enum MusicQuality: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// 网易云 level 参数。
+    /// 酷狗接口的音质档位。
     var level: String {
         switch self {
         case .standard: return "standard"
@@ -84,7 +84,7 @@ enum MusicQuality: String, Codable, CaseIterable, Identifiable {
 }
 
 struct Song: Identifiable, Hashable, Codable {
-    /// 全局唯一：`wy:12345` / `local:文件名hash`
+    /// 全局唯一：`kg:<hash>` / `local:<路径hash>`
     var id: String
     var title: String
     var artist: String
@@ -95,9 +95,12 @@ struct Song: Identifiable, Hashable, Codable {
     var isLocal: Bool = false
     var duration: Double = 0
     var artworkURL: URL?
-    var source: SongSource = .netease
-    /// 平台内 ID，第三方音源解析时使用。
-    var neteaseID: Int?
+    var source: SongSource = .kugou
+    /// 酷狗的音频 hash，第三方音源解析时用。
+    var kugouHash: String = ""
+    /// 酷狗的 album audio id，部分接口需要。
+    var kugouAudioID: String = ""
+    var kugouAlbumID: String = ""
     var playCount: Int = 0
 
     init(id: String? = nil,
@@ -109,10 +112,13 @@ struct Song: Identifiable, Hashable, Codable {
          isLocal: Bool = false,
          duration: Double = 0,
          artworkURL: URL? = nil,
-         source: SongSource = .netease,
-         neteaseID: Int? = nil,
+         source: SongSource = .kugou,
+         kugouHash: String = "",
+         kugouAudioID: String = "",
+         kugouAlbumID: String = "",
          playCount: Int = 0) {
-        self.id = id ?? (neteaseID.map { "\(source.code):\($0)" } ?? "\(source.code):\(UUID().uuidString)")
+        let resolvedHash = kugouHash.isEmpty ? (id ?? UUID().uuidString) : kugouHash
+        self.id = id ?? (source == .local ? "local:\(resolvedHash)" : "kg:\(resolvedHash)")
         self.title = title
         self.artist = artist
         self.album = album
@@ -122,7 +128,9 @@ struct Song: Identifiable, Hashable, Codable {
         self.duration = duration
         self.artworkURL = artworkURL
         self.source = source
-        self.neteaseID = neteaseID
+        self.kugouHash = kugouHash
+        self.kugouAudioID = kugouAudioID
+        self.kugouAlbumID = kugouAlbumID
         self.playCount = playCount
     }
 
@@ -130,7 +138,7 @@ struct Song: Identifiable, Hashable, Codable {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
     /// 是否可以交给在线接口解析（本地文件不走网络）。
-    var isRemote: Bool { !isLocal && source != .local }
+    var isRemote: Bool { !isLocal && source == .kugou && !kugouHash.isEmpty }
 
     /// 已下载到本地的文件位置（由 DownloadManager 维护）。
     static func localID(for path: String) -> String { "local:\(path)" }

@@ -1,71 +1,43 @@
 import Foundation
 
-/// 歌单（网易云 playlist / toplist）。
+/// 歌单。酷狗这边在线的是榜单，本地的是用户自建歌单。
 struct Playlist: Identifiable, Hashable {
     var id: String
     var name: String
     var coverURL: URL?
     var trackCount: Int
     var creatorName: String = ""
-    var source: SongSource = .netease
-    var neteaseID: Int?
-    /// 榜单的更新时间文案。
+    var source: SongSource = .kugou
+    /// 酷狗榜单 ID（`kg-rank:` 前缀的条目用）。
+    var kugouRankID: String?
     var updateFrequency: String = ""
 
     init(id: String, name: String, coverURL: URL?, trackCount: Int,
-         creatorName: String = "", source: SongSource = .netease,
-         neteaseID: Int? = nil, updateFrequency: String = "") {
+         creatorName: String = "", source: SongSource = .kugou,
+         kugouRankID: String? = nil, updateFrequency: String = "") {
         self.id = id
         self.name = name
         self.coverURL = coverURL
         self.trackCount = trackCount
         self.creatorName = creatorName
         self.source = source
-        self.neteaseID = neteaseID
+        self.kugouRankID = kugouRankID
         self.updateFrequency = updateFrequency
     }
 }
 
-/// 歌手。
+/// 歌手。酷狗的搜索结果里没有独立歌手实体，歌手页用搜索代替。
 struct Artist: Identifiable, Hashable {
     var id: String
     var name: String
     var coverURL: URL?
-    var source: SongSource = .netease
-    var neteaseID: Int?
-    var albumCount: Int?
+    var source: SongSource = .kugou
 
-    init(id: String, name: String, coverURL: URL? = nil,
-         source: SongSource = .netease, neteaseID: Int? = nil,
-         albumCount: Int? = nil) {
+    init(id: String, name: String, coverURL: URL? = nil, source: SongSource = .kugou) {
         self.id = id
         self.name = name
         self.coverURL = coverURL
         self.source = source
-        self.neteaseID = neteaseID
-        self.albumCount = albumCount
-    }
-}
-
-/// 专辑。
-struct Album: Identifiable, Hashable {
-    var id: String
-    var name: String
-    var artistName: String
-    var coverURL: URL?
-    var source: SongSource = .netease
-    var neteaseID: Int?
-    var trackCount: Int?
-
-    init(id: String, name: String, artistName: String, coverURL: URL? = nil,
-         source: SongSource = .netease, neteaseID: Int? = nil, trackCount: Int? = nil) {
-        self.id = id
-        self.name = name
-        self.artistName = artistName
-        self.coverURL = coverURL
-        self.source = source
-        self.neteaseID = neteaseID
-        self.trackCount = trackCount
     }
 }
 
@@ -74,143 +46,103 @@ struct SearchResults {
     var songs: [Song] = []
     var playlists: [Playlist] = []
     var artists: [Artist] = []
-    var albums: [Album] = []
 
-    var isEmpty: Bool {
-        songs.isEmpty && playlists.isEmpty && artists.isEmpty && albums.isEmpty
-    }
+    var isEmpty: Bool { songs.isEmpty && playlists.isEmpty && artists.isEmpty }
 }
 
 /// 首页聚合数据。
 struct DiscoverFeed {
-    var hotSearch: [String] = []
-    var recommendedPlaylists: [Playlist] = []
     var topLists: [Playlist] = []
-    var newSongs: [Song] = []
 
-    var isEmpty: Bool {
-        hotSearch.isEmpty && recommendedPlaylists.isEmpty && topLists.isEmpty && newSongs.isEmpty
-    }
+    var isEmpty: Bool { topLists.isEmpty }
 }
 
-// MARK: - JSON 解析
+// MARK: - 酷狗 JSON 解析
 
 extension Song {
-    /// 解析网易云歌曲节点。搜索、歌单、歌手、专辑共用同一套字段。
-    init?(neteaseJSON json: [String: Any]) {
-        guard let neteaseID = (json["id"] as? Int) ?? (json["id"] as? NSNumber)?.intValue,
-              neteaseID > 0 else { return nil }
+    /// 解析酷狗歌曲节点。搜索、榜单共用同一套字段。
+    ///
+    /// 关键字段：`FileHash`（音频标识）、`FileName`（带 `<em>` 高亮标签，要剥掉）、
+    /// `SingerName`、`AlbumName`、`Duration`（秒）、`Image` / `AlbumImage`（封面）。
+    init?(kugouJSON json: [String: Any]) {
+        let hash = KugouClient.string(json["FileHash"]) ?? KugouClient.string(json["hash"]) ?? ""
+        guard !hash.isEmpty else { return nil }
 
-        let title = (json["name"] as? String) ?? "未知歌曲"
-        let artists = ArtistName.parse(json["ar"] ?? json["artists"])
-        let albumName = ((json["al"] as? [String: Any])?["name"] as? String)
-            ?? ((json["album"] as? [String: Any])?["name"] as? String)
+        let rawName = KugouClient.string(json["FileName"])
+            ?? KugouClient.string(json["SongName"])
             ?? ""
+        let title = Self.stripHighlight(rawName)
+        guard !title.isEmpty else { return nil }
+
+        let artist = KugouClient.string(json["SingerName"])
+            ?? KugouClient.string(json["Singer"])
+            ?? "未知歌手"
+        let album = KugouClient.string(json["AlbumName"]) ?? ""
 
         var cover: URL?
-        if let pic = ((json["al"] as? [String: Any])?["picUrl"] as? String) ?? (json["album"] as? [String: Any])?["picUrl"] as? String,
-           !pic.isEmpty {
-            cover = URL(string: pic)
-        }
-        if cover == nil, let pic = json["picUrl"] as? String, !pic.isEmpty {
-            cover = URL(string: pic)
+        for key in ["Image", "AlbumImage", "img", "Img"] {
+            if let raw = KugouClient.string(json[key]), !raw.isEmpty {
+                // 酷狗封面地址里有 {size} 占位
+                let fixed = raw.replacingOccurrences(of: "{si}", with: "300")
+                    .replacingOccurrences(of: "{size}", with: "300")
+                cover = URL(string: fixed)
+                if cover != nil { break }
+            }
         }
 
-        let durationMS = (json["duration"] as? Int) ?? ((json["duration"] as? NSNumber)?.intValue) ?? 0
-        let duration = durationMS > 0 ? Double(durationMS) / 1000 : 0
+        var duration: Double = 0
+        if let seconds = KugouClient.intValue(json["Duration"]) { duration = Double(seconds) }
+        if duration == 0, let ms = KugouClient.intValue(json["duration"]) { duration = Double(ms) / 1000 }
 
-        self.init(id: "wy:\(neteaseID)",
+        var tags: [String] = []
+        if let payType = KugouClient.intValue(json["PayType"]), payType > 0 { tags.append("VIP") }
+        if let ext = KugouClient.string(json["ExtName"]), !ext.isEmpty { tags.append(ext.uppercased()) }
+        if let isOriginal = KugouClient.intValue(json["IsOriginal"]), isOriginal == 1 { tags.append("原唱") }
+
+        self.init(id: "kg:\(hash)",
                   title: title,
-                  artist: artists.isEmpty ? "未知歌手" : artists,
-                  album: albumName,
-                  tags: Song.tagList(from: json),
+                  artist: artist,
+                  album: album,
+                  tags: tags,
                   duration: duration,
                   artworkURL: cover,
-                  source: .netease,
-                  neteaseID: neteaseID,
-                  playCount: (json["playCount"] as? Int) ?? ((json["playCount"] as? NSNumber)?.intValue) ?? 0)
+                  source: .kugou,
+                  kugouHash: hash,
+                  kugouAudioID: KugouClient.string(json["Audioid"]) ?? KugouClient.string(json["audioid"]) ?? "",
+                  kugouAlbumID: KugouClient.string(json["AlbumID"]) ?? KugouClient.string(json["album_id"]) ?? "")
     }
 
-    private static func tagList(from json: [String: Any]) -> [String] {
-        var tags: [String] = []
-        let privilege = json["privilege"] as? [String: Any]
-        let fee = (privilege?["fee"] as? Int) ?? ((json["fee"] as? Int) ?? 0)
-        if fee == 1 {
-            tags.append("VIP")
-        } else if (json["st"] as? Int) == -200 {
-            tags.append("未开放")
+    /// 酷狗搜索结果的歌名带 `<em>` 高亮标签。
+    static func stripHighlight(_ text: String) -> String {
+        guard text.contains("<") else { return text }
+        var out = ""
+        var inside = false
+        for ch in text {
+            if ch == "<" { inside = true; continue }
+            if ch == ">" { inside = false; continue }
+            if !inside { out.append(ch) }
         }
-        if let modes = json["alia"] as? [String], !modes.isEmpty {
-            tags.append("原唱")
-        }
-        if let publishTime = (json["publishTime"] as? NSNumber)?.intValue, publishTime > 1_600_000_000 {
-            let year = Calendar.current.component(.year, from: Date(timeIntervalSince1970: TimeInterval(publishTime / 1000)))
-            tags.append("\(String(year))")
-        }
-        return tags
+        return out.trimmingCharacters(in: .whitespaces)
     }
 }
 
 extension Playlist {
-    init?(neteaseJSON json: [String: Any]) {
-        guard let neteaseID = (json["id"] as? Int) ?? ((json["id"] as? NSNumber)?.intValue), neteaseID > 0 else { return nil }
-        let name = (json["name"] as? String) ?? "未命名歌单"
-        var cover: URL?
-        if let pic = json["coverImgUrl"] as? String, !pic.isEmpty {
-            cover = URL(string: pic)
-        } else if let pic = (json["picUrl"] as? String), !pic.isEmpty {
-            cover = URL(string: pic)
+    init?(kugouJSON json: [String: Any]) {
+        guard let rankID = KugouClient.string(json["rankid"]) ?? KugouClient.string(json["id"]),
+              !rankID.isEmpty else { return nil }
+        let name = KugouClient.string(json["rankname"]) ?? "榜单"
+        var cover = KugouClient.string(json["img9"]) ?? KugouClient.string(json["imgurl"])
+        if let raw = cover {
+            cover = raw.replacingOccurrences(of: "{si}", with: "300")
+                .replacingOccurrences(of: "{size}", with: "300")
         }
-        self.init(id: "pl:\(neteaseID)",
+        self.init(id: "kg-rank:\(rankID)",
                   name: name,
-                  coverURL: cover,
-                  trackCount: (json["trackCount"] as? Int) ?? ((json["trackCount"] as? NSNumber)?.intValue) ?? 0,
-                  creatorName: (json["creator"] as? [String: Any])?["nickname"] as? String ?? "",
-                  source: .netease,
-                  neteaseID: neteaseID,
-                  updateFrequency: (json["updateFrequency"] as? String) ?? "")
-    }
-}
-
-extension Artist {
-    init?(neteaseJSON json: [String: Any]) {
-        guard let neteaseID = (json["id"] as? Int) ?? ((json["id"] as? NSNumber)?.intValue), neteaseID > 0 else { return nil }
-        let pic = (json["picUrl"] as? String) ?? (json["img1v1Url"] as? String) ?? ""
-        self.init(id: "ar:\(neteaseID)",
-                  name: (json["name"] as? String) ?? "未知歌手",
-                  coverURL: pic.isEmpty ? nil : URL(string: pic),
-                  source: .netease,
-                  neteaseID: neteaseID,
-                  albumCount: (json["albumSize"] as? Int) ?? ((json["albumSize"] as? NSNumber)?.intValue))
-    }
-}
-
-extension Album {
-    init?(neteaseJSON json: [String: Any]) {
-        guard let neteaseID = (json["id"] as? Int) ?? ((json["id"] as? NSNumber)?.intValue), neteaseID > 0 else { return nil }
-        let pic = (json["picUrl"] as? String) ?? ""
-        let artistName = ArtistName.parse(json["artist"] ?? json["artists"])
-        self.init(id: "al:\(neteaseID)",
-                  name: (json["name"] as? String) ?? "未知专辑",
-                  artistName: artistName,
-                  coverURL: pic.isEmpty ? nil : URL(string: pic),
-                  source: .netease,
-                  neteaseID: neteaseID,
-                  trackCount: (json["size"] as? Int) ?? ((json["size"] as? NSNumber)?.intValue))
-    }
-}
-
-/// `ar` / `artists` 节点解析成「歌手A、歌手B」。
-enum ArtistName {
-    static func parse(_ raw: Any?) -> String {
-        guard let list = raw as? [[String: Any]] else {
-            if let single = raw as? [String: Any] {
-                return (single["name"] as? String) ?? ""
-            }
-            return ""
-        }
-        return list.compactMap { $0["name"] as? String }
-            .filter { !$0.isEmpty }
-            .joined(separator: "、")
+                  coverURL: cover.flatMap { URL(string: $0) },
+                  trackCount: KugouClient.intValue(json["songcount"]) ?? 0,
+                  creatorName: "酷狗音乐",
+                  source: .kugou,
+                  kugouRankID: rankID,
+                  updateFrequency: KugouClient.string(json["update_frequency"]) ?? "")
     }
 }

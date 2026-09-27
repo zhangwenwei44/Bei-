@@ -265,7 +265,7 @@ struct AboutView: View {
         "{name}  歌名（已编码）",
         "{artist}  歌手（已编码）",
         "{keyword}  歌名 + 歌手",
-        "{source}  平台代码，网易云是 wy",
+        "{source}  平台代码，酷狗是 kg",
         "{quality}  音质，如 320k / flac",
         "{apiKey}  请求密钥",
     ]

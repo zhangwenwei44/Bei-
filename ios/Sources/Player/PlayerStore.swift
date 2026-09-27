@@ -306,12 +306,11 @@ final class PlayerStore: ObservableObject {
 
     private func loadLyrics(for song: Song) {
         lyricTaskID = song.id
-        guard let neteaseID = song.neteaseID, neteaseID > 0 else { return }
+        guard !song.kugouHash.isEmpty else { return }
         Task { [weak self] in
-            let result = try? await NetEaseClient.shared.lyric(id: neteaseID)
-            guard let result else { return }
-            let (lrc, tlyric) = result
-            let parsed = LRCParser.parse(lrc, translation: tlyric)
+            let lrc = await KugouClient.shared.lyric(hash: song.kugouHash, duration: song.duration)
+            guard let lrc, !lrc.isEmpty else { return }
+            let parsed = LRCParser.parse(lrc)
             guard !parsed.isEmpty else { return }
             await MainActor.run { [weak self] in
                 guard let self, self.lyricTaskID == song.id else { return }

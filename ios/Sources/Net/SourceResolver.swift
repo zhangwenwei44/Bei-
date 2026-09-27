@@ -33,14 +33,16 @@ enum SourceResolver {
 
     // MARK: - 官方
 
+    /// 直连酷狗。设备指纹过不了时返回 nil，自然落到第三方音源。
     private static func officialURL(for song: Song, quality: MusicQuality) async -> ResolvedAudio? {
-        guard let neteaseID = song.neteaseID, neteaseID > 0 else { return nil }
+        guard !song.kugouHash.isEmpty else { return nil }
         for level in quality.fallbackChain {
-            let urls = (try? await NetEaseClient.shared.songURLs(ids: [neteaseID], level: level)) ?? [:]
-            guard let info = urls[neteaseID] else { continue }
-            // freeTrialInfo 表示只有 30 秒试听，不算可用
-            guard !info.freeTrial, let raw = info.url, !raw.isEmpty, let url = URL(string: raw) else { continue }
-            return ResolvedAudio(url: url, sourceName: "网易云音乐", quality: level, isThirdParty: false)
+            let url = await KugouClient.shared.songURL(hash: song.kugouHash,
+                                                       audioID: song.kugouAudioID.isEmpty ? nil : song.kugouAudioID,
+                                                       albumID: song.kugouAlbumID.isEmpty ? nil : song.kugouAlbumID,
+                                                       quality: level)
+            guard let raw = url, let parsed = URL(string: raw), !raw.isEmpty else { continue }
+            return ResolvedAudio(url: parsed, sourceName: "酷狗音乐", quality: level, isThirdParty: false)
         }
         return nil
     }
@@ -181,17 +183,20 @@ enum SourceResolver {
     // MARK: - 模板变量
 
     private static func applyTemplate(_ template: String, song: Song) -> String {
-        let songID = song.neteaseID.map(String.init) ?? song.id
+        let songID = song.kugouHash.isEmpty ? song.id : song.kugouHash
         var result = template
         let replacements: [String: String] = [
             "{id}": songID,
+            "{hash}": songID,
             "{songId}": songID,
             "{songid}": songID,
             "{songID}": songID,
             "{songmid}": songID,
             "{mid}": songID,
-            "{hash}": songID,
             "{copyrightId}": songID,
+            "{album_id}": song.kugouAlbumID,
+            "{albumId}": song.kugouAlbumID,
+            "{audioid}": song.kugouAudioID,
             "{source}": song.source.code,
             "{name}": encode(song.title),
             "{keyword}": encode([song.title, song.artist].joined(separator: " ")),

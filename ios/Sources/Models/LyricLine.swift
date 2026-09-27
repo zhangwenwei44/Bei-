@@ -4,7 +4,7 @@ struct LyricLine: Identifiable, Equatable {
     let id = UUID()
     let time: Double
     let text: String
-    /// 翻译歌词（网易云 tlyric），没有时为 nil。
+    /// 翻译歌词（部分音源会带），没有时为 nil。
     var translation: String?
 }
 
