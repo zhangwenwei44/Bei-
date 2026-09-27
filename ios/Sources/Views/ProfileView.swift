@@ -6,7 +6,9 @@ struct ProfileView: View {
     @ObservedObject private var sourceStore = SourceStore.shared
     @ObservedObject private var downloads = DownloadManager.shared
     @ObservedObject private var library = LibraryStore.shared
+    @StateObject private var updater = AppUpdater.shared
     @State private var isAboutPresented = false
+    @State private var isUpdatePresented = false
 
     var body: some View {
         List {
@@ -88,6 +90,31 @@ struct ProfileView: View {
 
             Section {
                 Button {
+                    isUpdatePresented = true
+                } label: {
+                    HStack {
+                        Label("检查更新", systemImage: "arrow.down.circle")
+                        Spacer()
+                        if updater.phase.isBusy {
+                            ProgressView()
+                        } else {
+                            Text(updateBadge)
+                                .font(.system(size: 13))
+                                .foregroundStyle(AppStyle.tertiaryText)
+                        }
+                    }
+                }
+                .disabled(updater.phase.isBusy)
+            } header: {
+                headerText("版本")
+            } footer: {
+                Text("检查 GitHub Releases 上的最新版本。越狱设备下载完成后会直接弹出「选取软件安装」。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.tertiaryText)
+            }
+
+            Section {
+                Button {
                     isAboutPresented = true
                 } label: {
                     HStack {
@@ -108,6 +135,27 @@ struct ProfileView: View {
         .navigationBarTitleDisplayMode(.large)
         .sheet(isPresented: $isAboutPresented) {
             AboutView()
+        }
+        .sheet(isPresented: $isUpdatePresented) {
+            UpdateView()
+        }
+        .task {
+            if case .idle = updater.phase {
+                await updater.check()
+            }
+        }
+    }
+
+    private var updateBadge: String {
+        switch updater.phase {
+        case .upToDate:
+            return "已是最新 \(AppUpdater.shared.versionText)"
+        case .available(let release):
+            return release.tag_name
+        case .failed:
+            return "检查失败"
+        default:
+            return AppUpdater.shared.versionText
         }
     }
 

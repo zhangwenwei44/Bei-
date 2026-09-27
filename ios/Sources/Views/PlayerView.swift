@@ -17,7 +17,6 @@ struct PlayerView: View {
             VStack(spacing: 0) {
                 topBar
                     .padding(.horizontal, 18)
-                bitrateChip
                 lyrics
                     .frame(maxHeight: .infinity)
                 meta
@@ -102,26 +101,31 @@ struct PlayerView: View {
         return "\(song?.title ?? "") - \(song?.artist ?? "")"
     }
 
-    private var bitrateChip: some View {
-        HStack(spacing: 4) {
-            Image(systemName: store.isLoading ? "arrow.triangle.2.circlepath" : "arrow.down")
-                .font(.system(size: 8, weight: .bold))
-            Text(chipText)
-                .font(.system(size: 11, design: .monospaced))
+    /// 音质徽标：紧跟在歌手后面
+    private var qualityPill: some View {
+        HStack(spacing: 3) {
+            if store.isLoading {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 8, weight: .bold))
+            } else {
+                Image(systemName: "waveform")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            Text(qualityText)
+                .font(.system(size: 10, weight: .medium))
         }
-        .foregroundStyle(.white.opacity(0.85))
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-        .padding(.leading, 10)
-        .padding(.top, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundStyle(.white.opacity(0.9))
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(AppStyle.gold.opacity(0.22), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .stroke(AppStyle.gold.opacity(0.45), lineWidth: 0.5))
     }
 
-    private var chipText: String {
+    private var qualityText: String {
         if store.isLoading { return "解析中" }
         if store.playbackError != nil { return "无法播放" }
-        return store.bitrateLabel.isEmpty ? "在线播放" : store.bitrateLabel
+        return store.bitrateLabel.isEmpty ? SourceStore.shared.quality.title : store.bitrateLabel
     }
 
     private var lyrics: some View {
@@ -166,6 +170,8 @@ struct PlayerView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.white)
 
+                qualityPill
+
                 if let album = store.current?.album, !album.isEmpty {
                     Text(album)
                         .font(.system(size: 11))
@@ -206,7 +212,17 @@ struct PlayerView: View {
             actionButton(icon: "list.bullet", label: "队列") {
                 store.isQueuePresented = true
             }
-            actionButton(icon: "ellipsis", label: "") { show("更多功能开发中") }
+            actionButton(icon: store.mode.icon, label: modeLabel) {
+                store.cycleMode()
+            }
+        }
+    }
+
+    private var modeLabel: String {
+        switch store.mode {
+        case .order: return "顺序"
+        case .single: return "单曲"
+        case .shuffle: return "随机"
         }
     }
 
@@ -300,12 +316,6 @@ struct PlayerView: View {
 
     private var controls: some View {
         HStack {
-            Button { store.cycleMode() } label: {
-                Image(systemName: store.mode.icon)
-                    .font(.system(size: 22))
-                    .frame(width: 52, height: 52)
-            }
-
             Button { store.step(-1) } label: {
                 Image(systemName: "backward.end.fill")
                     .font(.system(size: 26))

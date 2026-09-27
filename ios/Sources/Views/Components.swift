@@ -18,13 +18,22 @@ enum AppStyle {
 // MARK: - 封面
 
 /// 带渐变兜底的封面图。
+///
+/// `fallbackKeys` 是回退实体的 id（`pl:123` / `ar:456` / `al:789`），
+/// 详情页加载完后 CoverResolver 里登记了图，这里就会自动顶上。
 struct CoverImage: View {
     let url: URL?
+    var fallbackKeys: [String] = []
     var seed: String = "-"
     var size: CGFloat = 48
     var corner: CGFloat = 8
 
     @State private var image: UIImage?
+    @State private var resolved: URL?
+
+    private var effectiveURL: URL? {
+        url ?? resolved ?? CoverResolver.shared.firstAvailable(fallbackKeys)
+    }
 
     var body: some View {
         ZStack {
@@ -43,21 +52,32 @@ struct CoverImage: View {
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-        .task(id: url) { await load() }
+        .task(id: taskKey) { await load() }
+    }
+
+    private var taskKey: String {
+        (effectiveURL?.absoluteString ?? "-") + "|" + size.description
     }
 
     private func load() async {
-        guard let url else { image = nil; return }
-        if let cached = CoverCache.shared.image(for: url) {
+        guard let target = effectiveURL else {
+            image = nil
+            return
+        }
+        if target.isFileURL, let data = try? Data(contentsOf: target), let loaded = UIImage(data: data) {
+            image = loaded
+            return
+        }
+        if let cached = CoverCache.shared.image(for: target) {
             image = cached
             return
         }
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: target)
         request.timeoutInterval = 10
         request.setValue("AuroraMusic/1.0", forHTTPHeaderField: "User-Agent")
         guard let (data, _) = try? await URLSession.shared.data(for: request),
               let loaded = UIImage(data: data) else { return }
-        CoverCache.shared.store(loaded, for: url)
+        CoverCache.shared.store(loaded, for: target)
         image = loaded
     }
 }
@@ -143,6 +163,7 @@ struct SongRow: View {
         HStack(spacing: 12) {
             if showsCover {
                 CoverImage(url: song.artworkURL,
+                           fallbackKeys: song.neteaseID.map { ["wy:\($0)"] } ?? [],
                            seed: "\(song.artist)-\(song.title)",
                            size: 44)
                 .overlay(alignment: .bottomTrailing) {
@@ -252,7 +273,11 @@ struct PlaylistCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            CoverImage(url: playlist.coverURL, seed: playlist.name, size: width, corner: 10)
+            CoverImage(url: playlist.coverURL,
+                       fallbackKeys: [playlist.id],
+                       seed: playlist.name,
+                       size: width,
+                       corner: 10)
             Text(playlist.name)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(AppStyle.primaryText)
@@ -287,11 +312,12 @@ struct SimpleCard: View {
     let title: String
     let subtitle: String?
     let url: URL?
+    var fallbackKeys: [String] = []
     var size: CGFloat = 60
 
     var body: some View {
         VStack(spacing: 6) {
-            CoverImage(url: url, seed: title, size: size, corner: size / 2)
+            CoverImage(url: url, fallbackKeys: fallbackKeys, seed: title, size: size, corner: size / 2)
             Text(title)
                 .font(.system(size: 12))
                 .foregroundStyle(AppStyle.primaryText)
@@ -308,6 +334,42 @@ struct SimpleCard: View {
 }
 
 // MARK: - 状态
+
+/// 顶部数据磁贴：图标 + 数字 + 说明，点一下切换下面的分组。
+struct StatTile: View {
+    let icon: String
+    let title: String
+    let value: Int
+    let tint: Color
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(isSelected ? tint : tint.opacity(0.7))
+                    .frame(width: 38, height: 38)
+                    .background(tint.opacity(isSelected ? 0.18 : 0.10), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                Text("\(value)")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(AppStyle.primaryText)
+                Text(title)
+                    .font(.system(size: 11))
+                    .foregroundStyle(isSelected ? AppStyle.secondaryText : AppStyle.tertiaryText)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(isSelected ? tint.opacity(0.45) : Color.clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
 
 struct EmptyStateView: View {
     let icon: String

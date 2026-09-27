@@ -1,7 +1,6 @@
-import SwiftUI
+﻿import SwiftUI
 
-/// 搜索页：单曲 / 歌单 / 歌手 / 专辑。
-struct SearchView: View {
+/// 鎼滅储椤碉細鍗曟洸 / 姝屽崟 / 姝屾墜 / 涓撹緫銆?struct SearchView: View {
     var initialKeyword: String = ""
 
     @EnvironmentObject private var store: PlayerStore
@@ -19,10 +18,10 @@ struct SearchView: View {
 
         var title: String {
             switch self {
-            case .songs: return "单曲"
-            case .playlists: return "歌单"
-            case .artists: return "歌手"
-            case .albums: return "专辑"
+            case .songs: return "鍗曟洸"
+            case .playlists: return "姝屽崟"
+            case .artists: return "姝屾墜"
+            case .albums: return "涓撹緫"
             }
         }
     }
@@ -38,7 +37,7 @@ struct SearchView: View {
                 } else if isLoading {
                     LoadingRow()
                 } else if let errorMessage, results.isEmpty {
-                    EmptyStateView(icon: "magnifyingglass", title: "没搜到", message: errorMessage)
+                    EmptyStateView(icon: "magnifyingglass", title: "娌℃悳鍒?, message: errorMessage)
                 } else {
                     resultList
                 }
@@ -46,12 +45,12 @@ struct SearchView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(AppStyle.background)
-        .navigationTitle("搜索")
+        .navigationTitle("鎼滅储")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 if !submitted.isEmpty {
-                    Button("清空") {
+                    Button("娓呯┖") {
                         submitted = ""
                         keyword = ""
                         results = SearchResults()
@@ -69,15 +68,14 @@ struct SearchView: View {
         }
     }
 
-    // MARK: 搜索框
-
+    // MARK: 鎼滅储妗?
     private var searchField: some View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 14))
                     .foregroundStyle(AppStyle.secondaryText)
-                TextField("歌曲、歌手、歌单", text: $keyword)
+                TextField("姝屾洸銆佹瓕鎵嬨€佹瓕鍗?, text: $keyword)
                     .font(.system(size: 14))
                     .foregroundStyle(AppStyle.primaryText)
                     .focused($isFieldFocused)
@@ -99,7 +97,7 @@ struct SearchView: View {
             .background(AppStyle.surface, in: Capsule())
 
             if !submitted.isEmpty {
-                Button("取消") {
+                Button("鍙栨秷") {
                     submitted = ""
                     keyword = ""
                     results = SearchResults()
@@ -139,7 +137,7 @@ struct SearchView: View {
         .padding(.bottom, 8)
     }
 
-    // MARK: 结果
+    // MARK: 缁撴灉
 
     @ViewBuilder
     private var resultList: some View {
@@ -177,7 +175,8 @@ struct SearchView: View {
                                 } label: {
                                     SimpleCard(title: artist.name,
                                                subtitle: artist.albumCount.map { "\($0) 张专辑" },
-                                               url: artist.coverURL)
+                                               url: artist.coverURL,
+                                               fallbackKeys: [artist.id])
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -191,7 +190,7 @@ struct SearchView: View {
                                 AlbumView(album: album)
                             } label: {
                                 HStack(spacing: 12) {
-                                    CoverImage(url: album.coverURL, seed: album.name, size: 52, corner: 6)
+                                    CoverImage(url: album.coverURL, fallbackKeys: [album.id], seed: album.name, size: 52, corner: 6)
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(album.name)
                                             .font(.system(size: 15, weight: .medium))
@@ -217,21 +216,21 @@ struct SearchView: View {
         }
     }
 
-    // MARK: 搜索历史
+    // MARK: 鎼滅储鍘嗗彶
 
     private var historyView: some View {
         Group {
             if history.isEmpty {
-                EmptyStateView(icon: "magnifyingglass", title: "搜点什么吧",
-                               message: "支持歌名、歌手、歌单和专辑")
+                EmptyStateView(icon: "magnifyingglass", title: "鎼滅偣浠€涔堝惂",
+                               message: "鏀寔姝屽悕銆佹瓕鎵嬨€佹瓕鍗曞拰涓撹緫")
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack {
-                        Text("最近搜索")
+                        Text("鏈€杩戞悳绱?)
                             .font(.system(size: 13))
                             .foregroundStyle(AppStyle.secondaryText)
                         Spacer()
-                        Button("清空") {
+                        Button("娓呯┖") {
                             history = []
                             Self.saveHistory(history)
                         }
@@ -261,7 +260,7 @@ struct SearchView: View {
         }
     }
 
-    // MARK: 行为
+    // MARK: 琛屼负
 
     private func play(_ song: Song) {
         let list = results.songs
@@ -300,7 +299,7 @@ struct SearchView: View {
         guard submitted == text else { return }
         results = newResults
         if newResults.isEmpty {
-            errorMessage = "换个关键词试试"
+            errorMessage = "鎹釜鍏抽敭璇嶈瘯璇?
         }
     }
 

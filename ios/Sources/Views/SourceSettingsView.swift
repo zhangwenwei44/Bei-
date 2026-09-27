@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// 第三方音源管理：新增、编辑、开关、排序、导入导出、测试。
 struct SourceSettingsView: View {
@@ -7,8 +8,10 @@ struct SourceSettingsView: View {
     @State private var editing: ThirdPartySource?
     @State private var isCreatingTemplate = false
     @State private var isCreatingScript = false
+    @State private var isPasting = false
     @State private var isImporting = false
     @State private var isExporting = false
+    @State private var importMessage: String?
 
     var body: some View {
         List {
@@ -64,7 +67,12 @@ struct SourceSettingsView: View {
                 Button {
                     isImporting = true
                 } label: {
-                    Label("从 JSON 导入", systemImage: "square.and.arrow.down")
+                    Label("从文件导入", systemImage: "doc.badge.plus")
+                }
+                Button {
+                    isPasting = true
+                } label: {
+                    Label("粘贴 JSON 导入", systemImage: "text.alignleft")
                 }
                 Button {
                     isExporting = true
@@ -75,6 +83,10 @@ struct SourceSettingsView: View {
             } header: {
                 Text("添加")
                     .font(.system(size: 12))
+                    .foregroundStyle(AppStyle.tertiaryText)
+            } footer: {
+                Text("从文件导入会读取你选中的 JSON（也可以是 .txt / .lx 脚本包里的配置），解析后自动补全缺失字段。")
+                    .font(.system(size: 11))
                     .foregroundStyle(AppStyle.tertiaryText)
             }
         }
@@ -95,11 +107,76 @@ struct SourceSettingsView: View {
         .sheet(isPresented: $isCreatingScript) {
             SourceEditorView(source: SourceFormTemplate.scriptForm)
         }
-        .sheet(isPresented: $isImporting) {
+        .sheet(isPresented: $isPasting) {
             SourceImportView()
         }
         .sheet(isPresented: $isExporting) {
             SourceExportView()
+        }
+        .fileImporter(isPresented: $isImporting,
+                      allowedContentTypes: Self.importableTypes,
+                      allowsMultipleSelection: true) { result in
+            switch result {
+            case let .success(urls):
+                Task { await importFromFiles(urls) }
+            case let .failure(error):
+                importMessage = error.localizedDescription
+            }
+        }
+        .alert("导入结果", isPresented: Binding(get: { importMessage != nil },
+                                                set: { if !$0 { importMessage = nil } })) {
+            Button("好", role: .cancel) { importMessage = nil }
+        } message: {
+            Text(importMessage ?? "")
+        }
+    }
+
+    private static var importableTypes: [UTType] {
+        var types: [UTType] = [.json]
+        if let plain = UTType(filenameExtension: "txt") { types.append(plain) }
+        if let text = UTType(filenameExtension: "conf") { types.append(text) }
+        return types
+    }
+
+    /// 从文件导入：优先按 JSON 解析，失败则把整个文件当 JS 脚本存一条音源。
+    private func importFromFiles(_ urls: [URL]) async {
+        var added = 0
+        var failures: [String] = []
+
+        for url in urls {
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+
+            guard let data = try? Data(contentsOf: url),
+                  let text = String(data: data, encoding: .utf8) else {
+                failures.append(url.lastPathComponent)
+                continue
+            }
+
+            let parsed = SourceStore.parseImport(text)
+            if !parsed.isEmpty {
+                for source in parsed { store.upsert(source) }
+                added += parsed.count
+                continue
+            }
+
+            // 不是 JSON：当成 JS 脚本音源，文件名当名称
+            let name = url.deletingPathExtension().lastPathComponent
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty, trimmed.contains("function") || trimmed.contains("=>") || trimmed.contains("lx.") {
+                store.upsert(ThirdPartySource(name: name.isEmpty ? "导入的脚本音源" : name,
+                                              kind: .script,
+                                              script: text))
+                added += 1
+            } else {
+                failures.append(url.lastPathComponent)
+            }
+        }
+
+        if failures.isEmpty {
+            importMessage = added > 0 ? "成功导入 \(added) 条音源" : "文件里没解析出音源"
+        } else {
+            importMessage = "导入 \(added) 条，失败 \(failures.count) 个：\(failures.joined(separator: "、"))"
         }
     }
 }

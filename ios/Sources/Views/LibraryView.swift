@@ -2,7 +2,8 @@ import AVFoundation
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// 曲库页：收藏、下载、本地、歌单、最近播放。
+/// 曲库页。排版：顶部一排数据磁贴（收藏 / 下载 / 本地 / 歌单），
+/// 下面是当前分组的标题行 + 内容列表。
 struct LibraryView: View {
     @EnvironmentObject private var store: PlayerStore
     @ObservedObject private var library = LibraryStore.shared
@@ -15,8 +16,10 @@ struct LibraryView: View {
     @State private var newPlaylistName = ""
     @State private var section: Section = .favorites
 
-    private enum Section: Int, CaseIterable {
-        case favorites, downloads, local, playlists, history
+    private enum Section: Int, CaseIterable, Identifiable {
+        case favorites, downloads, local, playlists
+
+        var id: Int { rawValue }
 
         var title: String {
             switch self {
@@ -24,17 +27,24 @@ struct LibraryView: View {
             case .downloads: return "下载"
             case .local: return "本地"
             case .playlists: return "歌单"
-            case .history: return "最近"
             }
         }
 
         var icon: String {
             switch self {
-            case .favorites: return "heart"
-            case .downloads: return "arrow.down.circle"
+            case .favorites: return "heart.fill"
+            case .downloads: return "arrow.down.circle.fill"
             case .local: return "iphone"
             case .playlists: return "music.note.list"
-            case .history: return "clock"
+            }
+        }
+
+        var tint: Color {
+            switch self {
+            case .favorites: return AppStyle.like
+            case .downloads: return AppStyle.accent
+            case .local: return .purple
+            case .playlists: return AppStyle.gold
             }
         }
     }
@@ -44,15 +54,29 @@ struct LibraryView: View {
         case .favorites: return library.favorites
         case .downloads: return library.downloads
         case .local: return library.localSongs
-        case .history: return library.history
         case .playlists: return []
+        }
+    }
+
+    private func count(for item: Section) -> Int {
+        switch item {
+        case .favorites: return library.favorites.count
+        case .downloads: return library.downloads.count
+        case .local: return library.localSongs.count
+        case .playlists: return library.playlists.count
         }
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            sectionPicker
-            content
+            ScrollView {
+                VStack(spacing: 0) {
+                    statTiles
+                    historyStrip
+                    sectionHeader
+                    content
+                }
+            }
         }
         .background(AppStyle.background)
         .navigationTitle("我的音乐")
@@ -82,26 +106,151 @@ struct LibraryView: View {
         }
     }
 
-    // MARK: 分段
+    // MARK: 顶部数据卡
 
-    private var sectionPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(Section.allCases, id: \.rawValue) { item in
-                    TagChip(text: item.title, isSelected: section == item) {
-                        section = item
-                    }
+    private var statTiles: some View {
+        HStack(spacing: 10) {
+            ForEach(Section.allCases) { item in
+                StatTile(icon: item.icon,
+                         title: item.title,
+                         value: count(for: item),
+                         tint: item.tint,
+                         isSelected: section == item) {
+                    withAnimation(.easeInOut(duration: 0.18)) { section = item }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 10)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 14)
+    }
+
+    // MARK: 最近播放
+
+    @ViewBuilder
+    private var historyStrip: some View {
+        if !library.history.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("最近播放")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(AppStyle.primaryText)
+                    Spacer()
+                    if library.history.count > 8 {
+                        Button("清空") { library.clearHistory() }
+                            .font(.system(size: 12))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 14) {
+                        ForEach(library.history.prefix(16)) { song in
+                            Button {
+                                playFromHistory(song)
+                            } label: {
+                                VStack(spacing: 6) {
+                                    CoverImage(url: song.artworkURL,
+                                               fallbackKeys: song.neteaseID.map { ["wy:\($0)"] } ?? [],
+                                               seed: "\(song.artist)-\(song.title)",
+                                               size: 108,
+                                               corner: 10)
+                                        .overlay(alignment: .bottomTrailing) {
+                                            if store.current?.id == song.id {
+                                                Image(systemName: "waveform")
+                                                    .font(.system(size: 10, weight: .bold))
+                                                    .foregroundStyle(.white)
+                                                    .padding(4)
+                                                    .background(AppStyle.accent, in: Circle())
+                                                    .offset(x: 4, y: 4)
+                                            }
+                                        }
+                                    Text(song.title)
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(AppStyle.primaryText)
+                                        .lineLimit(1)
+                                        .frame(width: 108, alignment: .leading)
+                                    Text(song.artist)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(AppStyle.tertiaryText)
+                                        .lineLimit(1)
+                                        .frame(width: 108, alignment: .leading)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+            }
+            .padding(.bottom, 18)
+        }
+    }
+
+    // MARK: 分组标题
+
+    private var sectionHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(section.title)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(AppStyle.primaryText)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.tertiaryText)
+            }
+            Spacer()
+            sectionAction
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 10)
+    }
+
+    private var subtitle: String {
+        switch section {
+        case .favorites: return "在歌曲上右键收藏"
+        case .downloads: return "下载后可离线播放"
+        case .local: return "从「文件」导入的音频"
+        case .playlists: return "自建歌单"
         }
     }
 
     @ViewBuilder
+    private var sectionAction: some View {
+        switch section {
+        case .local:
+            Button {
+                isImporterPresented = true
+            } label: {
+                Label("导入", systemImage: "square.and.arrow.down")
+                    .font(.system(size: 12, weight: .medium))
+            }
+        case .playlists:
+            Button {
+                newPlaylistName = ""
+                isCreatingPlaylist = true
+            } label: {
+                Label("新建", systemImage: "plus")
+                    .font(.system(size: 12, weight: .medium))
+            }
+        default:
+            if !songs.isEmpty {
+                Button("全部播放") {
+                    store.play(songs)
+                    Haptics.soft()
+                }
+                .font(.system(size: 12, weight: .medium))
+            }
+        }
+    }
+
+    // MARK: 内容
+
+    @ViewBuilder
     private var content: some View {
         if section == .playlists {
-            playlistsView
+            playlistsContent
         } else if songs.isEmpty {
             emptyState
         } else {
@@ -110,21 +259,19 @@ struct LibraryView: View {
     }
 
     private var songList: some View {
-        List {
+        LazyVStack(spacing: 0) {
             ForEach(songs) { song in
                 SongRow(song: song,
                         isCurrent: store.current?.id == song.id,
                         isPlaying: store.isPlaying,
                         trailing: trailing(for: song))
                     .songMenu(song)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparatorTint(Color.white.opacity(0.06))
+                    .padding(.horizontal, 16)
                     .onTapGesture { play(song) }
             }
             .onDelete(perform: delete)
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
+        .padding(.bottom, 24)
     }
 
     @ViewBuilder
@@ -150,7 +297,7 @@ struct LibraryView: View {
             case .favorites:
                 EmptyStateView(icon: "heart",
                                title: "还没有收藏",
-                               message: "在歌曲上右键就能收藏")
+                               message: "在歌曲上长按就能收藏")
             case .downloads:
                 EmptyStateView(icon: "arrow.down.circle",
                                title: "还没有下载",
@@ -158,116 +305,78 @@ struct LibraryView: View {
             case .local:
                 EmptyStateView(icon: "iphone",
                                title: "还没有本地音乐",
-                               message: "从「文件」里导入音频")
-            case .history:
-                EmptyStateView(icon: "clock", title: "还没有播放记录")
+                               message: "点右上角「导入」从「文件」里选音频")
             case .playlists:
-                EmptyStateView(icon: "music.note.list", title: "还没有歌单")
+                EmptyStateView(icon: "music.note.list",
+                               title: "还没有歌单",
+                               message: "点右上角「新建」，再从歌曲菜单里加进来")
             }
         }
-        .overlay(alignment: .bottom) {
-            actionButton
-                .padding(.bottom, 40)
-        }
-    }
-
-    @ViewBuilder
-    private var actionButton: some View {
-        switch section {
-        case .local:
-            Button {
-                isImporterPresented = true
-            } label: {
-                Label("导入本地音频", systemImage: "square.and.arrow.down")
-                    .font(.system(size: 14, weight: .medium))
-            }
-            .buttonStyle(.bordered)
-            .tint(AppStyle.accent)
-        case .playlists:
-            Button {
-                newPlaylistName = ""
-                isCreatingPlaylist = true
-            } label: {
-                Label("新建歌单", systemImage: "plus")
-                    .font(.system(size: 14, weight: .medium))
-            }
-            .buttonStyle(.bordered)
-            .tint(AppStyle.accent)
-        case .history:
-            Button("清空记录") { library.clearHistory() }
-                .font(.system(size: 14, weight: .medium))
-                .buttonStyle(.bordered)
-                .tint(AppStyle.accent)
-        default:
-            EmptyView()
-        }
+        .padding(.bottom, 60)
     }
 
     // MARK: 歌单
 
-    private var playlistsView: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                if library.playlists.isEmpty {
-                    EmptyStateView(icon: "music.note.list", title: "还没有歌单")
-                } else {
-                    ForEach(library.playlists) { playlist in
-                        NavigationLink {
-                            PlaylistDetailView(playlist: Playlist(id: playlist.id,
-                                                                  name: playlist.name,
-                                                                  coverURL: nil,
-                                                                  trackCount: playlist.count),
-                                              localPlaylist: playlist)
+    private var playlistsContent: some View {
+        LazyVStack(spacing: 0) {
+            if library.playlists.isEmpty {
+                EmptyStateView(icon: "music.note.list",
+                               title: "还没有歌单",
+                               message: "点右上角「新建」，再从歌曲菜单里加进来")
+            } else {
+                ForEach(library.playlists) { playlist in
+                    NavigationLink {
+                        PlaylistDetailView(playlist: Playlist(id: playlist.id,
+                                                              name: playlist.name,
+                                                              coverURL: nil,
+                                                              trackCount: playlist.count),
+                                          localPlaylist: playlist)
+                    } label: {
+                        playlistRow(playlist)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button {
+                            renamingID = playlist.id
+                            renamingName = playlist.name
+                            isRenaming = true
                         } label: {
-                            HStack(spacing: 12) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .fill(AppStyle.surfaceHigh)
-                                    Image(systemName: "music.note")
-                                        .foregroundStyle(AppStyle.secondaryText)
-                                }
-                                .frame(width: 46, height: 46)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(playlist.name)
-                                        .font(.system(size: 15, weight: .medium))
-                                        .foregroundStyle(AppStyle.primaryText)
-                                        .lineLimit(1)
-                                    Text("\(playlist.count) 首")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(AppStyle.secondaryText)
-                                }
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(AppStyle.tertiaryText)
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .contentShape(Rectangle())
+                            Label("重命名", systemImage: "pencil")
                         }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button {
-                                renamingID = playlist.id
-                                renamingName = playlist.name
-                                isRenaming = true
-                            } label: {
-                                Label("重命名", systemImage: "pencil")
-                            }
-                            Button(role: .destructive) {
-                                library.deletePlaylist(id: playlist.id)
-                            } label: {
-                                Label("删除歌单", systemImage: "trash")
-                            }
+                        Button(role: .destructive) {
+                            library.deletePlaylist(id: playlist.id)
+                        } label: {
+                            Label("删除歌单", systemImage: "trash")
                         }
                     }
                 }
             }
-            .padding(.bottom, 90)
         }
-        .overlay(alignment: .bottom) {
-            actionButton.padding(.bottom, 40)
+        .padding(.bottom, 24)
+    }
+
+    private func playlistRow(_ playlist: LibraryStore.UserPlaylist) -> some View {
+        let songs = library.songs(in: playlist)
+        let cover = songs.compactMap { $0.artworkURL }.first
+        return HStack(spacing: 12) {
+            CoverImage(url: cover, seed: playlist.name, size: 52, corner: 8)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(playlist.name)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(AppStyle.primaryText)
+                    .lineLimit(1)
+                Text("\(playlist.count) 首")
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppStyle.secondaryText)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(AppStyle.tertiaryText)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
     }
 
     // MARK: 行为
@@ -275,6 +384,13 @@ struct LibraryView: View {
     private func play(_ song: Song) {
         guard let index = songs.firstIndex(where: { $0.id == song.id }) else { return }
         store.play(songs, startAt: index)
+        Haptics.soft()
+    }
+
+    private func playFromHistory(_ song: Song) {
+        let list = Array(library.history)
+        guard let index = list.firstIndex(where: { $0.id == song.id }) else { return }
+        store.play(list, startAt: index)
         Haptics.soft()
     }
 
@@ -287,14 +403,12 @@ struct LibraryView: View {
             targets.forEach { downloads.delete($0) }
         case .local:
             targets.forEach { library.removeLocal(id: $0.id) }
-        case .history:
-            library.removeHistory(ids: targets.map(\.id))
         case .playlists:
             break
         }
     }
 
-    /// 导入本地音频：复制到 Documents，保证沙盒重启后仍可播放。
+    /// 导入本地音频：复制到 Documents 保证重启后仍可播放，并抽一张封面出来。
     private func importLocal(_ urls: [URL]) {
         Task {
             var imported: [Song] = []
@@ -302,11 +416,12 @@ struct LibraryView: View {
                 let accessed = url.startAccessingSecurityScopedResource()
                 defer { if accessed { url.stopAccessingSecurityScopedResource() } }
 
-                let needsCopy = !url.path.hasPrefix(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].path)
+                let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
                 let target: URL
-                if needsCopy {
-                    let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                        .appendingPathComponent("Aurora Imports", isDirectory: true)
+                if url.path.hasPrefix(documents.path) {
+                    target = url
+                } else {
+                    let folder = documents.appendingPathComponent("Aurora Imports", isDirectory: true)
                     if !FileManager.default.fileExists(atPath: folder.path) {
                         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                     }
@@ -315,19 +430,20 @@ struct LibraryView: View {
                         try? FileManager.default.removeItem(at: target)
                     }
                     guard (try? FileManager.default.copyItem(at: url, to: target)) != nil else { continue }
-                } else {
-                    target = url
                 }
 
                 let asset = AVURLAsset(url: target)
                 let duration = (try? await asset.load(.duration)).map { $0.seconds } ?? 0
+                let title = target.deletingPathExtension().lastPathComponent
+                let cover = await LocalArtwork.cover(for: target, title: title)
                 imported.append(Song(id: Song.localID(for: target.path),
-                                     title: target.deletingPathExtension().lastPathComponent,
+                                     title: title,
                                      artist: "本地音频",
                                      url: target,
                                      tags: ["本地"],
                                      isLocal: true,
                                      duration: duration.isFinite ? duration : 0,
+                                     artworkURL: cover,
                                      source: .local))
             }
             await MainActor.run { library.addLocal(imported) }

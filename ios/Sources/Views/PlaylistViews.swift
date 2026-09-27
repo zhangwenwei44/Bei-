@@ -1,7 +1,6 @@
-import SwiftUI
+﻿import SwiftUI
 
-/// 收藏的在线歌单（只记 ID，够用即可）。
-enum CollectionState {
+/// 鏀惰棌鐨勫湪绾挎瓕鍗曪紙鍙 ID锛屽鐢ㄥ嵆鍙級銆?enum CollectionState {
     private static let key = "aurora.collected.playlists"
 
     static func isCollected(_ id: String) -> Bool {
@@ -16,8 +15,7 @@ enum CollectionState {
     }
 }
 
-/// 通用歌曲列表页：用于「全部 XX」和本地歌单。
-struct SongListView: View {
+/// 閫氱敤姝屾洸鍒楄〃椤碉細鐢ㄤ簬銆屽叏閮?XX銆嶅拰鏈湴姝屽崟銆?struct SongListView: View {
     let title: String
     let songs: [Song]
     var subtitle: String?
@@ -27,7 +25,7 @@ struct SongListView: View {
     var body: some View {
         VStack(spacing: 0) {
             if songs.isEmpty {
-                EmptyStateView(icon: "music.note.list", title: "这里还没有歌曲")
+                EmptyStateView(icon: "music.note.list", title: "杩欓噷杩樻病鏈夋瓕鏇?)
             } else {
                 List {
                     Section {
@@ -41,7 +39,7 @@ struct SongListView: View {
                                 .onTapGesture { play(song) }
                         }
                     } header: {
-                        Text(subtitle ?? "\(songs.count) 首")
+                        Text(subtitle ?? "\(songs.count) 棣?)
                             .font(.system(size: 12))
                             .foregroundStyle(AppStyle.tertiaryText)
                     }
@@ -72,8 +70,7 @@ struct SongListView: View {
     }
 }
 
-/// 歌单详情：在线歌单加载曲目，本地歌单直接展示。
-struct PlaylistDetailView: View {
+/// 姝屽崟璇︽儏锛氬湪绾挎瓕鍗曞姞杞芥洸鐩紝鏈湴姝屽崟鐩存帴灞曠ず銆?struct PlaylistDetailView: View {
     let playlist: Playlist
     var localPlaylist: LibraryStore.UserPlaylist?
 
@@ -98,9 +95,9 @@ struct PlaylistDetailView: View {
                 if isLoading, displaySongs.isEmpty {
                     LoadingRow()
                 } else if let errorMessage, displaySongs.isEmpty {
-                    EmptyStateView(icon: "exclamationmark.triangle", title: "加载失败", message: errorMessage)
+                    EmptyStateView(icon: "exclamationmark.triangle", title: "鍔犺浇澶辫触", message: errorMessage)
                 } else if displaySongs.isEmpty {
-                    EmptyStateView(icon: "music.note.list", title: "歌单里还没有歌曲")
+                    EmptyStateView(icon: "music.note.list", title: "姝屽崟閲岃繕娌℃湁姝屾洸")
                 } else {
                     actionBar
                     VStack(spacing: 0) {
@@ -116,7 +113,7 @@ struct PlaylistDetailView: View {
                                         Button(role: .destructive) {
                                             library.remove(song, fromPlaylist: localPlaylist.id)
                                         } label: {
-                                            Label("从歌单移除", systemImage: "minus.circle")
+                                            Label("浠庢瓕鍗曠Щ闄?, systemImage: "minus.circle")
                                         }
                                     }
                                 }
@@ -154,7 +151,7 @@ struct PlaylistDetailView: View {
 
     private var header: some View {
         HStack(spacing: 14) {
-            CoverImage(url: playlist.coverURL, seed: playlist.name, size: 112, corner: 12)
+            CoverImage(url: playlist.coverURL, fallbackKeys: [playlist.id], seed: playlist.name, size: 112, corner: 12)
             VStack(alignment: .leading, spacing: 8) {
                 Text(playlist.name)
                     .font(.system(size: 18, weight: .bold))
@@ -164,7 +161,7 @@ struct PlaylistDetailView: View {
                     if !playlist.creatorName.isEmpty {
                         Label(playlist.creatorName, systemImage: "person.crop.circle")
                     }
-                    if playlist.trackCount > 0 { Text("\(playlist.trackCount) 首") }
+                    if playlist.trackCount > 0 { Text("\(playlist.trackCount) 棣?) }
                 }
                 .font(.system(size: 12))
                 .foregroundStyle(AppStyle.secondaryText)
@@ -193,7 +190,7 @@ struct PlaylistDetailView: View {
                 store.append(displaySongs)
                 Haptics.soft()
             } label: {
-                Label("加入播放列表", systemImage: "text.badge.plus")
+                Label("鍔犲叆鎾斁鍒楄〃", systemImage: "text.badge.plus")
                     .font(.system(size: 13))
                     .foregroundStyle(AppStyle.primaryText)
             }
@@ -230,14 +227,15 @@ struct PlaylistDetailView: View {
         defer { isLoading = false }
         do {
             songs = try await NetEaseClient.shared.playlistTracks(id: neteaseID)
+            // 歌单没封面时用第一首歌的专辑图顶上
+            CoverResolver.shared.bind(from: songs, to: [playlist.id])
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 }
 
-/// 歌手页。
-struct ArtistView: View {
+/// 姝屾墜椤点€?struct ArtistView: View {
     let artist: Artist
 
     @EnvironmentObject private var store: PlayerStore
@@ -249,12 +247,12 @@ struct ArtistView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 14) {
-                    CoverImage(url: artist.coverURL, seed: artist.name, size: 96, corner: 48)
+                    CoverImage(url: artist.coverURL, fallbackKeys: [artist.id], seed: artist.name, size: 96, corner: 48)
                     VStack(alignment: .leading, spacing: 6) {
                         Text(artist.name)
                             .font(.system(size: 20, weight: .bold))
                             .foregroundStyle(AppStyle.primaryText)
-                        Text("热门歌曲")
+                        Text("鐑棬姝屾洸")
                             .font(.system(size: 12))
                             .foregroundStyle(AppStyle.secondaryText)
                     }
@@ -266,7 +264,7 @@ struct ArtistView: View {
                 if isLoading, songs.isEmpty {
                     LoadingRow()
                 } else if let errorMessage, songs.isEmpty {
-                    EmptyStateView(icon: "exclamationmark.triangle", title: "加载失败", message: errorMessage)
+                    EmptyStateView(icon: "exclamationmark.triangle", title: "鍔犺浇澶辫触", message: errorMessage)
                 } else {
                     VStack(spacing: 0) {
                         ForEach(songs) { song in
@@ -300,14 +298,15 @@ struct ArtistView: View {
         defer { isLoading = false }
         do {
             songs = try await NetEaseClient.shared.artistHotSongs(id: neteaseID, limit: 60)
+            // 歌手页的图也用来补上歌单 / 专辑的封面
+            CoverResolver.shared.bindArtist(artist.id, from: songs)
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 }
 
-/// 专辑页。
-struct AlbumView: View {
+/// 涓撹緫椤点€?struct AlbumView: View {
     let album: Album
 
     @EnvironmentObject private var store: PlayerStore
@@ -319,7 +318,7 @@ struct AlbumView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 14) {
-                    CoverImage(url: album.coverURL, seed: album.name, size: 96, corner: 10)
+                    CoverImage(url: album.coverURL, fallbackKeys: [album.id], seed: album.name, size: 96, corner: 10)
                     VStack(alignment: .leading, spacing: 6) {
                         Text(album.name)
                             .font(.system(size: 18, weight: .bold))
@@ -336,7 +335,7 @@ struct AlbumView: View {
                 if isLoading, songs.isEmpty {
                     LoadingRow()
                 } else if let errorMessage, songs.isEmpty {
-                    EmptyStateView(icon: "exclamationmark.triangle", title: "加载失败", message: errorMessage)
+                    EmptyStateView(icon: "exclamationmark.triangle", title: "鍔犺浇澶辫触", message: errorMessage)
                 } else {
                     VStack(spacing: 0) {
                         ForEach(songs) { song in
@@ -370,6 +369,7 @@ struct AlbumView: View {
         defer { isLoading = false }
         do {
             songs = try await NetEaseClient.shared.albumSongs(id: neteaseID)
+            CoverResolver.shared.bind(from: songs, to: [album.id])
         } catch {
             errorMessage = error.localizedDescription
         }

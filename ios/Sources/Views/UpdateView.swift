@@ -1,0 +1,230 @@
+import SwiftUI
+
+/// 检查更新弹窗：显示版本、Release note，直接下载 IPA 并唤起安装。
+struct UpdateView: View {
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var updater = AppUpdater.shared
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                header
+                Divider().overlay(Color.white.opacity(0.08))
+                content
+                Spacer(minLength: 0)
+            }
+            .background(AppStyle.background)
+            .navigationTitle("检查更新")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(LinearGradient(colors: [AppStyle.accent, AppStyle.like],
+                                         startPoint: .topLeading,
+                                         endPoint: .bottomTrailing))
+                Image(systemName: "music.note")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 62, height: 62)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Aurora Music")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(AppStyle.primaryText)
+                Text("当前 \(updater.versionText)")
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(AppStyle.secondaryText)
+                if let date = updater.lastCheckedAt {
+                    Text("上次检查 " + date.formatted(date: .abbreviated, time: .shortened))
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+            }
+            Spacer()
+        }
+        .padding(20)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch updater.phase {
+        case .idle, .checking:
+            VStack(spacing: 12) {
+                ProgressView().tint(AppStyle.accent)
+                Text(updater.phase == .checking ? "正在检查…" : "")
+                    .font(.system(size: 13))
+                    .foregroundStyle(AppStyle.secondaryText)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 40)
+            actions
+
+        case .upToDate(let current):
+            statusBlock(icon: "checkmark.circle.fill",
+                        tint: AppStyle.accent,
+                        title: "已经是最新版本",
+                        message: "当前 \(current)，没有可用更新。")
+            actions
+
+        case .available(let release):
+            statusBlock(icon: "arrow.down.circle.fill",
+                        tint: AppStyle.accent,
+                        title: "发现新版本 \(release.tag_name)",
+                        message: release.name ?? "")
+            if !AppUpdater.notes(from: release.body).isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("更新说明")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(AppStyle.secondaryText)
+                    ForEach(Array(AppUpdater.notes(from: release.body).enumerated()), id: \.offset) { _, line in
+                        Text("· " + line)
+                            .font(.system(size: 12))
+                            .foregroundStyle(AppStyle.secondaryText)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+            }
+            installActions(for: release)
+
+        case .downloading(let progress):
+            VStack(spacing: 14) {
+                ProgressView(value: progress)
+                    .tint(AppStyle.accent)
+                Text("正在下载安装包 \(Int(progress * 100))%")
+                    .font(.system(size: 13, design: .monospaced))
+                    .foregroundStyle(AppStyle.secondaryText)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 40)
+            Button("取消下载") { updater.cancel() }
+                .font(.system(size: 13))
+                .foregroundStyle(AppStyle.tertiaryText)
+                .padding(.top, 12)
+
+        case .ready(let fileURL):
+            statusBlock(icon: "checkmark.seal.fill",
+                        tint: AppStyle.accent,
+                        title: "安装包已下载",
+                        message: fileURL.lastPathComponent)
+            VStack(spacing: 10) {
+                Button {
+                    updater.openInstaller(fileURL)
+                } label: {
+                    Text("选择软件安装")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .foregroundStyle(.black)
+                }
+                .buttonStyle(.plain)
+                Text("点了之后由 AppSync / Zebra 接管并弹出安装确认。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.tertiaryText)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .overlay(alignment: .bottom) { fallbackLink(at: fileURL) }
+
+        case .failed(let message):
+            statusBlock(icon: "exclamationmark.triangle.fill",
+                        tint: AppStyle.like,
+                        title: "出问题了",
+                        message: message)
+            actions
+        }
+    }
+
+    private var actions: some View {
+        HStack(spacing: 10) {
+            Button {
+                Task { await updater.check(force: true) }
+            } label: {
+                Text("重新检查")
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 11)
+                    .background(AppStyle.surfaceHigh, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .foregroundStyle(AppStyle.primaryText)
+            }
+            .buttonStyle(.plain)
+
+            if case .available(let release) = updater.phase, let url = URL(string: release.html_url) {
+                Link(destination: url) {
+                    Text("Releases 页面")
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(AppStyle.surfaceHigh, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .foregroundStyle(AppStyle.primaryText)
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 24)
+    }
+
+    private func installActions(for release: AppUpdater.Release) -> some View {
+        VStack(spacing: 10) {
+            Button {
+                Task { await updater.install(release) }
+            } label: {
+                Text("下载并安装")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .foregroundStyle(.black)
+            }
+            .buttonStyle(.plain)
+
+            if let url = URL(string: release.html_url) {
+                Link("或用浏览器下载", destination: url)
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppStyle.secondaryText)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 24)
+    }
+
+    @ViewBuilder
+    private func fallbackLink(at fileURL: URL) -> some View {
+        Link(destination: fileURL) {
+            Text("用别的工具打开这个包")
+                .font(.system(size: 11))
+                .foregroundStyle(AppStyle.tertiaryText)
+        }
+        .padding(.bottom, 16)
+    }
+
+    private func statusBlock(icon: String, tint: Color, title: String, message: String) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 40, weight: .light))
+                .foregroundStyle(tint)
+            Text(title)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(AppStyle.primaryText)
+            if !message.isEmpty {
+                Text(message)
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppStyle.secondaryText)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(.top, 40)
+    }
+}

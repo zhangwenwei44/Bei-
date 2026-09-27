@@ -103,7 +103,7 @@ struct DiscoverView: View {
                         PlaylistDetailView(playlist: playlist)
                     } label: {
                         HStack(spacing: 10) {
-                            CoverImage(url: playlist.coverURL, seed: playlist.name, size: 52, corner: 8)
+                            CoverImage(url: playlist.coverURL, fallbackKeys: [playlist.id], seed: playlist.name, size: 52, corner: 8)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(playlist.name)
                                     .font(.system(size: 14, weight: .medium))
