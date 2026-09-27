@@ -1,153 +1,147 @@
 import SwiftUI
-import UIKit
 
 struct RootView: View {
     @EnvironmentObject private var store: PlayerStore
+    @State private var tab: Tab = .discover
     @State private var isPlayerExpanded = false
+
+    private enum Tab: Hashable {
+        case discover, search, library, profile
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            LinearGradient(colors: store.currentPalette.gradient,
-                           startPoint: .topLeading,
-                           endPoint: .bottomTrailing)
-                .ignoresSafeArea()
-                .animation(.easeInOut(duration: 0.5), value: store.index)
+            TabView(selection: $tab) {
+                NavigationStack {
+                    DiscoverView()
+                }
+                .tabItem { Label("发现", systemImage: "flame") }
+                .tag(Tab.discover)
 
-            library
+                NavigationStack {
+                    SearchView()
+                }
+                .tabItem { Label("搜索", systemImage: "magnifyingglass") }
+                .tag(Tab.search)
+
+                NavigationStack {
+                    LibraryView()
+                }
+                .tabItem { Label("我的音乐", systemImage: "music.note.list") }
+                .tag(Tab.library)
+
+                NavigationStack {
+                    ProfileView()
+                }
+                .tabItem { Label("我的", systemImage: "person.crop.circle") }
+                .tag(Tab.profile)
+            }
 
             if store.current != nil {
-                miniPlayer
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 6)
+                MiniPlayer(isExpanded: $isPlayerExpanded)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 50)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .overlay {
-            if isPlayerExpanded {
+            if isPlayerExpanded, store.current != nil {
                 PlayerView(isExpanded: $isPlayerExpanded)
                     .transition(.move(edge: .bottom))
             }
         }
-        .ignoresSafeArea(.keyboard)
         .queueSheet()
+        .ignoresSafeArea(.keyboard)
     }
+}
 
-    private var library: some View {
-        List {
-            Section {
-                ForEach(Array(store.songs.enumerated()), id: \.element.id) { offset, song in
-                    Button {
-                        store.load(index: offset, autoplay: true)
-                        isPlayerExpanded = true
-                        Haptics.soft()
-                    } label: {
-                        LibraryRow(song: song,
-                                   isCurrent: store.index == offset && isPlayerExpanded)
-                    }
-                    .listRowBackground(Color.white.opacity(0.06))
-                }
-            } header: {
-                Text("我的音乐")
-                    .foregroundStyle(.white.opacity(0.6))
-            }
-        }
-        .scrollContentBackground(.hidden)
-        .listStyle(.plain)
-    }
+// MARK: - 迷你播放条
 
-    private var miniPlayer: some View {
-        HStack(spacing: 12) {
-            ArtworkView(song: store.current, size: 44, image: store.artwork)
+struct MiniPlayer: View {
+    @EnvironmentObject private var store: PlayerStore
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            CoverImage(url: store.current?.artworkURL,
+                       seed: "\(store.current?.artist ?? "")-\(store.current?.title ?? "")",
+                       size: 40,
+                       corner: 8)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(store.current?.title ?? "")
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                Text(store.current?.artist ?? "")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.65))
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            Button {
-                store.toggle()
-            } label: {
-                Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 18, weight: .bold))
-                    .frame(width: 36, height: 36)
-            }
-
-            Button {
-                store.isQueuePresented = true
-            } label: {
-                Image(systemName: "list.bullet")
-                    .font(.system(size: 17, weight: .semibold))
-                    .frame(width: 36, height: 36)
-            }
-        }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(.white.opacity(0.12)))
-        .onTapGesture { isPlayerExpanded = true }
-    }
-}
-
-struct LibraryRow: View {
-    let song: Song
-    let isCurrent: Bool
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ArtworkView(song: song, size: 46)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(song.title)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Text(song.artist)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.6))
-                    .lineLimit(1)
-            }
-            Spacer()
-            if isCurrent {
-                Image(systemName: "waveform")
-                    .font(.footnote)
-                    .foregroundStyle(.green)
-            }
-        }
-        .contentShape(Rectangle())
-    }
-}
-
-struct ArtworkView: View {
-    let song: Song?
-    var size: CGFloat
-    var image: UIImage?
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: size * 0.18, style: .continuous)
-            .fill(
-                LinearGradient(colors: ArtworkPaletteEngine.palette(for: image,
-                                                                    seed: "\(song?.artist ?? "-")-\(song?.title ?? "-")").gradient,
-                               startPoint: .topLeading,
-                               endPoint: .bottomTrailing)
-            )
-            .frame(width: size, height: size)
-            .overlay {
-                if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    Circle()
-                        .fill(.white.opacity(0.14))
-                        .frame(width: size * 0.48, height: size * 0.48)
+                HStack(spacing: 6) {
+                    Text(store.current?.title ?? "")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(AppStyle.primaryText)
+                        .lineLimit(1)
+                    if !store.sourceName.isEmpty {
+                        Text(store.sourceName)
+                            .font(.system(size: 9))
+                            .foregroundStyle(AppStyle.accent)
+                            .lineLimit(1)
+                    }
                 }
+                Text(store.current?.artist ?? "")
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.secondaryText)
+                    .lineLimit(1)
             }
-            .clipShape(RoundedRectangle(cornerRadius: size * 0.18, style: .continuous))
+
+            Spacer(minLength: 0)
+
+            if store.isLoading {
+                ProgressView()
+                    .tint(.white)
+                    .frame(width: 26, height: 26)
+            } else {
+                Button {
+                    store.toggle()
+                } label: {
+                    Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(AppStyle.primaryText)
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Button {
+                store.step(1)
+            } label: {
+                Image(systemName: "forward.end.fill")
+                    .font(.system(size: 15))
+                    .foregroundStyle(AppStyle.secondaryText)
+                    .frame(width: 30, height: 36)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(alignment: .bottomLeading) {
+            GeometryReader { proxy in
+                Capsule()
+                    .fill(AppStyle.accent)
+                    .frame(width: proxy.size.width * store.progress, height: 2)
+            }
+            .frame(height: 2)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .onTapGesture { expand() }
+        .gesture(
+            DragGesture(minimumDistance: 8)
+                .onEnded { value in
+                    if abs(value.translation.height) > 24, value.translation.height < 0 { expand() }
+                }
+        )
+    }
+
+    private func expand() {
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.86)) { isPlayerExpanded = true }
     }
 }

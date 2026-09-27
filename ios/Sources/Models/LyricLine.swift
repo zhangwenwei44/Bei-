@@ -4,6 +4,8 @@ struct LyricLine: Identifiable, Equatable {
     let id = UUID()
     let time: Double
     let text: String
+    /// 翻译歌词（网易云 tlyric），没有时为 nil。
+    var translation: String?
 }
 
 enum LRCParser {
@@ -15,34 +17,30 @@ enum LRCParser {
     static func parse(_ text: String) -> [LyricLine] {
         guard let pattern else { return [] }
         var result: [LyricLine] = []
-        let ns = text as NSString
 
         for rawLine in text.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { continue }
 
-            let range = NSRange(location: 0, length: ns.length)
-            let stamps = pattern.matches(in: line, range: range)
+            // 时间戳与正文都要在「当前行」里取，不能用整篇文本的偏移。
+            let ns = line as NSString
+            let stamps = pattern.matches(in: line, range: NSRange(location: 0, length: ns.length))
             guard let first = stamps.first else {
                 result.append(LyricLine(time: 0, text: line))
                 continue
             }
 
             let contentStart = first.range.upperBound
-            let content = ns.substring(with: NSRange(location: contentStart,
-                                                      length: max(0, ns.length - contentStart)))
-                .trimmingCharacters(in: .whitespaces)
+            let content = ns.substring(from: contentStart).trimmingCharacters(in: .whitespaces)
 
             for stamp in stamps {
                 let m = ns.substring(with: stamp.range(at: 1))
                 let s = ns.substring(with: stamp.range(at: 2))
-                let fractionRange = NSRange(location: 0, length: ns.length)
                 var fraction = "0"
                 if stamp.range(at: 3).location != NSNotFound,
                    let msRange = Range(stamp.range(at: 3), in: line) {
                     fraction = String(line[msRange])
                 }
-                _ = fractionRange
 
                 let minutes = Double(m) ?? 0
                 let seconds = Double(s) ?? 0
@@ -62,6 +60,29 @@ enum LRCParser {
             found = index
         }
         return found
+    }
+
+    /// 解析原文 + 翻译，按时间戳合并成一份歌词。
+    static func parse(_ lrc: String, translation tlyric: String?) -> [LyricLine] {
+        let base = parse(lrc)
+        guard let tlyric, !tlyric.isEmpty else { return base }
+        let translated = parse(tlyric)
+        guard !translated.isEmpty else { return base }
+
+        var result: [LyricLine] = []
+        var cursor = 0
+        for line in base {
+            while cursor < translated.count, abs(translated[cursor].time - line.time) > 0.35 {
+                cursor += 1
+            }
+            let match = cursor < translated.count && abs(translated[cursor].time - line.time) <= 0.35
+                ? translated[cursor]
+                : nil
+            result.append(LyricLine(time: line.time,
+                                    text: line.text,
+                                    translation: match?.text))
+        }
+        return result
     }
 }
 

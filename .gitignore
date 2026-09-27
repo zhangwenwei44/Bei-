@@ -11,6 +11,7 @@ xcuserdata/
 *.tipa
 *.dylib
 Payload/
+dist/
 fastlane/report.xml
 fastlane/screenshots
 

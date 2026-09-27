@@ -39,8 +39,11 @@ Filza → 打开 `.ipa` 会自动解压 → 进入 `Payload/` → 长按 `.app` 
 | 安装提示 `Invalid Signature` | 包没伪签名。用 `brew install ldid && ldid -S AuroraMusic.app` 重新处理，或在设备端 `apt install ldid` |
 | 装上但一点就闪退 | 缺 dylib 依赖（本项目不依赖 tweak，理论上不会出现；若出现检查 `DYLD` 注入冲突，用 ElleKit 排除本 bundle id） |
 | 提示 `Requires API level` | 设备 iOS < 16.0 |
-| 没有声音 | 未授予网络（示例音源走公网），或被其他 tweak 的音频 session 劫持（SpringBoard 关闭其他音频插件重试） |
+| 打开就白屏 / 内容是空的 | 需要联网。发现页、搜索、歌单都走公网接口 |
+| 歌放不出来，提示「这首歌暂时无法播放」 | 官方接口没给地址（VIP / 无版权），又没配第三方音源。去「我的 → 第三方音源」加一条并用「测试解析」验证 |
+| 配了音源还是放不出 | 用「我的 → 第三方音源 → 编辑 → 测试解析」看具体提示，逐项对照 `Design/DESIGN_SOURCES.md` |
 | 音乐不自动播放 | iOS 17+ 的自动播放策略，需手动点一次播放键 |
+| 没有声音 | 检查是否被其他 tweak 的音频 session 劫持（SpringBoard 关闭其他音频插件重试） |
 
 ## 想加 tweak 依赖
 

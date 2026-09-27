@@ -6,7 +6,7 @@ struct PlayerView: View {
     @Binding var isExpanded: Bool
     @State private var isScrubbing = false
     @State private var scrubValue: Double = 0
-    @State private var isBuffering = false
+    @State private var geometryWidth: CGFloat = 0
     @State private var showToast: String?
 
     private var displayTime: Double { isScrubbing ? scrubValue : store.currentTime }
@@ -28,9 +28,6 @@ struct PlayerView: View {
         .overlay(alignment: .bottom) { toastLayer }
         .onAppear(perform: animateIn)
         .onDisappear(perform: animateOut)
-        .onChange(of: store.bufferedFraction) { value in
-            isBuffering = value < 0.05 && store.isPlaying
-        }
     }
 
     // MARK: - 背景（由封面取色驱动）
@@ -59,7 +56,7 @@ struct PlayerView: View {
                            endPoint: .bottom)
         }
         .ignoresSafeArea()
-        .animation(.easeInOut(duration: 0.5), value: store.index)
+        .animation(.easeInOut(duration: 0.5), value: store.currentIndex)
         .animation(.easeInOut(duration: 0.5), value: store.currentPalette)
     }
 
@@ -75,18 +72,21 @@ struct PlayerView: View {
 
             Spacer()
 
-            pageIndicator
-                .frame(maxWidth: .infinity)
+            VStack(spacing: 2) {
+                Text(store.sourceName.isEmpty ? "在线播放" : store.sourceName)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .lineLimit(1)
+                Capsule()
+                    .fill(.white.opacity(0.85))
+                    .frame(width: 18, height: 5)
+            }
+            .frame(maxWidth: .infinity)
 
             Spacer()
 
             HStack(spacing: 18) {
-                Button {} label: {
-                    Image(systemName: "airplayaudio")
-                        .font(.system(size: 19, weight: .medium))
-                        .frame(width: 40, height: 40)
-                }
-                Button {} label: {
+                ShareLink(item: shareText) {
                     Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 19, weight: .medium))
                         .frame(width: 40, height: 40)
@@ -97,41 +97,16 @@ struct PlayerView: View {
         .padding(.top, 4)
     }
 
-    private var pageIndicator: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<3, id: \.self) { index in
-                Capsule()
-                    .fill(.white.opacity(index == 0 ? 0.9 : 0.4))
-                    .frame(width: index == 0 ? 16 : 6, height: 6)
-            }
-        }
-        .overlay(alignment: .trailing) {
-            singerBadge
-                .offset(x: 34)
-        }
-    }
-
-    private var singerBadge: some View {
-        VStack(spacing: 2) {
-            Circle()
-                .fill(.white.opacity(0.35))
-                .frame(width: 26, height: 26)
-                .overlay {
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white)
-                }
-            Text("正在唱")
-                .font(.system(size: 9))
-                .foregroundStyle(.white)
-        }
+    private var shareText: String {
+        let song = store.current
+        return "\(song?.title ?? "") - \(song?.artist ?? "")"
     }
 
     private var bitrateChip: some View {
         HStack(spacing: 4) {
-            Image(systemName: "arrow.down")
+            Image(systemName: store.isLoading ? "arrow.triangle.2.circlepath" : "arrow.down")
                 .font(.system(size: 8, weight: .bold))
-            Text(isBuffering ? "缓冲中" : "320 KB/s")
+            Text(chipText)
                 .font(.system(size: 11, design: .monospaced))
         }
         .foregroundStyle(.white.opacity(0.85))
@@ -143,8 +118,16 @@ struct PlayerView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private var chipText: String {
+        if store.isLoading { return "解析中" }
+        if store.playbackError != nil { return "无法播放" }
+        return store.bitrateLabel.isEmpty ? "在线播放" : store.bitrateLabel
+    }
+
     private var lyrics: some View {
-        LyricsView(lyrics: store.lyrics, currentIndex: store.currentLyricIndex)
+        LyricsView(lyrics: store.lyrics,
+                   currentIndex: store.currentLyricIndex,
+                   showsTranslation: store.showTranslation)
             .padding(.horizontal, 18)
     }
 
@@ -173,8 +156,6 @@ struct PlayerView: View {
             controls
                 .padding(.top, 12)
                 .padding(.bottom, 4)
-
-            vipBar
         }
     }
 
@@ -185,22 +166,18 @@ struct PlayerView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.white)
 
-                Button {
-                    store.isFollowed.toggle()
-                    Haptics.light()
-                } label: {
-                    Text(store.isFollowed ? "已关注" : "关注")
+                if let album = store.current?.album, !album.isEmpty {
+                    Text(album)
                         .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.82))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
-                        .background(store.isFollowed ? AnyShapeStyle(.white) : AnyShapeStyle(.white.opacity(0.08)),
-                                    in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                        .foregroundStyle(store.isFollowed ? .black : .white)
+                        .background(.white.opacity(0.06))
                         .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .stroke(.white.opacity(store.isFollowed ? 0 : 0.3)))
+                            .stroke(.white.opacity(0.3)))
                 }
 
-                ForEach(Array((store.current?.tags ?? []).enumerated()), id: \.offset) { _, tag in
+                ForEach(store.current?.tags ?? [], id: \.self) { tag in
                     Text(tag)
                         .font(.system(size: 11))
                         .foregroundStyle(.white.opacity(0.82))
@@ -216,57 +193,52 @@ struct PlayerView: View {
 
     private var actionRow: some View {
         HStack(spacing: 0) {
-            actionButton(icon: "text.bubble", label: "", badge: nil) { show("评论区开发中") }
-            actionButton(icon: "arrow.down.to.line", label: "", badge: "VIP") { download() }
-            actionButton(icon: "bell", label: "设铃声", badge: nil) { show("已设为铃声") }
+            actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
+            actionButton(icon: "bell", label: "铃声") { setRingtone() }
             actionButton(icon: store.isLiked ? "heart.fill" : "heart",
-                         label: store.isLiked ? "1.2w" : "623w",
-                         badge: nil,
-                         tint: store.isLiked ? .pink : .white) {
-                store.toggleLike()
-                Haptics.light()
+                         label: "收藏",
+                         tint: store.isLiked ? AppStyle.like : .white) {
+                store.toggleFavorite()
             }
-            actionButton(icon: "text.bubble.fill", label: "2w", badge: nil) { show("暂无 MV") }
-            actionButton(icon: "ellipsis", label: "", badge: nil) { show("更多操作") }
+            actionButton(icon: "character.bubble", label: "翻译") {
+                store.showTranslation.toggle()
+            }
+            actionButton(icon: "list.bullet", label: "队列") {
+                store.isQueuePresented = true
+            }
+            actionButton(icon: "ellipsis", label: "") { show("更多功能开发中") }
         }
+    }
+
+    private var downloadLabel: String {
+        guard let song = store.current else { return "下载" }
+        if let item = DownloadManager.shared.item(for: song), item.state.isActive {
+            return "\(Int(item.progress * 100))%"
+        }
+        return DownloadManager.shared.isDownloaded(song) ? "已下" : "下载"
     }
 
     private func actionButton(icon: String,
                               label: String,
-                              badge: String?,
                               tint: Color = .white,
                               action: @escaping () -> Void) -> some View {
         Button {
             action()
             Haptics.light()
         } label: {
-            ZStack(alignment: .top) {
-                VStack(spacing: 4) {
-                    ZStack(alignment: .bottomTrailing) {
-                        Image(systemName: icon)
-                            .font(.system(size: 21, weight: .regular))
-                            .frame(width: 34, height: 30)
-                        if let badge {
-                            Text(badge)
-                                .font(.system(size: 8, weight: .bold))
-                                .padding(.horizontal, 3)
-                                .padding(.vertical, 1)
-                                .background(Color(red: 0.96, green: 0.82, blue: 0.29),
-                                            in: RoundedRectangle(cornerRadius: 3))
-                                .foregroundStyle(.black)
-                                .offset(x: 10, y: 6)
-                        }
-                    }
-                    if !label.isEmpty {
-                        Text(label)
-                            .font(.system(size: 9))
-                            .foregroundStyle(.white.opacity(0.75))
-                            .lineLimit(1)
-                            .fixedSize()
-                    }
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 21, weight: .regular))
+                    .frame(width: 34, height: 30)
+                if !label.isEmpty {
+                    Text(label)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.75))
+                        .lineLimit(1)
+                        .fixedSize()
                 }
-                .foregroundStyle(tint)
             }
+            .foregroundStyle(tint)
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
@@ -297,13 +269,13 @@ struct PlayerView: View {
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    guard store.duration > 0 else { return }
+                    guard store.duration > 0, geometryWidth > 0 else { return }
                     if !isScrubbing {
                         isScrubbing = true
                         scrubValue = store.currentTime
                         Haptics.light()
                     }
-                    scrubValue = min(1, max(0, value.location.x / max(1, geometryWidth))) * store.duration
+                    scrubValue = min(1, max(0, value.location.x / geometryWidth)) * store.duration
                 }
                 .onEnded { _ in
                     store.seek(to: scrubValue)
@@ -324,15 +296,13 @@ struct PlayerView: View {
         .onPreferenceChange(TrackWidthKey.self) { geometryWidth = $0 }
     }
 
-    @State private var geometryWidth: CGFloat = 0
-
     // MARK: - 控制
 
     private var controls: some View {
         HStack {
             Button { store.cycleMode() } label: {
                 Image(systemName: store.mode.icon)
-                    .font(.system(size: 22, weight: .regular))
+                    .font(.system(size: 22))
                     .frame(width: 52, height: 52)
             }
 
@@ -363,35 +333,13 @@ struct PlayerView: View {
         .buttonStyle(.plain)
     }
 
-    private var vipBar: some View {
-        Button { show("会员功能演示版") } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "diamond.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color(red: 0.96, green: 0.82, blue: 0.29))
-                Text("会员歌曲限时免费试听")
-                    .foregroundStyle(.white.opacity(0.72))
-                Text("开通会员无限畅享")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.96, green: 0.82, blue: 0.29))
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Color(red: 0.96, green: 0.82, blue: 0.29))
-            }
-            .font(.system(size: 11))
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 6)
-        }
-        .buttonStyle(.plain)
-    }
-
     // MARK: - 反馈
 
     @ViewBuilder
     private var toastLayer: some View {
-        if let showToast {
-            Text(showToast)
-                .font(.footnote)
+        if let message = showToast ?? store.playbackError {
+            Text(message)
+                .font(.system(size: 12))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 9)
                 .background(.ultraThinMaterial, in: Capsule())
@@ -424,9 +372,31 @@ struct PlayerView: View {
         }
     }
 
+    // MARK: - 动作
+
     private func download() {
-        guard let url = store.current?.url else { return show("本地音频无法下载") }
-        UIApplication.shared.open(url)
+        guard let song = store.current, song.isRemote else { return show("本地音频不用下载") }
+        if DownloadManager.shared.isDownloaded(song) {
+            show("已经在下载列表里了")
+            return
+        }
+        Task {
+            do {
+                _ = try await DownloadManager.shared.download(song)
+                await MainActor.run { show("下载完成") }
+            } catch {
+                await MainActor.run { show(error.localizedDescription) }
+            }
+        }
+    }
+
+    private func setRingtone() {
+        guard let song = store.current else { return }
+        // 下载目录开了文件共享，用户可以在「文件 - 我的 iPhone」里长按设为铃声。
+        guard DownloadManager.shared.localURL(for: song) != nil else {
+            return show("先把歌下载下来，再设为铃声")
+        }
+        show("在「文件 - 我的 iPhone - Aurora Downloads」里长按设为铃声")
     }
 }
 
@@ -454,9 +424,14 @@ struct PlayButton: View {
                     .scaleEffect(pulse ? 1.16 : 1)
                     .opacity(pulse ? 0 : 0.55)
 
-                Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 22, weight: .bold))
-                    .offset(x: store.isPlaying ? 0 : 2)
+                if store.isLoading {
+                    ProgressView()
+                        .tint(.white)
+                } else {
+                    Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 22, weight: .bold))
+                        .offset(x: store.isPlaying ? 0 : 2)
+                }
             }
             .frame(width: 72, height: 72)
         }

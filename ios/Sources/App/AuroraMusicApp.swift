@@ -14,7 +14,7 @@ struct AuroraMusicApp: App {
             RootView()
                 .environmentObject(store)
                 .preferredColorScheme(.dark)
-                .onAppear { store.reload() }
+                .onAppear { store.bootstrap() }
         }
     }
 }

@@ -3,89 +3,228 @@ import MediaPlayer
 import SwiftUI
 import UIKit
 
+/// 播放核心：队列、在线地址解析、歌词、锁屏控制、历史。
 final class PlayerStore: ObservableObject {
-    @Published private(set) var songs: [Song] = []
-    @Published private(set) var index: Int = -1
+    // MARK: 队列
+
+    @Published private(set) var queue: [Song] = []
+    @Published private(set) var currentIndex: Int = -1
+    @Published var mode: PlaybackMode = .order
+
+    // MARK: 播放状态
+
     @Published private(set) var isPlaying = false
+    @Published private(set) var isLoading = false
+    @Published private(set) var playbackError: String?
+    @Published private(set) var sourceName: String = ""
     @Published private(set) var currentTime: Double = 0
     @Published private(set) var duration: Double = 0
-    @Published private(set) var lyrics: [LyricLine] = []
-    @Published private(set) var currentLyricIndex: Int? = nil
     @Published private(set) var bufferedFraction: Double = 0
+    @Published private(set) var bitrateLabel: String = ""
+
+    // MARK: 歌词与视觉
+
+    @Published private(set) var lyrics: [LyricLine] = []
+    @Published private(set) var currentLyricIndex: Int?
     @Published private(set) var artwork: UIImage?
     @Published private(set) var currentPalette = ArtworkPaletteEngine.palette(for: nil, seed: "-")
+    @Published var showTranslation = false
 
-    @Published var mode: PlaybackMode = .order
-    @Published var isLiked = false
-    @Published var isFollowed = false
+    // MARK: 交互
+
+    @Published private(set) var isLiked = false
     @Published var isQueuePresented = false
-    @Published var volume: Double = 1 {
-        didSet { player.volume = Float(volume) }
-    }
+    /// 睡眠定时结束时间，nil 表示未设置。
+    @Published var sleepTimerEnd: Date?
 
     private let player = AVPlayer()
     private var timeObserver: Any?
-    private var endObserver: NSObjectProtocol?
+    private var observers: [NSObjectProtocol] = []
+    private var shuffleHistory: [Int] = []
+    private var failedHosts = Set<String>()
+    private var preparingTask: Task<Void, Never>?
+    private var artworkTaskID: String?
+    private var lyricTaskID: String?
+    private var lastNowPlayingSecond = -1
 
-    var current: Song? { songs.indices.contains(index) ? songs[index] : nil }
+    var current: Song? { queue.indices.contains(currentIndex) ? queue[currentIndex] : nil }
     var progress: Double { duration > 0 ? min(1, currentTime / duration) : 0 }
+    var sleepTimerRemaining: TimeInterval? {
+        guard let sleepTimerEnd else { return nil }
+        return max(0, sleepTimerEnd.timeIntervalSinceNow)
+    }
 
     init() {
         player.actionAtItemEnd = .pause
+        player.automaticallyWaitsToMinimizeStalling = false
         installTimeObserver()
+        installNotifications()
         installRemoteCommands()
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleRouteChange),
-            name: AVAudioSession.routeChangeNotification,
-            object: nil
-        )
     }
 
     deinit {
         if let timeObserver { player.removeTimeObserver(timeObserver) }
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
     }
 
-    func reload() {
-        guard songs.isEmpty else { return }
-        songs = DemoLibrary.songs
-        load(index: 0, autoplay: false)
+    /// App 启动时调用。
+    func bootstrap() {
+        DownloadManager.shared.bootstrap()
     }
 
-    func add(url: URL) {
-        let isAudio = ["mp3", "m4a", "aac", "wav", "caf", "aiff", "flac"].contains(url.pathExtension.lowercased())
-        guard isAudio else { return }
-        let asset = AVURLAsset(url: url)
-        let name = url.deletingPathExtension().lastPathComponent
-        let item = Song(title: name, artist: "本地音频", url: url, tags: ["本地"], isLocal: true)
-        songs.append(item)
-        if index == -1 { load(index: 0, autoplay: false) }
-        Task {
-            if let seconds = try? await asset.load(.duration) {
-                await MainActor.run { self.songs[self.songs.count - 1].duration = seconds.seconds }
-            }
+    // MARK: - 队列操作
+
+    /// 用一批歌曲替换队列并从指定位置开始播放。
+    func play(_ songs: [Song], startAt index: Int = 0) {
+        guard !songs.isEmpty else { return }
+        queue = songs
+        currentIndex = min(max(0, index), songs.count - 1)
+        shuffleHistory = []
+        prepare(autoplay: true)
+    }
+
+    func append(_ songs: [Song]) {
+        queue.append(contentsOf: songs)
+    }
+
+    func playNow(_ songs: [Song]) {
+        guard !songs.isEmpty else { return }
+        let position = currentIndex >= 0 ? currentIndex + 1 : 0
+        queue.insert(contentsOf: songs, at: position)
+        currentIndex += 1
+        prepare(autoplay: true)
+    }
+
+    func remove(at offsets: IndexSet) {
+        for offset in offsets.sorted(by: >) where queue.indices.contains(offset) {
+            queue.remove(at: offset)
+            if offset < currentIndex { currentIndex -= 1 }
+        }
+        if queue.isEmpty { stopAll(); return }
+        if !queue.indices.contains(currentIndex) {
+            currentIndex = min(max(0, currentIndex), queue.count - 1)
+            prepare(autoplay: false)
         }
     }
 
-    func load(index newIndex: Int, autoplay: Bool) {
-        guard songs.indices.contains(newIndex) else { return }
-        index = newIndex
-        let song = songs[newIndex]
-        lyrics = DemoLibrary.lyrics(for: song)
-        currentLyricIndex = nil
-        currentTime = 0
-        isLiked = LikedStore.shared.contains(song)
-        refreshPalette()
-
-        guard let url = song.url else { return }
-        player.replaceCurrentItem(with: AVPlayerItem(url: url))
-        duration = song.duration
-        updateNowPlaying()
-        if autoplay { play() }
+    func move(from offsets: IndexSet, to destination: Int) {
+        queue.move(fromOffsets: offsets, toOffset: destination)
+        if let first = offsets.first {
+            if currentIndex == first { currentIndex = destination > first ? destination - 1 : destination }
+            else if currentIndex > first, currentIndex < destination { currentIndex -= 1 }
+            else if currentIndex < first, currentIndex >= destination { currentIndex += 1 }
+        }
     }
 
+    func clear() {
+        stopAll()
+    }
+
+    func stopAll() {
+        preparingTask?.cancel()
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        queue = []
+        currentIndex = -1
+        isPlaying = false
+        isLoading = false
+        currentTime = 0
+        duration = 0
+        lyrics = []
+        currentLyricIndex = nil
+        playbackError = nil
+        sourceName = ""
+        artwork = nil
+        currentPalette = ArtworkPaletteEngine.palette(for: nil, seed: "-")
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
+
+    // MARK: - 加载与播放
+
+    private func prepare(autoplay: Bool) {
+        guard let song = current else { return }
+        preparingTask?.cancel()
+
+        lyrics = []
+        currentLyricIndex = nil
+        currentTime = 0
+        duration = song.duration
+        bufferedFraction = 0
+        bitrateLabel = ""
+        playbackError = nil
+        isLiked = LibraryStore.shared.isFavorite(song)
+        isLoading = true
+        refreshArtwork(for: song)
+        loadLyrics(for: song)
+
+        let excluded = failedHosts
+        let task = Task { [weak self] in
+            guard let self else { return }
+            var resolvedURL: URL?
+            var name = ""
+            var isThirdParty = false
+            var label = ""
+
+            if let local = DownloadManager.shared.localURL(for: song) {
+                resolvedURL = local
+                name = "已下载"
+                label = "本地"
+            } else if let audio = await SourceResolver.resolve(song: song,
+                                                                quality: SourceStore.shared.quality,
+                                                                excludedHosts: excluded) {
+                resolvedURL = audio.url
+                name = audio.sourceName
+                isThirdParty = audio.isThirdParty
+                label = audio.quality.title
+            }
+
+            guard !Task.isCancelled else {
+                await MainActor.run { [weak self] in
+                    guard let self, self.current?.id == song.id else { return }
+                    self.isLoading = false
+                }
+                return
+            }
+            await MainActor.run { [weak self] in
+                guard let self, self.current?.id == song.id else { return }
+                self.isLoading = false
+                self.sourceName = name
+                self.bitrateLabel = label
+                guard let resolvedURL else {
+                    self.playbackError = "这首歌暂时无法播放，去「我的 - 音源」看看"
+                    self.player.pause()
+                    self.isPlaying = false
+                    return
+                }
+                self.attach(url: resolvedURL, thirdParty: isThirdParty, autoplay: autoplay)
+            }
+        }
+        preparingTask = task
+    }
+
+    private func attach(url: URL, thirdParty: Bool, autoplay: Bool) {
+        let item = AVPlayerItem(url: url)
+        player.replaceCurrentItem(with: item)
+        itemThirdParty = thirdParty
+        // 这次能播，之前拉黑的节点就放回候选池
+        failedHosts = []
+        if autoplay {
+            player.play()
+            isPlaying = true
+        } else {
+            player.pause()
+            isPlaying = false
+        }
+        updateNowPlaying()
+    }
+
+    private var itemThirdParty = false
+
     func play() {
+        guard player.currentItem != nil else {
+            prepare(autoplay: true)
+            return
+        }
         player.play()
         isPlaying = true
         updateNowPlaying()
@@ -99,14 +238,12 @@ final class PlayerStore: ObservableObject {
 
     func toggle() {
         isPlaying ? pause() : play()
-        if player.currentItem == nil, let song = current { load(index: songs.firstIndex(of: song) ?? 0, autoplay: true) }
     }
 
     func seek(to seconds: Double) {
-        let target = max(0, min(seconds, duration > 0 ? duration : seconds))
-        player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
-                   toleranceBefore: .zero,
-                   toleranceAfter: .zero)
+        let upper = duration > 0 ? duration : seconds
+        let target = max(0, min(seconds, upper))
+        player.seek(to: CMTime(seconds: target, preferredTimescale: 600))
         currentTime = target
         refreshLyric()
     }
@@ -116,100 +253,125 @@ final class PlayerStore: ObservableObject {
     }
 
     func step(_ direction: Int, automatic: Bool = false) {
-        guard !songs.isEmpty else { return }
+        guard !queue.isEmpty else { return }
         if automatic, mode == .single {
             seek(to: 0)
             play()
             return
         }
-        let count = songs.count
-        if mode == .shuffle, songs.count > 1 {
-            var candidate = index
-            while candidate == index { candidate = Int.random(in: 0..<count) }
-            load(index: candidate, autoplay: true)
+        if mode == .shuffle, queue.count > 1 {
+            if automatic, let last = shuffleHistory.last {
+                shuffleHistory.removeLast()
+                currentIndex = last
+                prepare(autoplay: true)
+                return
+            }
+            if !automatic { shuffleHistory.append(currentIndex) }
+            var candidate = currentIndex
+            while candidate == currentIndex { candidate = Int.random(in: 0..<queue.count) }
+            currentIndex = candidate
+            prepare(autoplay: true)
             return
         }
-        load(index: (index + direction + count) % count, autoplay: true)
+        let count = queue.count
+        currentIndex = (currentIndex + direction + count) % count
+        prepare(autoplay: true)
     }
 
-    func remove(at offsets: IndexSet) {
-        for offset in offsets.sorted(by: >) where songs.indices.contains(offset) {
-            if offset == index {
-                pause()
-                player.replaceCurrentItem(with: nil)
-                index = -1
-            }
-            songs.remove(at: offset)
-        }
-        if !songs.isEmpty {
-            index = min(max(index, 0), songs.count - 1)
-            load(index: index, autoplay: false)
-        }
+    func jump(to index: Int) {
+        guard queue.indices.contains(index) else { return }
+        currentIndex = index
+        prepare(autoplay: true)
     }
 
-    func removeAll() {
-        pause()
-        player.replaceCurrentItem(with: nil)
-        songs = []
-        index = -1
-        lyrics = []
-        currentTime = 0
-        duration = 0
-    }
+    // MARK: - 收藏
 
-    func toggleLike() {
+    func toggleFavorite() {
         guard let song = current else { return }
-        isLiked = LikedStore.shared.toggle(song)
-    }
-
-    func cycleMode() {
-        mode = PlaybackMode(rawValue: (mode.rawValue + 1) % PlaybackMode.allCases.count) ?? .order
+        isLiked = LibraryStore.shared.toggleFavorite(song)
         Haptics.light()
     }
 
-    private func refreshPalette() {
-        guard let song = current else {
-            artwork = nil
-            currentPalette = ArtworkPaletteEngine.palette(for: nil, seed: "-")
-            return
+    // MARK: - 睡眠定时
+
+    func setSleepTimer(minutes: Int) {
+        if minutes <= 0 {
+            sleepTimerEnd = nil
+        } else {
+            sleepTimerEnd = Date().addingTimeInterval(TimeInterval(minutes * 60))
         }
-        let seed = "\(song.artist)-\(song.title)"
-        if let cached = artwork {
-            currentPalette = ArtworkPaletteEngine.palette(for: cached, seed: seed)
-            return
-        }
-        let id = song.id
-        let fallback = artwork
+    }
+
+    // MARK: - 歌词
+
+    private func loadLyrics(for song: Song) {
+        lyricTaskID = song.id
+        guard let neteaseID = song.neteaseID, neteaseID > 0 else { return }
         Task { [weak self] in
-            guard let self else { return }
+            let result = try? await NetEaseClient.shared.lyric(id: neteaseID)
+            guard let result else { return }
+            let (lrc, tlyric) = result
+            let parsed = LRCParser.parse(lrc, translation: tlyric)
+            guard !parsed.isEmpty else { return }
+            await MainActor.run { [weak self] in
+                guard let self, self.lyricTaskID == song.id else { return }
+                self.lyrics = parsed
+                self.refreshLyric()
+            }
+        }
+    }
+
+    private func refreshLyric() {
+        let found = LRCParser.index(at: currentTime, in: lyrics)
+        if found != currentLyricIndex { currentLyricIndex = found }
+    }
+
+    // MARK: - 封面与取色
+
+    private func refreshArtwork(for song: Song) {
+        artworkTaskID = song.id
+        let seed = "\(song.artist)-\(song.title)"
+        let placeholder = ArtworkPaletteEngine.palette(for: nil, seed: seed)
+        if let current = artwork {
+            currentPalette = ArtworkPaletteEngine.palette(for: current, seed: seed)
+            return
+        }
+        currentPalette = placeholder
+        Task { [weak self] in
             let image = await Self.loadArtwork(for: song)
-            let next = ArtworkPaletteEngine.palette(for: image ?? fallback, seed: seed)
-            await MainActor.run {
-                guard let current = self.current, current.id == id else { return }
+            guard let image else { return }
+            await MainActor.run { [weak self] in
+                guard let self, self.artworkTaskID == song.id else { return }
                 self.artwork = image
-                withAnimation(.easeInOut(duration: 0.5)) { self.currentPalette = next }
+                withAnimation(.easeInOut(duration: 0.5)) {
+                    self.currentPalette = ArtworkPaletteEngine.palette(for: image, seed: seed)
+                }
+                self.updateNowPlaying()
             }
         }
     }
 
     private static func loadArtwork(for song: Song) async -> UIImage? {
-        if let url = song.artworkURL,
-           let (data, _) = try? await URLSession.shared.data(from: url),
-           let image = UIImage(data: data) {
-            return image
+        if let url = song.artworkURL {
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 8
+            let session = URLSession(configuration: config)
+            if let (data, _) = try? await session.data(from: url), let image = UIImage(data: data) {
+                return image
+            }
         }
-        guard let url = song.url else { return nil }
+        guard let url = DownloadManager.shared.localURL(for: song) else { return nil }
         let asset = AVURLAsset(url: url)
-        if let metadata = try? await asset.load(.commonMetadata) {
-            for item in metadata where item.commonKey == .commonKeyArtwork {
-                if let value = try? await item.load(.value),
-                   let image = value as? UIImage {
-                    return image
-                }
+        guard let metadata = try? await asset.load(.commonMetadata) else { return nil }
+        for item in metadata where item.commonKey == .commonKeyArtwork {
+            if let value = try? await item.load(.value), let image = value as? UIImage {
+                return image
             }
         }
         return nil
     }
+
+    // MARK: - 进度与通知
 
     private func installTimeObserver() {
         let interval = CMTime(seconds: 0.05, preferredTimescale: 600)
@@ -219,38 +381,97 @@ final class PlayerStore: ObservableObject {
             if let item = self.player.currentItem {
                 let total = item.duration.seconds
                 if total.isFinite, total > 0 { self.duration = total }
-                let buffer = item.loadedTimeRanges.first.map {
-                    let range = $0.timeRangeValue
-                    return Double(range.duration.seconds / total)
-                } ?? 0
-                self.bufferedFraction = max(0, min(1, buffer.isFinite ? buffer : 0))
+                let range = item.loadedTimeRanges.first?.timeRangeValue
+                let buffer = range.map { Double($0.duration.seconds / total) } ?? 0
+                self.bufferedFraction = buffer.isFinite ? max(0, min(1, buffer)) : 0
             }
             self.refreshLyric()
+
+            if let end = self.sleepTimerEnd, Date() >= end {
+                self.sleepTimerEnd = nil
+                self.pause()
+            }
+            // 每秒刷新一次锁屏信息即可
+            if Int(self.currentTime) != self.lastNowPlayingSecond {
+                self.lastNowPlayingSecond = Int(self.currentTime)
+                self.updateNowPlaying()
+            }
         }
     }
 
-    private func refreshLyric() {
-        let found = LRCParser.index(at: currentTime, in: lyrics)
-        if found != currentLyricIndex { currentLyricIndex = found }
+    private func installNotifications() {
+        let center = NotificationCenter.default
+
+        observers.append(center.addObserver(forName: .AVPlayerItemDidPlayToEndTime,
+                                            object: nil,
+                                            queue: .main) { [weak self] notification in
+            guard let self, let item = notification.object as? AVPlayerItem, item === self.player.currentItem else { return }
+            self.recordHistory()
+            self.step(1, automatic: true)
+        })
+
+        observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification,
+                                            object: nil,
+                                            queue: .main) { [weak self] note in
+            guard let self,
+                  let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                  let reason = AVAudioSession.RouteChangeReason(rawValue: raw),
+                  reason == .oldDeviceUnavailable, self.isPlaying else { return }
+            self.pause()
+        })
+
+        observers.append(center.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime,
+                                            object: nil,
+                                            queue: .main) { [weak self] notification in
+            guard let self, let item = notification.object as? AVPlayerItem, item === self.player.currentItem else { return }
+            self.handlePlaybackFailure()
+        })
+
+        observers.append(center.addObserver(forName: .AVPlayerItemPlaybackStalled,
+                                            object: nil,
+                                            queue: .main) { [weak self] notification in
+            guard let self, let item = notification.object as? AVPlayerItem, item === self.player.currentItem else { return }
+            self.handlePlaybackFailure()
+        })
     }
 
-    @objc private func handleRouteChange(_ note: Notification) {
-        guard let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
-              let reason = AVAudioSession.RouteChangeReason(rawValue: raw) else { return }
-        if reason == .oldDeviceUnavailable, isPlaying {
+    /// 播放失败：如果是第三方地址，把该域名拉黑并换源重试一次。
+    private func handlePlaybackFailure() {
+        guard current != nil else { return }
+        guard itemThirdParty, let host = player.currentItem?.url?.host?.lowercased() else {
+            playbackError = "播放失败，换个音源试试"
             pause()
+            return
         }
+        failedHosts.insert(host)
+        if failedHosts.count > 8 { failedHosts.removeAll() }
+        playbackError = "当前节点不可用，正在换源"
+        prepare(autoplay: true)
     }
+
+    private func recordHistory() {
+        guard let song = current else { return }
+        LibraryStore.shared.recordHistory(song)
+    }
+
+    // MARK: - 锁屏 / 控制中心
 
     private func updateNowPlaying() {
-        var info: [String: Any] = [:]
-        if let song = current {
-            info[MPMediaItemPropertyTitle] = song.title
-            info[MPMediaItemPropertyArtist] = song.artist
-            info[MPMediaItemPropertyAlbumTitle] = "Aurora Music"
-            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
-            info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
-            info[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
+        guard let song = current else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: song.title,
+            MPMediaItemPropertyArtist: song.artist,
+            MPMediaItemPropertyAlbumTitle: song.album.isEmpty ? "Aurora Music" : song.album,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
+        ]
+        if duration > 0 { info[MPMediaItemPropertyPlaybackDuration] = duration }
+        if let artwork {
+            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: artwork.size) { _ in artwork }
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
@@ -280,8 +501,8 @@ final class PlayerStore: ObservableObject {
             return .success
         }
         center.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let position = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            self?.seek(to: position.positionTime)
+            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            self?.seek(to: event.positionTime)
             return .success
         }
         center.skipForwardCommand.preferredIntervals = [15]
@@ -295,37 +516,17 @@ final class PlayerStore: ObservableObject {
             return .success
         }
         center.changeRepeatModeCommand.addTarget { [weak self] event in
-            guard let state = event as? MPChangeRepeatModeCommandEvent else { return .commandFailed }
-            self?.mode = state.repeatType == .one ? .single : .order
+            guard let event = event as? MPChangeRepeatModeCommandEvent else { return .commandFailed }
+            self?.mode = event.repeatType == .one ? .single : .order
             return .success
         }
     }
-}
 
-final class LikedStore {
-    static let shared = LikedStore()
-    private let defaults = UserDefaults.standard
-    private let key = "liked.song.titles"
+    // MARK: - 播放模式
 
-    private init() {}
-
-    func contains(_ song: Song) -> Bool {
-        let saved = defaults.stringArray(forKey: key) ?? []
-        return saved.contains("\(song.artist)-\(song.title)")
-    }
-
-    @discardableResult
-    func toggle(_ song: Song) -> Bool {
-        var saved = defaults.stringArray(forKey: key) ?? []
-        let id = "\(song.artist)-\(song.title)"
-        if let idx = saved.firstIndex(of: id) {
-            saved.remove(at: idx)
-            defaults.set(saved, forKey: key)
-            return false
-        }
-        saved.append(id)
-        defaults.set(saved, forKey: key)
-        return true
+    func cycleMode() {
+        mode = PlaybackMode(rawValue: (mode.rawValue + 1) % PlaybackMode.allCases.count) ?? .order
+        Haptics.light()
     }
 }
 
@@ -333,9 +534,11 @@ enum Haptics {
     static func light() {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
+
     static func soft() {
         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
     }
+
     static func success() {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }

@@ -1,19 +1,128 @@
-import SwiftUI
+import Foundation
 
-struct Song: Identifiable, Hashable {
-    var id = UUID()
+/// 歌曲来源平台。第三方音源解析按平台分派（wy / tx / kg）。
+enum SongSource: String, Codable, CaseIterable, Identifiable, Hashable {
+    case netease
+    case local
+
+    var id: String { rawValue }
+
+    /// 供第三方音源脚本识别的平台代码。
+    var code: String {
+        switch self {
+        case .netease: return "wy"
+        case .local: return "local"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .netease: return "网易云音乐"
+        case .local: return "本地音频"
+        }
+    }
+}
+
+enum MusicQuality: String, Codable, CaseIterable, Identifiable {
+    case standard, higher, exHigh, lossless, hires
+
+    var id: String { rawValue }
+
+    /// 网易云 level 参数。
+    var level: String {
+        switch self {
+        case .standard: return "standard"
+        case .higher: return "higher"
+        case .exHigh: return "exhigh"
+        case .lossless: return "lossless"
+        case .hires: return "hires"
+        }
+    }
+
+    /// 第三方音源模板的 {quality} 变量。
+    var sourceValue: String {
+        switch self {
+        case .standard: return "128k"
+        case .higher: return "320k"
+        case .exHigh: return "320k"
+        case .lossless: return "flac"
+        case .hires: return "flac"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .standard: return "标准音质"
+        case .higher: return "较高音质"
+        case .exHigh: return "极高音质"
+        case .lossless: return "无损音质"
+        case .hires: return "Hi-Res"
+        }
+    }
+
+    /// 降级链：高音质失败后依次向下尝试。
+    var fallbackChain: [MusicQuality] {
+        switch self {
+        case .standard: return [.standard]
+        case .higher: return [.higher, .standard]
+        case .exHigh: return [.exHigh, .higher, .standard]
+        case .lossless: return [.lossless, .exHigh, .higher, .standard]
+        case .hires: return [.hires, .lossless, .exHigh, .higher, .standard]
+        }
+    }
+}
+
+struct Song: Identifiable, Hashable, Codable {
+    /// 全局唯一：`wy:12345` / `local:文件名hash`
+    var id: String
     var title: String
     var artist: String
+    var album: String = ""
+    /// 已解析好的播放地址（在线解析或本地文件）。
     var url: URL?
-    var tags: [String] = ["原唱", "高音质", "标准"]
+    var tags: [String] = []
     var isLocal: Bool = false
     var duration: Double = 0
     var artworkURL: URL?
+    var source: SongSource = .netease
+    /// 平台内 ID，第三方音源解析时使用。
+    var neteaseID: Int?
+    var playCount: Int = 0
 
-    var subtitle: String { artist }
+    init(id: String? = nil,
+         title: String,
+         artist: String,
+         album: String = "",
+         url: URL? = nil,
+         tags: [String] = [],
+         isLocal: Bool = false,
+         duration: Double = 0,
+         artworkURL: URL? = nil,
+         source: SongSource = .netease,
+         neteaseID: Int? = nil,
+         playCount: Int = 0) {
+        self.id = id ?? "\(source.code):\(neteaseID ?? UUID().uuidString)"
+        self.title = title
+        self.artist = artist
+        self.album = album
+        self.url = url
+        self.tags = tags
+        self.isLocal = isLocal
+        self.duration = duration
+        self.artworkURL = artworkURL
+        self.source = source
+        self.neteaseID = neteaseID
+        self.playCount = playCount
+    }
 
     static func == (lhs: Song, rhs: Song) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
+    /// 是否可以交给在线接口解析（本地文件不走网络）。
+    var isRemote: Bool { !isLocal && source != .local }
+
+    /// 已下载到本地的文件位置（由 DownloadManager 维护）。
+    static func localID(for path: String) -> String { "local:\(path)" }
 }
 
 enum PlaybackMode: Int, CaseIterable {
@@ -32,79 +141,6 @@ enum PlaybackMode: Int, CaseIterable {
         case .order: return "repeat"
         case .single: return "repeat.1"
         case .shuffle: return "shuffle"
-        }
-    }
-}
-
-enum DemoLibrary {
-    static let songs: [Song] = [
-        Song(
-            title: "有风无风皆自由",
-            artist: "王一佳",
-            url: URL(string: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"),
-            tags: ["原唱", "高音质", "标准", "音效"],
-            duration: 372
-        ),
-        Song(
-            title: "Cloud Nine",
-            artist: "Aurora Fields",
-            url: URL(string: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"),
-            tags: ["Hi-Res", "纯音乐"],
-            duration: 402
-        ),
-        Song(
-            title: "Night Drive",
-            artist: "Retro Lane",
-            url: URL(string: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3"),
-            tags: ["标准", "伴唱"],
-            duration: 331
-        ),
-        Song(
-            title: "山海之间",
-            artist: "云上乐队",
-            url: URL(string: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3"),
-            tags: ["原唱", "视频"],
-            duration: 289
-        )
-    ]
-
-    static func lyrics(for song: Song) -> [LyricLine] {
-        switch song.title {
-        case "有风无风皆自由":
-            return [
-                LyricLine(time: 0, text: "有风 无风 皆自由"),
-                LyricLine(time: 8, text: "行走人海中 做个某某某"),
-                LyricLine(time: 15, text: "心若无所求"),
-                LyricLine(time: 21, text: "有风无风皆自由"),
-                LyricLine(time: 30, text: "路太长 弯太多"),
-                LyricLine(time: 38, text: "尽头总会有出口"),
-                LyricLine(time: 46, text: "把日子唱成歌"),
-                LyricLine(time: 54, text: "走到哪 唱到哪"),
-                LyricLine(time: 66, text: "有过 mist 也有过回头"),
-                LyricLine(time: 74, text: "不为谁停留"),
-                LyricLine(time: 82, text: "有风 无风 皆自由")
-            ]
-        case "Cloud Nine":
-            return [
-                LyricLine(time: 0, text: "轻快的云 落在耳畔"),
-                LyricLine(time: 10, text: "风穿过 蓝色的晚"),
-                LyricLine(time: 20, text: "Cloud nine, 慢慢飘"),
-                LyricLine(time: 32, text: "灯亮着 等你回来")
-            ]
-        case "Night Drive":
-            return [
-                LyricLine(time: 0, text: "路灯拉长影子"),
-                LyricLine(time: 9, text: "霓虹在雨里游泳"),
-                LyricLine(time: 18, text: "Night drive 一直到天亮"),
-                LyricLine(time: 30, text: "你说 明天见")
-            ]
-        default:
-            return [
-                LyricLine(time: 0, text: "越过山海 遇见你"),
-                LyricLine(time: 10, text: "风里都是 你的呼吸"),
-                LyricLine(time: 20, text: "不必言语"),
-                LyricLine(time: 26, text: "有你在 就是的意义")
-            ]
         }
     }
 }

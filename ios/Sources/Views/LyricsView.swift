@@ -3,6 +3,7 @@ import SwiftUI
 struct LyricsView: View {
     let lyrics: [LyricLine]
     let currentIndex: Int?
+    var showsTranslation = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -14,14 +15,22 @@ struct LyricsView: View {
                             .foregroundStyle(.white.opacity(0.55))
                     } else {
                         ForEach(lyrics) { line in
-                            Text(line.text)
-                                .font(.system(size: line.id == activeId ? 15 : 12,
-                                              weight: line.id == activeId ? .semibold : .regular))
-                                .foregroundStyle(line.id == activeId ? .white : .white.opacity(0.55))
-                                .multilineTextAlignment(.center)
-                                .lineSpacing(2)
-                                .frame(maxWidth: .infinity)
-                                .id(line.id)
+                            VStack(spacing: 3) {
+                                Text(line.text)
+                                    .font(.system(size: isActive(line) ? 15 : 12,
+                                                  weight: isActive(line) ? .semibold : .regular))
+                                    .foregroundStyle(isActive(line) ? .white : .white.opacity(0.55))
+                                    .multilineTextAlignment(.center)
+                                if showsTranslation, let translation = line.translation, !translation.isEmpty {
+                                    Text(translation)
+                                        .font(.system(size: isActive(line) ? 12 : 10))
+                                        .foregroundStyle(isActive(line) ? .white.opacity(0.75) : .white.opacity(0.4))
+                                        .multilineTextAlignment(.center)
+                                }
+                            }
+                            .lineSpacing(2)
+                            .frame(maxWidth: .infinity)
+                            .id(line.id)
                         }
                     }
                 }
@@ -36,8 +45,12 @@ struct LyricsView: View {
                     proxy.scrollTo(id, anchor: .center)
                 }
             }
-            .onChange(of: lyrics) { _ in proxy.scrollTo(0, anchor: .center) }
+            .onChange(of: lyrics) { _ in proxy.scrollTo(lyrics.first?.id, anchor: .center) }
         }
+    }
+
+    private func isActive(_ line: LyricLine) -> Bool {
+        line.id == activeId
     }
 
     private var activeId: UUID? {

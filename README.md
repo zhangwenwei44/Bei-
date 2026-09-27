@@ -1,0 +1,77 @@
+# KUgou
+
+一个 SwiftUI 写的第三方音乐播放器，播放页按酷狗音乐的排版思路做：白字压在封面取色渐变上，歌词居中逐行高亮，底部信息 → 图标 → 进度 → 控制四段呼吸。
+
+音源接口思路来自开源项目 [Beans-Music](https://github.com/zhangwenwei44/Beans-Music)（网易云 weapi/eapi、第三方解锁源那套），本仓库只保留学习用的最小实现，代码全部重写。
+
+| | |
+| --- | --- |
+| 平台 | iOS 16.0+ / iPhone · iPad |
+| 语言 | Swift 5.9 · SwiftUI |
+| 依赖 | 仅系统框架（JavaScriptCore 用于跑脚本音源） |
+| 签名 | 无签名 + ldid 伪签名，供越狱设备 / TrollStore 安装 |
+
+## 拿 IPA
+
+**Actions（推荐）**
+
+1. 打开仓库的 Actions 页，点 `Build iOS (unsigned IPA)` → `Run workflow`；
+2. 跑完后在这次 run 的 Artifacts 里下载 `AuroraMusic-unsigned-ipa`；
+3. 把里面的 `.ipa` 传到手机，用 AppSync / Sileo / TrollStore 安装。
+
+**Releases**
+
+打一个 `v*` tag 会同时构建并把 IPA 挂到 Release：
+
+```bash
+git tag v1.0.0 && git push kugou main --tags
+```
+
+**本地 macOS**
+
+```bash
+brew install xcodegen ldid
+./scripts/build-unsigned-ipa.sh      # 产物在 dist/
+```
+
+安装步骤和排错见 [`ios/JAILBREAK.md`](ios/JAILBREAK.md)。
+
+## 功能
+
+- **在线播放**：网易云音乐直连接口，搜索 / 歌单 / 榜单 / 歌手 / 专辑 / 歌词（含翻译）
+- **地址解析**：官方接口优先；VIP 或无版权时并发尝试用户配置的第三方音源，谁先返回可用地址就用谁
+- **下载**：带进度的下载，存 `Documents/Aurora Downloads`，离线可播
+- **收藏**：收藏、自建歌单、最近播放、导入本地音频，全部落盘
+- **第三方音源**：接口模板 + JS 脚本（LX / MusicPlugin 协议）两种形态，可导入导出，可在保存前直接测解析
+- **播放体验**：锁屏与控制中心、后台播放、睡眠定时、三种循环模式、耳机拔出暂停
+
+第三方音源怎么配见 [`ios/Design/DESIGN_SOURCES.md`](ios/Design/DESIGN_SOURCES.md)。
+
+## 目录
+
+```
+ios/            SwiftUI 工程（XcodeGen，project.yml 是唯一事实来源）
+  Sources/      全部源码
+  Design/       播放页设计规范、音源配置说明
+  JAILBREAK.md  越狱设备安装与排错
+  README.md     工程结构与运行方式
+scripts/        本地打包脚本
+.github/        CI：构建无签名 IPA
+```
+
+根目录下的 `index.html` / `app.js` / `style.css` / `js/` 是早期的一个网页版原型，保留作为对照，与 iOS 工程无关。
+
+## 本地开发
+
+需要 macOS + Xcode 15+：
+
+```bash
+brew install xcodegen
+cd ios && xcodegen generate && open AuroraMusic.xcodeproj
+```
+
+## 注意
+
+仅供个人学习与研究使用，请遵守各平台服务条款，不要用于商业分发。音乐、商标及各平台服务归其所有者所有。
+
+MIT

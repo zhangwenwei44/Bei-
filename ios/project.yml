@@ -16,6 +16,10 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+    dependencies:
+      - sdk: JavaScriptCore.framework
+      - sdk: AVFoundation.framework
+      - sdk: MediaPlayer.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.aurora.music
