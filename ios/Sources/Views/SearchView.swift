@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// 鎼滅储椤碉細鍗曟洸 / 姝屽崟 / 姝屾墜 / 涓撹緫銆?struct SearchView: View {
+/// 搜索页：单曲 / 歌单 / 歌手 / 专辑。
+struct SearchView: View {
     var initialKeyword: String = ""
 
     @EnvironmentObject private var store: PlayerStore
@@ -18,10 +19,10 @@ import SwiftUI
 
         var title: String {
             switch self {
-            case .songs: return "鍗曟洸"
-            case .playlists: return "姝屽崟"
-            case .artists: return "姝屾墜"
-            case .albums: return "涓撹緫"
+            case .songs: return "单曲"
+            case .playlists: return "歌单"
+            case .artists: return "歌手"
+            case .albums: return "专辑"
             }
         }
     }
@@ -37,7 +38,7 @@ import SwiftUI
                 } else if isLoading {
                     LoadingRow()
                 } else if let errorMessage, results.isEmpty {
-                    EmptyStateView(icon: "magnifyingglass", title: "娌℃悳鍒?, message: errorMessage)
+                    EmptyStateView(icon: "magnifyingglass", title: "没搜到", message: errorMessage)
                 } else {
                     resultList
                 }
@@ -45,12 +46,12 @@ import SwiftUI
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(AppStyle.background)
-        .navigationTitle("鎼滅储")
+        .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 if !submitted.isEmpty {
-                    Button("娓呯┖") {
+                    Button("清空") {
                         submitted = ""
                         keyword = ""
                         results = SearchResults()
@@ -68,14 +69,15 @@ import SwiftUI
         }
     }
 
-    // MARK: 鎼滅储妗?
+    // MARK: 搜索框
+
     private var searchField: some View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 14))
                     .foregroundStyle(AppStyle.secondaryText)
-                TextField("姝屾洸銆佹瓕鎵嬨€佹瓕鍗?, text: $keyword)
+                TextField("歌曲、歌手、歌单", text: $keyword)
                     .font(.system(size: 14))
                     .foregroundStyle(AppStyle.primaryText)
                     .focused($isFieldFocused)
@@ -97,7 +99,7 @@ import SwiftUI
             .background(AppStyle.surface, in: Capsule())
 
             if !submitted.isEmpty {
-                Button("鍙栨秷") {
+                Button("取消") {
                     submitted = ""
                     keyword = ""
                     results = SearchResults()
@@ -137,7 +139,7 @@ import SwiftUI
         .padding(.bottom, 8)
     }
 
-    // MARK: 缁撴灉
+    // MARK: 结果
 
     @ViewBuilder
     private var resultList: some View {
@@ -216,21 +218,21 @@ import SwiftUI
         }
     }
 
-    // MARK: 鎼滅储鍘嗗彶
+    // MARK: 搜索历史
 
     private var historyView: some View {
         Group {
             if history.isEmpty {
-                EmptyStateView(icon: "magnifyingglass", title: "鎼滅偣浠€涔堝惂",
-                               message: "鏀寔姝屽悕銆佹瓕鎵嬨€佹瓕鍗曞拰涓撹緫")
+                EmptyStateView(icon: "magnifyingglass", title: "搜点什么吧",
+                               message: "支持歌名、歌手、歌单和专辑")
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack {
-                        Text("鏈€杩戞悳绱?)
+                        Text("最近搜索")
                             .font(.system(size: 13))
                             .foregroundStyle(AppStyle.secondaryText)
                         Spacer()
-                        Button("娓呯┖") {
+                        Button("清空") {
                             history = []
                             Self.saveHistory(history)
                         }
@@ -260,7 +262,7 @@ import SwiftUI
         }
     }
 
-    // MARK: 琛屼负
+    // MARK: 行为
 
     private func play(_ song: Song) {
         let list = results.songs
@@ -299,7 +301,7 @@ import SwiftUI
         guard submitted == text else { return }
         results = newResults
         if newResults.isEmpty {
-            errorMessage = "鎹釜鍏抽敭璇嶈瘯璇?
+            errorMessage = "换个关键词试试"
         }
     }
 
