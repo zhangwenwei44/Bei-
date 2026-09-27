@@ -130,6 +130,13 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "1.3.0", date: "", items: [
+            "只保留酷狗接口并设为默认：搜索 / 排行榜 / 歌词直连，封面用酷狗专辑图",
+            "第三方音源支持洛雪（lx-music）脚本：补齐 EVENT_NAMES、console、require",
+            "修复 lx.request 回调签名：洛雪约定是 (err, resp)，之前只传一个参数，脚本会直接 reject",
+            "修复音源文件导入「选完没反应」：结果改用页内横幅，并放开文件类型限制",
+            "粘贴导入也支持整段 JS 脚本，名称从 /*! @name */ 里读取",
+        ]),
         Entry(version: "1.2.0", date: "", items: [
             "新增 App 图标",
             "第三方音源支持从文件导入，修掉选完文件没反应的问题",
