@@ -63,6 +63,55 @@ struct SourceSettingsView: View {
             }
 
             Section {
+                ForEach(presets) { preset in
+                    HStack(spacing: 12) {
+                        Image(systemName: "shippingbox.fill")
+                            .font(.system(size: 15))
+                            .foregroundStyle(AppStyle.gold)
+                            .frame(width: 28)
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                Text(preset.displayName)
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundStyle(AppStyle.primaryText)
+                                Text(preset.version)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(AppStyle.tertiaryText)
+                            }
+                            Text(presetLine(preset))
+                                .font(.system(size: 11))
+                                .foregroundStyle(AppStyle.tertiaryText)
+                                .lineLimit(2)
+                        }
+                        Spacer(minLength: 4)
+                        if isInstalled(preset) {
+                            Button("已添加") { }
+                                .font(.system(size: 12))
+                                .foregroundStyle(AppStyle.accent)
+                                .disabled(true)
+                        } else {
+                            Button {
+                                add(preset)
+                            } label: {
+                                Text("添加")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 3)
+                }
+            } header: {
+                Text("内置音源")
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppStyle.tertiaryText)
+            } footer: {
+                Text("随包发布，不用再选文件。第三方脚本由原作者提供服务，可能随时失效；仅供个人学习使用。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.tertiaryText)
+            }
+
+            Section {
                 Button {
                     isCreatingTemplate = true
                 } label: {
@@ -82,6 +131,11 @@ struct SourceSettingsView: View {
                     isPasting = true
                 } label: {
                     Label("粘贴内容导入", systemImage: "text.alignleft")
+                }
+                Button {
+                    importFromClipboard()
+                } label: {
+                    Label("从剪贴板导入", systemImage: "doc.on.clipboard")
                 }
                 Button {
                     isExporting = true
@@ -178,6 +232,56 @@ struct SourceSettingsView: View {
 
     private var importSucceeded: Bool {
         importMessage?.hasPrefix("成功") == true || importMessage?.hasPrefix("导入") == true
+    }
+
+    // MARK: - 内置音源
+
+    private var presets: [BundledSources.Preset] {
+        BundledSources.available
+    }
+
+    private func isInstalled(_ preset: BundledSources.Preset) -> Bool {
+        store.sources.contains { $0.name == preset.displayName }
+    }
+
+    private func presetLine(_ preset: BundledSources.Preset) -> String {
+        var parts: [String] = []
+        if let author = preset.author, !author.isEmpty { parts.append(author) }
+        if let license = preset.license, !license.isEmpty { parts.append(license) }
+        if let notes = preset.notes, !notes.isEmpty { parts.append(notes) }
+        return parts.isEmpty ? "洛雪脚本音源" : parts.joined(separator: " · ")
+    }
+
+    private func add(_ preset: BundledSources.Preset) {
+        guard let source = BundledSources.makeSource(preset) else {
+            importMessage = "内置音源 \(preset.displayName) 读取失败，包可能不完整"
+            return
+        }
+        store.upsert(source)
+        importMessage = "成功添加内置音源：\(preset.displayName)，到下面打开它的开关"
+    }
+
+    /// 剪贴板导入：文件选择器出问题时的兜底路径。
+    @MainActor
+    private func importFromClipboard() {
+        guard let text = UIPasteboard.general.string,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            importMessage = "剪贴板是空的，先复制音源内容再试"
+            return
+        }
+        let parsed = SourceStore.parseImport(text)
+        if !parsed.isEmpty {
+            for source in parsed { store.upsert(source) }
+            importMessage = "成功导入 \(parsed.count) 条：\(parsed.map(\.name).joined(separator: "、"))"
+            return
+        }
+        var name = "剪贴板脚本音源"
+        if text.hasPrefix("/*!"), let firstLine = text.components(separatedBy: .newlines).first,
+           let parsed = SourceImportView.scriptName(from: firstLine), !parsed.isEmpty {
+            name = parsed
+        }
+        store.upsert(ThirdPartySource(name: name, kind: .script, script: text))
+        importMessage = "成功导入脚本音源：\(name)"
     }
 
     private static var importableTypes: [UTType] {

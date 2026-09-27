@@ -7,6 +7,8 @@ struct AuroraMusicApp: App {
 
     init() {
         AudioSessionController.activate()
+        // 首次启动把随包发布的音源装上，用户不用再手动导入
+        BundledSources.installMissing()
     }
 
     var body: some Scene {

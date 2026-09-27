@@ -239,6 +239,27 @@ struct AboutView: View {
                     Text("本项目仅供个人学习与研究使用，请遵守各平台服务条款，不要用于商业分发。")
                         .font(.system(size: 12))
                         .foregroundStyle(AppStyle.tertiaryText)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("第三方音源署名")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(AppStyle.primaryText)
+                        ForEach(BundledSources.available) { preset in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(preset.displayName) \(preset.version)")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(AppStyle.secondaryText)
+                                Text([preset.author, preset.license, preset.homepage]
+                                        .compactMap { $0 }
+                                        .joined(separator: " · "))
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(AppStyle.tertiaryText)
+                            }
+                        }
+                        Text("音源脚本由原作者开发并提供服务，本应用只做分发，不保证可用。详见仓库的 THIRD_PARTY_NOTICES.md。")
+                            .font(.system(size: 11))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                    }
                 }
                 .padding(20)
             }

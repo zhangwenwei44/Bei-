@@ -16,6 +16,12 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+    resources:
+      # 内置音源脚本。optional：目录为空时也不该让 xcodegen 失败。
+      - path: BundledSources
+        optional: true
+        type: folder
+        buildPhase: resources
     dependencies:
       - sdk: JavaScriptCore.framework
       - sdk: AVFoundation.framework
