@@ -237,26 +237,51 @@ final class KugouClient {
     }
 
     /// 榜单里的歌曲。
+    ///
+    /// 榜单页（`www.kugou.com/yy/rank/home/1-<rankid>.html`）把曲目塞在
+    /// `global.features = [...]` 这个 JS 数组里，取歌只能从这儿抠。
+    /// 注意 URL 用的是 `rankid` 而不是 `id`，用错会返回 "You need get the right classid!"。
     func rankSongs(rankID: String, limit: Int = 50) async -> [Song] {
-        var params: [String: String] = [
-            "appid": appID,
-            "clienttype": "android",
-            "clientver": clientVersion,
-            "page": "1",
-            "pagesize": String(max(limit, 1)),
-            "topid": rankID,
-            "key": sign(["v": clientVersion, "topid": rankID], salt: signSalt),
-        ]
-        params["jsoncallback"] = "kgCloudJsonpCallback123"
-        params["sign"] = Data("\(signSalt)\(clientVersion)\(clientVersion)\(signSalt)".utf8).md5Hex()
+        guard let rankID = Int(rankID), rankID > 0,
+              let html = try? await getRaw(path: "/yy/rank/home/1-\(rankID).html",
+                                              host: "https://www.kugou.com",
+                                              params: [:],
+                                              headers: [:]),
+              let rows = Self.javascriptArray(named: "global.features", in: html) else { return [] }
+        return Array(rows.compactMap { Song(kugouJSON: $0) }.prefix(limit))
+    }
 
-        guard let raw = try? await getRaw(path: "/yy/rank/song",
-                                         host: "http://m.kugou.com",
-                                         params: params,
-                                         headers: ["User-Agent": browserUA]),
-              let data = Self.extractJSONP(raw) else { return [] }
-        let list = data["data"] as? [[String: Any]] ?? data["info"] as? [[String: Any]] ?? []
-        return Array(list.compactMap { Song(kugouJSON: $0) }.prefix(limit))
+    /// 从 HTML 里取出 `name = [...]` 形式的 JS 数组，括号配平扫描。
+    /// 扫描时跳过字符串字面量，避免内容里的 `[` `]` 把括号计数带偏。
+    static func javascriptArray(named name: String, in html: String) -> [[String: Any]]? {
+        guard let assignIndex = html.range(of: "\(name) = [") else { return nil }
+        guard let start = html.range(of: "[", range: assignIndex.upperBound..<html.endIndex)?.lowerBound
+        else { return nil }
+
+        var depth = 0
+        var inString = false
+        var escaped = false
+        var index = start
+        while index < html.endIndex {
+            let ch = html[index]
+            if inString {
+                if escaped { escaped = false }
+                else if ch == "\\" { escaped = true }
+                else if ch == "\"" { inString = false }
+            } else {
+                if ch == "\"" { inString = true }
+                else if ch == "[" { depth += 1 }
+                else if ch == "]" {
+                    depth -= 1
+                    if depth == 0 {
+                        let slice = String(html[start...index])
+                        return try? JSONSerialization.jsonObject(with: Data(slice.utf8)) as? [[String: Any]]
+                    }
+                }
+            }
+            index = html.index(after: index)
+        }
+        return nil
     }
 
     // MARK: - 请求

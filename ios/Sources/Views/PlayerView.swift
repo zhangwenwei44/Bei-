@@ -158,8 +158,9 @@ struct PlayerView: View {
                 .padding(.horizontal, 18)
 
             controls
-                .padding(.top, 12)
-                .padding(.bottom, 4)
+                .padding(.top, 10)
+                // 原来贴着 home indicator，上提一段让控制键落在拇指更顺手的位置
+                .padding(.bottom, 30)
         }
     }
 
@@ -315,30 +316,23 @@ struct PlayerView: View {
     // MARK: - 控制
 
     private var controls: some View {
-        HStack {
+        // 整行居中，且控制键整体上提
+        HStack(spacing: 0) {
             Button { store.step(-1) } label: {
                 Image(systemName: "backward.end.fill")
-                    .font(.system(size: 26))
-                    .frame(width: 52, height: 52)
+                    .font(.system(size: 28))
+                    .frame(width: 68, height: 68)
             }
 
             PlayButton()
 
             Button { store.step(1) } label: {
                 Image(systemName: "forward.end.fill")
-                    .font(.system(size: 26))
-                    .frame(width: 52, height: 52)
-            }
-
-            Button {
-                store.isQueuePresented = true
-                Haptics.light()
-            } label: {
-                Image(systemName: "list.bullet")
-                    .font(.system(size: 20))
-                    .frame(width: 52, height: 52)
+                    .font(.system(size: 28))
+                    .frame(width: 68, height: 68)
             }
         }
+        .frame(maxWidth: .infinity)
         .foregroundStyle(.white)
         .buttonStyle(.plain)
     }

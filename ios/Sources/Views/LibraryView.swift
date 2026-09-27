@@ -14,6 +14,8 @@ struct LibraryView: View {
     @State private var renamingID: String?
     @State private var renamingName = ""
     @State private var newPlaylistName = ""
+    @State private var isImporting = false
+    @State private var importError: String?
     @State private var section: Section = .favorites
 
     private enum Section: Int, CaseIterable, Identifiable {
@@ -82,10 +84,33 @@ struct LibraryView: View {
         .navigationTitle("我的音乐")
         .navigationBarTitleDisplayMode(.large)
         .fileImporter(isPresented: $isImporterPresented,
-                      allowedContentTypes: [.audio, .mp3, .mpeg4Audio, .wav, .aiff],
+                      allowedContentTypes: Self.audioImportTypes,
                       allowsMultipleSelection: true) { result in
-            if case let .success(urls) = result { importLocal(urls) }
+            switch result {
+            case let .success(urls):
+                importLocal(urls)
+            case let .failure(error):
+                importError = "打开文件选择器失败：\(error.localizedDescription)"
+            }
         }
+        .alert("导入本地音乐", isPresented: Binding(get: { importError != nil },
+                                                set: { if !$0 { importError = nil } })) {
+            Button("从「文件」App 拷进来", role: .cancel) { importError = nil }
+        } message: {
+            Text(importError ?? "")
+        }
+    }
+
+    /// 文件选择器有时会拒绝 iOS 沙盒里的文件（尤其是「我的 iPhone」下的），
+    /// 这里把能覆盖的类型都放开，并提示一条肯定可行的替代路径。
+    private static var audioImportTypes: [UTType] {
+        var types: [UTType] = [.audio, .mp3, .mpeg4Audio, .item, .data]
+        if let flac = UTType(filenameExtension: "flac") { types.append(flac) }
+        if let m4a = UTType(filenameExtension: "m4a") { types.append(m4a) }
+        if let aac = UTType(filenameExtension: "aac") { types.append(aac) }
+        if let caf = UTType(filenameExtension: "caf") { types.append(caf) }
+        return types
+    }
         .alert("新建歌单", isPresented: $isCreatingPlaylist) {
             TextField("歌单名称", text: $newPlaylistName)
             Button("取消", role: .cancel) { newPlaylistName = "" }
@@ -223,8 +248,12 @@ struct LibraryView: View {
             Button {
                 isImporterPresented = true
             } label: {
-                Label("导入", systemImage: "square.and.arrow.down")
-                    .font(.system(size: 12, weight: .medium))
+                if isImporting {
+                    ProgressView()
+                } else {
+                    Label("导入", systemImage: "square.and.arrow.down")
+                        .font(.system(size: 12, weight: .medium))
+                }
             }
         case .playlists:
             Button {
@@ -410,8 +439,11 @@ struct LibraryView: View {
 
     /// 导入本地音频：复制到 Documents 保证重启后仍可播放，并抽一张封面出来。
     private func importLocal(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        isImporting = true
         Task {
             var imported: [Song] = []
+            var failures: [String] = []
             for url in urls {
                 let accessed = url.startAccessingSecurityScopedResource()
                 defer { if accessed { url.stopAccessingSecurityScopedResource() } }
@@ -429,7 +461,18 @@ struct LibraryView: View {
                     if FileManager.default.fileExists(atPath: target.path) {
                         try? FileManager.default.removeItem(at: target)
                     }
-                    guard (try? FileManager.default.copyItem(at: url, to: target)) != nil else { continue }
+                    do {
+                        try FileManager.default.copyItem(at: url, to: target)
+                    } catch {
+                        failures.append(url.lastPathComponent)
+                        continue
+                    }
+                }
+
+                // 选进来但拷不过去的（权限/格式），也直接按沙盒内路径试一次
+                guard FileManager.default.fileExists(atPath: target.path) else {
+                    failures.append(url.lastPathComponent)
+                    continue
                 }
 
                 let asset = AVURLAsset(url: target)
@@ -446,7 +489,17 @@ struct LibraryView: View {
                                      artworkURL: cover,
                                      source: .local))
             }
-            await MainActor.run { library.addLocal(imported) }
+            await MainActor.run {
+                isImporting = false
+                library.addLocal(imported)
+                if imported.isEmpty {
+                    importError = failures.isEmpty
+                        ? "没读到可用的音频文件"
+                        : "这些文件读不了：\(failures.joined(separator: "、"))。可以先用「文件」App 打开它们，再分享到本 App"
+                } else if !failures.isEmpty {
+                    importError = "导入 \(imported.count) 首，失败：\(failures.joined(separator: "、"))"
+                }
+            }
         }
     }
 }

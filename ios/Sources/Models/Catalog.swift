@@ -60,24 +60,31 @@ struct DiscoverFeed {
 // MARK: - 酷狗 JSON 解析
 
 extension Song {
-    /// 解析酷狗歌曲节点。搜索、榜单共用同一套字段。
+    /// 解析酷狗歌曲节点。搜索、榜单共用一套解析。
     ///
-    /// 关键字段：`FileHash`（音频标识）、`FileName`（带 `<em>` 高亮标签，要剥掉）、
-    /// `SingerName`、`AlbumName`、`Duration`（秒）、`Image` / `AlbumImage`（封面）。
+    /// 不同接口字段名不一样，都在这里兜住：
+    /// - 搜索 / v3：`FileHash`、`Duration`(秒)、`SingerName`、`AlbumName`、`Image`
+    /// - 榜单页 `global.features`：`Hash`、`timeLen`(秒)、`author_name`、`album_id`
+    ///
+    /// 另外搜索结果的歌名 / 歌手名带 `<em>` 高亮标签，必须剥掉，
+    /// 否则播放页会直接显示 `<em>周杰伦</em>`。
     init?(kugouJSON json: [String: Any]) {
-        let hash = KugouClient.string(json["FileHash"]) ?? KugouClient.string(json["hash"]) ?? ""
+        let hash = KugouClient.string(json["FileHash"])
+            ?? KugouClient.string(json["Hash"])
+            ?? ""
         guard !hash.isEmpty else { return nil }
 
-        let rawName = KugouClient.string(json["FileName"])
-            ?? KugouClient.string(json["SongName"])
-            ?? ""
-        let title = Self.stripHighlight(rawName)
+        let rawName = KugouClient.string(json["FileName"]) ?? ""
+        let title = Song.stripHighlight(rawName)
         guard !title.isEmpty else { return nil }
 
-        let artist = KugouClient.string(json["SingerName"])
-            ?? KugouClient.string(json["Singer"])
-            ?? "未知歌手"
-        let album = KugouClient.string(json["AlbumName"]) ?? ""
+        let artist = Song.stripHighlight(
+            KugouClient.string(json["SingerName"])
+                ?? KugouClient.string(json["author_name"])
+                ?? KugouClient.string(json["Singer"])
+                ?? ""
+        )
+        let album = Song.stripHighlight(KugouClient.string(json["AlbumName"]) ?? "")
 
         var cover: URL?
         for key in ["Image", "AlbumImage", "img", "Img"] {
@@ -91,7 +98,9 @@ extension Song {
         }
 
         var duration: Double = 0
-        if let seconds = KugouClient.intValue(json["Duration"]) { duration = Double(seconds) }
+        if let seconds = KugouClient.intValue(json["Duration"]) ?? KugouClient.intValue(json["timeLen"]) {
+            duration = Double(seconds)
+        }
         if duration == 0, let ms = KugouClient.intValue(json["duration"]) { duration = Double(ms) / 1000 }
 
         var tags: [String] = []
@@ -101,20 +110,24 @@ extension Song {
 
         self.init(id: "kg:\(hash)",
                   title: title,
-                  artist: artist,
+                  artist: artist.isEmpty ? "未知歌手" : artist,
                   album: album,
                   tags: tags,
                   duration: duration,
                   artworkURL: cover,
                   source: .kugou,
                   kugouHash: hash,
-                  kugouAudioID: KugouClient.string(json["Audioid"]) ?? KugouClient.string(json["audioid"]) ?? "",
-                  kugouAlbumID: KugouClient.string(json["AlbumID"]) ?? KugouClient.string(json["album_id"]) ?? "")
+                  kugouAudioID: KugouClient.string(json["Audioid"])
+                      ?? KugouClient.string(json["audioid"])
+                      ?? "",
+                  kugouAlbumID: KugouClient.string(json["AlbumID"])
+                      ?? KugouClient.string(json["album_id"])
+                      ?? "")
     }
 
-    /// 酷狗搜索结果的歌名带 `<em>` 高亮标签。
+    /// 剥掉酷狗搜索结果里的 `<em>` 高亮标签。
     static func stripHighlight(_ text: String) -> String {
-        guard text.contains("<") else { return text }
+        guard text.contains("<") else { return text.trimmingCharacters(in: .whitespaces) }
         var out = ""
         var inside = false
         for ch in text {

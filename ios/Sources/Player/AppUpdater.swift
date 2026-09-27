@@ -144,19 +144,28 @@ final class AppUpdater: ObservableObject {
         phase = .idle
     }
 
-    /// 调起安装：越狱机由 AppSync 弹「选取软件安装」。
+    /// 准备安装：把包拷到越狱安装器能读到的公共目录。
     ///
-    /// 关键在于路径：安装器跑在 SpringBoard 进程里，读不到 App 沙盒，
-    /// 所以必须先落到 /var/mobile/Media 下的公共下载目录再 open。
-    func openInstaller(_ fileURL: URL) {
-        let shared = Self.shareToPublicDownloads(fileURL)
-        UIApplication.shared.open(shared, options: [:]) { [weak self] success in
+    /// SpringBoard 跑在 App 沙盒之外，读不到 App 自己的 Documents，所以必须先落到
+    /// /var/mobile/Media 下——AppSync / Zebra / Filza 都是从那里找包的。
+    func prepareInstall(_ fileURL: URL) -> URL {
+        Self.shareToPublicDownloads(fileURL)
+    }
+
+    /// 直接唤起安装。新版 iOS 上系统没给 .ipa 注册 open 处理器，所以这个经常无效，
+    /// 真正的可靠路径是分享面板让用户选 AppSync / Zebra / Filza。
+    func tryOpenInstaller(_ fileURL: URL) {
+        let shared = prepareInstall(fileURL)
+        UIApplication.shared.open(shared, options: [.compatibilityMode: true]) { [weak self] success in
             guard !success else { return }
             Task { @MainActor [weak self] in
-                self?.phase = .failed("系统没接住这个安装包。越狱设备请确认已安装 AppSync / Zebra，然后重试或用浏览器下载")
+                self?.installHint = "系统没有直接弹出安装界面。请在下面的分享面板里选 AppSync / Zebra / Filza 打开。"
             }
         }
     }
+
+    /// 直唤失败时给用户的提示，不覆盖当前状态（包还在，用户还能用分享面板）。
+    @Published var installHint: String?
 
     /// 拷贝到越狱常见的公共下载目录。AppSync / Zebra / Filza 都在这几个位置找包。
     private static func shareToPublicDownloads(_ fileURL: URL) -> URL {

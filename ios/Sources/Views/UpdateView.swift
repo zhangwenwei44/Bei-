@@ -4,6 +4,8 @@ import SwiftUI
 struct UpdateView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var updater = AppUpdater.shared
+    @State private var isSharePresented = false
+    @State private var installURL: URL?
 
     var body: some View {
         NavigationStack {
@@ -19,6 +21,17 @@ struct UpdateView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("完成") { dismiss() }
+                }
+            }
+            .sheet(isPresented: $isSharePresented) {
+                if let installURL {
+                    ShareSheet(items: [installURL])
+                }
+            }
+            // 进入 .ready 就把包搬到公共目录，用户点按钮时直接可用
+            .onChange(of: updater.phase) { phase in
+                if case let .ready(file) = phase {
+                    installURL = updater.prepareInstall(file)
                 }
             }
         }
@@ -119,8 +132,9 @@ struct UpdateView: View {
                         title: "安装包已下载",
                         message: fileURL.lastPathComponent)
             VStack(spacing: 10) {
+                // 可靠路径：分享面板里能选 AppSync / Zebra / Filza
                 Button {
-                    updater.openInstaller(fileURL)
+                    isSharePresented = true
                 } label: {
                     Text("选择软件安装")
                         .font(.system(size: 15, weight: .semibold))
@@ -131,19 +145,29 @@ struct UpdateView: View {
                 }
                 .buttonStyle(.plain)
 
-                ShareLink(item: fileURL) {
-                    Label("用别的应用打开", systemImage: "square.and.arrow.up")
+                Button {
+                    updater.tryOpenInstaller(fileURL)
+                } label: {
+                    Label("直接唤起安装", systemImage: "arrow.up.forward.app")
                         .font(.system(size: 13, weight: .medium))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 11)
                         .background(AppStyle.surfaceHigh, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .foregroundStyle(AppStyle.primaryText)
                 }
+                .buttonStyle(.plain)
 
-                Text("点第一个按钮应由 AppSync / Zebra 弹出安装确认；装不上就用下面的分享面板手动选安装器。")
-                    .font(.system(size: 11))
-                    .foregroundStyle(AppStyle.tertiaryText)
-                    .multilineTextAlignment(.center)
+                if let hint = updater.installHint {
+                    Text(hint)
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppStyle.gold)
+                        .multilineTextAlignment(.center)
+                } else {
+                    Text("点第一个按钮后，在分享面板里选 AppSync / Zebra / Filza 安装；包已放到「文件 - 下载」里。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                        .multilineTextAlignment(.center)
+                }
             }
             .padding(.horizontal, 20)
             .padding(.top, 20)
