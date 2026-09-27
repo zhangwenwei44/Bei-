@@ -193,7 +193,8 @@ final class PlayerStore: ObservableObject {
     }
 
     private static func loadArtwork(for song: Song) async -> UIImage? {
-        if let url = song.artworkURL, let data = try? await URLSession.shared.data(from: url),
+        if let url = song.artworkURL,
+           let (data, _) = try? await URLSession.shared.data(from: url),
            let image = UIImage(data: data) {
             return image
         }
@@ -201,7 +202,10 @@ final class PlayerStore: ObservableObject {
         let asset = AVURLAsset(url: url)
         if let metadata = try? await asset.load(.commonMetadata) {
             for item in metadata where item.commonKey == .commonKeyArtwork {
-                if let image = item.load(.value) as? UIImage { return image }
+                if let value = try? await item.load(.value),
+                   let image = value as? UIImage {
+                    return image
+                }
             }
         }
         return nil
@@ -290,7 +294,6 @@ final class PlayerStore: ObservableObject {
             self?.skip(by: -15)
             return .success
         }
-        center.changeRepeatModeCommand.supportedPlaybackRates = [0, 1, 2]
         center.changeRepeatModeCommand.addTarget { [weak self] event in
             guard let state = event as? MPChangeRepeatModeCommandEvent else { return .commandFailed }
             self?.mode = state.repeatType == .one ? .single : .order

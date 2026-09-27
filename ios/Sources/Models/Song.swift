@@ -5,10 +5,10 @@ struct Song: Identifiable, Hashable {
     var title: String
     var artist: String
     var url: URL?
-    var artworkURL: URL?
     var duration: Double = 0
     var tags: [String] = ["原唱", "高音质", "标准"]
     var isLocal: Bool = false
+    var artworkURL: URL?
 
     var subtitle: String { artist }
 
