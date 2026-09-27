@@ -101,7 +101,7 @@ final class KugouClient {
               let groups = data["lists"] as? [[String: Any]] else { return [] }
 
         var songs: [Song] = []
-        for group in groups where Self.string(group["type"]).lowercased() == "song" {
+        for group in groups where (Self.string(group["type"]) ?? "").lowercased() == "song" {
             let rows = (group["info"] as? [[String: Any]] ?? [])
                 + (group["lists"] as? [[String: Any]] ?? [])
             songs.append(contentsOf: rows.compactMap(Song(kugouJSON:)))
@@ -112,24 +112,31 @@ final class KugouClient {
 
     // MARK: - 歌词
 
-    /// 原文 LRC。酷狗的歌词接口走 http，缺 Referer 会 400。
+    /// 歌词。酷狗的歌词接口只认 http，且缺 Referer 会 400。
     func lyric(hash: String, duration: Double) async -> String? {
         let upper = hash.uppercased()
         let millis = Int(duration * 1000)
+        let searchParams: [String: String] = [
+            "ver": "1", "man": "yes", "client": "pc",
+            "hash": upper, "duration": String(millis),
+        ]
         guard let search = try? await getJSON(path: "/search",
                                               host: "http://lyrics.kugou.com",
-                                              params: ["ver": "1", "man": "yes", "client": "pc",
-                                                       "hash": upper, "duration": String(millis)]),
+                                              params: searchParams,
+                                              headers: ["Referer": "https://www.kugou.com/"]),
               let candidates = search["candidates"] as? [[String: Any]],
               let first = candidates.first,
               let id = first["id"],
               let accessKey = first["accesskey"] else { return nil }
 
+        let downloadParams: [String: String] = [
+            "ver": "1", "client": "pc", "id": "\(id)",
+            "accesskey": "\(accessKey)", "fmt": "lrc", "charset": "utf8",
+        ]
         guard let download = try? await getJSON(path: "/download",
                                                 host: "http://lyrics.kugou.com",
-                                                params: ["ver": "1", "client": "pc", "id": "\(id)",
-                                                         "accesskey": "\(accessKey)", "fmt": "lrc",
-                                                         "charset": "utf8"]),
+                                                params: downloadParams,
+                                                headers: ["Referer": "https://www.kugou.com/"]),
               let content = download["content"] as? String,
               let data = Data(base64Encoded: content.replacingOccurrences(of: "\n", with: "")),
               let text = String(data: data, encoding: .utf8),
@@ -208,9 +215,9 @@ final class KugouClient {
               let rank = json["rank"] as? [String: Any],
               let list = rank["list"] as? [[String: Any]] else { return [] }
 
-        return list.compactMap { item in
-            guard let rankID = KugouClient.string(item["rankid"]) ?? KugouClient.string(item["id"]),
-                  !rankID.isEmpty else { return nil }
+        return list.compactMap { item -> Playlist? in
+            let rankID = KugouClient.string(item["rankid"]) ?? KugouClient.string(item["id"]) ?? ""
+            guard !rankID.isEmpty else { return nil }
             let name = KugouClient.string(item["rankname"]) ?? "榜单"
             var cover = KugouClient.string(item["img9"]) ?? KugouClient.string(item["imgurl"])
             // 酷狗的封面地址带 {size} 占位
@@ -250,7 +257,7 @@ final class KugouClient {
                                          headers: ["User-Agent": browserUA]),
               let data = Self.extractJSONP(raw) else { return [] }
         let list = data["data"] as? [[String: Any]] ?? data["info"] as? [[String: Any]] ?? []
-        return Array(list.compactMap(Song(kugouJSON:)).prefix(limit))
+        return Array(list.compactMap { Song(kugouJSON: $0) }.prefix(limit))
     }
 
     // MARK: - 请求
