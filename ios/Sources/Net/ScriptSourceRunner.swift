@@ -583,7 +583,11 @@ final class ScriptSourceRunner {
             Log.error("脚本音源", "「\(source.name)」的返回里找不到播放地址，原始返回: \(String(describing: raw).prefix(200))")
             return nil
         }
-        guard let playable = Self.playable(URL(string: urlString), excludedHosts: excludedHosts) else {
+        guard let url = URL(string: urlString) else {
+            Log.error("脚本音源", "「\(source.name)」返回的地址不是合法 URL: \(urlString.prefix(120))")
+            return nil
+        }
+        guard let playable = Self.playable(url, excludedHosts: excludedHosts) else {
             Log.error("脚本音源", "「\(source.name)」返回的地址不可用: \(urlString.prefix(120))")
             return nil
         }

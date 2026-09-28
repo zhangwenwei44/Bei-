@@ -8,7 +8,7 @@ import UIKit
 /// 出错和「本来就空」在界面上长得一模一样。这里把所有这些静默点记下来，
 /// 界面上能看、能导出，出问题把文件发出来就能定位。
 enum Log {
-    enum Level: String, Comparable, CaseIterable {
+    enum Level: String, Codable, Comparable, CaseIterable {
         case debug, info, warn, error
 
         var order: Int {
@@ -83,9 +83,11 @@ enum Log {
 /// 日志仓库：内存环形缓冲 + 落盘。
 ///
 /// 落盘用滚动文件，超过单个文件上限就换新文件，避免把设备存储写满。
-@MainActor
+///
+/// 刻意不标 @MainActor：网络层是非隔离的，标了连单例都初始化不了。
+/// 需要动 @Published 的方法单独标 @MainActor。
 final class LogStore: ObservableObject {
-    nonisolated(unsafe) static let shared = LogStore()
+    static let shared = LogStore()
 
     /// 内存里最多留这么多条，太老的丢掉。
     private let memoryLimit = 2000
@@ -118,6 +120,7 @@ final class LogStore: ObservableObject {
         }
     }
 
+    @MainActor
     private func write(level: Log.Level, category: String, message: String) {
         guard level >= minLevel else { return }
         let entry = Log.Entry(date: Date(), level: level, category: category, message: message)
@@ -128,6 +131,7 @@ final class LogStore: ObservableObject {
         appendToDisk(entry)
     }
 
+    @MainActor
     private func appendToDisk(_ entry: Log.Entry) {
         let line = "\(iso.string(from: entry.date)) [\(entry.level.rawValue.uppercased())] [\(entry.category)] \(entry.message)\n"
         guard let data = line.data(using: .utf8) else { return }
@@ -150,6 +154,7 @@ final class LogStore: ObservableObject {
         return dir
     }
 
+    @MainActor
     private func openNewFile() {
         closeHandle()
         let name = "aurora-\(fileStamp()).log"
@@ -161,6 +166,7 @@ final class LogStore: ObservableObject {
         pruneOldFiles()
     }
 
+    @MainActor
     private func closeHandle() {
         try? currentHandle?.close()
         currentHandle = nil
@@ -168,6 +174,7 @@ final class LogStore: ObservableObject {
         currentBytes = 0
     }
 
+    @MainActor
     private func rotate() {
         closeHandle()
         openNewFile()
@@ -179,6 +186,7 @@ final class LogStore: ObservableObject {
         return f.string(from: Date())
     }
 
+    @MainActor
     private func pruneOldFiles() {
         let dir = logDirectory()
         let files = (try? FileManager.default.contentsOfDirectory(at: dir,
@@ -198,6 +206,7 @@ final class LogStore: ObservableObject {
 
     // MARK: 读回
 
+    @MainActor
     private func loadExisting() {
         let dir = logDirectory()
         let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
@@ -211,11 +220,12 @@ final class LogStore: ObservableObject {
         }) {
             currentFile = latest
             currentHandle = try? FileHandle(forWritingTo: latest)
-            currentBytes = (try? FileHandle(forWritingTo: latest).seekToEnd()) ?? 0
+            currentBytes = (try? latest.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { $0 } ?? 0
         }
     }
 
     /// 把磁盘上的历史日志读进内存，方便界面上直接看。
+    @MainActor
     func reloadFromDisk() {
         var loaded: [Log.Entry] = []
         for file in logFileURLs.reversed() {
@@ -234,10 +244,10 @@ final class LogStore: ObservableObject {
         let head = parts[0]
         guard let datePart = head.split(separator: " ").first,
               let date = iso.date(from: String(datePart)),
-              let levelRange = head.range(of: "["),
-              let levelEnd = head.range(of: "]", range: levelRange.upperBound..<head.endIndex)
+              let openIndex = head.firstIndex(of: "["),
+              let closeIndex = head[head.index(after: openIndex)...].firstIndex(of: "]")
         else { return nil }
-        let levelRaw = head[levelRange.upperBound..<levelEnd.lowerBound].lowercased()
+        let levelRaw = head[head.index(after: openIndex)..<closeIndex].lowercased()
         guard let level = Log.Level(rawValue: levelRaw) else { return nil }
         let catPart = parts[1]
         guard let catOpen = catPart.firstIndex(of: "["),
@@ -250,6 +260,7 @@ final class LogStore: ObservableObject {
     // MARK: 导出
 
     /// 导出一份带环境信息的完整报告，方便直接发出来分析。
+    @MainActor
     func exportReport() -> URL? {
         reloadFromDisk()
         var out = ""
@@ -276,6 +287,7 @@ final class LogStore: ObservableObject {
         }
     }
 
+    @MainActor
     func clear() {
         entries = []
         closeHandle()

@@ -271,7 +271,7 @@ final class KugouClient {
     /// 再找 `[`，会跳过整段数组内容、落到页面别处的方括号上，切出垃圾。
     static func javascriptArray(named name: String, in html: String) -> [[String: Any]]? {
         guard let marker = html.range(of: "\(name) = [") else { return nil }
-        let start = marker.upperBound - 1
+        let start = html.index(before: marker.upperBound)
 
         var depth = 0
         var inString = false
