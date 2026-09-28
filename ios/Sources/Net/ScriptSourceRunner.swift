@@ -36,24 +36,6 @@ import JavaScriptCore
     func reject(_ value: JSValue?)
 }
 
-@objc protocol ScriptLogBridge: JSExport {
-    func log(_ message: String?)
-}
-
-final class ScriptLog: NSObject, ScriptLogBridge {
-    let name: String
-
-    init(name: String) {
-        self.name = name
-    }
-
-    func log(_ message: String?) {
-        // 脚本 log 里的参数经常不是字符串，非可选参数会直接把 App 打崩
-        let text = message ?? "(空)"
-        Log.debug("脚本音源", "「\(name)」脚本日志: \(text.prefix(300))")
-    }
-}
-
 /// 把 JS 值安全地转成数字/字符串。
 /// 直接用 JSValue.toDouble()/toString() 在值是 undefined 或对象时会抛异常。
 private func jsDouble(_ value: JSValue?) -> Double? {
@@ -380,6 +362,8 @@ final class ScriptRuntime {
     let queue = DispatchQueue(label: "Aurora.ScriptRuntime")
     private let bridge = ScriptBridge()
     private let sourceID: String
+    /// 脚本求值期间是否出现过异常。出现过的运行时一律不再使用。
+    private var sawException = false
 
     init?(source: ThirdPartySource, script: String) {
         guard let context = JSContext() else { return nil }
@@ -387,17 +371,28 @@ final class ScriptRuntime {
         self.sourceID = source.id
         bridge.owner = self
 
-        context.exceptionHandler = { _, exception in
+        context.exceptionHandler = { [weak self] _, exception in
             let message = exception?.toString() ?? "unknown"
-            // 原来只 NSLog，用户在 App 里根本看不到，脚本为什么跑不起来无从查起
-            NSLog("[音源脚本] \(source.name) 异常: \(message)")
             Log.error("脚本音源", "「\(source.name)」JS 异常: \(message)")
+            // JavaScriptCore 允许脚本自己 try/catch 把异常吃掉，exception 属性会变回 nil，
+            // 但上下文已经处于不确定状态。标记一下，后面直接丢弃这个运行时。
+            self?.sawException = true
         }
 
         context.setObject(bridge, forKeyedSubscript: "__beansRequest" as NSString)
         context.setObject(bridge, forKeyedSubscript: "__beansUtils" as NSString)
         context.setObject(bridge, forKeyedSubscript: "__beansCrypto" as NSString)
-        context.setObject(ScriptLog(name: source.name), forKeyedSubscript: "nativeLog" as NSString)
+        // nativeLog 必须是「函数」，不能是 ScriptLog 对象。
+        // 之前用 setObject 注册成对象，脚本里 console.log 最终走到
+        // nativeLog(...) 就抛 TypeError: nativeLog is not a function，
+        // 异常发生在脚本求值过程中，JavaScriptCore 随后直接 SIGTRAP 把 App 打死
+        // （v1.5.0 日志里连续三次都是这个组合）。
+        let sourceName = source.name
+        let logBlock: @convention(block) (String) -> Void = { message in
+            Log.debug("脚本音源", "「\(sourceName)」脚本日志: \(message.prefix(300))")
+        }
+        context.setObject(unsafeBitCast(logBlock, to: AnyObject.self),
+                          forKeyedSubscript: "nativeLog" as NSString)
 
         let info: [String: Any] = [
             "name": source.name,
@@ -413,10 +408,14 @@ final class ScriptRuntime {
             Log.error("脚本音源", "「\(source.name)」bootstrap 注入失败")
             return nil
         }
+        sawException = false
 
         context.evaluateScript(script)
-        if context.exception != nil {
-            Log.error("脚本音源", "「\(source.name)」主脚本求值失败（语法错误或用了不支持的 API）")
+        // 重点：不只看 context.exception，还要看异常处理器有没有被叫醒。
+        // 脚本把异常自己 catch 掉时 exception 会变回 nil，但上下文已经脏了，
+        // 后续调用时 JavaScriptCore 可能直接 SIGTRAP。
+        if context.exception != nil || sawException {
+            Log.error("脚本音源", "「\(source.name)」主脚本求值期间出现异常，这个音源本次不可用")
             return nil
         }
 
@@ -438,6 +437,9 @@ final class ScriptRuntime {
         }
         Log.info("脚本音源", "「\(source.name)」\(script.count) 字符，入口已识别")
     }
+
+    /// 调用前先确认上下文还健康。经历过异常的运行时直接拒绝使用。
+    private var isUsable: Bool { !sawException && context.exception == nil }
 
     /// 注入洛雪（lx）兼容层：lx.utils 全套、lx.request、lx.on，
     /// 另外兼容 module.exports.musicUrl 与 MusicPlugin.getMusicUrl。
@@ -578,6 +580,10 @@ final class ScriptRuntime {
 
             queue.async { [weak self] in
                 guard let self else { return resume(nil) }
+                guard self.isUsable else {
+                    Log.error("脚本音源", "运行时已因异常失效，跳过本次调用")
+                    return resume(nil)
+                }
                 self.context.setObject(payload as NSDictionary, forKeyedSubscript: "__beansPayload" as NSString)
                 self.context.setObject(completion, forKeyedSubscript: "__beansDone" as NSString)
                 self.context.evaluateScript("""

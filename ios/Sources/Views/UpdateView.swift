@@ -1,12 +1,15 @@
 import SwiftUI
 import UIKit
 
-/// 检查更新弹窗：显示版本、Release note，直接下载 IPA 并唤起安装。
+/// 检查更新弹窗：显示版本、Release note，下载 IPA 并交给越狱安装器安装。
 struct UpdateView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var updater = AppUpdater.shared
-    @State private var isSharePresented = false
     @State private var installURL: URL?
+    /// 拷到 /var/mobile/Media 的那份。安装器只能读到沙盒外的文件，
+    /// 所以分享面板必须用它；沙盒里那份留给「在文件 App 中查看」。
+    @State private var sharedURL: URL?
+    @State private var shareFailed = false
 
     var body: some View {
         NavigationStack {
@@ -24,17 +27,27 @@ struct UpdateView: View {
                     Button("完成") { dismiss() }
                 }
             }
-            .sheet(isPresented: $isSharePresented) {
-                if let installURL {
-                    ShareSheet(items: [installURL])
-                }
-            }
             // 进入 .ready 就把包搬到公共目录，用户点按钮时直接可用
             .onChange(of: updater.phase) { phase in
                 if case let .ready(file) = phase {
-                    installURL = updater.prepareInstall(file)
+                    installURL = file
+                    sharedURL = updater.prepareInstall(file)
+                    shareFailed = false
                 }
             }
+        }
+    }
+
+    /// 弹出安装器选择。
+    ///
+    /// 不用 `.sheet` 套 `.sheet`：UpdateView 本身就是 ProfileView 用 sheet 呈现的，
+    /// iOS 16 上嵌套 sheet 经常弹不出来。改成直接拿顶层 ViewController present。
+    private func presentInstaller() {
+        // 优先用公共目录那份；拷不过去就退回沙盒里的
+        guard let target = sharedURL ?? installURL else { return }
+        shareFailed = !IPAInstaller.presentShareSheet(for: target)
+        if shareFailed {
+            Log.error("更新", "分享面板没能弹出，请改用「在文件 App 中查看」")
         }
     }
 
@@ -139,9 +152,9 @@ struct UpdateView: View {
                         title: "安装包已下载",
                         message: fileURL.lastPathComponent)
             VStack(spacing: 10) {
-                // 可靠路径：分享面板里能选 AppSync / Zebra / Filza
+                // 主路径：系统分享面板里选 AppSync / Zebra / Sileo / Filza
                 Button {
-                    isSharePresented = true
+                    presentInstaller()
                 } label: {
                     Text("选择软件安装")
                         .font(.system(size: 15, weight: .semibold))
@@ -152,40 +165,54 @@ struct UpdateView: View {
                 }
                 .buttonStyle(.plain)
 
-                Button {
-                    updater.tryOpenInstaller(fileURL)
-                } label: {
-                    Label("直接唤起安装", systemImage: "arrow.up.forward.app")
-                        .font(.system(size: 13, weight: .medium))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .background(AppStyle.surfaceHigh, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .foregroundStyle(AppStyle.primaryText)
-                }
-                .buttonStyle(.plain)
+                HStack(spacing: 10) {
+                    Button {
+                        updater.tryOpenInstaller(fileURL)
+                    } label: {
+                        Label("直接唤起", systemImage: "arrow.up.forward.app")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 11)
+                            .background(AppStyle.surfaceHigh, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .foregroundStyle(AppStyle.primaryText)
+                    }
+                    .buttonStyle(.plain)
 
-                if let hint = updater.installHint {
+                    Button {
+                        revealInFiles(fileURL)
+                    } label: {
+                        Label("在文件 App 中查看", systemImage: "folder")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 11)
+                            .background(AppStyle.surfaceHigh, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .foregroundStyle(AppStyle.primaryText)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if shareFailed {
+                    Text("没能弹出选择面板。包已放在「文件 - 我的 iPhone - Aurora Music - Updates」，用 AppSync 或 Filza 打开它即可安装。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppStyle.gold)
+                        .multilineTextAlignment(.center)
+                } else if let hint = updater.installHint {
                     Text(hint)
                         .font(.system(size: 11))
                         .foregroundStyle(AppStyle.gold)
                         .multilineTextAlignment(.center)
                 } else {
-                    Text("点第一个按钮后，在分享面板里选 AppSync / Zebra / Filza 安装；包已放到「文件 - 下载」里。")
-                        .font(.system(size: 11))
-                        .foregroundStyle(AppStyle.tertiaryText)
-                        .multilineTextAlignment(.center)
+                    VStack(spacing: 3) {
+                        Text("点上面第一个按钮，在分享面板里选 AppSync / Zebra / Filza")
+                            .font(.system(size: 11))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                            .multilineTextAlignment(.center)
+                        Text("若面板里没有任何安装项，说明设备上没装 AppSync / Zebra")
+                            .font(.system(size: 10))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                            .multilineTextAlignment(.center)
+                    }
                 }
-
-                // 分享面板里如果没有安装器，退路是去「文件」App 里把它交给别的应用
-                Button {
-                    revealInFiles(fileURL)
-                } label: {
-                    Label("在「文件」App 中查看", systemImage: "folder")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(AppStyle.tertiaryText)
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 2)
             }
             .padding(.horizontal, 20)
             .padding(.top, 20)
@@ -259,16 +286,19 @@ struct UpdateView: View {
     private func revealInFiles(_ url: URL) {
         guard url.isFileURL else { return }
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        // shareddocuments 的 path 必须是相对 App 容器根目录的相对路径，
+        // 之前这里先塞了绝对路径再覆盖，两种拼法混在一起是错的。
+        var relative = url.path
+        guard relative.hasPrefix(documents.path) else {
+            Log.warn("更新", "安装包不在 Documents 下，无法用文件 App 打开：\(url.path)")
+            return
+        }
+        relative = String(relative.dropFirst(documents.path.count))
+        while relative.hasPrefix("/") { relative.removeFirst() }
+        guard !relative.isEmpty else { return }
+
         var components = URLComponents()
         components.scheme = "shareddocuments"
-        components.host = ""
-        components.path = documents.path
-        // shareddocuments 的 path 必须是相对 App 容器根目录的
-        var relative = url.path
-        if relative.hasPrefix(documents.path) {
-            relative = String(relative.dropFirst(documents.path.count))
-            if relative.hasPrefix("/") { relative.removeFirst() }
-        }
         components.path = relative
         guard let target = components.url else { return }
         Log.info("更新", "尝试在文件 App 中打开 \(relative)")
