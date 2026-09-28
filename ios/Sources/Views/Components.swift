@@ -72,9 +72,10 @@ enum ThemeSettings {
 
     static var mode: ThemeMode {
         get {
-            UserDefaults.standard.string(forKey: key).flatMap(ThemeMode.init(rawValue:)) ?? .system
+            let raw = UserDefaults.standard.string(forKey: key)
+            return raw.flatMap { ThemeMode(rawValue: $0) } ?? .system
         }
-        nonisolated set {
+        set {
             UserDefaults.standard.set(newValue.rawValue, forKey: key)
         }
     }

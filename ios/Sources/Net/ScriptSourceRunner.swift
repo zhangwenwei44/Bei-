@@ -693,7 +693,9 @@ final class ScriptSourceRunner {
         failureLock.lock()
         failureCounts.removeAll()
         failureLock.unlock()
-    }    private func runtime(for source: ThirdPartySource, script: String) -> ScriptRuntime? {
+    }
+
+    private func runtime(for source: ThirdPartySource, script: String) -> ScriptRuntime? {
         let key = "\(source.id)|\(script.hashStable)"
         return buildQueue.sync { () -> ScriptRuntime? in
             if let cached = cache[key] { return cached }
