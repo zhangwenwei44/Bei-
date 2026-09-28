@@ -106,6 +106,13 @@ final class LogStore: ObservableObject {
     private var currentHandle: FileHandle?
     private var currentBytes = 0
     private let iso = ISO8601DateFormatter()
+    /// 带小数秒的变体。默认的 iso 不产出小数秒，但别处（比如手工复制的日志）
+    /// 可能带，两种都要能读回来。
+    private let isoFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
 
     /// 单例可能被非主线程首次访问，所以 init 里只碰非隔离状态；
     /// @Published 的 logFileURLs 留给主线程刷新（见 reloadFromDisk / pruneOldFiles）。
@@ -155,7 +162,9 @@ final class LogStore: ObservableObject {
 
     @MainActor
     private func appendToDisk(_ entry: Log.Entry) {
-        let line = "\(iso.string(from: entry.date)) [\(entry.level.rawValue.uppercased())] [\(entry.category)] \(entry.message)\n"
+        // 用 | 分隔而不是 "] "：原来用 "] " 会把级别后面的右方括号当成分隔符吃掉，
+        // 解析时 head 里就找不到配对的 "]"，导致每一行都解析失败、整份日志被清空。
+        let line = "\(iso.string(from: entry.date))|\(entry.level.rawValue)|\(entry.category)|\(entry.message)\n"
         guard let data = line.data(using: .utf8) else { return }
         do {
             if currentHandle == nil { openNewFile() }
@@ -224,33 +233,38 @@ final class LogStore: ObservableObject {
                 .sorted { Self.modified($0) > Self.modified($1) }
         }
         var loaded: [Log.Entry] = []
+        var unparsed = 0
         for file in logFileURLs.reversed() {
             guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
-            for line in text.split(separator: "\n") {
-                if let entry = parse(line: String(line)) { loaded.append(entry) }
+            for line in text.split(separator: "\n") where !line.isEmpty {
+                if let entry = parse(line: String(line)) {
+                    loaded.append(entry)
+                } else {
+                    unparsed += 1
+                }
             }
+        }
+        // 一条都解析不出来时绝不能覆盖内存里的条目：
+        // 之前就是这么把已有日志全清空的，结果导出出来是 0 条，等于白记。
+        if loaded.isEmpty && !entries.isEmpty {
+            NSLog("[LogStore] 磁盘有 \(logFileURLs.count) 个文件、\(unparsed) 行没能解析，保留内存里的 \(entries.count) 条")
+            return
+        }
+        if unparsed > 0 {
+            NSLog("[LogStore] 有 \(unparsed) 行没解析出来（日志格式可能来自更早的版本）")
         }
         entries = Array(loaded.suffix(memoryLimit))
     }
 
     private func parse(line: String) -> Log.Entry? {
-        // 2026-01-01T00:00:00Z [WARN] [网络] 内容
-        let parts = line.components(separatedBy: "] ")
-        guard parts.count >= 3 else { return nil }
-        let head = parts[0]
-        guard let datePart = head.split(separator: " ").first,
-              let date = iso.date(from: String(datePart)),
-              let openIndex = head.firstIndex(of: "["),
-              let closeIndex = head[head.index(after: openIndex)...].firstIndex(of: "]")
-        else { return nil }
-        let levelRaw = head[head.index(after: openIndex)..<closeIndex].lowercased()
-        guard let level = Log.Level(rawValue: levelRaw) else { return nil }
-        let catPart = parts[1]
-        guard let catOpen = catPart.firstIndex(of: "["),
-              let catClose = catPart.lastIndex(of: "]") else { return nil }
-        let category = String(catPart[catPart.index(after: catOpen)..<catClose])
-        let message = parts[2...].joined(separator: "] ")
-        return Log.Entry(date: date, level: level, category: category, message: message)
+        // 格式：<ISO8601>|<level>|<category>|<message>
+        // maxSplits: 3 —— 消息正文里可能有 |，不能继续切
+        let parts = line.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false)
+        guard parts.count == 4 else { return nil }
+        let raw = String(parts[0])
+        guard let level = Log.Level(rawValue: parts[1].lowercased()),
+              let date = iso.date(from: raw) ?? isoFractional.date(from: raw) else { return nil }
+        return Log.Entry(date: date, level: level, category: String(parts[2]), message: String(parts[3]))
     }
 
     // MARK: 导出
@@ -271,6 +285,20 @@ final class LogStore: ObservableObject {
         for entry in entries {
             out += "\(iso.string(from: entry.date)) [\(entry.level.rawValue.uppercased())] [\(entry.category)] \(entry.message)\n"
         }
+
+        // 最后附上原始文件内容。解析器万一再出问题，也不会把证据弄丢。
+        out += "\n" + String(repeating: "=", count: 40) + "\n"
+        out += "以下为原始日志文件内容（未经解析）\n"
+        out += String(repeating: "=", count: 40) + "\n"
+        for file in logFileURLs {
+            out += "\n---- \(file.lastPathComponent) ----\n"
+            if let text = try? String(contentsOf: file, encoding: .utf8) {
+                out += text
+            } else {
+                out += "(读取失败)\n"
+            }
+        }
+
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("aurora-log-\(fileStamp()).txt")
         do {
             try out.write(to: url, atomically: true, encoding: .utf8)
