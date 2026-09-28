@@ -107,8 +107,30 @@ final class LogStore: ObservableObject {
     private var currentBytes = 0
     private let iso = ISO8601DateFormatter()
 
+    /// 单例可能被非主线程首次访问，所以 init 里只碰非隔离状态；
+    /// @Published 的 logFileURLs 留给主线程刷新（见 reloadFromDisk / pruneOldFiles）。
     private init() {
-        loadExisting()
+        let dir = Self.logDirectoryURL()
+        let files = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension == "log" }
+        if let latest = files.max(by: { Self.modified($0) < Self.modified($1) }) {
+            currentFile = latest
+            currentHandle = try? FileHandle(forWritingTo: latest)
+            currentBytes = (try? latest.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { $0 } ?? 0
+        }
+    }
+
+    private static func modified(_ url: URL) -> Date {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+    }
+
+    private static func logDirectoryURL() -> URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let dir = docs.appendingPathComponent("Logs", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
     }
 
     // MARK: 写入
@@ -145,20 +167,11 @@ final class LogStore: ObservableObject {
         }
     }
 
-    private func logDirectory() -> URL {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let dir = docs.appendingPathComponent("Logs", isDirectory: true)
-        if !FileManager.default.fileExists(atPath: dir.path) {
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
-        return dir
-    }
-
     @MainActor
     private func openNewFile() {
         closeHandle()
         let name = "aurora-\(fileStamp()).log"
-        let url = logDirectory().appendingPathComponent(name)
+        let url = Self.logDirectoryURL().appendingPathComponent(name)
         FileManager.default.createFile(atPath: url.path, contents: nil)
         currentFile = url
         currentHandle = try? FileHandle(forWritingTo: url)
@@ -188,15 +201,10 @@ final class LogStore: ObservableObject {
 
     @MainActor
     private func pruneOldFiles() {
-        let dir = logDirectory()
-        let files = (try? FileManager.default.contentsOfDirectory(at: dir,
-                                                                 includingPropertiesForKeys: [.contentModificationDateKey]))?
+        let dir = Self.logDirectoryURL()
+        let files = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
             .filter { $0.pathExtension == "log" }
-            .sorted { lhs, rhs in
-                let a = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                let b = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                return a > b
-            } ?? []
+            .sorted { Self.modified($0) > Self.modified($1) }
         logFileURLs = files
         // 自己刚建的那个不能删，从最旧的开始清
         for file in files.dropFirst(fileLimit) {
@@ -206,27 +214,15 @@ final class LogStore: ObservableObject {
 
     // MARK: 读回
 
-    @MainActor
-    private func loadExisting() {
-        let dir = logDirectory()
-        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
-            .filter { $0.pathExtension == "log" } ?? []
-        logFileURLs = files
-        // 当前会话接在最新文件后面
-        if let latest = files.max(by: {
-            let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-            let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-            return a < b
-        }) {
-            currentFile = latest
-            currentHandle = try? FileHandle(forWritingTo: latest)
-            currentBytes = (try? latest.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { $0 } ?? 0
-        }
-    }
-
     /// 把磁盘上的历史日志读进内存，方便界面上直接看。
     @MainActor
     func reloadFromDisk() {
+        if logFileURLs.isEmpty {
+            logFileURLs = ((try? FileManager.default.contentsOfDirectory(at: Self.logDirectoryURL(),
+                                                                           includingPropertiesForKeys: nil)) ?? [])
+                .filter { $0.pathExtension == "log" }
+                .sorted { Self.modified($0) > Self.modified($1) }
+        }
         var loaded: [Log.Entry] = []
         for file in logFileURLs.reversed() {
             guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
@@ -269,9 +265,7 @@ final class LogStore: ObservableObject {
         out += "App 版本：\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "未知")\n"
         out += "构建号：\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "未知")\n"
         out += "系统：iOS \(ProcessInfo.processInfo.operatingSystemVersionString)\n"
-        if let device = UIDevice.current.model, let ver = UIDevice.current.systemVersion {
-            out += "设备：\(device) iOS \(ver)\n"
-        }
+        out += "设备：\(UIDevice.current.model) iOS \(UIDevice.current.systemVersion)\n"
         out += "条目数：\(entries.count)\n"
         out += String(repeating: "=", count: 40) + "\n\n"
         for entry in entries {
