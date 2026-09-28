@@ -359,16 +359,18 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
 /// 一个脚本对应一个 JSContext，串行队列保证 JSContext 不被并发访问。
 final class ScriptRuntime {
     private let context: JSContext
-    let queue = DispatchQueue(label: "Aurora.ScriptRuntime")
+    /// 16MB 专用线程。libdispatch 工作线程只有 512KB 栈，聚合音源脚本
+    /// 做签名解密时递归很深，会撞栈保护页变成 SIGTRAP。
+    let queue = ScriptExecutor(label: "Aurora.ScriptRuntime")
     private let bridge = ScriptBridge()
-    private let sourceID: String
+    private let sourceName: String
     /// 脚本求值期间是否出现过异常。出现过的运行时一律不再使用。
     private var sawException = false
 
     init?(source: ThirdPartySource, script: String) {
         guard let context = JSContext() else { return nil }
         self.context = context
-        self.sourceID = source.id
+        self.sourceName = source.name
         bridge.owner = self
 
         context.exceptionHandler = { [weak self] _, exception in
@@ -440,6 +442,15 @@ final class ScriptRuntime {
 
     /// 调用前先确认上下文还健康。经历过异常的运行时直接拒绝使用。
     private var isUsable: Bool { !sawException && context.exception == nil }
+
+    /// 作废这个运行时。后续所有调用都会被拒绝，并从缓存里剔除。
+    func invalidate() {
+        sawException = true
+        onInvalidate?(self)
+    }
+
+    /// 作废回调，供 ScriptSourceRunner 把自己从缓存里摘掉。
+    var onInvalidate: ((ScriptRuntime) -> Void)?
 
     /// 注入洛雪（lx）兼容层：lx.utils 全套、lx.request、lx.on，
     /// 另外兼容 module.exports.musicUrl 与 MusicPlugin.getMusicUrl。
@@ -586,6 +597,7 @@ final class ScriptRuntime {
                 }
                 self.context.setObject(payload as NSDictionary, forKeyedSubscript: "__beansPayload" as NSString)
                 self.context.setObject(completion, forKeyedSubscript: "__beansDone" as NSString)
+                self.sawException = false
                 self.context.evaluateScript("""
                 (function () {
                   try {
@@ -596,9 +608,10 @@ final class ScriptRuntime {
                   return 1;
                 })();
                 """)
-                if self.context.exception != nil {
-                    NSLog("[音源脚本] \(self.sourceID) 调用失败")
-                    resume(nil)
+                if self.context.exception != nil || self.sawException {
+                    Log.error("脚本音源", "「\(self.sourceName)」调用 musicUrl 期间出现异常，这个运行时作废")
+                    self.invalidate()
+                    return resume(nil)
                 }
             }
 
@@ -706,6 +719,11 @@ final class ScriptSourceRunner {
         return buildQueue.sync { () -> ScriptRuntime? in
             if let cached = cache[key] { return cached }
             guard let runtime = ScriptRuntime(source: source, script: script) else { return nil }
+            runtime.onInvalidate = { [weak self] dead in
+                self?.buildQueue.async {
+                    self?.cache = self?.cache.filter { $0.value !== dead }
+                }
+            }
             // 脚本改一次就多一个 JSContext，只留最近几个。
             // 混淆脚本的 JSContext 很吃内存，和 AVPlayer 叠在一起容易触发
             // 内存压力被杀（jetsam 不会留下任何崩溃记录，表现就是日志突然断掉）。

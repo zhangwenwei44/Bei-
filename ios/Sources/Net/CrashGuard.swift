@@ -1,5 +1,8 @@
 import Foundation
 import UIKit
+#if canImport(execinfo)
+import execinfo
+#endif
 
 /// 崩溃现场记录。
 ///
@@ -24,7 +27,6 @@ enum CrashGuard {
                     \(stack)
             """
             Log.error("崩溃", message)
-            // 同步再写一份，Task 来不及调度
             LogStore.emergencyWrite(message)
         }
 
@@ -34,13 +36,44 @@ enum CrashGuard {
             signal(signalNumber, SIG_IGN)
             signal(signalNumber) { received in
                 let name = Self.signalName(received)
-                Log.error("崩溃", "收到信号 \(received)（\(name)）")
-                LogStore.emergencyWrite("收到信号 \(received)：\(name)")
+                let frames = Self.backtrace()
+                let message = """
+                收到信号 \(received)：\(name)
+                    崩溃线程调用栈：
+                    \(frames)
+                """
+                Log.error("崩溃", message)
+                LogStore.emergencyWrite(message)
                 // 交回系统默认处理，保留原有的崩溃表现
                 signal(received, SIG_DFL)
                 raise(received)
             }
         }
+    }
+
+    /// 抓取当前线程的原生调用栈。
+    ///
+    /// 这是把「我猜是栈溢出」变成「栈上真的有 JavaScriptCore 帧」的关键。
+    /// SIGTRAP 本身不会留下任何日志，只有这里主动抓才看得到。
+    private static func backtrace() -> String {
+        #if canImport(execinfo)
+        var addresses = [UnsafeMutableRawPointer?](repeating: nil, count: 128)
+        let count = backtrace(&addresses, Int32(addresses.count))
+        guard count > 0 else { return "(取不到调用栈)" }
+        let symbols = addresses[0..<Int(count)].map { pointer -> String in
+            guard let pointer else { return "???" }
+            var info = Dl_info()
+            if dladdr(pointer, &info) != 0, let name = info.dli_fname {
+                let base = info.dli_fnameOffset
+                // 去掉地址偏移里的 ASLR 噪声，只留偏移量便于对照
+                return "\(URL(fileURLWithPath: name).lastPathComponent)+0x\(String(format: "%lx", base))"
+            }
+            return "???"
+        }
+        return symbols.prefix(40).joined(separator: "\n    ")
+        #else
+        return "(当前平台不支持)"
+        #endif
     }
 
     private static func signalName(_ number: Int32) -> String {
