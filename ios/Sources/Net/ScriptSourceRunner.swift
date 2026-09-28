@@ -720,8 +720,9 @@ final class ScriptSourceRunner {
             if let cached = cache[key] { return cached }
             guard let runtime = ScriptRuntime(source: source, script: script) else { return nil }
             runtime.onInvalidate = { [weak self] dead in
-                self?.buildQueue.async {
-                    self?.cache = self?.cache.filter { $0.value !== dead }
+                guard let self else { return }
+                self.buildQueue.async {
+                    self.cache = self.cache.filter { $0.value !== dead }
                 }
             }
             // 脚本改一次就多一个 JSContext，只留最近几个。
