@@ -1,8 +1,5 @@
 import Foundation
 import UIKit
-#if canImport(execinfo)
-import execinfo
-#endif
 
 /// 崩溃现场记录。
 ///
@@ -51,29 +48,22 @@ enum CrashGuard {
         }
     }
 
-    /// 抓取当前线程的原生调用栈。
+    /// 抓取当前线程的调用栈。
     ///
-    /// 这是把「我猜是栈溢出」变成「栈上真的有 JavaScriptCore 帧」的关键。
-    /// SIGTRAP 本身不会留下任何日志，只有这里主动抓才看得到。
+    /// 这是把「我猜是某个原因」变成「栈上真的有那些帧」的关键。
+    /// SIGTRAP 本身不留下任何日志，只有这里主动抓才看得到。
+    ///
+    /// 注意：之前用 `#if canImport(execinfo)` + backtrace()，在 iOS 上
+    /// canImport(execinfo) 判定为假，导出的日志里全是「当前平台不支持」，
+    /// 等于白写。Thread.callStackSymbols 内部就是 backtrace 的封装，
+    /// 所有 Apple 平台都可用，信号处理器里也能安全调用。
     private static func backtrace() -> String {
-        #if canImport(execinfo)
-        var addresses = [UnsafeMutableRawPointer?](repeating: nil, count: 128)
-        let count = backtrace(&addresses, Int32(addresses.count))
-        guard count > 0 else { return "(取不到调用栈)" }
-        let symbols = addresses[0..<Int(count)].map { pointer -> String in
-            guard let pointer else { return "???" }
-            var info = Dl_info()
-            if dladdr(pointer, &info) != 0, let name = info.dli_fname {
-                let base = info.dli_fnameOffset
-                // 去掉地址偏移里的 ASLR 噪声，只留偏移量便于对照
-                return "\(URL(fileURLWithPath: name).lastPathComponent)+0x\(String(format: "%lx", base))"
-            }
-            return "???"
-        }
-        return symbols.prefix(40).joined(separator: "\n    ")
-        #else
-        return "(当前平台不支持)"
-        #endif
+        let symbols = Thread.callStackSymbols
+        // 跳过最前面几帧（backtrace 自身、信号处理器、崩溃上报），
+        // 剩下的才是真正要看的业务调用链
+        let useful = symbols.dropFirst(4).prefix(36)
+        guard !useful.isEmpty else { return "(调用栈为空)" }
+        return useful.joined(separator: "\n    ")
     }
 
     private static func signalName(_ number: Int32) -> String {

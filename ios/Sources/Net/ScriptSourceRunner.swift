@@ -373,67 +373,82 @@ final class ScriptRuntime {
         self.sourceName = source.name
         bridge.owner = self
 
-        context.exceptionHandler = { [weak self] _, exception in
-            let message = exception?.toString() ?? "unknown"
-            Log.error("脚本音源", "「\(source.name)」JS 异常: \(message)")
-            // JavaScriptCore 允许脚本自己 try/catch 把异常吃掉，exception 属性会变回 nil，
-            // 但上下文已经处于不确定状态。标记一下，后面直接丢弃这个运行时。
-            self?.sawException = true
+        // JSContext 没有任何线程安全保证，所有访问必须落在同一条线程上。
+        // 之前 init 里的 evaluateScript 跑在 buildQueue 上，而 invoke 里的跑在
+        // 脚本线程上——同一个上下文被两个线程同时使用，正是 SIGTRAP 的来源。
+        // 这里把所有求值都塞进 queue 里统一执行。
+        var bootstrapFailed = false
+        var scriptFailed = false
+        var noEntry = false
+        var hasEntryValue: Int32 = 0
+
+        queue.sync {
+            context.exceptionHandler = { [weak self] _, exception in
+                let message = exception?.toString() ?? "unknown"
+                Log.error("脚本音源", "「\(source.name)」JS 异常: \(message)")
+                // JavaScriptCore 允许脚本自己 try/catch 把异常吃掉，exception 属性会变回 nil，
+                // 但上下文已经处于不确定状态。标记一下，后面直接丢弃这个运行时。
+                self?.sawException = true
+            }
+
+            context.setObject(self.bridge, forKeyedSubscript: "__beansRequest" as NSString)
+            context.setObject(self.bridge, forKeyedSubscript: "__beansUtils" as NSString)
+            context.setObject(self.bridge, forKeyedSubscript: "__beansCrypto" as NSString)
+            // nativeLog 必须是「函数」，不能是对象，否则脚本按函数调用会抛
+            // TypeError: nativeLog is not a function。
+            let logBlock: @convention(block) (String) -> Void = { message in
+                Log.debug("脚本音源", "「\(source.name)」脚本日志: \(message.prefix(300))")
+            }
+            context.setObject(unsafeBitCast(logBlock, to: AnyObject.self),
+                              forKeyedSubscript: "nativeLog" as NSString)
+
+            let info: [String: Any] = [
+                "name": source.name,
+                "id": source.id,
+                "version": "1.0",
+                "author": "",
+                "supportOpenDevTools": false,
+            ]
+            context.setObject(info as NSDictionary, forKeyedSubscript: "__beansInfo" as NSString)
+
+            context.evaluateScript(Self.bootstrap)
+            if context.exception != nil {
+                bootstrapFailed = true
+                return
+            }
+            self.sawException = false
+
+            context.evaluateScript(script)
+            // 不只看 context.exception，还要看异常处理器有没有被叫醒。
+            // 脚本自己 catch 掉异常时 exception 会变回 nil，但上下文已经脏了。
+            if context.exception != nil || self.sawException {
+                scriptFailed = true
+                return
+            }
+
+            // 兼容 module.exports = { musicUrl }
+            context.evaluateScript("globalThis.__beansPlugin = (typeof module !== 'undefined' && module.exports && Object.keys(module.exports).length) ? module.exports : null;")
+
+            hasEntryValue = context.evaluateScript("""
+            (function () {
+                if (typeof globalThis.__beansHandler === 'function') return 1;
+                if (globalThis.__beansPlugin && typeof globalThis.__beansPlugin.musicUrl === 'function') return 1;
+                if (globalThis.MusicPlugin && (typeof globalThis.MusicPlugin.getMusicUrl === 'function' || typeof globalThis.MusicPlugin.musicUrl === 'function')) return 1;
+                return 0;
+            })()
+            """)?.toInt32() ?? 0
+            noEntry = hasEntryValue != 1
         }
 
-        context.setObject(bridge, forKeyedSubscript: "__beansRequest" as NSString)
-        context.setObject(bridge, forKeyedSubscript: "__beansUtils" as NSString)
-        context.setObject(bridge, forKeyedSubscript: "__beansCrypto" as NSString)
-        // nativeLog 必须是「函数」，不能是 ScriptLog 对象。
-        // 之前用 setObject 注册成对象，脚本里 console.log 最终走到
-        // nativeLog(...) 就抛 TypeError: nativeLog is not a function，
-        // 异常发生在脚本求值过程中，JavaScriptCore 随后直接 SIGTRAP 把 App 打死
-        // （v1.5.0 日志里连续三次都是这个组合）。
-        let sourceName = source.name
-        let logBlock: @convention(block) (String) -> Void = { message in
-            Log.debug("脚本音源", "「\(sourceName)」脚本日志: \(message.prefix(300))")
-        }
-        context.setObject(unsafeBitCast(logBlock, to: AnyObject.self),
-                          forKeyedSubscript: "nativeLog" as NSString)
-
-        let info: [String: Any] = [
-            "name": source.name,
-            "id": source.id,
-            "version": "1.0",
-            "author": "",
-            "supportOpenDevTools": false,
-        ]
-        context.setObject(info as NSDictionary, forKeyedSubscript: "__beansInfo" as NSString)
-
-        context.evaluateScript(Self.bootstrap)
-        if context.exception != nil {
+        if bootstrapFailed {
             Log.error("脚本音源", "「\(source.name)」bootstrap 注入失败")
             return nil
         }
-        sawException = false
-
-        context.evaluateScript(script)
-        // 重点：不只看 context.exception，还要看异常处理器有没有被叫醒。
-        // 脚本把异常自己 catch 掉时 exception 会变回 nil，但上下文已经脏了，
-        // 后续调用时 JavaScriptCore 可能直接 SIGTRAP。
-        if context.exception != nil || sawException {
+        if scriptFailed {
             Log.error("脚本音源", "「\(source.name)」主脚本求值期间出现异常，这个音源本次不可用")
             return nil
         }
-
-        // 兼容 module.exports = { musicUrl }
-        context.evaluateScript("globalThis.__beansPlugin = (typeof module !== 'undefined' && module.exports && Object.keys(module.exports).length) ? module.exports : null;")
-
-        let hasEntry = context.evaluateScript("""
-        (function () {
-            if (typeof globalThis.__beansHandler === 'function') return 1;
-            if (globalThis.__beansPlugin && typeof globalThis.__beansPlugin.musicUrl === 'function') return 1;
-            if (globalThis.MusicPlugin && (typeof globalThis.MusicPlugin.getMusicUrl === 'function' || typeof globalThis.MusicPlugin.musicUrl === 'function')) return 1;
-            return 0;
-        })()
-        """)?.toInt32()
-
-        guard hasEntry == 1 else {
+        if noEntry {
             Log.error("脚本音源", "「\(source.name)」里找不到入口函数（需要 __beansHandler / module.exports.musicUrl / MusicPlugin.getMusicUrl）")
             return nil
         }

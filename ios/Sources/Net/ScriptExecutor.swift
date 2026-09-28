@@ -41,6 +41,17 @@ final class ScriptExecutor {
             ready.signal()
         }
 
+        /// 同步执行并等待完成。用于初始化阶段：JSContext 的所有访问
+        /// （构造、调用、回调）都必须落在同一条线程上。
+        func submitAndWait(_ work: @escaping () -> Void) {
+            let done = DispatchSemaphore(value: 0)
+            submit {
+                work()
+                done.signal()
+            }
+            done.wait()
+        }
+
         private func takePending() -> (() -> Void)? {
             lock.lock()
             defer { pending = nil }
@@ -65,5 +76,11 @@ final class ScriptExecutor {
 
     func async(_ work: @escaping () -> Void) {
         box.submit(work)
+    }
+
+    /// 同步执行并等待。JSContext 的所有访问都必须走这里，
+    /// 保证始终在同一条线程上。
+    func sync(_ work: @escaping () -> Void) {
+        box.submitAndWait(work)
     }
 }
