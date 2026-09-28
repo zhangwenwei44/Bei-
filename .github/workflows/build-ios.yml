@@ -203,6 +203,16 @@ jobs:
             exit 1
           fi
 
+      - name: Verify MD5 implementation
+        run: |
+          set -euo pipefail
+          # ios/Sources/Net/Digest.swift 里是自己实现的 MD5（绕开 CC_MD5 的弃用警告）。
+          # 酷狗接口的 signature / key 和洛雪脚本都硬性依赖 MD5，
+          # 一旦实现写错，签名会全部失效，而且不会报错、只会让所有请求被拒。
+          # 所以用 scripts/Md5Verify.cs 跑 RFC 1321 标准测试向量做把关。
+          csc /nologo /optimize+ /out:/tmp/Md5Verify.exe scripts/Md5Verify.cs
+          /tmp/Md5Verify.exe
+
       - name: Package unsigned IPA
         working-directory: ios
         run: |

@@ -168,17 +168,21 @@ final class PlayerStore: ObservableObject {
         let excluded = failedHosts
         let task = Task { [weak self] in
             guard let self else { return }
-            // 这里用不可变的解析结果，而不是几个 var 局部变量。
-            // 之前那些 var 被后面的 MainActor.run 闭包捕获，
-            // 并发检查会报「reference to captured var」，Swift 6 语言模式下直接是错误。
-            let outcome: Outcome = if let local = DownloadManager.shared.localURL(for: song) {
-                Outcome(url: local, name: "已下载", label: "本地", isThirdParty: false)
+            // 解析结果在这里算完并冻结成 let，再交给后面的闭包。
+            // 之前是一组 var 局部变量被 MainActor.run 闭包捕获，
+            // 并发检查报「reference to captured var」，Swift 6 语言模式下直接是错误。
+            let outcome: Outcome
+            if let local = DownloadManager.shared.localURL(for: song) {
+                outcome = Outcome(url: local, name: "已下载", label: "本地", isThirdParty: false)
             } else if let audio = await SourceResolver.resolve(song: song,
                                                                  quality: SourceStore.shared.quality,
                                                                  excludedHosts: excluded) {
-                Outcome(url: audio.url, name: audio.sourceName, label: audio.quality.title, isThirdParty: audio.isThirdParty)
+                outcome = Outcome(url: audio.url,
+                                  name: audio.sourceName,
+                                  label: audio.quality.title,
+                                  isThirdParty: audio.isThirdParty)
             } else {
-                Outcome(url: nil, name: "", label: "", isThirdParty: false)
+                outcome = Outcome(url: nil, name: "", label: "", isThirdParty: false)
             }
 
             guard !Task.isCancelled else {
