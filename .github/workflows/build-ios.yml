@@ -75,7 +75,7 @@ jobs:
           printf '%s' "$code" > build.exit
           echo "xcodebuild exit=$code"
 
-      - name: Report compiler errors
+      - name: Report compiler diagnostics
         if: always()
         working-directory: ios
         run: |
@@ -84,7 +84,16 @@ jobs:
             echo
             echo '```'
             # -a：日志里有二进制字节，当作文本处理
-            grep -aE "(error|warning):" build.log 2>/dev/null | sort -u | head -60 || echo "(无 error/warning 行)"
+            grep -aE "error:" build.log 2>/dev/null | sort -u | head -60 || echo "(无 error)"
+            echo '```'
+            echo
+            echo "## 警告"
+            echo
+            echo '```'
+            # 警告必须露出来。v1.5.3 之前的播放闪退，根因就是 musicInfo 里的
+            # 字典字面量重复键——编译器警告了 4 次，但这份报告只在失败时看，
+            # 于是从来没人看见。重复键在运行时会 trap 成 SIGTRAP。
+            grep -aE "warning:" build.log 2>/dev/null | sort -u | head -80 || echo "(无 warning)"
             echo '```'
             echo
             echo "最后 20 行："
@@ -124,6 +133,23 @@ jobs:
           git commit -q -m "ci: build log for ${GITHUB_SHA}"
           git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$DIAG_BRANCH"
           echo "published to $DIAG_BRANCH"
+
+      - name: Fail on compiler warnings
+        working-directory: ios
+        run: |
+          set -uo pipefail
+          # 有意为之：v1.5.3 之前的播放闪退，根因是 musicInfo 里的字典字面量
+          # 出现了重复键。Swift 运行时对重复键的字典字面量直接 __builtin_trap，
+          # 也就是 SIGTRAP；编译器会警告，但因为值不是常量所以只降级为警告。
+          # 之前 CI 只在编译失败时才被人看，警告就这么一路溜过去。
+          # 这里把警告升级为失败：看不见的问题就不再是问题。
+          WARNINGS=$(grep -acE "warning:" build.log 2>/dev/null || true)
+          echo "编译器警告数：$WARNINGS"
+          if [ "${WARNINGS:-0}" -gt 0 ]; then
+            echo "::error::存在 $WARNINGS 条编译警告，构建终止。完整列表见上一步的诊断报告。"
+            grep -aE "warning:" build.log 2>/dev/null | sort -u | head -30
+            exit 1
+          fi
 
       - name: Check build result
         working-directory: ios

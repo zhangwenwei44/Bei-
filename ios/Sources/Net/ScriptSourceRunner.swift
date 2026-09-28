@@ -799,13 +799,9 @@ final class ScriptSourceRunner {
             "singer": song.artist,
             "album": song.album,
             "albumName": song.album,
-            "albumId": song.kugouAlbumID,
-            "album_id": song.kugouAlbumID,
-            "audioId": song.kugouAudioID,
-            "audioid": song.kugouAudioID,
             "interval": Int(song.duration),
             "source": song.source.code,
-            // 洛雪脚本常读 musicInfo.types 判断自己支持哪些音质档位
+            // 洛雪脚本会读 musicInfo.types 判断哪些音质位可用
             "types": quality.lxTypes.reduce(into: [String: Any]()) { map, type in
                 map[type] = true
             },
