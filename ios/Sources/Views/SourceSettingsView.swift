@@ -336,8 +336,7 @@ struct SourceSettingsView: View {
     /// 不经过系统选择器，绕开它可能不回调的老问题。
     @MainActor
     private func importFromAppDirectory() {
-        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Imports", isDirectory: true)
+        let dir = SourceStore.importDirectory()
         let files = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
             .filter { ["js", "mjs", "cjs", "txt", "json", "conf", "json5", "ini"].contains($0.pathExtension.lowercased()) }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }

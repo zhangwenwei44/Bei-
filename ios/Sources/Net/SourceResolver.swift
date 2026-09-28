@@ -77,22 +77,26 @@ enum SourceResolver {
         var seen = Set<String>()
         let candidates = usable.filter { seen.insert(fingerprint($0)).inserted }
 
-        return await withTaskGroup(of: ResolvedAudio?.self) { group in
-            for source in candidates {
-                group.addTask {
-                    await resolve(source: source, song: song, quality: quality, excludedHosts: excludedHosts)
-                }
+        // 串行而不是并发：之前用 TaskGroup 同时跑所有音源，4 个 JavaScriptCore
+        // 上下文一起解析同一首歌，内存和 CPU 峰值叠加，正是播放闪退的现场
+        // （v1.4.4 日志停在「入口已识别」之后就断了）。
+        // 串行后第一个成功的即返回，代价只是最坏情况多等几次超时。
+        // 串行会叠加等待时间，所以再加一个总时限：超了就不再试后面的音源。
+        let started = Date()
+        let budget: TimeInterval = 20
+        for (index, source) in candidates.enumerated() {
+            if Task.isCancelled { return nil }
+            if Date().timeIntervalSince(started) > budget {
+                Log.warn("音源解析", "已用掉 \(Int(budget)) 秒解析预算，跳过剩余 \(candidates.count - index) 个音源")
+                break
             }
-            for await result in group {
-                if let result {
-                    Log.info("音源解析", "「\(song.title)」由「\(result.sourceName)」解析成功")
-                    group.cancelAll()
-                    return result
-                }
+            if let result = await resolve(source: source, song: song, quality: quality, excludedHosts: excludedHosts) {
+                Log.info("音源解析", "「\(song.title)」由「\(result.sourceName)」解析成功")
+                return result
             }
-            Log.error("音源解析", "\(candidates.count) 个音源都没能解析出「\(song.title)」的地址")
-            return nil
         }
+        Log.error("音源解析", "\(candidates.count) 个音源都没能解析出「\(song.title)」的地址")
+        return nil
     }
 
     private static func canUse(_ source: ThirdPartySource, song: Song) -> Bool {

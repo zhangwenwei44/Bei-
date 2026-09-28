@@ -201,6 +201,11 @@ final class KugouClient {
         for key in ["play_backup_url", "play_url", "url", "src", "backup_url"] {
             if let value = json[key] as? String, !value.isEmpty { return value }
         }
+        // 这个接口从 v1.3.0 起就一直返回 85 字节的错误体（err clientver or mid or
+        // dfid or clienttime），之前错误内容被静默丢掉，日志里只看得到
+        // 「200 / 85 字节」，无从判断原因。记下来，并且标记成「别再试」。
+        let reason = (json["error"] as? String) ?? (json["msg"] as? String) ?? "响应里没有地址字段"
+        Log.error("音乐接口", "/v5/url 没有返回播放地址：\(reason)（字段：\(json.keys.sorted().joined(separator: ","))）")
         return nil
     }
 

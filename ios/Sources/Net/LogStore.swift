@@ -317,4 +317,28 @@ final class LogStore: ObservableObject {
         logFileURLs = []
         openNewFile()
     }
+
+    /// 崩溃现场用的同步写入。
+    ///
+    /// 信号处理器和未捕获异常处理器里不能靠 `Task { @MainActor }`——进程马上就要死了，
+    /// 那个 Task 根本来不及执行。这条路径直接同步落盘。
+    nonisolated static func emergencyWrite(_ text: String) {
+        emergencyLock.lock()
+        defer { emergencyLock.unlock() }
+        let dir = logDirectoryURL()
+        let formatter = ISO8601DateFormatter()
+        let line = "\(formatter.string(from: Date()))|error|崩溃|\(text)\n"
+        guard let data = line.data(using: .utf8) else { return }
+        // 每次现场新建一个文件，避开和其他线程抢同一个句柄
+        let name = "crash-\(Int(Date().timeIntervalSince1970)).log"
+        let url = dir.appendingPathComponent(name)
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        guard let handle = try? FileHandle(forWritingTo: url) else { return }
+        defer { try? handle.close() }
+        try? handle.write(contentsOf: data)
+    }
+
+    private nonisolated static let emergencyLock = NSLock()
 }

@@ -4,25 +4,30 @@ import JavaScriptCore
 
 // MARK: - JS 桥
 
+// 注意：所有桥方法的参数都必须是可选类型。
+// JavaScriptCore 在把 undefined / null / JS 对象桥接成非可选的 String 或 NSNumber 时
+// 会抛 ObjC 异常，那是硬崩溃，Swift 侧 try/catch 拦不住。
+// 混淆过的洛雪脚本经常少传参数、或把 new Date() 这类对象传进来，
+// 参数改成可选后 JSExport 会传 nil，我们在 Swift 里兜住即可。
 @objc protocol ScriptRequestBridge: JSExport {
     /// 对应脚本里的 `lx.request(url, options, callback)`
-    func request(_ url: String, _ options: JSValue?, _ callback: JSValue?)
+    func request(_ url: String?, _ options: JSValue?, _ callback: JSValue?)
 }
 
 @objc protocol ScriptUtilsBridge: JSExport {
-    func md5(_ value: String) -> String
-    func aesEncrypt(_ data: String, _ mode: String, _ key: String, _ iv: String) -> NSDictionary
-    func aesDecrypt(_ data: String, _ mode: String, _ key: String, _ iv: String) -> String
-    func toBase64(_ text: String) -> String
-    func fromBase64(_ text: String) -> String
-    func toHexEncode(_ text: String) -> String
-    func fromHexDecode(_ hex: String) -> String
-    func urlEncode(_ text: String) -> String
-    func urlDecode(_ text: String) -> String
-    func dateFormat(_ time: NSNumber, _ pattern: String) -> String
+    func md5(_ value: String?) -> String
+    func aesEncrypt(_ data: String?, _ mode: String?, _ key: String?, _ iv: String?) -> NSDictionary
+    func aesDecrypt(_ data: String?, _ mode: String?, _ key: String?, _ iv: String?) -> String
+    func toBase64(_ text: String?) -> String
+    func fromBase64(_ text: String?) -> String
+    func toHexEncode(_ text: String?) -> String
+    func fromHexDecode(_ hex: String?) -> String
+    func urlEncode(_ text: String?) -> String
+    func urlDecode(_ text: String?) -> String
+    func dateFormat(_ time: JSValue?, _ pattern: String?) -> String
     func nowMillis() -> NSNumber
     func nowSeconds() -> NSNumber
-    func randomInt(_ min: NSNumber, _ max: NSNumber) -> NSNumber
+    func randomInt(_ min: JSValue?, _ max: JSValue?) -> NSNumber
     func guid() -> String
 }
 
@@ -32,7 +37,7 @@ import JavaScriptCore
 }
 
 @objc protocol ScriptLogBridge: JSExport {
-    func log(_ message: String)
+    func log(_ message: String?)
 }
 
 final class ScriptLog: NSObject, ScriptLogBridge {
@@ -42,9 +47,25 @@ final class ScriptLog: NSObject, ScriptLogBridge {
         self.name = name
     }
 
-    func log(_ message: String) {
-        NSLog("[音源 %@] %@", name, message)
+    func log(_ message: String?) {
+        // 脚本 log 里的参数经常不是字符串，非可选参数会直接把 App 打崩
+        let text = message ?? "(空)"
+        Log.debug("脚本音源", "「\(name)」脚本日志: \(text.prefix(300))")
     }
+}
+
+/// 把 JS 值安全地转成数字/字符串。
+/// 直接用 JSValue.toDouble()/toString() 在值是 undefined 或对象时会抛异常。
+private func jsDouble(_ value: JSValue?) -> Double? {
+    guard let value, !value.isUndefined, !value.isNull else { return nil }
+    if value.isNumber, let d = value.toNumber()?.doubleValue { return d }
+    if value.isString, let s = value.toString(), let d = Double(s) { return d }
+    return nil
+}
+
+private func jsInt(_ value: JSValue?) -> Int? {
+    guard let d = jsDouble(value), d.isFinite else { return nil }
+    return Int(d)
 }
 
 final class ScriptCompletion: NSObject, ScriptDoneBridge {
@@ -84,8 +105,8 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
         return URLSession(configuration: config)
     }()
 
-    func request(_ urlString: String, _ options: JSValue?, _ callback: JSValue?) {
-        guard let url = URL(string: urlString) else {
+    func request(_ urlString: String?, _ options: JSValue?, _ callback: JSValue?) {
+        guard let urlString, let url = URL(string: urlString) else {
             respond(callback, ["status": 0, "body": "", "bodyType": "text", "error": "地址无效"])
             return
         }
@@ -140,7 +161,12 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
     }
 
     private func respond(_ callback: JSValue?, _ result: [String: Any]) {
-        guard let callback else { return }
+        guard let callback, !callback.isUndefined, !callback.isNull else { return }
+        // 脚本传的未必是函数，直接 call 会抛 JS 异常进而崩掉，先确认它是对象/函数
+        guard callback.isObject else {
+            Log.warn("脚本音源", "回调不是可调用的对象，已忽略")
+            return
+        }
         // 洛雪的约定是 (err, resp)，第一个参数必须是 null，
         // 否则脚本会把响应体当成错误直接 reject。
         var payload = result
@@ -158,8 +184,9 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
 
     // MARK: utils
 
-    func md5(_ value: String) -> String {
-        Data(value.utf8).md5Hex()
+    func md5(_ value: String?) -> String {
+        guard let value else { return "" }
+        return Data(value.utf8).md5Hex()
     }
 
     /// 注意：Data 没有 baseAddress，得用 withUnsafeBytes 拿裸指针。
@@ -167,13 +194,18 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
         data.map { String(format: "%02x", $0) }.joined()
     }
 
-    func aesEncrypt(_ data: String, _ mode: String, _ key: String, _ iv: String) -> NSDictionary {
+    func aesEncrypt(_ data: String?, _ mode: String?, _ key: String?, _ iv: String?) -> NSDictionary {
+        guard let data, let key, !key.isEmpty else { return ["data": "", "hex": ""] }
+        let mode = mode ?? ""
+        let iv = iv ?? ""
         let keyData = Data(key.utf8)
         let ivData = Data(iv.utf8)
         let input = Data(data.utf8)
+        // 输出缓冲至少要能容纳 PKCS7 补位后的长度，最坏情况是输入的 1.06 倍多 16 字节
+        let capacity = input.count + 32
         let isCBC = mode.lowercased().contains("cbc")
 
-        var outBytes = [UInt8](repeating: 0, count: input.count + 32)
+        var outBytes = [UInt8](repeating: 0, count: capacity)
         var outLen: size_t = 0
         let options = isCBC ? CCOptions(kCCOptionPKCS7Padding) : CCOptions(kCCOptionPKCS7Padding | kCCOptionECBMode)
         let status = keyData.withUnsafeBytes { keyBytes -> Int32 in
@@ -186,26 +218,31 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
                             keyBytes.baseAddress, keyData.count,
                             isCBC ? ivBytes.baseAddress : nil,
                             dataBytes.baseAddress, input.count,
-                            &outBytes, outBytes.count,
+                            &outBytes, capacity,
                             &outLen)
                 }
             }
         }
-        guard status == kCCSuccess else {
+        guard status == kCCSuccess, outLen > 0, outLen <= capacity else {
+            Log.error("脚本音源", "aesEncrypt 失败，status=\(status)，输入 \(input.count) 字节，key \(keyData.count) 字节")
             return ["data": "", "hex": ""]
         }
-        let out = Data(outBytes.prefix(outLen))
+        let out = Data(outBytes.prefix(Int(outLen)))
         return ["data": out.base64EncodedString(), "hex": ScriptBridge.hexString(out)]
     }
 
-    func aesDecrypt(_ data: String, _ mode: String, _ key: String, _ iv: String) -> String {
+    func aesDecrypt(_ data: String?, _ mode: String?, _ key: String?, _ iv: String?) -> String {
+        guard let data, let key, !key.isEmpty else { return "" }
+        let mode = mode ?? ""
+        let iv = iv ?? ""
         let keyData = Data(key.utf8)
         let ivData = Data(iv.utf8)
         // 洛雪的 aesDecrypt 收的是 base64
-        guard let input = Data(base64Encoded: data) else { return "" }
+        guard let input = Data(base64Encoded: data), !input.isEmpty else { return "" }
         let isCBC = mode.lowercased().contains("cbc")
+        let capacity = input.count + 32
 
-        var outBytes = [UInt8](repeating: 0, count: input.count + 32)
+        var outBytes = [UInt8](repeating: 0, count: capacity)
         var outLen: size_t = 0
         let options = isCBC ? CCOptions(kCCOptionPKCS7Padding) : CCOptions(kCCOptionPKCS7Padding | kCCOptionECBMode)
         let status = keyData.withUnsafeBytes { keyBytes -> Int32 in
@@ -217,51 +254,70 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
                             keyBytes.baseAddress, keyData.count,
                             isCBC ? ivBytes.baseAddress : nil,
                             dataBytes.baseAddress, input.count,
-                            &outBytes, outBytes.count,
+                            &outBytes, capacity,
                             &outLen)
                 }
             }
         }
-        guard status == kCCSuccess else { return "" }
-        return String(data: Data(outBytes.prefix(outLen)), encoding: .utf8) ?? ""
+        guard status == kCCSuccess, outLen <= capacity else { return "" }
+        return String(data: Data(outBytes.prefix(Int(outLen))), encoding: .utf8) ?? ""
     }
 
-    func toBase64(_ text: String) -> String {
-        Data(text.utf8).base64EncodedString()
+    func toBase64(_ text: String?) -> String {
+        guard let text else { return "" }
+        return Data(text.utf8).base64EncodedString()
     }
 
-    func fromBase64(_ text: String) -> String {
-        guard let data = Data(base64Encoded: text) else { return "" }
+    func fromBase64(_ text: String?) -> String {
+        guard let text, let data = Data(base64Encoded: text) else { return "" }
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    func toHexEncode(_ text: String) -> String {
-        ScriptBridge.hexString(Data(text.utf8))
+    func toHexEncode(_ text: String?) -> String {
+        guard let text else { return "" }
+        return ScriptBridge.hexString(Data(text.utf8))
     }
 
-    func fromHexDecode(_ hex: String) -> String {
-        String(data: Data(hexString: hex), encoding: .utf8) ?? ""
+    func fromHexDecode(_ hex: String?) -> String {
+        guard let hex else { return "" }
+        return String(data: Data(hexString: hex), encoding: .utf8) ?? ""
     }
 
-    func urlEncode(_ text: String) -> String {
+    func urlEncode(_ text: String?) -> String {
+        guard let text else { return "" }
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-_.~")
         return text.addingPercentEncoding(withAllowedCharacters: allowed) ?? text
     }
 
-    func urlDecode(_ text: String) -> String {
-        text.removingPercentEncoding ?? text
+    func urlDecode(_ text: String?) -> String {
+        guard let text else { return "" }
+        return text.removingPercentEncoding ?? text
     }
 
     /// 洛雪脚本常用 `lx.utils.dateFormat(new Date(), 'YYYY-MM-DD HH:mm:ss')`。
-    func dateFormat(_ time: NSNumber, _ pattern: String) -> String {
-        let seconds = time.doubleValue
-        let date = seconds > 1_000_000_000 ? Date(timeIntervalSince1970: seconds / 1000) : Date(timeIntervalSince1970: seconds)
+    /// 第一个参数可能是时间戳数字，也可能是 Date 对象，用 JSValue 兜住所有形态。
+    func dateFormat(_ time: JSValue?, _ pattern: String?) -> String {
+        guard let time, !time.isUndefined, !time.isNull else { return "" }
+        var seconds: Double?
+        if let d = jsDouble(time) {
+            seconds = d
+        } else if let object = time.toObject() as? Date {
+            seconds = object.timeIntervalSince1970
+        } else if time.isObject {
+            // new Date() 桥接过来可能是 NSDictionary 形式的日期
+            if let d = time.forProperty("getTime")?.call(withArguments: []), let ms = jsDouble(d) {
+                seconds = ms / 1000
+            }
+        }
+        guard let seconds, seconds.isFinite, seconds > 0 else { return "" }
+        let date = seconds > 1_000_000_000 ? Date(timeIntervalSince1970: seconds / 1000)
+                                           : Date(timeIntervalSince1970: seconds)
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone.current
         // JS 的时间戳是毫秒
-        formatter.dateFormat = Self.jsPattern(from: pattern)
+        formatter.dateFormat = Self.jsPattern(from: pattern ?? "YYYY-MM-DD HH:mm:ss")
         return formatter.string(from: date)
     }
 
@@ -301,10 +357,13 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
         NSNumber(value: Int64(Date().timeIntervalSince1970))
     }
 
-    func randomInt(_ min: NSNumber, _ max: NSNumber) -> NSNumber {
-        let low = min.intValue
-        let high = max.intValue
+    func randomInt(_ min: JSValue?, _ max: JSValue?) -> NSNumber {
+        guard let low = jsInt(min), let high = jsInt(max) else { return NSNumber(value: 0) }
         guard high > low else { return NSNumber(value: low) }
+        // 脚本偶尔会传出天文数字般的范围，直接 random(in:) 会因为跨度过大而崩
+        guard high - low <= 1_000_000_000 else {
+            return NSNumber(value: low + Int.random(in: 0...1_000_000_000))
+        }
         return NSNumber(value: Int.random(in: low...high))
     }
 
@@ -556,13 +615,19 @@ final class ScriptSourceRunner {
                  song: Song,
                  quality: MusicQuality,
                  excludedHosts: Set<String>) async -> ResolvedAudio? {
+        if isTripped(source) {
+            Log.debug("脚本音源", "「\(source.name)」处于熔断状态，跳过")
+            return nil
+        }
         let script = source.script.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !script.isEmpty else {
             Log.error("脚本音源", "「\(source.name)」的脚本文本是空的")
+            noteFailure(source)
             return nil
         }
         guard let runtime = runtime(for: source, script: script) else {
             Log.error("脚本音源", "「\(source.name)」\(script.count) 字符的脚本没能建立 JS 运行时（语法错误或不支持的语法）")
+            noteFailure(source)
             return nil
         }
 
@@ -576,35 +641,82 @@ final class ScriptSourceRunner {
         ]
 
         guard let raw = await runtime.invoke(payload: payload) else {
-            Log.error("脚本音源", "「\(source.name)」调用 musicUrl 返回了空")
+            noteFailure(source)
+            Log.error("脚本音源", "「\(source.name)」调用 musicUrl 返回了空（连续失败 \(failureCounts[source.id, default: 0]) 次）")
             return nil
         }
         guard let urlString = Self.extractURLString(from: raw) else {
+            noteFailure(source)
             Log.error("脚本音源", "「\(source.name)」的返回里找不到播放地址，原始返回: \(String(describing: raw).prefix(200))")
             return nil
         }
         guard let url = URL(string: urlString) else {
+            noteFailure(source)
             Log.error("脚本音源", "「\(source.name)」返回的地址不是合法 URL: \(urlString.prefix(120))")
             return nil
         }
         guard let playable = Self.playable(url, excludedHosts: excludedHosts) else {
+            noteFailure(source)
             Log.error("脚本音源", "「\(source.name)」返回的地址不可用: \(urlString.prefix(120))")
             return nil
         }
+        failureCounts[source.id] = 0
         return ResolvedAudio(url: playable, sourceName: source.name, quality: quality, isThirdParty: true)
     }
 
-    private func runtime(for source: ThirdPartySource, script: String) -> ScriptRuntime? {
+    // MARK: 熔断
+
+    /// 连续失败次数。表现为一首歌就连续失败时，阈值设低一点。
+    private let failureLimit = 3
+    private var failureCounts: [String: Int] = [:]
+    private let failureLock = NSLock()
+
+    private func noteFailure(_ source: ThirdPartySource) {
+        failureLock.lock()
+        let next = failureCounts[source.id, default: 0] + 1
+        failureCounts[source.id] = next
+        failureLock.unlock()
+        if next == failureLimit {
+            Log.warn("脚本音源", "「\(source.name)」已连续失败 \(next) 次，接下来会暂时跳过它")
+        }
+    }
+
+    /// 熔断中的音源不再参与解析，避免每首歌都白等一次超时。
+    private func isTripped(_ source: ThirdPartySource) -> Bool {
+        failureLock.lock()
+        defer { failureLock.unlock() }
+        return failureCounts[source.id, default: 0] >= failureLimit
+    }
+
+    /// 音源改动后（或用户手动重试）把熔断状态清掉。
+    func resetFailures() {
+        failureLock.lock()
+        failureCounts.removeAll()
+        failureLock.unlock()
+    }    private func runtime(for source: ThirdPartySource, script: String) -> ScriptRuntime? {
         let key = "\(source.id)|\(script.hashStable)"
         return buildQueue.sync { () -> ScriptRuntime? in
             if let cached = cache[key] { return cached }
             guard let runtime = ScriptRuntime(source: source, script: script) else { return nil }
-            // 脚本改一次就多一个 JSContext，只留最近几个
-            if cache.count >= 8, let oldest = cache.keys.sorted().first {
+            // 脚本改一次就多一个 JSContext，只留最近几个。
+            // 混淆脚本的 JSContext 很吃内存，和 AVPlayer 叠在一起容易触发
+            // 内存压力被杀（jetsam 不会留下任何崩溃记录，表现就是日志突然断掉）。
+            if cache.count >= maxCachedRuntimes, let oldest = cache.keys.sorted().first {
                 cache[oldest] = nil
             }
             cache[key] = runtime
             return runtime
+        }
+    }
+
+    private var maxCachedRuntimes: Int { 3 }
+
+    /// 收到内存警告时把 JSContext 全部丢掉。重新建一次的开销远小于被杀进程。
+    func handleMemoryWarning() {
+        buildQueue.sync {
+            let count = cache.count
+            cache.removeAll()
+            Log.warn("脚本音源", "内存警告，丢弃了 \(count) 个 JS 运行时缓存")
         }
     }
 

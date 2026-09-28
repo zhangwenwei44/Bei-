@@ -199,6 +199,27 @@ final class SourceStore: ObservableObject {
         persist()
     }
 
+    /// 预先创建导入目录。
+    ///
+    /// App 开了 UIFileSharingEnabled，Documents 在「文件」App 里可见。
+    /// 目录不存在的话用户没法新建，只能看到一个空文件夹。
+    static func prepareImportDirectory() {
+        let dir = importDirectory()
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            do {
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                Log.info("音源", "已创建导入目录 \(dir.path)")
+            } catch {
+                Log.error("音源", "创建导入目录失败：\(error.localizedDescription)")
+            }
+        }
+    }
+
+    static func importDirectory() -> URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Imports", isDirectory: true)
+    }
+
     /// 按名字覆盖导入。
     ///
     /// `upsert` 是按 id 匹配的，而 id 每次都是新 UUID，所以重新导入同一个音源
@@ -213,6 +234,8 @@ final class SourceStore: ObservableObject {
             sources.append(source)
         }
         persist()
+        // 音源内容变了，之前的熔断计数不再有意义
+        ScriptSourceRunner.shared.resetFailures()
     }
 
     @discardableResult
