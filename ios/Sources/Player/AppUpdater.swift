@@ -61,8 +61,13 @@ final class AppUpdater: ObservableObject {
     func check(force: Bool = false) async {
         if !force, let lastCheckedAt, Date().timeIntervalSince(lastCheckedAt) < 300 { return }
         phase = .checking
+        Log.info("更新", "开始检查更新，当前版本 \(versionText)")
 
-        var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!)
+        guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else {
+            phase = .failed("仓库地址无效")
+            return
+        }
+        var request = URLRequest(url: url)
         request.timeoutInterval = 15
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("AuroraMusic/\(currentVersion)", forHTTPHeaderField: "User-Agent")
@@ -70,23 +75,47 @@ final class AppUpdater: ObservableObject {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else {
+                Log.error("更新", "响应不是 HTTP：\(response)")
                 phase = .failed("网络异常")
                 return
             }
-            // 403/404 多半是 API 限流
+            // 403/404 多半是 API 限流。GitHub 未认证请求每 IP 每小时只有 60 次，
+            // 移动网络下同 IP 共享，很容易撞上限。
             guard (200...299).contains(http.statusCode) else {
-                phase = .failed("GitHub 返回 \(http.statusCode)，稍后再试")
+                let remaining = http.value(forHTTPHeaderField: "X-RateLimit-Remaining")
+                Log.error("更新", "GitHub 返回 \(http.statusCode)，限流剩余 \(remaining ?? "未知")")
+                phase = .failed(Self.rateLimitMessage(http))
                 return
             }
             let release = try JSONDecoder().decode(Release.self, from: data)
             lastCheckedAt = Date()
+            Log.info("更新", "远端最新 \(release.tag_name)，附件 \(release.assets.map(\.name).joined(separator: ", "))")
             if isNewer(release.tag_name) {
                 phase = .available(release)
             } else {
+                Log.info("更新", "已是最新（远端 \(release.tag_name)）")
                 phase = .upToDate(current: currentVersion)
             }
         } catch {
+            Log.error("更新", "检查失败：\(error.localizedDescription)")
             phase = .failed(error.localizedDescription)
+        }
+    }
+
+    /// 限流和 404 的说法不一样，不能一律报「稍后再试」。
+    private static func rateLimitMessage(_ http: HTTPURLResponse) -> String {
+        switch http.statusCode {
+        case 403, 429:
+            let reset = http.value(forHTTPHeaderField: "X-RateLimit-Reset").flatMap { TimeInterval($0) }
+            if let reset {
+                let minutes = max(1, Int((reset - Date().timeIntervalSince1970) / 60))
+                return "GitHub 接口调用次数超限，约 \(minutes) 分钟后再试。也可以先用下面的「Releases 页面」下载"
+            }
+            return "GitHub 接口调用次数超限，请稍后再试，或用「Releases 页面」直接下载"
+        case 404:
+            return "找不到对应的 Release，检查仓库地址或版本号"
+        default:
+            return "GitHub 返回 \(http.statusCode)"
         }
     }
 
@@ -124,14 +153,22 @@ final class AppUpdater: ObservableObject {
         progressTask = Task { [weak self] in
             guard let self else { return }
             self.phase = .downloading(progress: 0)
+            Log.info("更新", "开始下载 \(asset.name)（\(asset.size) 字节）")
             do {
                 let localURL = try await Self.download(url: url, assetName: asset.name) { [weak self] ratio in
                     Task { @MainActor [weak self] in self?.phase = .downloading(progress: ratio) }
+                }
+                let attrs = try? FileManager.default.attributesOfItem(atPath: localURL.path)
+                let size = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
+                Log.info("更新", "下载完成：\(localURL.lastPathComponent)，实际 \(size) 字节，期望 \(asset.size) 字节")
+                if size > 0, asset.size > 0, size != Int64(asset.size) {
+                    Log.warn("更新", "文件大小与 Release 声明不一致（\(size) vs \(asset.size)），包可能不完整")
                 }
                 self.phase = .ready(localURL)
             } catch is CancellationError {
                 self.phase = .idle
             } catch {
+                Log.error("更新", "下载失败：\(error.localizedDescription)")
                 self.phase = .failed(error.localizedDescription)
             }
         }
@@ -149,14 +186,26 @@ final class AppUpdater: ObservableObject {
     /// SpringBoard 跑在 App 沙盒之外，读不到 App 自己的 Documents，所以必须先落到
     /// /var/mobile/Media 下——AppSync / Zebra / Filza 都是从那里找包的。
     func prepareInstall(_ fileURL: URL) -> URL {
-        Self.shareToPublicDownloads(fileURL)
+        let shared = Self.shareToPublicDownloads(fileURL)
+        if shared.path == fileURL.path {
+            Log.warn("更新", "公共下载目录不可写，安装包仍留在沙盒内：\(fileURL.path)")
+        } else {
+            Log.info("更新", "安装包已拷到 \(shared.path)")
+        }
+        return shared
     }
 
     /// 直接唤起安装。新版 iOS 上系统没给 .ipa 注册 open 处理器，所以这个经常无效，
     /// 真正的可靠路径是分享面板让用户选 AppSync / Zebra / Filza。
     func tryOpenInstaller(_ fileURL: URL) {
         let shared = prepareInstall(fileURL)
+        Log.info("更新", "尝试直接唤起安装 \(shared.lastPathComponent)")
         UIApplication.shared.open(shared) { [weak self] success in
+            if success {
+                Log.info("更新", "系统接管了安装请求")
+            } else {
+                Log.warn("更新", "系统没有接管安装请求，改用分享面板")
+            }
             guard !success else { return }
             Task { @MainActor [weak self] in
                 self?.installHint = "系统没有直接弹出安装界面。请在下面的分享面板里选 AppSync / Zebra / Filza 打开。"
@@ -175,7 +224,10 @@ final class AppUpdater: ObservableObject {
         ]
         for path in candidates {
             let dir = URL(fileURLWithPath: path)
-            guard FileManager.default.fileExists(atPath: dir.path) else { continue }
+            guard FileManager.default.fileExists(atPath: dir.path) else {
+                Log.warn("更新", "公共目录不存在：\(path)")
+                continue
+            }
             let target = dir.appendingPathComponent(fileURL.lastPathComponent)
             do {
                 if FileManager.default.fileExists(atPath: target.path) {
@@ -184,6 +236,7 @@ final class AppUpdater: ObservableObject {
                 try FileManager.default.copyItem(at: fileURL, to: target)
                 return target
             } catch {
+                Log.error("更新", "拷贝到 \(path) 失败：\(error.localizedDescription)")
                 continue
             }
         }
@@ -195,11 +248,24 @@ final class AppUpdater: ObservableObject {
     private static func download(url: URL,
                                 assetName: String,
                                 onProgress: @escaping (Double) -> Void) async throws -> URL {
-        let (bytes, response) = try await URLSession.shared.bytes(from: url)
+        onProgress(0)
+        // 用 data(from:) 而不是 bytes(from:)：后者要手写分块落盘，中途出错容易
+        // 留下半截文件，而且拿不到最终内容做格式校验。
+        let (data, response) = try await URLSession.shared.data(from: url)
+        try Task.checkCancellation()
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            Log.error("更新", "下载返回 HTTP \(code)")
             throw UpdateError.http
         }
-        let total = http.expectedContentLength
+        // 撞到限流或登录页时，服务器会返回一小段 HTML/JSON 错误内容而不是 ipa。
+        // 不校验的话会写出一个几百字节的假安装包，用户到安装那步才发现。
+        guard dataStartsWithPK(data) else {
+            let preview = String(data: data.prefix(200), encoding: .utf8) ?? ""
+            Log.error("更新", "下载到的不是 IPA（开头 \(preview.prefix(120))）")
+            throw UpdateError.notIPA
+        }
+        Log.info("更新", "已取到 \(data.count) 字节，确认是 IPA 格式")
 
         let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Updates", isDirectory: true)
@@ -208,31 +274,14 @@ final class AppUpdater: ObservableObject {
         if FileManager.default.fileExists(atPath: destination.path) {
             try? FileManager.default.removeItem(at: destination)
         }
-        FileManager.default.createFile(atPath: destination.path, contents: nil)
-
-        let handle = try FileHandle(forWritingTo: destination)
-        defer { try? handle.close() }
-
-        var written: Int64 = 0
-        var buffer = Data()
-        buffer.reserveCapacity(256 * 1024)
-        for try await byte in bytes {
-            try Task.checkCancellation()
-            buffer.append(byte)
-            if buffer.count >= 64 * 1024 {
-                try handle.write(contentsOf: buffer)
-                written += Int64(buffer.count)
-                buffer.removeAll(keepingCapacity: true)
-                if total > 0 { onProgress(min(1, Double(written) / Double(total))) }
-            }
-        }
-        if !buffer.isEmpty {
-            try handle.write(contentsOf: buffer)
-            written += Int64(buffer.count)
-        }
-        guard written > 0 else { throw UpdateError.empty }
+        try data.write(to: destination, options: .atomic)
         onProgress(1)
         return destination
+    }
+
+    /// IPA 本质是 zip，文件头是 PK\x03\x04。
+    private static func dataStartsWithPK(_ data: Data) -> Bool {
+        data.count >= 4 && data[0] == 0x50 && data[1] == 0x4B && data[2] == 0x03 && data[3] == 0x04
     }
 
     private static func pickIPA(from assets: [Asset]) -> Asset? {
@@ -258,12 +307,12 @@ final class AppUpdater: ObservableObject {
 
 enum UpdateError: LocalizedError {
     case http
-    case empty
+    case notIPA
 
     var errorDescription: String? {
         switch self {
         case .http: return "下载失败，服务器没有返回安装包"
-        case .empty: return "下载到的文件是空的"
+        case .notIPA: return "下载到的不是安装包（可能触发了 GitHub 限流），请稍后重试或用「Releases 页面」下载"
         }
     }
 }

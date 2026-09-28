@@ -7,9 +7,17 @@ struct ProfileView: View {
     @ObservedObject private var downloads = DownloadManager.shared
     @ObservedObject private var library = LibraryStore.shared
     @StateObject private var updater = AppUpdater.shared
-    @State private var isAboutPresented = false
-    @State private var isUpdatePresented = false
-    @State private var isChangelogPresented = false
+    /// 整个页面只挂一个 sheet。
+    ///
+    /// 之前这里是三个并列的 .sheet(isPresented:)。iOS 16 的 SwiftUI 里同一个
+    /// view 挂多个 sheet 只有一个可靠生效，其余静默失败——实际表现就是
+    /// 「检查更新」和「关于」点了完全没反应，只有排在最后的更新日志能弹出来。
+    private enum Sheet: String, Identifiable {
+        case about, update, changelog
+        var id: String { rawValue }
+    }
+
+    @State private var sheet: Sheet?
 
     var body: some View {
         List {
@@ -91,7 +99,7 @@ struct ProfileView: View {
 
             Section {
                 Button {
-                    isUpdatePresented = true
+                    sheet = .update
                 } label: {
                     HStack {
                         Label("检查更新", systemImage: "arrow.down.circle")
@@ -107,7 +115,7 @@ struct ProfileView: View {
                 }
                 .disabled(updater.phase.isBusy)
                 Button {
-                    isChangelogPresented = true
+                    sheet = .changelog
                 } label: {
                     HStack {
                         Label("更新日志", systemImage: "list.bullet.rectangle")
@@ -143,7 +151,7 @@ struct ProfileView: View {
                 }
 
                 Button {
-                    isAboutPresented = true
+                    sheet = .about
                 } label: {
                     HStack {
                         Label("关于 Aurora Music", systemImage: "info.circle")
@@ -161,14 +169,12 @@ struct ProfileView: View {
         .background(AppStyle.background)
         .navigationTitle("我的")
         .navigationBarTitleDisplayMode(.large)
-        .sheet(isPresented: $isAboutPresented) {
-            AboutView()
-        }
-        .sheet(isPresented: $isUpdatePresented) {
-            UpdateView()
-        }
-        .sheet(isPresented: $isChangelogPresented) {
-            ChangelogView()
+        .sheet(item: $sheet) { item in
+            switch item {
+            case .about: AboutView()
+            case .update: UpdateView()
+            case .changelog: ChangelogView()
+            }
         }
         .task {
             if case .idle = updater.phase {

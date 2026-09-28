@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 检查更新弹窗：显示版本、Release note，直接下载 IPA 并唤起安装。
 struct UpdateView: View {
@@ -73,13 +74,19 @@ struct UpdateView: View {
         switch updater.phase {
         case .idle, .checking:
             VStack(spacing: 12) {
-                ProgressView().tint(AppStyle.accent)
-                Text(updater.phase == .checking ? "正在检查…" : "")
-                    .font(.system(size: 13))
-                    .foregroundStyle(AppStyle.secondaryText)
+                if updater.phase == .checking {
+                    ProgressView().tint(AppStyle.accent)
+                    Text("正在检查…")
+                        .font(.system(size: 13))
+                        .foregroundStyle(AppStyle.secondaryText)
+                } else {
+                    EmptyStateView(icon: "arrow.triangle.2.circlepath",
+                                   title: "还没检查过更新",
+                                   message: "点下面的「重新检查」看看有没有新版本")
+                }
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 40)
+            .padding(.vertical, 30)
             actions
 
         case .upToDate(let current):
@@ -168,6 +175,17 @@ struct UpdateView: View {
                         .foregroundStyle(AppStyle.tertiaryText)
                         .multilineTextAlignment(.center)
                 }
+
+                // 分享面板里如果没有安装器，退路是去「文件」App 里把它交给别的应用
+                Button {
+                    revealInFiles(fileURL)
+                } label: {
+                    Label("在「文件」App 中查看", systemImage: "folder")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
             }
             .padding(.horizontal, 20)
             .padding(.top, 20)
@@ -232,6 +250,31 @@ struct UpdateView: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 24)
+    }
+
+    /// 跳到「文件」App 定位到这个安装包。
+    ///
+    /// 本 App 开了 UIFileSharingEnabled，包就在「我的 iPhone → Aurora Music → Updates」
+    /// 里。分享面板没有安装器时，这是把包交出去的最后一条路。
+    private func revealInFiles(_ url: URL) {
+        guard url.isFileURL else { return }
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        var components = URLComponents()
+        components.scheme = "shareddocuments"
+        components.host = ""
+        components.path = documents.path
+        // shareddocuments 的 path 必须是相对 App 容器根目录的
+        var relative = url.path
+        if relative.hasPrefix(documents.path) {
+            relative = String(relative.dropFirst(documents.path.count))
+            if relative.hasPrefix("/") { relative.removeFirst() }
+        }
+        components.path = relative
+        guard let target = components.url else { return }
+        Log.info("更新", "尝试在文件 App 中打开 \(relative)")
+        UIApplication.shared.open(target) { success in
+            Log.info("更新", success ? "已跳转到文件 App" : "文件 App 没有响应（\(target.absoluteString)）")
+        }
     }
 
     private func statusBlock(icon: String, tint: Color, title: String, message: String) -> some View {
