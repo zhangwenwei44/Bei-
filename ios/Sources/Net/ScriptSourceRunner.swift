@@ -304,7 +304,7 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
     }
 
     private static func jsPattern(from pattern: String) -> String {
-        var map: [String: String] = [
+        let map: [String: String] = [
             "YYYY": "yyyy", "YY": "yy",
             "MM": "MM", "DD": "dd", "dd": "dd",
             "HH": "HH", "mm": "mm", "ss": "ss",

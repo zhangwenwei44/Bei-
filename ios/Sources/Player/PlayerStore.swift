@@ -141,6 +141,14 @@ final class PlayerStore: ObservableObject {
 
     // MARK: - 加载与播放
 
+    /// 一次播放地址解析的结果。
+    private struct Outcome {
+        var url: URL?
+        var name: String
+        var label: String
+        var isThirdParty: Bool
+    }
+
     private func prepare(autoplay: Bool) {
         guard let song = current else { return }
         preparingTask?.cancel()
@@ -160,22 +168,17 @@ final class PlayerStore: ObservableObject {
         let excluded = failedHosts
         let task = Task { [weak self] in
             guard let self else { return }
-            var resolvedURL: URL?
-            var name = ""
-            var isThirdParty = false
-            var label = ""
-
-            if let local = DownloadManager.shared.localURL(for: song) {
-                resolvedURL = local
-                name = "已下载"
-                label = "本地"
+            // 这里用不可变的解析结果，而不是几个 var 局部变量。
+            // 之前那些 var 被后面的 MainActor.run 闭包捕获，
+            // 并发检查会报「reference to captured var」，Swift 6 语言模式下直接是错误。
+            let outcome: Outcome = if let local = DownloadManager.shared.localURL(for: song) {
+                Outcome(url: local, name: "已下载", label: "本地", isThirdParty: false)
             } else if let audio = await SourceResolver.resolve(song: song,
-                                                                quality: SourceStore.shared.quality,
-                                                                excludedHosts: excluded) {
-                resolvedURL = audio.url
-                name = audio.sourceName
-                isThirdParty = audio.isThirdParty
-                label = audio.quality.title
+                                                                 quality: SourceStore.shared.quality,
+                                                                 excludedHosts: excluded) {
+                Outcome(url: audio.url, name: audio.sourceName, label: audio.quality.title, isThirdParty: audio.isThirdParty)
+            } else {
+                Outcome(url: nil, name: "", label: "", isThirdParty: false)
             }
 
             guard !Task.isCancelled else {
@@ -188,15 +191,15 @@ final class PlayerStore: ObservableObject {
             await MainActor.run { [weak self] in
                 guard let self, self.current?.id == song.id else { return }
                 self.isLoading = false
-                self.sourceName = name
-                self.bitrateLabel = label
-                guard let resolvedURL else {
+                self.sourceName = outcome.name
+                self.bitrateLabel = outcome.label
+                guard let url = outcome.url else {
                     self.playbackError = "这首歌暂时无法播放，去「我的 - 音源」看看"
                     self.player.pause()
                     self.isPlaying = false
                     return
                 }
-                self.attach(url: resolvedURL, thirdParty: isThirdParty, autoplay: autoplay)
+                self.attach(url: url, thirdParty: outcome.isThirdParty, autoplay: autoplay)
             }
         }
         preparingTask = task

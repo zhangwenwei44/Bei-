@@ -42,7 +42,9 @@ enum Log {
     }
 
     struct Entry: Identifiable, Codable {
-        let id = UUID()
+        // Codable 时用日期做主键：id 带初值时不会被解码还原，
+        // 每次读回日志都会生成新 UUID，SwiftUI 的 diff 会把整列表当成全新内容重建。
+        var id: Date { date }
         let date: Date
         let level: Level
         let category: String

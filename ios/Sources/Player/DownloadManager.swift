@@ -174,7 +174,7 @@ final class DownloadManager: NSObject, ObservableObject {
     func download(_ song: Song) async throws -> URL {
         if let local = localURL(for: song) { return local }
 
-        let resolved = try await SourceResolver.resolve(song: song, quality: SourceStore.shared.quality)
+        let resolved = await SourceResolver.resolve(song: song, quality: SourceStore.shared.quality)
         guard let resolved else { throw DownloadError.unresolved }
 
         var request = URLRequest(url: resolved.url)

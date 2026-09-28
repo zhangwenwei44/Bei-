@@ -143,11 +143,15 @@ jobs:
           # 也就是 SIGTRAP；编译器会警告，但因为值不是常量所以只降级为警告。
           # 之前 CI 只在编译失败时才被人看，警告就这么一路溜过去。
           # 这里把警告升级为失败：看不见的问题就不再是问题。
-          WARNINGS=$(grep -acE "warning:" build.log 2>/dev/null || true)
-          echo "编译器警告数：$WARNINGS"
-          if [ "${WARNINGS:-0}" -gt 0 ]; then
-            echo "::error::存在 $WARNINGS 条编译警告，构建终止。完整列表见上一步的诊断报告。"
-            grep -aE "warning:" build.log 2>/dev/null | sort -u | head -30
+          # 只看我们自己源码的警告：appintentsmetadataprocessor（AppIntents 元数据
+          # 提取）会打自己的警告，与本项目代码无关，不能因此拦住构建。
+          WARNINGS=$(grep -aE "warning:" build.log 2>/dev/null \
+            | grep -v "appintentsmetadataprocessor" > /tmp/warns.txt || true)
+          COUNT=$(wc -l < /tmp/warns.txt | tr -d ' ')
+          echo "项目源码警告数：$COUNT"
+          if [ "$COUNT" -gt 0 ]; then
+            echo "::error::存在 $COUNT 条编译警告，构建终止。完整列表见上一步的诊断报告。"
+            head -30 /tmp/warns.txt
             exit 1
           fi
 
