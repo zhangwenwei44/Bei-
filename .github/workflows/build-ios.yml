@@ -102,6 +102,46 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Verify MD5 implementation
+        run: |
+          set -uo pipefail
+          # ios/Sources/Net/Digest.swift 里是自己实现的 MD5（绕开 CC_MD5 的弃用警告）。
+          # 酷狗接口的 signature / key 和洛雪脚本都硬性依赖 MD5，
+          # 一旦实现写错，签名会全部失效——而且不报错，只是所有请求被服务端拒绝。
+          # 用 swiftc 跑 RFC 1321 标准测试向量把关。
+          echo "swiftc: $(command -v swiftc || echo '未找到')"
+          echo "swift version: $(swift --version 2>&1 | head -1)"
+          {
+            echo "### MD5 校验"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if ! swiftc -O scripts/VerifyMD5.swift -o /tmp/verify-md5 > /tmp/md5-build.log 2>&1; then
+            echo "编译失败："
+            cat /tmp/md5-build.log
+            { echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            cat /tmp/md5-build.log >> "$GITHUB_STEP_SUMMARY"
+            cp /tmp/md5-build.log "$GITHUB_WORKSPACE/ios/md5-build.log" 2>/dev/null || true
+            echo "::error::MD5 验证脚本编译失败"
+            exit 1
+          fi
+          echo "编译通过"
+
+          if ! /tmp/verify-md5 > /tmp/md5-run.log 2>&1; then
+            echo "运行失败："
+            cat /tmp/md5-run.log
+            { echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            cat /tmp/md5-run.log >> "$GITHUB_STEP_SUMMARY"
+            # 拷进工作目录，Upload build log / Publish diagnostics 才能带上
+            cp /tmp/md5-run.log "$GITHUB_WORKSPACE/ios/md5-run.log" 2>/dev/null || true
+            echo "::error::MD5 验证未通过"
+            exit 1
+          fi
+          cat /tmp/md5-run.log
+          { echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/md5-run.log >> "$GITHUB_STEP_SUMMARY"
+          cp /tmp/md5-run.log "$GITHUB_WORKSPACE/ios/md5-run.log" 2>/dev/null || true
+
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
@@ -110,6 +150,8 @@ jobs:
           path: |
             ios/build.log
             ios/build.exit
+            ios/md5-build.log
+            ios/md5-run.log
           if-no-files-found: warn
           retention-days: 14
 
@@ -124,6 +166,10 @@ jobs:
           mkdir -p /tmp/diag
           tr -d '\000' < build.log > /tmp/diag/build.log 2>/dev/null || true
           cp build.exit /tmp/diag/build.exit 2>/dev/null || true
+          # MD5 校验的输出也一并带上：它失败时 job 日志需要认证才能看，
+          # 只有落盘到这个分支才能在排查时看到真实报错。
+          cp /tmp/md5-build.log /tmp/diag/md5-build.log 2>/dev/null || true
+          cp /tmp/md5-run.log /tmp/diag/md5-run.log 2>/dev/null || true
           cd /tmp/diag
           git init -q
           git config user.name  "github-actions[bot]"
@@ -202,42 +248,6 @@ jobs:
             echo "::error::.app 里没有 BundledSources 目录，检查 ios/project.yml 里 resources 是否写在 sources 下"
             exit 1
           fi
-
-      - name: Verify MD5 implementation
-        run: |
-          set -uo pipefail
-          # ios/Sources/Net/Digest.swift 里是自己实现的 MD5（绕开 CC_MD5 的弃用警告）。
-          # 酷狗接口的 signature / key 和洛雪脚本都硬性依赖 MD5，
-          # 一旦实现写错，签名会全部失效——而且不报错，只是所有请求被服务端拒绝。
-          # 用 swiftc 跑 RFC 1321 标准测试向量把关。
-          echo "swiftc: $(command -v swiftc || echo '未找到')"
-          echo "swift version: $(swift --version 2>&1 | head -1)"
-          {
-            echo "### MD5 校验"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          if ! swiftc -O scripts/VerifyMD5.swift -o /tmp/verify-md5 > /tmp/md5-build.log 2>&1; then
-            echo "编译失败："
-            cat /tmp/md5-build.log
-            { echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-            cat /tmp/md5-build.log >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::MD5 验证脚本编译失败"
-            exit 1
-          fi
-          echo "编译通过"
-
-          if ! /tmp/verify-md5 > /tmp/md5-run.log 2>&1; then
-            echo "运行失败："
-            cat /tmp/md5-run.log
-            { echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-            cat /tmp/md5-run.log >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::MD5 验证未通过"
-            exit 1
-          fi
-          cat /tmp/md5-run.log
-          { echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          cat /tmp/md5-run.log >> "$GITHUB_STEP_SUMMARY"
 
       - name: Package unsigned IPA
         working-directory: ios
