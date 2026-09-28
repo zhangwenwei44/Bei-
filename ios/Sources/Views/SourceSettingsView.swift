@@ -5,12 +5,32 @@ import UniformTypeIdentifiers
 /// 第三方音源管理：新增、编辑、开关、排序、导入导出、测试。
 struct SourceSettingsView: View {
     @ObservedObject private var store = SourceStore.shared
-    @State private var editing: ThirdPartySource?
-    @State private var isCreatingTemplate = false
-    @State private var isCreatingScript = false
-    @State private var isPasting = false
-    @State private var isImporting = false
-    @State private var isExporting = false
+    /// 整个页面只挂一个 sheet，用这个枚举决定内容。
+    ///
+    /// 之前这里是六个并列的 .sheet 修饰器。在 iOS 16 上同一个 view 挂多个
+    /// .sheet(isPresented:) 只有一个可靠生效，其余会静默呈现失败——用户侧
+    /// 表现就是「点从文件导入，什么都没发生」。
+    private enum Sheet: Identifiable {
+        case editor(ThirdPartySource)
+        case newTemplate
+        case newScript
+        case paste
+        case export
+        case pickFile
+
+        var id: String {
+            switch self {
+            case .editor(let source): return "editor-\(source.id)"
+            case .newTemplate: return "newTemplate"
+            case .newScript: return "newScript"
+            case .paste: return "paste"
+            case .export: return "export"
+            case .pickFile: return "pickFile"
+            }
+        }
+    }
+
+    @State private var sheet: Sheet?
     @State private var importMessage: String?
     @State private var isImportingFiles = false
 
@@ -26,15 +46,37 @@ struct SourceSettingsView: View {
             }
             Section {
                 if store.sources.isEmpty {
-                    EmptyStateView(icon: "antenna.radiowaves.left.and.right",
-                                   title: "还没有添加音源",
-                                   message: "官方接口够用时可以不配；遇到 VIP 或无版权再加")
+                    // 音源列表为空 = 所有歌都放不出来。这里必须直说，
+                    // 之前只写「官方接口够用时可以不配」，会让人以为是正常状态。
+                    VStack(spacing: 10) {
+                        EmptyStateView(icon: "antenna.radiowaves.left.and.right",
+                                       title: "还没有添加音源",
+                                       message: presets.isEmpty
+                                        ? "包内没有找到内置音源脚本，这个安装包可能不完整"
+                                        : "下面有内置音源，点一下就能用")
+                        if !presets.isEmpty {
+                            Button {
+                                let added = BundledSources.installMissing()
+                                importMessage = added > 0
+                                    ? "已添加 \(added) 个内置音源，打开它们的开关即可播放"
+                                    : "内置音源已经都在列表里了"
+                            } label: {
+                                Text("一键添加全部内置音源")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    .foregroundStyle(.black)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                 } else {
                     ForEach(store.sources) { source in
                         SourceRow(source: source) {
                             store.setEnabled(!source.enabled, id: source.id)
                         } onEdit: {
-                            editing = source
+                            sheet = .editor(source)
                         }
                         .listRowBackground(Color.clear)
                         .listRowSeparatorTint(Color.white.opacity(0.06))
@@ -113,22 +155,27 @@ struct SourceSettingsView: View {
 
             Section {
                 Button {
-                    isCreatingTemplate = true
+                    sheet = .newTemplate
                 } label: {
                     Label("新增接口模板音源", systemImage: "link.badge.plus")
                 }
                 Button {
-                    isCreatingScript = true
+                    sheet = .newScript
                 } label: {
                     Label("新增 JS 脚本音源", systemImage: "curlybraces")
                 }
                 Button {
-                    isImporting = true
+                    sheet = .pickFile
                 } label: {
                     Label("从文件导入", systemImage: "doc.badge.plus")
                 }
                 Button {
-                    isPasting = true
+                    importFromAppDirectory()
+                } label: {
+                    Label("从 App 目录导入", systemImage: "folder")
+                }
+                Button {
+                    sheet = .paste
                 } label: {
                     Label("粘贴内容导入", systemImage: "text.alignleft")
                 }
@@ -138,7 +185,7 @@ struct SourceSettingsView: View {
                     Label("从剪贴板导入", systemImage: "doc.on.clipboard")
                 }
                 Button {
-                    isExporting = true
+                    sheet = .export
                 } label: {
                     Label("导出全部音源", systemImage: "square.and.arrow.up")
                 }
@@ -148,7 +195,7 @@ struct SourceSettingsView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(AppStyle.tertiaryText)
             } footer: {
-                Text("从文件导入会读取你选中的 JSON（也可以是 .txt / .lx 脚本包里的配置），解析后自动补全缺失字段。")
+                Text("「从文件导入」用系统选择器挑任意位置的文件。\n「从 App 目录导入」读的是本 App 自己的 Documents/Imports，用 iTunes/Finder/SSH 把音源文件放进去即可，最不容易出问题。\n也可以在「文件」App 里点分享，选择本 App 直接导入。")
                     .font(.system(size: 11))
                     .foregroundStyle(AppStyle.tertiaryText)
             }
@@ -161,30 +208,31 @@ struct SourceSettingsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) { EditButton() }
         }
-        .sheet(item: $editing) { source in
-            SourceEditorView(source: source)
-        }
-        .sheet(isPresented: $isCreatingTemplate) {
-            SourceEditorView(source: SourceFormTemplate.templateForm)
-        }
-        .sheet(isPresented: $isCreatingScript) {
-            SourceEditorView(source: SourceFormTemplate.scriptForm)
-        }
-        .sheet(isPresented: $isPasting) {
-            SourceImportView()
-        }
-        .sheet(isPresented: $isExporting) {
-            SourceExportView()
-        }
-        .fileImporter(isPresented: $isImporting,
-                      allowedContentTypes: Self.importableTypes,
-                      allowsMultipleSelection: true) { result in
-            switch result {
-            case let .success(urls):
-                Task { await importFromFiles(urls) }
-            case let .failure(error):
-                importMessage = error.localizedDescription
+        .sheet(item: $sheet) { item in
+            switch item {
+            case .editor(let source):
+                SourceEditorView(source: source)
+            case .newTemplate:
+                SourceEditorView(source: SourceFormTemplate.templateForm)
+            case .newScript:
+                SourceEditorView(source: SourceFormTemplate.scriptForm)
+            case .paste:
+                SourceImportView()
+            case .export:
+                SourceExportView()
+            case .pickFile:
+                DocumentPicker(types: Self.importableTypes) { urls in
+                    sheet = nil
+                    Task { await importFromFiles(urls) }
+                } onCancel: {
+                    sheet = nil
+                }
             }
+        }
+        // 从「文件」App 分享过来的音源
+        .onOpenURL { url in
+            Log.info("音源导入", "收到分享进来的 URL: \(url.absoluteString)")
+            Task { await importFromFiles([url]) }
         }
     }
 
@@ -271,7 +319,7 @@ struct SourceSettingsView: View {
         }
         let parsed = SourceStore.parseImport(text)
         if !parsed.isEmpty {
-            for source in parsed { store.upsert(source) }
+            for source in parsed { store.upsertReplacingByName(source) }
             importMessage = "成功导入 \(parsed.count) 条：\(parsed.map(\.name).joined(separator: "、"))"
             return
         }
@@ -280,8 +328,46 @@ struct SourceSettingsView: View {
            let parsed = SourceImportView.scriptName(from: firstLine), !parsed.isEmpty {
             name = parsed
         }
-        store.upsert(ThirdPartySource(name: name, kind: .script, script: text))
+        store.upsertReplacingByName(ThirdPartySource(name: name, kind: .script, script: text))
         importMessage = "成功导入脚本音源：\(name)"
+    }
+
+    /// App 自己的 Documents/Imports 目录。用 iTunes/Finder/SSH 把文件放进去就行，
+    /// 不经过系统选择器，绕开它可能不回调的老问题。
+    @MainActor
+    private func importFromAppDirectory() {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Imports", isDirectory: true)
+        let files = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
+            .filter { ["js", "mjs", "cjs", "txt", "json", "conf", "json5", "ini"].contains($0.pathExtension.lowercased()) }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        guard !files.isEmpty else {
+            Log.warn("音源导入", "App 目录 \(dir.path) 里没有可导入的文件")
+            importMessage = "App 目录里还没有音源文件。把 .js 放进 \(dir.path) 再试一次。"
+            return
+        }
+        Log.info("音源导入", "从 App 目录 \(dir.path) 找到 \(files.count) 个候选文件")
+        Task { await importFromFiles(files) }
+    }
+
+    /// 解码文本。BOM 和 UTF-16 都要照顾到：洛雪的 .js 常带 UTF-8 BOM，
+    /// 直接当 UTF-8 读会在最前面留下不可见字符，导致脚本第一行解析失败。
+    private static func decodeText(_ data: Data) -> String? {
+        if data.count >= 3, data[0] == 0xEF, data[1] == 0xBB, data[2] == 0xBF {
+            return String(data: data.dropFirst(3), encoding: .utf8)
+        }
+        if let text = String(data: data, encoding: .utf8) { return text }
+        if data.count >= 2 {
+            let isUTF16LE = data[0] == 0xFF && data[1] == 0xFE
+            let isUTF16BE = data[0] == 0xFE && data[1] == 0xFF
+            if isUTF16LE || isUTF16BE {
+                let encoding = isUTF16LE
+                    ? String.Encoding.utf16LittleEndian
+                    : String.Encoding.utf16BigEndian
+                if let text = String(data: data, encoding: encoding) { return text }
+            }
+        }
+        return String(data: data, encoding: .init(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))))
     }
 
     private static var importableTypes: [UTType] {
@@ -318,20 +404,25 @@ struct SourceSettingsView: View {
                 continue
             }
             Log.debug("音源导入", "\(url.lastPathComponent) 读到 \(data.count) 字节")
-            // 洛雪的脚本基本都是 UTF-8，GBK 兜一下
-            let text = String(data: data, encoding: .utf8)
-                ?? String(data: data, encoding: .init(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))))
-            guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                Log.error("音源导入", "\(url.lastPathComponent) 是空文件或非文本内容")
+            // 洛雪的 .js 常带 UTF-8 BOM，直接当 UTF-8 读会在最前面留不可见字符，
+            // 脚本第一行就解析失败；UTF-16 也要能读。
+            guard let text = Self.decodeText(data) else {
+                Log.error("音源导入", "\(url.lastPathComponent) 用 UTF-8/UTF-16/GBK 都解不出文本，可能是二进制或加密文件")
+                failures.append("\(url.lastPathComponent)（无法解码，可能不是明文脚本）")
+                continue
+            }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                Log.error("音源导入", "\(url.lastPathComponent) 是空文件")
                 failures.append("\(url.lastPathComponent)（空文件或非文本）")
                 continue
             }
-            Log.debug("音源导入", "\(url.lastPathComponent) 解码成功，\(text.count) 字符，开头: \(text.prefix(80))")
+            Log.debug("音源导入", "\(url.lastPathComponent) 解码成功，\(text.count) 字符，开头: \(trimmed.prefix(80))")
 
             let parsed = SourceStore.parseImport(text)
             if !parsed.isEmpty {
                 Log.info("音源导入", "\(url.lastPathComponent) 按 JSON 配置解析出 \(parsed.count) 条：\(parsed.map(\.name).joined(separator: ", "))")
-                for source in parsed { store.upsert(source) }
+                for source in parsed { store.upsertReplacingByName(source) }
                 added += parsed.count
                 addedNames.append(contentsOf: parsed.map(\.name))
                 continue
@@ -348,7 +439,7 @@ struct SourceSettingsView: View {
             if isScriptFile || looksLikeScript {
                 let name = url.deletingPathExtension().lastPathComponent
                 let finalName = name.isEmpty ? "导入的脚本音源" : name
-                store.upsert(ThirdPartySource(name: finalName, kind: .script, script: text))
+                store.upsertReplacingByName(ThirdPartySource(name: finalName, kind: .script, script: text))
                 Log.info("音源导入", "\(url.lastPathComponent) 判定为脚本音源（扩展名命中=\(isScriptFile)），已存为「\(finalName)」，\(text.count) 字符")
                 added += 1
                 addedNames.append(finalName)
@@ -660,7 +751,7 @@ struct SourceImportView: View {
         }
         let parsed = SourceStore.parseImport(trimmed)
         if !parsed.isEmpty {
-            for source in parsed { store.upsert(source) }
+            for source in parsed { store.upsertReplacingByName(source) }
             dismiss()
             return
         }

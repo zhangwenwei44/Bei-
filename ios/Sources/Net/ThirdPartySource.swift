@@ -199,6 +199,22 @@ final class SourceStore: ObservableObject {
         persist()
     }
 
+    /// 按名字覆盖导入。
+    ///
+    /// `upsert` 是按 id 匹配的，而 id 每次都是新 UUID，所以重新导入同一个音源
+    /// 会不断堆出重复条目——用户看着就像「导了好几次都没生效」。
+    func upsertReplacingByName(_ source: ThirdPartySource) {
+        if let index = sources.firstIndex(where: { $0.name == source.name }) {
+            // 保留原来的 id，避免覆盖后变成另一条
+            var replaced = source
+            replaced.id = sources[index].id
+            sources[index] = replaced
+        } else {
+            sources.append(source)
+        }
+        persist()
+    }
+
     @discardableResult
     func remove(id: String) -> Bool {
         let before = sources.count

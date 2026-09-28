@@ -146,6 +146,33 @@ jobs:
             exit 1
           fi
 
+      - name: Verify bundled sources made it into the app
+        working-directory: ios
+        run: |
+          set -uo pipefail
+          APP="build/Build/Products/Release-iphoneos/AuroraMusic.app"
+          {
+            echo "### 内置音源资源校验"
+            echo '```'
+            ls -la "$APP" 2>&1
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # 这一步是有意为之：之前 project.yml 把资源写在顶层 resources: 键里，
+          # XcodeGen 静默忽略，打出来的 .app 里一个 .js 都没有，
+          # 结果 App 里音源列表永远是空的，而构建全程「成功」。
+          # 资源缺失必须让构建失败，不能再悄悄发一个坏包出去。
+          if [ -d "$APP/BundledSources" ]; then
+            COUNT=$(find "$APP/BundledSources" -name '*.js' | wc -l | tr -d ' ')
+            echo "BundledSources 里有 $COUNT 个 .js"
+            if [ "$COUNT" -eq 0 ]; then
+              echo "::error::BundledSources 目录存在但没有 .js，内置音源会装不上"
+              exit 1
+            fi
+          else
+            echo "::error::.app 里没有 BundledSources 目录，检查 ios/project.yml 里 resources 是否写在 sources 下"
+            exit 1
+          fi
+
       - name: Package unsigned IPA
         working-directory: ios
         run: |

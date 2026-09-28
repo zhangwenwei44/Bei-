@@ -64,6 +64,12 @@ enum BundledSources {
     /// 首次启动时把内置音源写进列表。已经导入过的不重复添加。
     @discardableResult
     static func installMissing(into store: SourceStore = .shared) -> Int {
+        let urls = scriptURLs()
+        // 之前这个函数只返回装了几个，出问题时「0 个」完全看不出是包里没有资源。
+        Log.info("内置音源", "包内脚本文件 \(urls.count) 个：\(urls.map(\.lastPathComponent).joined(separator: ", "))")
+        if urls.isEmpty {
+            Log.error("内置音源", "包内没有 BundledSources 目录里的 .js，内置音源一个都装不上（检查 project.yml 里资源是否写在 sources 下）")
+        }
         let existing = Set(store.sources.map(\.name))
         var added = 0
         for preset in available {
@@ -71,6 +77,9 @@ enum BundledSources {
                   let source = makeSource(preset) else { continue }
             store.upsert(source)
             added += 1
+        }
+        if added == 0, !existing.isEmpty {
+            Log.info("内置音源", "没有新增（已有 \(existing.count) 个音源）")
         }
         return added
     }

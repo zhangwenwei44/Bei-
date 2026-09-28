@@ -16,12 +16,13 @@ targets:
     platform: iOS
     sources:
       - path: Sources
-    resources:
-      # 内置音源脚本。optional：目录为空时也不该让 xcodegen 失败。
+      # 内置音源脚本。必须写在 sources 里（配 buildPhase: resources）——
+      # 之前放在顶层的 resources: 键里，XcodeGen 会静默忽略，
+      # 结果 .app 里一个 .js 都没有，内置音源永远装不上。
       - path: BundledSources
-        optional: true
         type: folder
         buildPhase: resources
+        optional: true
     dependencies:
       - sdk: JavaScriptCore.framework
       - sdk: AVFoundation.framework
