@@ -28,7 +28,7 @@ struct DiagnosticsView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().overlay(Color.white.opacity(0.08))
+            Divider().overlay(AppStyle.stroke)
             if filtered.isEmpty {
                 EmptyStateView(icon: "doc.text.magnifyingglass",
                                title: "没有匹配的日志",

@@ -183,7 +183,7 @@ struct LibraryView: View {
                                             if store.current?.id == song.id {
                                                 Image(systemName: "waveform")
                                                     .font(.system(size: 10, weight: .bold))
-                                                    .foregroundStyle(.white)
+                                                    .foregroundStyle(AppStyle.onAccent)
                                                     .padding(4)
                                                     .background(AppStyle.accent, in: Circle())
                                                     .offset(x: 4, y: 4)

@@ -78,15 +78,29 @@ struct DiscoverView: View {
                                     .lineLimit(2)
                                     .multilineTextAlignment(.leading)
                                 if playlist.trackCount > 0 {
-                                    Text("\(playlist.trackCount) 首")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(AppStyle.tertiaryText)
+                                    HStack(spacing: 4) {
+                                        // 酷狗榜单卡片上的曲目数用蓝色小标签
+                                        Text("\(playlist.trackCount) 首")
+                                            .font(.system(size: 10, weight: .medium))
+                                            .foregroundStyle(AppStyle.accent)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(AppStyle.accent.opacity(0.12),
+                                                        in: Capsule())
+                                    }
                                 }
                             }
                             Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(AppStyle.tertiaryText)
                         }
-                        .padding(8)
-                        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .padding(10)
+                        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(AppStyle.stroke, lineWidth: 0.5)
+                        )
                     }
                     .buttonStyle(.plain)
                 }

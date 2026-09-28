@@ -37,7 +37,7 @@ struct SongListView: View {
                                     isPlaying: store.isPlaying)
                                 .songMenu(song)
                                 .listRowBackground(Color.clear)
-                                .listRowSeparatorTint(Color.white.opacity(0.06))
+                                .listRowSeparatorTint(AppStyle.stroke)
                                 .onTapGesture { play(song) }
                         }
                     } header: {
@@ -185,7 +185,7 @@ struct PlaylistDetailView: View {
             } label: {
                 Image(systemName: "play.fill")
                     .font(.system(size: 20))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(AppStyle.onAccent)
                     .frame(width: 52, height: 52)
                     .background(AppStyle.accent, in: Circle())
             }

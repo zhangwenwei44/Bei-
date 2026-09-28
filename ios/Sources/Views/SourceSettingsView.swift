@@ -66,7 +66,7 @@ struct SourceSettingsView: View {
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 10)
                                     .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                    .foregroundStyle(.black)
+                                    .foregroundStyle(AppStyle.onAccent)
                             }
                             .buttonStyle(.plain)
                         }
@@ -79,7 +79,7 @@ struct SourceSettingsView: View {
                             sheet = .editor(source)
                         }
                         .listRowBackground(Color.clear)
-                        .listRowSeparatorTint(Color.white.opacity(0.06))
+                        .listRowSeparatorTint(AppStyle.stroke)
                     }
                     .onMove { offsets, destination in
                         var list = store.sources

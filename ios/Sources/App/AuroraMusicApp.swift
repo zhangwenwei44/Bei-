@@ -30,7 +30,7 @@ struct AuroraMusicApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(store)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(ThemeSettings.mode.colorScheme)
                 .onAppear { store.bootstrap() }
         }
     }

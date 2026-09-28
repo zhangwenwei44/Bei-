@@ -1,18 +1,83 @@
 import SwiftUI
 import UIKit
 
-/// 全局配色：近黑底 + 单一强调色，遵循设计规范里的「简约」原则。
+/// 全局配色。以酷狗音乐的蓝为主色，浅色下蓝白相间。
+///
+/// 所有颜色都通过 `UIColor` 的 trait 闭包做成自适应的：
+/// 之前这里是写死的 `Color.white` / 近黑底，所以整个 App 只能走深色。
+/// 改成语义化的自适应色之后，210 处 `AppStyle.` 引用会自动跟着系统外观切换，
+/// 不用逐个视图去改。
 enum AppStyle {
-    static let background = Color(red: 0.055, green: 0.055, blue: 0.063)
-    static let surface = Color(red: 0.106, green: 0.106, blue: 0.118)
-    static let surfaceHigh = Color(red: 0.153, green: 0.153, blue: 0.169)
-    static let accent = Color(red: 0.204, green: 0.612, blue: 0.973)
-    static let like = Color(red: 1.0, green: 0.302, blue: 0.416)
-    static let gold = Color(red: 0.957, green: 0.824, blue: 0.290)
+    /// 按当前外观取值。用 UIColor 闭包而不是 `Color.primary`，
+    /// 是因为需要在浅/深两套里精确指定品牌色而不是跟随系统默认。
+    private static func dynamic(light: UIColor, dark: UIColor) -> Color {
+        Color(uiColor: UIColor { trait in
+            trait.userInterfaceStyle == .dark ? dark : light
+        })
+    }
 
-    static let primaryText = Color.white
-    static let secondaryText = Color.white.opacity(0.55)
-    static let tertiaryText = Color.white.opacity(0.35)
+    private static func hex(_ value: UInt32) -> UIColor {
+        UIColor(red: CGFloat((value >> 16) & 0xFF) / 255,
+                green: CGFloat((value >> 8) & 0xFF) / 255,
+                blue: CGFloat(value & 0xFF) / 255,
+                alpha: 1)
+    }
+
+    /// 酷狗品牌蓝 #2CA2F9
+    static let accent = dynamic(light: hex(0x2CA2F9), dark: hex(0x3EA9FF))
+    /// 强调色上的文字。蓝底上用白字，深色模式下也保持白字以保证对比度
+    static let onAccent = Color.white
+
+    /// 页面底色
+    static let background = dynamic(light: hex(0xF6F7F9), dark: hex(0x0E0E11))
+    /// 卡片底色
+    static let surface = dynamic(light: hex(0xFFFFFF), dark: hex(0x1C1C1F))
+    /// 卡片上的次级块（按钮底、分隔块）
+    static let surfaceHigh = dynamic(light: hex(0xEDF0F4), dark: hex(0x2A2A2E))
+    /// 卡片描边，浅色下没有阴影时靠它分隔层次
+    static let stroke = dynamic(light: hex(0xE3E6EB), dark: hex(0x3A3A3F))
+
+    static let like = dynamic(light: hex(0xFF4D67), dark: hex(0xFF5C73))
+    static let gold = dynamic(light: hex(0xF5A623), dark: hex(0xFFC043))
+
+    static let primaryText = dynamic(light: hex(0x14181F), dark: hex(0xFFFFFF))
+    static let secondaryText = dynamic(light: hex(0x5B6472), dark: hex(0xFFFFFF).withAlphaComponent(0.62))
+    static let tertiaryText = dynamic(light: hex(0x98A1AF), dark: hex(0xFFFFFF).withAlphaComponent(0.38))
+}
+
+/// 主题模式。
+enum ThemeMode: String, CaseIterable {
+    case system, light, dark
+
+    var title: String {
+        switch self {
+        case .system: return "跟随系统"
+        case .light: return "浅色"
+        case .dark: return "深色"
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+}
+
+/// 全局主题偏好的存取。改动后所有界面自动跟随。
+enum ThemeSettings {
+    private static let key = "aurora.themeMode"
+
+    static var mode: ThemeMode {
+        get {
+            UserDefaults.standard.string(forKey: key).flatMap(ThemeMode.init(rawValue:)) ?? .system
+        }
+        nonisolated set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: key)
+        }
+    }
 }
 
 // MARK: - 封面
@@ -172,7 +237,7 @@ struct SongRow: View {
                     if isPlaying {
                         Image(systemName: "waveform")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(AppStyle.onAccent)
                             .padding(3)
                             .background(AppStyle.accent, in: Circle())
                             .offset(x: 4, y: 4)
@@ -434,7 +499,7 @@ struct TagChip: View {
     private var content: some View {
         Text(text)
             .font(.system(size: 12))
-            .foregroundStyle(isSelected ? Color.black : AppStyle.secondaryText)
+            .foregroundStyle(isSelected ? AppStyle.onAccent : AppStyle.secondaryText)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(isSelected ? AppStyle.accent : AppStyle.surfaceHigh,

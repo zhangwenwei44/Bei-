@@ -36,7 +36,26 @@ struct ProfileView: View {
             } header: {
                 headerText("音源")
             } footer: {
-                Text("官方接口优先；解析不到时按顺序并发尝试已启用的音源，谁先返回可用地址就用谁。音源只保存在本机。")
+                Text("官方接口优先；解析不到时按顺序逐个尝试已启用的音源，第一个返回可用地址的胜出。音源只保存在本机。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.tertiaryText)
+            }
+
+            Section {
+                Picker(selection: Binding(
+                    get: { ThemeSettings.mode },
+                    set: { ThemeSettings.mode = $0 }
+                )) {
+                    ForEach(ThemeMode.allCases, id: \.self) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                } label: {
+                    Label("外观", systemImage: "circle.lefthalf.filled")
+                }
+            } header: {
+                headerText("外观")
+            } footer: {
+                Text("浅色为蓝白配色，深色适合夜间使用。")
                     .font(.system(size: 11))
                     .foregroundStyle(AppStyle.tertiaryText)
             }
@@ -237,7 +256,7 @@ struct AboutView: View {
                             HStack(alignment: .top, spacing: 8) {
                                 Text("\(index + 1)")
                                     .font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(.black)
+                                    .foregroundStyle(AppStyle.onAccent)
                                     .frame(width: 18, height: 18)
                                     .background(AppStyle.accent, in: Circle())
                                 Text(steps[index])

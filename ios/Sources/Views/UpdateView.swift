@@ -12,7 +12,7 @@ struct UpdateView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 header
-                Divider().overlay(Color.white.opacity(0.08))
+                Divider().overlay(AppStyle.stroke)
                 content
                 Spacer(minLength: 0)
             }
@@ -47,7 +47,7 @@ struct UpdateView: View {
                                          endPoint: .bottomTrailing))
                 Image(systemName: "music.note")
                     .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(AppStyle.onAccent)
             }
             .frame(width: 62, height: 62)
 
@@ -148,7 +148,7 @@ struct UpdateView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .foregroundStyle(.black)
+                        .foregroundStyle(AppStyle.onAccent)
                 }
                 .buttonStyle(.plain)
 
@@ -238,7 +238,7 @@ struct UpdateView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
                     .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(AppStyle.onAccent)
             }
             .buttonStyle(.plain)
 

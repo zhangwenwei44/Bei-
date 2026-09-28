@@ -38,7 +38,7 @@ struct QueueView: View {
                                         isPlaying: store.isPlaying && offset == store.currentIndex)
                                     .songMenu(song)
                                     .listRowBackground(offset == store.currentIndex ? AppStyle.surface : Color.clear)
-                                    .listRowSeparatorTint(Color.white.opacity(0.06))
+                                    .listRowSeparatorTint(AppStyle.stroke)
                                     .onTapGesture {
                                         store.jump(to: offset)
                                         dismiss()

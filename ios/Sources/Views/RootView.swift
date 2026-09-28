@@ -15,7 +15,7 @@ struct RootView: View {
                 NavigationStack {
                     DiscoverView()
                 }
-                .tabItem { Label("发现", systemImage: "flame") }
+                .tabItem { Label("发现", systemImage: "flame.fill") }
                 .tag(Tab.discover)
 
                 NavigationStack {
@@ -52,6 +52,8 @@ struct RootView: View {
         }
         .queueSheet()
         .ignoresSafeArea(.keyboard)
+        // TabBar 与选中态统一走品牌蓝
+        .tint(AppStyle.accent)
     }
 }
 
@@ -91,7 +93,7 @@ struct MiniPlayer: View {
 
             if store.isLoading {
                 ProgressView()
-                    .tint(.white)
+                    .tint(AppStyle.accent)
                     .frame(width: 26, height: 26)
             } else {
                 Button {
@@ -129,8 +131,10 @@ struct MiniPlayer: View {
         }
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                .stroke(AppStyle.stroke, lineWidth: 1)
         )
+        // 浮在 TabBar 之上，给一点投影把层次拉开
+        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 4)
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .onTapGesture { expand() }
         .gesture(

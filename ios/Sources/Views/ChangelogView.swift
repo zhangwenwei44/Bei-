@@ -80,7 +80,7 @@ struct ChangelogView: View {
                 if entry.version == updater.versionText {
                     Text("当前")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.black)
+                        .foregroundStyle(AppStyle.onAccent)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
                         .background(AppStyle.accent, in: Capsule())
@@ -130,6 +130,17 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "1.5.0", date: "", items: [
+            "界面全面重做：主色改为酷狗蓝，浅色模式下蓝白配色，深色模式同步适配",
+            "新增外观设置，可跟随系统或手动选择浅色/深色",
+            "修复播放闪退：脚本桥的函数参数全部改为可选，避免 JavaScriptCore 桥接 undefined 时抛异常",
+            "修复播放闪退：音源改为串行解析，不再同时开多个脚本运行时，内存峰值大幅下降",
+            "新增崩溃现场记录，之后再闪退可以直接从运行日志看到崩在哪",
+            "脚本运行时常驻缓存从 8 降到 3，收到内存警告时自动释放",
+            "音源连续失败 3 次会暂时跳过，不再每首歌都白等一次超时",
+            "预先创建音源导入目录，文件 App 里可以直接看到并放入音源文件",
+            "音乐接口失败时把服务端原因写进日志，不再只看到字节数",
+        ]),
         Entry(version: "1.4.4", date: "", items: [
             "修复内置音源一个都装不上：资源写在 project.yml 顶层 resources 键里被静默忽略，打出来的安装包里没有任何脚本文件",
             "构建流程新增强制校验，安装包里缺少内置音源脚本时直接构建失败，不再悄悄发出坏包",
