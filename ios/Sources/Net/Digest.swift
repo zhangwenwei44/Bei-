@@ -33,7 +33,7 @@ extension Data {
     /// 这里的 MD5 不是拿来做安全防护的：酷狗接口的 signature / key 协议规定死了
     /// 用 MD5，洛雪音源脚本内部也用 MD5 做请求签名。
     func md5Hex() -> String {
-        var digest = MD5.hash(Array(self))
+        let digest = MD5.hash(Array(self))
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 }
