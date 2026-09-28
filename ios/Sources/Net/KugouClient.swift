@@ -219,7 +219,10 @@ final class KugouClient {
             let rankID = KugouClient.string(item["rankid"]) ?? KugouClient.string(item["id"]) ?? ""
             guard !rankID.isEmpty else { return nil }
             let name = KugouClient.string(item["rankname"]) ?? "榜单"
-            var cover = KugouClient.string(item["img9"]) ?? KugouClient.string(item["imgurl"])
+            // 实测字段是 img_9 下划线，不是 img9；写错会静默变成 nil，榜单全没封面
+            var cover = KugouClient.string(item["img_9"])
+                ?? KugouClient.string(item["img9"])
+                ?? KugouClient.string(item["imgurl"])
             // 酷狗的封面地址带 {size} 占位
             if let raw = cover {
                 cover = raw.replacingOccurrences(of: "{si}", with: "300")
@@ -228,7 +231,9 @@ final class KugouClient {
             return Playlist(id: "kg-rank:\(rankID)",
                             name: name,
                             coverURL: cover.flatMap { URL(string: $0) },
-                            trackCount: KugouClient.intValue(item["songcount"]) ?? 0,
+                            trackCount: KugouClient.intValue(item["songcount"])
+                                ?? (item["songinfo"] as? [[String: Any]])?.count
+                                ?? 0,
                             creatorName: "酷狗音乐",
                             source: .kugou,
                             kugouRankID: rankID,
@@ -241,22 +246,32 @@ final class KugouClient {
     /// 榜单页（`www.kugou.com/yy/rank/home/1-<rankid>.html`）把曲目塞在
     /// `global.features = [...]` 这个 JS 数组里，取歌只能从这儿抠。
     /// 注意 URL 用的是 `rankid` 而不是 `id`，用错会返回 "You need get the right classid!"。
-    func rankSongs(rankID: String, limit: Int = 50) async -> [Song] {
-        guard let rankID = Int(rankID), rankID > 0,
-              let html = try? await getRaw(path: "/yy/rank/home/1-\(rankID).html",
-                                              host: "https://www.kugou.com",
-                                              params: [:],
-                                              headers: [:]),
-              let rows = Self.javascriptArray(named: "global.features", in: html) else { return [] }
-        return Array(rows.compactMap { Song(kugouJSON: $0) }.prefix(limit))
+    func rankSongs(rankID: String, limit: Int = 50) async throws -> [Song] {
+        guard let numericID = Int(rankID), numericID > 0 else { throw KugouError.badURL }
+        let html = try await getRaw(path: "/yy/rank/home/1-\(numericID).html",
+                                    host: "https://www.kugou.com",
+                                    params: [:],
+                                    headers: [:])
+        guard let rows = Self.javascriptArray(named: "global.features", in: html) else {
+            Log.error("榜单", "rankid=\(numericID) 的页面里没找到 global.features 数组，收到 \(html.count) 字节：\(html.prefix(120))")
+            throw KugouError.parse("榜单页里没找到 global.features 数组（页面结构可能变了，实际收到 \(html.count) 字节）")
+        }
+        let songs = Array(rows.compactMap { Song(kugouJSON: $0) }.prefix(limit))
+        Log.info("榜单", "rankid=\(numericID) 解析到 \(rows.count) 条记录 -> \(songs.count) 首歌")
+        if songs.isEmpty {
+            Log.error("榜单", "rankid=\(numericID) 有 \(rows.count) 条记录但一首歌都没解析出来，字段名可能又变了")
+        }
+        return songs
     }
 
     /// 从 HTML 里取出 `name = [...]` 形式的 JS 数组，括号配平扫描。
-    /// 扫描时跳过字符串字面量，避免内容里的 `[` `]` 把括号计数带偏。
+    ///
+    /// 扫描时跳过字符串字面量，避免歌名里的 `[` `]` 把括号计数带偏。
+    /// 注意起始位置要用 `name = [` 里那个开括号本身：如果从 upperBound 之后
+    /// 再找 `[`，会跳过整段数组内容、落到页面别处的方括号上，切出垃圾。
     static func javascriptArray(named name: String, in html: String) -> [[String: Any]]? {
-        guard let assignIndex = html.range(of: "\(name) = [") else { return nil }
-        guard let start = html.range(of: "[", range: assignIndex.upperBound..<html.endIndex)?.lowerBound
-        else { return nil }
+        guard let marker = html.range(of: "\(name) = [") else { return nil }
+        let start = marker.upperBound - 1
 
         var depth = 0
         var inString = false
@@ -322,9 +337,15 @@ final class KugouClient {
             request.setValue("https://www.kugou.com/", forHTTPHeaderField: "Referer")
         }
 
+        let started = Date()
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw KugouError.httpStatus((response as? HTTPURLResponse)?.statusCode ?? -1)
+        let elapsed = Int(Date().timeIntervalSince(started) * 1000)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        Log.info("网络", "GET \(url.absoluteString) -> \(status) / \(data.count) 字节 / \(elapsed)ms")
+        guard (200...299).contains(status) else {
+            let preview = String(data: data.prefix(200), encoding: .utf8) ?? ""
+            Log.error("网络", "HTTP \(status) \(url.absoluteString) 响应开头: \(preview)")
+            throw KugouError.httpStatus(status)
         }
         return String(data: data, encoding: .utf8) ?? ""
     }
@@ -355,12 +376,14 @@ enum KugouError: LocalizedError {
     case badURL
     case httpStatus(Int)
     case decoding
+    case parse(String)
 
     var errorDescription: String? {
         switch self {
         case .badURL: return "请求地址无效"
         case .httpStatus(let code): return "酷狗接口返回 \(code)"
         case .decoding: return "酷狗返回的数据解析失败"
+        case .parse(let detail): return detail
         }
     }
 }

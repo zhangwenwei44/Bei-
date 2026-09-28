@@ -329,7 +329,10 @@ final class ScriptRuntime {
         bridge.owner = self
 
         context.exceptionHandler = { _, exception in
-            NSLog("[音源脚本] \(source.name) 异常: \(exception?.toString() ?? "unknown")")
+            let message = exception?.toString() ?? "unknown"
+            // 原来只 NSLog，用户在 App 里根本看不到，脚本为什么跑不起来无从查起
+            NSLog("[音源脚本] \(source.name) 异常: \(message)")
+            Log.error("脚本音源", "「\(source.name)」JS 异常: \(message)")
         }
 
         context.setObject(bridge, forKeyedSubscript: "__beansRequest" as NSString)
@@ -347,10 +350,16 @@ final class ScriptRuntime {
         context.setObject(info as NSDictionary, forKeyedSubscript: "__beansInfo" as NSString)
 
         context.evaluateScript(Self.bootstrap)
-        if context.exception != nil { return nil }
+        if context.exception != nil {
+            Log.error("脚本音源", "「\(source.name)」bootstrap 注入失败")
+            return nil
+        }
 
         context.evaluateScript(script)
-        if context.exception != nil { return nil }
+        if context.exception != nil {
+            Log.error("脚本音源", "「\(source.name)」主脚本求值失败（语法错误或用了不支持的 API）")
+            return nil
+        }
 
         // 兼容 module.exports = { musicUrl }
         context.evaluateScript("globalThis.__beansPlugin = (typeof module !== 'undefined' && module.exports && Object.keys(module.exports).length) ? module.exports : null;")
@@ -364,7 +373,11 @@ final class ScriptRuntime {
         })()
         """)?.toInt32()
 
-        guard hasEntry == 1 else { return nil }
+        guard hasEntry == 1 else {
+            Log.error("脚本音源", "「\(source.name)」里找不到入口函数（需要 __beansHandler / module.exports.musicUrl / MusicPlugin.getMusicUrl）")
+            return nil
+        }
+        Log.info("脚本音源", "「\(source.name)」\(script.count) 字符，入口已识别")
     }
 
     /// 注入洛雪（lx）兼容层：lx.utils 全套、lx.request、lx.on，
@@ -544,8 +557,14 @@ final class ScriptSourceRunner {
                  quality: MusicQuality,
                  excludedHosts: Set<String>) async -> ResolvedAudio? {
         let script = source.script.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !script.isEmpty else { return nil }
-        guard let runtime = runtime(for: source, script: script) else { return nil }
+        guard !script.isEmpty else {
+            Log.error("脚本音源", "「\(source.name)」的脚本文本是空的")
+            return nil
+        }
+        guard let runtime = runtime(for: source, script: script) else {
+            Log.error("脚本音源", "「\(source.name)」\(script.count) 字符的脚本没能建立 JS 运行时（语法错误或不支持的语法）")
+            return nil
+        }
 
         let payload: [String: Any] = [
             "action": "musicUrl",
@@ -556,10 +575,16 @@ final class ScriptSourceRunner {
             ],
         ]
 
-        guard let raw = await runtime.invoke(payload: payload),
-              let urlString = Self.extractURLString(from: raw),
-              let url = URL(string: urlString),
-              let playable = Self.playable(url, excludedHosts: excludedHosts) else {
+        guard let raw = await runtime.invoke(payload: payload) else {
+            Log.error("脚本音源", "「\(source.name)」调用 musicUrl 返回了空")
+            return nil
+        }
+        guard let urlString = Self.extractURLString(from: raw) else {
+            Log.error("脚本音源", "「\(source.name)」的返回里找不到播放地址，原始返回: \(String(describing: raw).prefix(200))")
+            return nil
+        }
+        guard let playable = Self.playable(URL(string: urlString), excludedHosts: excludedHosts) else {
+            Log.error("脚本音源", "「\(source.name)」返回的地址不可用: \(urlString.prefix(120))")
             return nil
         }
         return ResolvedAudio(url: playable, sourceName: source.name, quality: quality, isThirdParty: true)

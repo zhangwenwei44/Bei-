@@ -64,7 +64,15 @@ enum SourceResolver {
                               quality: MusicQuality,
                               excludedHosts: Set<String>) async -> ResolvedAudio? {
         let usable = sources.filter { canUse($0, song: song) }
-        guard !usable.isEmpty else { return nil }
+        Log.info("音源解析", "「\(song.title)」共有 \(sources.count) 个音源，\(usable.count) 个可用于这首")
+        if sources.count != usable.count {
+            let skipped = sources.filter { !canUse($0, song: song) }.map(\.name)
+            Log.warn("音源解析", "跳过：\(skipped.joined(separator: ", "))")
+        }
+        guard !usable.isEmpty else {
+            Log.error("音源解析", "没有可用音源，「\(song.title)」无法解析播放地址")
+            return nil
+        }
 
         var seen = Set<String>()
         let candidates = usable.filter { seen.insert(fingerprint($0)).inserted }
@@ -77,10 +85,12 @@ enum SourceResolver {
             }
             for await result in group {
                 if let result {
+                    Log.info("音源解析", "「\(song.title)」由「\(result.sourceName)」解析成功")
                     group.cancelAll()
                     return result
                 }
             }
+            Log.error("音源解析", "\(candidates.count) 个音源都没能解析出「\(song.title)」的地址")
             return nil
         }
     }

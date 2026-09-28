@@ -301,34 +301,42 @@ struct SourceSettingsView: View {
     private func importFromFiles(_ urls: [URL]) async {
         isImportingFiles = true
         defer { isImportingFiles = false }
+        Log.info("音源导入", "开始导入 \(urls.count) 个文件：\(urls.map(\.lastPathComponent).joined(separator: ", "))")
 
         var added = 0
         var addedNames: [String] = []
         var failures: [String] = []
 
         for url in urls {
+            Log.info("音源导入", "处理 \(url.lastPathComponent)，路径 \(url.path)")
             let accessed = url.startAccessingSecurityScopedResource()
             defer { if accessed { url.stopAccessingSecurityScopedResource() } }
 
             guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+                Log.error("音源导入", "\(url.lastPathComponent) 读取失败（无权限或文件已移动）")
                 failures.append("\(url.lastPathComponent)（读不到，可能没给文件访问权限）")
                 continue
             }
+            Log.debug("音源导入", "\(url.lastPathComponent) 读到 \(data.count) 字节")
             // 洛雪的脚本基本都是 UTF-8，GBK 兜一下
             let text = String(data: data, encoding: .utf8)
                 ?? String(data: data, encoding: .init(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))))
             guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                Log.error("音源导入", "\(url.lastPathComponent) 是空文件或非文本内容")
                 failures.append("\(url.lastPathComponent)（空文件或非文本）")
                 continue
             }
+            Log.debug("音源导入", "\(url.lastPathComponent) 解码成功，\(text.count) 字符，开头: \(text.prefix(80))")
 
             let parsed = SourceStore.parseImport(text)
             if !parsed.isEmpty {
+                Log.info("音源导入", "\(url.lastPathComponent) 按 JSON 配置解析出 \(parsed.count) 条：\(parsed.map(\.name).joined(separator: ", "))")
                 for source in parsed { store.upsert(source) }
                 added += parsed.count
                 addedNames.append(contentsOf: parsed.map(\.name))
                 continue
             }
+            Log.info("音源导入", "\(url.lastPathComponent) 不是 JSON 配置，转按脚本判断")
 
             // 混淆过的脚本里 lx.on 这些字面量是编码的，只能靠扩展名和整体特征判断
             let isScriptFile = ["js", "mjs", "cjs", "txt"].contains(url.pathExtension.lowercased())
@@ -341,9 +349,11 @@ struct SourceSettingsView: View {
                 let name = url.deletingPathExtension().lastPathComponent
                 let finalName = name.isEmpty ? "导入的脚本音源" : name
                 store.upsert(ThirdPartySource(name: finalName, kind: .script, script: text))
+                Log.info("音源导入", "\(url.lastPathComponent) 判定为脚本音源（扩展名命中=\(isScriptFile)），已存为「\(finalName)」，\(text.count) 字符")
                 added += 1
                 addedNames.append(finalName)
             } else {
+                Log.error("音源导入", "\(url.lastPathComponent) 既不是配置也看不出是脚本（扩展名 \(url.pathExtension.lowercased())）")
                 failures.append("\(url.lastPathComponent)（不是音源配置，也看不出是脚本）")
             }
         }

@@ -126,6 +126,22 @@ struct ProfileView: View {
             }
 
             Section {
+                NavigationLink {
+                    DiagnosticsView()
+                } label: {
+                    HStack {
+                        Label("运行日志", systemImage: "doc.text.magnifyingglass")
+                        Spacer()
+                        Text("\(LogStore.shared.entries.count)")
+                            .font(.system(size: 12))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                    }
+                    .foregroundStyle(AppStyle.primaryText)
+                }
+
                 Button {
                     isAboutPresented = true
                 } label: {

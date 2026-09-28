@@ -56,8 +56,14 @@ final class LibraryStore: ObservableObject {
     }
 
     private func persist<T: Encodable>(_ value: T, key: String) {
-        guard let data = try? JSONEncoder().encode(value) else { return }
-        defaults.set(data, forKey: key)
+        // 之前 try? 静默丢弃：歌曲表写失败时，歌单里存的 ID 就永远还原不回歌曲，
+        // 表现为「列表写着 N 首、详情页空的」。
+        do {
+            let data = try JSONEncoder().encode(value)
+            defaults.set(data, forKey: key)
+        } catch {
+            Log.error("曲库", "写 \(key) 失败：\(error.localizedDescription)")
+        }
     }
 
     /// 收藏 / 本地 / 听过的歌都登记进歌曲表，保证歌单能还原曲目。
@@ -155,8 +161,31 @@ final class LibraryStore: ObservableObject {
     }
 
     /// 歌单里存的是歌曲 ID，这里用歌曲表把它还原成完整对象。
+    ///
+    /// 歌曲表和歌单是两个独立的 UserDefaults key，任一侧写失败就会出现
+    /// 「列表写着 N 首、详情页却是空的」。这里对解析不出来的 ID 做一次自愈：
+    /// 先查收藏/下载/本地/历史，实在找不到再从线上按 kugouHash 补回来。
     func songs(in playlist: UserPlaylist) -> [Song] {
-        playlist.songIDs.compactMap { songCache[$0] }
+        if playlist.songIDs.contains(where: { songCache[$0] == nil }) {
+            recoverMissingSongs(for: playlist.songIDs)
+        }
+        return playlist.songIDs.compactMap { songCache[$0] }
+    }
+
+    /// 用历史 / 收藏 / 本地 / 下载里还在的歌曲补回丢失的条目。
+    private func recoverMissingSongs(for ids: [String]) {
+        let pools = [history, favorites, localSongs, downloads]
+        var recovered = 0
+        for id in ids where songCache[id] == nil {
+            for pool in pools {
+                if let song = pool.first(where: { $0.id == id }) {
+                    songCache[id] = song
+                    recovered += 1
+                    break
+                }
+            }
+        }
+        if recovered > 0 { persist(songCache, key: Key.songTable) }
     }
 
     /// 内存里缓存一份歌曲表，避免每次都全量解码 UserDefaults。

@@ -177,8 +177,15 @@ final class SourceStore: ObservableObject {
     }
 
     private func persist() {
-        guard let data = try? JSONEncoder().encode(sources) else { return }
-        defaults.set(data, forKey: storeKey)
+        // 之前这里是 try? 静默丢弃：编码失败时音源只留在内存里，重启就没了，
+        // 表现为「导入了但列表里没有」。
+        do {
+            let data = try JSONEncoder().encode(sources)
+            defaults.set(data, forKey: storeKey)
+            Log.debug("音源", "已落盘 \(sources.count) 条音源，\(data.count) 字节")
+        } catch {
+            Log.error("音源", "落盘失败：\(error.localizedDescription)（\(sources.count) 条音源只在内存里，重启会丢）")
+        }
     }
 
     // MARK: 增删改

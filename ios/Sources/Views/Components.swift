@@ -250,11 +250,14 @@ struct SongMenu: ViewModifier {
                         Label(downloads.isDownloaded(song) ? "已下载" : "下载", systemImage: "arrow.down.circle")
                     }
                 }
-                if !library.playlists.isEmpty {
-                    Menu("添加到歌单") {
-                        ForEach(library.playlists) { playlist in
-                            Button(playlist.name) { library.add(song, toPlaylist: playlist.id) }
-                        }
+                // 之前 gate 在 !library.playlists.isEmpty，导致一个歌单都没有时
+                // 根本无法从歌曲菜单加歌，新建出来的歌单永远是空的
+                Menu("添加到歌单") {
+                    if library.playlists.isEmpty {
+                        Text("还没有歌单")
+                    }
+                    ForEach(library.playlists) { playlist in
+                        Button(playlist.name) { library.add(song, toPlaylist: playlist.id) }
                     }
                 }
             }

@@ -100,7 +100,9 @@ struct PlaylistDetailView: View {
                 } else if let errorMessage, displaySongs.isEmpty {
                     EmptyStateView(icon: "exclamationmark.triangle", title: "加载失败", message: errorMessage)
                 } else if displaySongs.isEmpty {
-                    EmptyStateView(icon: "music.note.list", title: "歌单里还没有歌曲")
+                    EmptyStateView(icon: "music.note.list",
+                                   title: "歌单里还没有歌曲",
+                                   message: "重新下拉试试，或换一个榜单")
                 } else {
                     actionBar
                     VStack(spacing: 0) {
@@ -225,10 +227,19 @@ struct PlaylistDetailView: View {
 
     private func load() async {
         if localPlaylist != nil { return }
-        guard let rankID = playlist.kugouRankID else { return }
+        guard let rankID = playlist.kugouRankID else {
+            errorMessage = "这个歌单没有可用的数据源 ID（kugouRankID 为空），无法加载歌曲。"
+            return
+        }
         isLoading = true
         defer { isLoading = false }
-        songs = await KugouClient.shared.rankSongs(rankID: rankID, limit: 50)
+        do {
+            songs = try await KugouClient.shared.rankSongs(rankID: rankID, limit: 50)
+            if songs.isEmpty { errorMessage = "榜单接口返回了 0 首歌，可能是 rankid \(rankID) 已失效。" }
+        } catch {
+            // 之前这里直接吞成空数组，歌单空白查不到原因
+            errorMessage = error.localizedDescription
+        }
         // 榜单没封面时用第一首歌的专辑图顶上
         CoverResolver.shared.bind(from: songs, to: [playlist.id])
     }
