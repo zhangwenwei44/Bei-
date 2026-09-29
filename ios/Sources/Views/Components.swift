@@ -139,26 +139,43 @@ struct CoverImage: View {
             image = loaded
             return
         }
+        if let loaded = await CoverLoader.download(target) {
+            image = loaded
+        }
+    }
+}
+
+/// 封面图片下载。带 https 重试：酷狗图床 http/https 都通，
+/// 个别网络环境下明文 http 会被劫持或超时，失败后换 https 再试一次。
+enum CoverLoader {
+    static func download(_ url: URL) async -> UIImage? {
+        if let image = await request(url) { return image }
+        guard url.scheme == "http" else { return nil }
+        guard let secure = URL(string: url.absoluteString.replacingOccurrences(of: "http://", with: "https://")) else { return nil }
+        return await request(secure)
+    }
+
+    private static func request(_ target: URL) async -> UIImage? {
         if let cached = CoverCache.shared.image(for: target) {
-            image = cached
-            return
+            return cached
         }
         var request = URLRequest(url: target)
         request.timeoutInterval = 10
         request.setValue("AuroraMusic/1.0", forHTTPHeaderField: "User-Agent")
-        // 酷狗图床在没有 Referer 时会 403
-        request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")
+        // 酷狗图床对 Referer 不做校验，但带上 kugou 自己的域名最稳
+        request.setValue("https://www.kugou.com/", forHTTPHeaderField: "Referer")
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1
             guard code == 200, let loaded = UIImage(data: data) else {
-                Log.error("封面", "「\(seed)」加载失败 HTTP \(code) / \(data.count) 字节 <- \(target.absoluteString)")
-                return
+                Log.error("封面", "加载失败 HTTP \(code) / \(data.count) 字节 <- \(target.absoluteString)")
+                return nil
             }
             CoverCache.shared.store(loaded, for: target)
-            image = loaded
+            return loaded
         } catch {
-            Log.error("封面", "「\(seed)」请求出错：\(error.localizedDescription) <- \(target.absoluteString)")
+            Log.error("封面", "请求出错：\(error.localizedDescription) <- \(target.absoluteString)")
+            return nil
         }
     }
 }

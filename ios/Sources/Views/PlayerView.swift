@@ -8,6 +8,7 @@ struct PlayerView: View {
     @State private var scrubValue: Double = 0
     @State private var geometryWidth: CGFloat = 0
     @State private var showToast: String?
+    @State private var isLyricsPage = false
 
     private var displayTime: Double { isScrubbing ? scrubValue : store.currentTime }
 
@@ -20,6 +21,10 @@ struct PlayerView: View {
                 lyrics
                     .frame(maxHeight: .infinity)
                 meta
+            }
+            if isLyricsPage {
+                LyricsPageView(isShown: $isLyricsPage)
+                    .transition(.opacity)
             }
         }
         .ignoresSafeArea(edges: .bottom)
@@ -141,6 +146,10 @@ struct PlayerView: View {
                    currentIndex: store.currentLyricIndex,
                    showsTranslation: store.showTranslation)
             .padding(.horizontal, 18)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+            }
     }
 
     // MARK: - 信息区
@@ -209,7 +218,6 @@ struct PlayerView: View {
     private var actionRow: some View {
         HStack(spacing: 0) {
             actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
-            actionButton(icon: "bell", label: "铃声") { setRingtone() }
             actionButton(icon: store.isLiked ? "heart.fill" : "heart",
                          label: "收藏",
                          tint: store.isLiked ? AppStyle.like : .white) {
@@ -217,6 +225,9 @@ struct PlayerView: View {
             }
             actionButton(icon: "character.bubble", label: "翻译") {
                 store.showTranslation.toggle()
+            }
+            actionButton(icon: "text.quote", label: "歌词") {
+                withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
             }
             actionButton(icon: "list.bullet", label: "队列") {
                 store.isQueuePresented = true
@@ -401,15 +412,6 @@ struct PlayerView: View {
             }
         }
     }
-
-    private func setRingtone() {
-        guard let song = store.current else { return }
-        // 下载目录开了文件共享，用户可以在「文件 - 我的 iPhone」里长按设为铃声。
-        guard DownloadManager.shared.localURL(for: song) != nil else {
-            return show("先把歌下载下来，再设为铃声")
-        }
-        show("在「文件 - 我的 iPhone - Aurora Downloads」里长按设为铃声")
-    }
 }
 
 private struct TrackWidthKey: PreferenceKey {
@@ -450,5 +452,132 @@ struct PlayButton: View {
         .buttonStyle(.plain)
         .foregroundStyle(.white)
         .onChange(of: store.isPlaying) { playing in pulse = playing }
+    }
+}
+
+// MARK: - 全屏歌词页
+
+/// 酷狗那种整页大字滚动歌词。半透明黑底压住播放页的其他元素，
+/// 点返回或下滑收起，翻译开关直接放在页内。
+struct LyricsPageView: View {
+    @EnvironmentObject private var store: PlayerStore
+    @Binding var isShown: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.3)) { isShown = false }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 20, weight: .semibold))
+                        .frame(width: 44, height: 44)
+                }
+
+                Spacer()
+
+                VStack(spacing: 3) {
+                    Text(store.current?.title ?? "")
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(1)
+                    Text(store.current?.artist ?? "")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 8)
+
+                Spacer()
+
+                Button {
+                    store.showTranslation.toggle()
+                } label: {
+                    Image(systemName: "character.bubble")
+                        .font(.system(size: 18, weight: .medium))
+                        .opacity(store.showTranslation ? 1 : 0.45)
+                        .frame(width: 44, height: 44)
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(.top, 6)
+
+            BigLyricsView(lyrics: store.lyrics,
+                          currentIndex: store.currentLyricIndex,
+                          showsTranslation: store.showTranslation)
+                .frame(maxHeight: .infinity)
+                .padding(.horizontal, 26)
+        }
+        .padding(.top, 12)
+        .background(.black.opacity(0.45).ignoresSafeArea())
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 24).onEnded { value in
+                if value.translation.height > 60 {
+                    withAnimation(.easeInOut(duration: 0.3)) { isShown = false }
+                }
+            }
+        )
+    }
+}
+
+/// 歌词页专用的大字歌词流。逻辑和小字 LyricsView 一致，只是字号更大、
+/// 当前行加粗放大得更明显。
+private struct BigLyricsView: View {
+    let lyrics: [LyricLine]
+    let currentIndex: Int?
+    var showsTranslation: Bool
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 26) {
+                    if lyrics.isEmpty {
+                        Text("纯音乐 · 暂无歌词")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.white.opacity(0.55))
+                    } else {
+                        ForEach(lyrics) { line in
+                            VStack(spacing: 6) {
+                                Text(line.text)
+                                    .font(.system(size: isActive(line) ? 24 : 18,
+                                                  weight: isActive(line) ? .bold : .medium))
+                                    .foregroundStyle(isActive(line) ? .white : .white.opacity(0.42))
+                                    .multilineTextAlignment(.center)
+                                if showsTranslation, let translation = line.translation, !translation.isEmpty {
+                                    Text(translation)
+                                        .font(.system(size: isActive(line) ? 15 : 12))
+                                        .foregroundStyle(isActive(line) ? .white.opacity(0.8) : .white.opacity(0.35))
+                                        .multilineTextAlignment(.center)
+                                }
+                            }
+                            .lineSpacing(3)
+                            .frame(maxWidth: .infinity)
+                            .id(line.id)
+                        }
+                    }
+                }
+                .padding(.vertical, 80)
+            }
+            .mask(LinearGradient(colors: [.clear, .black.opacity(0.9), .black, .black.opacity(0.9), .clear],
+                                startPoint: .top,
+                                endPoint: .bottom))
+            .onChange(of: currentIndex) { _ in
+                guard let id = activeId else { return }
+                withAnimation(.easeInOut(duration: 0.45)) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
+            .onChange(of: lyrics) { _ in proxy.scrollTo(lyrics.first?.id, anchor: .center) }
+        }
+    }
+
+    private func isActive(_ line: LyricLine) -> Bool {
+        guard let index = currentIndex, lyrics.indices.contains(index) else { return false }
+        return line.id == lyrics[index].id
+    }
+
+    private var activeId: UUID? {
+        guard let index = currentIndex, lyrics.indices.contains(index) else { return nil }
+        return lyrics[index].id
     }
 }

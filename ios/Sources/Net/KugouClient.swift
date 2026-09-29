@@ -134,12 +134,33 @@ final class KugouClient {
         return URL(string: fixed)
     }
 
-    /// 歌手写真。混合搜索的 recommend 分组里带歌手头像
-    /// （singerimg.kugou.com，{size} 占位换成 480）。
-    /// 多人合唱只取主歌手名搜索；拿不到精确匹配时用第一个带头像的节点。
-    func artistPhoto(name: String) async -> URL? {
+    /// 歌手写真。混合搜索的 recommend 分组里有歌手卡片（type=4），
+    /// 头像在 singerimg.kugou.com，{size} 占位换成 480。
+    ///
+    /// 节点字段有两种排布，都得认：
+    /// - 大众歌手：singername / first_frame_image 直接在节点顶层
+    /// - 小众歌手：这两个字段在顶层是空的，真身在 extra.singername / extra.imgurl；
+    ///   imgurl（singerimg 头像）顶层和 extra 里一般都有
+    /// 先按歌手名精确匹配；匹配不到再把歌名搜一遍兜底。
+    func artistPhoto(name: String, title: String = "") async -> URL? {
         if let cached = photoCache.object(forKey: name as NSString) { return cached as URL }
-        let keyword = name.components(separatedBy: CharacterSet(charactersIn: "、/&，,"))
+        if let url = await artistPhoto(name: name, keyword: name) {
+            photoCache.setObject(url as NSURL, forKey: name as NSString)
+            return url
+        }
+        // 歌手名搜不出卡片（冷门歌手）时，用歌名再试一次：
+        // recommend 分组里常带这首歌的歌手卡片
+        let trimmedTitle = title.trimmingCharacters(in: .whitespaces)
+        guard !trimmedTitle.isEmpty,
+              let url = await artistPhoto(name: name, keyword: trimmedTitle) else { return nil }
+        photoCache.setObject(url as NSURL, forKey: name as NSString)
+        return url
+    }
+
+    /// 用指定关键词搜索，在 recommend 分组里找歌手卡片。
+    /// 匹配规则：歌手名精确相等优先，其次取第一个带头像的歌手卡片。
+    private func artistPhoto(name: String, keyword: String) async -> URL? {
+        let lead = name.components(separatedBy: CharacterSet(charactersIn: "、/&，,"))
             .first?
             .trimmingCharacters(in: .whitespaces) ?? name
         guard !keyword.isEmpty,
@@ -150,23 +171,32 @@ final class KugouClient {
         var fallbackURL: URL?
         for group in groups where (Self.string(group["type"]) ?? "") == "recommend" {
             let nodes = group["lists"] as? [[String: Any]] ?? []
-            for node in nodes {
-                guard let raw = Self.string(node["first_frame_image"]),
-                      raw.contains("singerimg"),
-                      let url = URL(string: raw.replacingOccurrences(of: "{size}", with: "480")
-                          .replacingOccurrences(of: "{si}", with: "480")) else { continue }
-                if Self.string(node["singername"]) == name {
-                    photoCache.setObject(url as NSURL, forKey: name as NSString)
-                    return url
+            for node in nodes where (Self.string(node["type"]) ?? "") == "4" {
+                let extra = node["extra"] as? [String: Any]
+                let matchedName = Self.string(node["singername"])
+                    ?? Self.string(extra?["singername"])
+                    ?? Self.string(node["title"])
+                guard let portrait = Self.portraitURL(node: node, extra: extra) else { continue }
+                if matchedName == lead {
+                    return portrait
                 }
-                if fallbackURL == nil { fallbackURL = url }
+                if fallbackURL == nil { fallbackURL = portrait }
             }
             break
         }
-        if let fallbackURL {
-            photoCache.setObject(fallbackURL as NSURL, forKey: name as NSString)
-        }
         return fallbackURL
+    }
+
+    /// 从歌手卡片里抠出头像地址。first_frame_image 常为空，imgurl 才是稳定字段。
+    private static func portraitURL(node: [String: Any], extra: [String: Any]?) -> URL? {
+        let raw = KugouClient.string(node["first_frame_image"])
+            ?? KugouClient.string(node["imgurl"])
+            ?? KugouClient.string(extra?["first_frame_image"])
+            ?? KugouClient.string(extra?["imgurl"])
+        guard let raw, raw.contains("singerimg") else { return nil }
+        let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
+            .replacingOccurrences(of: "{si}", with: "480")
+        return URL(string: fixed)
     }
 
     // MARK: - 歌词

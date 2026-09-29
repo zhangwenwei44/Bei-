@@ -242,5 +242,38 @@ struct PlaylistDetailView: View {
         }
         // 榜单没封面时用第一首歌的专辑图顶上
         CoverResolver.shared.bind(from: songs, to: [playlist.id])
+        // 榜单接口的曲目不带图，只有专辑 id。这里不等用户滚到哪儿补到哪儿，
+        // 直接并发把整页封面拉齐，边拉边刷列表（最多 6 路并发，别把接口打疼）。
+        await enrichCovers()
+    }
+
+    /// 按专辑 id 补齐没封面的歌。补到一个刷一个。
+    private func enrichCovers() async {
+        let candidates = songs.enumerated()
+            .filter { $0.element.artworkURL == nil && !$0.element.kugouAlbumID.isEmpty }
+            .map { ($0.offset, $0.element.kugouAlbumID) }
+        guard !candidates.isEmpty else { return }
+
+        var queue = candidates.makeIterator()
+        await withTaskGroup(of: (Int, URL?).self) { group in
+            var inFlight = 0
+            func refill() {
+                while inFlight < 6, let next = queue.next() {
+                    group.addTask {
+                        let url = await KugouClient.shared.albumCover(albumID: next.1)
+                        return (next.0, url)
+                    }
+                    inFlight += 1
+                }
+            }
+            refill()
+            for await (offset, url) in group {
+                inFlight -= 1
+                if let url, offset < songs.count, songs[offset].artworkURL == nil {
+                    songs[offset].artworkURL = url
+                }
+                refill()
+            }
+        }
     }
 }

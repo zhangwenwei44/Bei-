@@ -16,7 +16,6 @@ struct SourceSettingsView: View {
         case newScript
         case paste
         case export
-        case pickFile
 
         var id: String {
             switch self {
@@ -25,7 +24,6 @@ struct SourceSettingsView: View {
             case .newScript: return "newScript"
             case .paste: return "paste"
             case .export: return "export"
-            case .pickFile: return "pickFile"
             }
         }
     }
@@ -169,7 +167,9 @@ struct SourceSettingsView: View {
                     Label("新增 JS 脚本音源", systemImage: "curlybraces")
                 }
                 Button {
-                    sheet = .pickFile
+                    FilePicker.pick(types: Self.importableTypes) { urls in
+                        Task { await importFromFiles(urls) }
+                    }
                 } label: {
                     Label("从文件导入", systemImage: "doc.badge.plus")
                 }
@@ -224,13 +224,6 @@ struct SourceSettingsView: View {
                 SourceImportView()
             case .export:
                 SourceExportView()
-            case .pickFile:
-                DocumentPicker(types: Self.importableTypes) { urls in
-                    sheet = nil
-                    Task { await importFromFiles(urls) }
-                } onCancel: {
-                    sheet = nil
-                }
             }
         }
         // 从「文件」App 分享过来的音源

@@ -349,9 +349,8 @@ final class PlayerStore: ObservableObject {
             .trimmingCharacters(in: .whitespaces) ?? song.artist
         guard !lead.isEmpty else { return }
         Task { [weak self] in
-            guard let url = await KugouClient.shared.artistPhoto(name: lead) else { return }
-            guard let (data, _) = try? await URLSession.shared.data(from: url),
-                  let image = UIImage(data: data) else { return }
+            guard let url = await KugouClient.shared.artistPhoto(name: lead, title: song.title) else { return }
+            guard let image = await CoverLoader.download(url) else { return }
             await MainActor.run { [weak self] in
                 guard let self, self.artistPhotoTaskID == song.id else { return }
                 self.artistPhoto = image
@@ -389,12 +388,7 @@ final class PlayerStore: ObservableObject {
             url = await CoverResolver.shared.resolveCover(for: song.coverFallbackKeys)
         }
         if let url {
-            let config = URLSessionConfiguration.default
-            config.timeoutIntervalForRequest = 8
-            let session = URLSession(configuration: config)
-            if let (data, _) = try? await session.data(from: url), let image = UIImage(data: data) {
-                return image
-            }
+            return await CoverLoader.download(url)
         }
         guard let url = DownloadManager.shared.localURL(for: song) else { return nil }
         let asset = AVURLAsset(url: url)
