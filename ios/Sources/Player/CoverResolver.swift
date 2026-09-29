@@ -52,22 +52,59 @@ final class CoverResolver {
         lock.unlock()
     }
 
+    /// 按需联网解析封面。列表里的歌曲没有图时按 key 补：
+    /// `al:<专辑id>` → 专辑接口的 imgurl（榜单歌曲的节点不带图，只有专辑 id）。
+    /// 解析成功后登记进 overrides，下次同步查表就能命中。
+    func resolveCover(for keys: [String]) async -> URL? {
+        if let url = firstAvailable(keys) { return url }
+        for key in keys where key.hasPrefix("al:") {
+            let albumID = String(key.dropFirst(3))
+            guard !albumID.isEmpty else { continue }
+            if let url = await CoverFetchCoordinator.shared.albumCover(albumID: albumID, key: key) {
+                return url
+            }
+        }
+        return nil
+    }
+
     // MARK: - 从歌曲反查
 
-    /// 绑定时顺带把每首歌自己的 key 也登记上（列表里的小图能直接命中）。
+    /// 绑定时把实体 key 登记上（列表里的小图能直接命中）。
+    /// 注意只登记实体本身的 key：不同歌曲的封面不一样，
+    /// 不能把第一首歌的图挂到所有歌曲的 key 上（以前就是这么错的）。
     func bind(from songs: [Song], to entities: [String]) {
         guard let cover = songs.compactMap({ $0.artworkURL }).first else { return }
         register(cover, for: entities)
-        let songKeys = songs.compactMap { song -> String? in
-            guard !song.kugouHash.isEmpty else { return nil }
-            return "kg:\(song.kugouHash)"
-        }
-        register(cover, for: songKeys)
     }
 
     /// 歌手页：热门歌之外的专辑也用第一张图兜住。
     func bindArtist(_ artistID: String, from songs: [Song]) {
         bind(from: songs, to: [artistID])
+    }
+}
+
+/// 专辑封面的联网解析与去重。同一专辑并发请求只发一次网络。
+/// 用 actor 而不是 NSLock：NSLock 在 async 上下文里会被严格并发检查
+/// 标记成警告，CI 的「Fail on compiler warnings」步骤会把警告当错误。
+actor CoverFetchCoordinator {
+    static let shared = CoverFetchCoordinator()
+
+    private var inFlight: [String: Task<URL?, Never>] = [:]
+
+    func albumCover(albumID: String, key: String) async -> URL? {
+        if let existing = inFlight[key] {
+            return await existing.value
+        }
+        let task = Task<URL?, Never> {
+            await KugouClient.shared.albumCover(albumID: albumID)
+        }
+        inFlight[key] = task
+        let url = await task.value
+        inFlight[key] = nil
+        if let url {
+            CoverResolver.shared.register(url, for: [key])
+        }
+        return url
     }
 }
 

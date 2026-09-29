@@ -29,11 +29,17 @@ struct PlayerView: View {
         .onDisappear(perform: animateOut)
     }
 
-    // MARK: - 背景（由封面取色驱动）
+    // MARK: - 背景（优先当前歌手写真，其次封面取色）
 
     private var immersiveBackground: some View {
         ZStack {
-            if let artwork = store.artwork {
+            if let photo = store.artistPhoto {
+                Image(uiImage: photo)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+            } else if let artwork = store.artwork {
                 Image(uiImage: artwork)
                     .resizable()
                     .scaledToFill()
@@ -46,17 +52,19 @@ struct PlayerView: View {
                                startPoint: .topLeading,
                                endPoint: .bottomTrailing)
             }
-            LinearGradient(colors: [.black.opacity(0.28),
+            // 写真不做模糊，靠上下两端的暗色渐变把歌词和控件衬出来
+            LinearGradient(colors: [.black.opacity(0.34),
+                                    .black.opacity(0.08),
                                     .clear,
-                                    .clear,
-                                    store.currentPalette.scrim.opacity(0.55),
-                                    store.currentPalette.scrim.opacity(0.9)],
+                                    store.currentPalette.scrim.opacity(0.6),
+                                    store.currentPalette.scrim.opacity(0.94)],
                            startPoint: .top,
                            endPoint: .bottom)
         }
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 0.5), value: store.currentIndex)
         .animation(.easeInOut(duration: 0.5), value: store.currentPalette)
+        .animation(.easeInOut(duration: 0.5), value: store.artistPhoto)
     }
 
     // MARK: - 顶栏

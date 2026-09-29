@@ -18,6 +18,8 @@ final class KugouClient {
     private let playKeySalt = "57ae12eb6890223e355ccfcb74edf70d"
 
     private let session: URLSession
+    /// 歌手写真缓存（NSCache 线程安全）。key 是歌手名。
+    private let photoCache = NSCache<NSString, NSURL>()
     private let browserUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     private let searchUA = "IPhone-20549-Search#183534257/723988397/625045823/284854956-SearchGeneralInfoWithKeyWordV8"
 
@@ -52,6 +54,22 @@ final class KugouClient {
 
     /// 搜索歌曲。返回空数组表示没搜到。
     func searchSongs(keyword: String, page: Int = 1, limit: Int = 30) async throws -> [Song] {
+        let json = try await mixedSearchJSON(keyword: keyword, page: page)
+        guard let data = json["data"] as? [String: Any],
+              let groups = data["lists"] as? [[String: Any]] else { return [] }
+
+        var songs: [Song] = []
+        for group in groups where (Self.string(group["type"]) ?? "").lowercased() == "song" {
+            let rows = (group["info"] as? [[String: Any]] ?? [])
+                + (group["lists"] as? [[String: Any]] ?? [])
+            songs.append(contentsOf: rows.compactMap { Song(kugouJSON: $0) })
+            if songs.count >= limit { break }
+        }
+        return Array(songs.prefix(limit))
+    }
+
+    /// 签名后的混合搜索请求。歌曲搜索和歌手写真都从这里拿数据。
+    private func mixedSearchJSON(keyword: String, page: Int) async throws -> [String: Any] {
         var params: [String: String] = [
             "ab_tag": "1",
             "ability": "57343",
@@ -86,28 +104,69 @@ final class KugouClient {
         ]
         params["signature"] = sign(params, salt: searchSalt)
 
-        let json = try await getJSON(path: "/complexsearch/v3/search/mixed",
-                                     host: gateway,
-                                     params: params,
-                                     headers: [
-                                         "User-Agent": searchUA,
-                                         "KG-RF": "D4407D2505656C0FDC1621BA6FA3FEB5",
-                                         "KG-FAKE": "359933394",
-                                         "KG-FAKE-TYPE": "29,1",
-                                         "KG-RC": "1",
-                                         "UNI-UserAgent": "iOS16.0-Phone-1009-0-WiFi",
-                                     ])
-        guard let data = json["data"] as? [String: Any],
-              let groups = data["lists"] as? [[String: Any]] else { return [] }
+        return try await getJSON(path: "/complexsearch/v3/search/mixed",
+                                 host: gateway,
+                                 params: params,
+                                 headers: [
+                                     "User-Agent": searchUA,
+                                     "KG-RF": "D4407D2505656C0FDC1621BA6FA3FEB5",
+                                     "KG-FAKE": "359933394",
+                                     "KG-FAKE-TYPE": "29,1",
+                                     "KG-RC": "1",
+                                     "UNI-UserAgent": "iOS16.0-Phone-1009-0-WiFi",
+                                 ])
+    }
 
-        var songs: [Song] = []
-        for group in groups where (Self.string(group["type"]) ?? "").lowercased() == "song" {
-            let rows = (group["info"] as? [[String: Any]] ?? [])
-                + (group["lists"] as? [[String: Any]] ?? [])
-            songs.append(contentsOf: rows.compactMap { Song(kugouJSON: $0) })
-            if songs.count >= limit { break }
+    // MARK: - 封面与歌手写真
+
+    /// 专辑封面。榜单页的歌曲节点不带任何图片字段、只带 album_id，
+    /// 所以榜单里的小图要靠这个接口按专辑补。{size} 占位统一换成 300。
+    func albumCover(albumID: String) async -> URL? {
+        guard let id = Int(albumID), id > 0 else { return nil }
+        guard let json = try? await getJSON(path: "/api/v3/album/info",
+                                            host: "http://mobilecdn.kugou.com",
+                                            params: ["albumid": String(id)],
+                                            headers: [:]),
+              let data = json["data"] as? [String: Any],
+              let raw = KugouClient.string(data["imgurl"]) else { return nil }
+        let fixed = raw.replacingOccurrences(of: "{si}", with: "300")
+            .replacingOccurrences(of: "{size}", with: "300")
+        return URL(string: fixed)
+    }
+
+    /// 歌手写真。混合搜索的 recommend 分组里带歌手头像
+    /// （singerimg.kugou.com，{size} 占位换成 480）。
+    /// 多人合唱只取主歌手名搜索；拿不到精确匹配时用第一个带头像的节点。
+    func artistPhoto(name: String) async -> URL? {
+        if let cached = photoCache.object(forKey: name as NSString) { return cached as URL }
+        let keyword = name.components(separatedBy: CharacterSet(charactersIn: "、/&，,"))
+            .first?
+            .trimmingCharacters(in: .whitespaces) ?? name
+        guard !keyword.isEmpty,
+              let json = try? await mixedSearchJSON(keyword: keyword, page: 1),
+              let data = json["data"] as? [String: Any],
+              let groups = data["lists"] as? [[String: Any]] else { return nil }
+
+        var fallbackURL: URL?
+        for group in groups where (Self.string(group["type"]) ?? "") == "recommend" {
+            let nodes = group["lists"] as? [[String: Any]] ?? []
+            for node in nodes {
+                guard let raw = Self.string(node["first_frame_image"]),
+                      raw.contains("singerimg"),
+                      let url = URL(string: raw.replacingOccurrences(of: "{size}", with: "480")
+                          .replacingOccurrences(of: "{si}", with: "480")) else { continue }
+                if Self.string(node["singername"]) == name {
+                    photoCache.setObject(url as NSURL, forKey: name as NSString)
+                    return url
+                }
+                if fallbackURL == nil { fallbackURL = url }
+            }
+            break
         }
-        return Array(songs.prefix(limit))
+        if let fallbackURL {
+            photoCache.setObject(fallbackURL as NSURL, forKey: name as NSString)
+        }
+        return fallbackURL
     }
 
     // MARK: - 歌词

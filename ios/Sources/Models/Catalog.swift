@@ -60,6 +60,15 @@ struct DiscoverFeed {
 // MARK: - 酷狗 JSON 解析
 
 extension Song {
+    /// 封面回退键。`kg:<hash>` 命中详情页反查登记，`al:<专辑id>` 交给
+    /// CoverResolver 联网按专辑补图（榜单歌曲节点不带图，只有专辑 id）。
+    var coverFallbackKeys: [String] {
+        var keys: [String] = []
+        if !kugouHash.isEmpty { keys.append("kg:\(kugouHash)") }
+        if !kugouAlbumID.isEmpty { keys.append("al:\(kugouAlbumID)") }
+        return keys
+    }
+
     /// 解析酷狗歌曲节点。搜索、榜单共用一套解析。
     ///
     /// 不同接口字段名不一样，都在这里兜住：

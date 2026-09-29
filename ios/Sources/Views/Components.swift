@@ -126,9 +126,13 @@ struct CoverImage: View {
     }
 
     private func load() async {
-        guard let target = effectiveURL else {
+        // 直连地址和登记表都没有时，尝试按 key 联网补一次（al:专辑id）。
+        var target = effectiveURL
+        if target == nil, !fallbackKeys.isEmpty {
+            target = await CoverResolver.shared.resolveCover(for: fallbackKeys)
+        }
+        guard let target else {
             image = nil
-            Log.warn("封面", "「\(seed)」没有任何可用地址")
             return
         }
         if target.isFileURL, let data = try? Data(contentsOf: target), let loaded = UIImage(data: data) {
@@ -240,7 +244,7 @@ struct SongRow: View {
         HStack(spacing: 12) {
             if showsCover {
                 CoverImage(url: song.artworkURL,
-                           fallbackKeys: song.kugouHash.isEmpty ? [] : ["kg:\(song.kugouHash)"],
+                           fallbackKeys: song.coverFallbackKeys,
                            seed: "\(song.artist)-\(song.title)",
                            size: 44)
                 .overlay(alignment: .bottomTrailing) {

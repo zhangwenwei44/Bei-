@@ -27,6 +27,8 @@ final class PlayerStore: ObservableObject {
     @Published private(set) var lyrics: [LyricLine] = []
     @Published private(set) var currentLyricIndex: Int?
     @Published private(set) var artwork: UIImage?
+    /// 当前歌手的写真，播放页背景用。拿不到时界面自己兜底。
+    @Published private(set) var artistPhoto: UIImage?
     @Published private(set) var currentPalette = ArtworkPaletteEngine.palette(for: nil, seed: "-")
     @Published var showTranslation = false
 
@@ -44,6 +46,7 @@ final class PlayerStore: ObservableObject {
     private var failedHosts = Set<String>()
     private var preparingTask: Task<Void, Never>?
     private var artworkTaskID: String?
+    private var artistPhotoTaskID: String?
     private var lyricTaskID: String?
     private var lastNowPlayingSecond = -1
 
@@ -135,6 +138,7 @@ final class PlayerStore: ObservableObject {
         playbackError = nil
         sourceName = ""
         artwork = nil
+        artistPhoto = nil
         currentPalette = ArtworkPaletteEngine.palette(for: nil, seed: "-")
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
@@ -162,7 +166,9 @@ final class PlayerStore: ObservableObject {
         playbackError = nil
         isLiked = LibraryStore.shared.isFavorite(song)
         isLoading = true
+        artistPhoto = nil
         refreshArtwork(for: song)
+        loadArtistPhoto(for: song)
         loadLyrics(for: song)
 
         let excluded = failedHosts
@@ -334,6 +340,25 @@ final class PlayerStore: ObservableObject {
 
     // MARK: - 封面与取色
 
+    /// 拉当前歌手的写真给播放页当背景。多人合唱只搜主歌手；
+    /// 失败就静默，播放页退回封面取色渐变。
+    private func loadArtistPhoto(for song: Song) {
+        artistPhotoTaskID = song.id
+        let lead = song.artist.components(separatedBy: CharacterSet(charactersIn: "、/&，,"))
+            .first?
+            .trimmingCharacters(in: .whitespaces) ?? song.artist
+        guard !lead.isEmpty else { return }
+        Task { [weak self] in
+            guard let url = await KugouClient.shared.artistPhoto(name: lead) else { return }
+            guard let (data, _) = try? await URLSession.shared.data(from: url),
+                  let image = UIImage(data: data) else { return }
+            await MainActor.run { [weak self] in
+                guard let self, self.artistPhotoTaskID == song.id else { return }
+                self.artistPhoto = image
+            }
+        }
+    }
+
     private func refreshArtwork(for song: Song) {
         artworkTaskID = song.id
         let seed = "\(song.artist)-\(song.title)"
@@ -358,7 +383,12 @@ final class PlayerStore: ObservableObject {
     }
 
     private static func loadArtwork(for song: Song) async -> UIImage? {
-        if let url = song.artworkURL {
+        // 榜单歌曲不带封面地址，先按专辑 id 联网补一次
+        var url = song.artworkURL
+        if url == nil {
+            url = await CoverResolver.shared.resolveCover(for: song.coverFallbackKeys)
+        }
+        if let url {
             let config = URLSessionConfiguration.default
             config.timeoutIntervalForRequest = 8
             let session = URLSession(configuration: config)

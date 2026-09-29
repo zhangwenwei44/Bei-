@@ -55,53 +55,47 @@ struct DiscoverView: View {
 
     // MARK: 榜单
 
+    /// 三列宫格的封面边长。按最窄机型（375pt 宽）算：
+    /// (375 - 左右各 16 - 列间距 12×2) / 3 ≈ 106，宽屏上留白多一点也协调。
+    private let rankTileSize: CGFloat = 106
+
     @ViewBuilder
     private var topListSection: some View {
         if !feed.topLists.isEmpty {
-            SectionHeader(title: "酷狗排行榜", subtitle: "共 \(feed.topLists.count) 个")
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
-                      spacing: 12) {
+            SectionHeader(title: "排行榜", subtitle: "酷狗热榜 · 官方每日更新")
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
+                                GridItem(.flexible(), spacing: 12),
+                                GridItem(.flexible(), spacing: 12)],
+                      spacing: 18) {
                 ForEach(filteredLists) { playlist in
                     NavigationLink {
                         PlaylistDetailView(playlist: playlist)
                     } label: {
-                        HStack(spacing: 10) {
+                        // 酷狗发现页的榜单是一水儿的封面宫格：大图在上，
+                        // 榜单名和更新说明压在下面，不再套卡片框
+                        VStack(alignment: .leading, spacing: 6) {
                             CoverImage(url: playlist.coverURL,
                                        fallbackKeys: [playlist.id],
                                        seed: playlist.name,
-                                       size: 52,
-                                       corner: 8)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(playlist.name)
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundStyle(AppStyle.primaryText)
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.leading)
-                                if playlist.trackCount > 0 {
-                                    // 真实曲目数在榜单页的 global.total 里，由 loadTrackCounts 异步补。
-                                    // 补不到就不显示，而不是显示一个错的数字。
-                                    HStack(spacing: 4) {
-                                        Text("\(playlist.trackCount) 首")
-                                            .font(.system(size: 10, weight: .medium))
-                                            .foregroundStyle(AppStyle.accent)
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(AppStyle.accent.opacity(0.12),
-                                                        in: Capsule())
-                                    }
-                                }
+                                       size: rankTileSize,
+                                       corner: 10)
+                            Text(playlist.name)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(AppStyle.primaryText)
+                                .lineLimit(1)
+                            if playlist.trackCount > 0 {
+                                // 真实曲目数在榜单页的 global.total 里，由 loadTrackCounts 异步补。
+                                // 补不到就不显示，而不是显示一个错的数字。
+                                Text("\(playlist.trackCount) 首")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(AppStyle.accent)
+                            } else if !playlist.updateFrequency.isEmpty {
+                                Text(playlist.updateFrequency)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(AppStyle.tertiaryText)
+                                    .lineLimit(1)
                             }
-                            Spacer(minLength: 0)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(AppStyle.tertiaryText)
                         }
-                        .padding(10)
-                        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(AppStyle.stroke, lineWidth: 0.5)
-                        )
                     }
                     .buttonStyle(.plain)
                 }
