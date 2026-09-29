@@ -157,6 +157,9 @@ jobs:
 
       - name: Publish diagnostics to ci branch
         if: always()
+        # 诊断分支只是排查用的旁路产物，推送偶发失败不该把整个构建
+        # 连带 IPA 一起拦死（run #21 就是这么挂在打包之前的）。
+        continue-on-error: true
         working-directory: ios
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
