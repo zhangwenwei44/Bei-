@@ -62,31 +62,36 @@ struct PlayerView: View {
         .animation(.easeInOut(duration: 0.5), value: store.currentPalette)
     }
 
-    // MARK: - 封面大图（占满顶栏和信息区之间的弹性区域）
+    // MARK: - 封面大图（占满顶栏和信息区之间的弹性区域，空间不足时先缩封面）
 
     private var artworkStage: some View {
-        Group {
-            if let artwork = store.artwork {
-                Image(uiImage: artwork)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                ZStack {
-                    Rectangle().fill(.white.opacity(0.08))
-                    Image(systemName: "music.note")
-                        .font(.system(size: 54, weight: .light))
-                        .foregroundStyle(.white.opacity(0.55))
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
+                Group {
+                    if let artwork = store.artwork {
+                        Image(uiImage: artwork)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        ZStack {
+                            Rectangle().fill(.white.opacity(0.08))
+                            Image(systemName: "music.note")
+                                .font(.system(size: 54, weight: .light))
+                                .foregroundStyle(.white.opacity(0.55))
+                        }
+                    }
                 }
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(.white.opacity(0.14), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.35), radius: 22, y: 10)
             }
-        }
-        .aspectRatio(1, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .stroke(.white.opacity(0.14), lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.35), radius: 22, y: 10)
-        .padding(.horizontal, 44)
-        .frame(maxWidth: .infinity, maxHeight: .infinity) // 在剩余空间里居中
-        .animation(.easeInOut(duration: 0.4), value: store.currentIndex)
+            .padding(.horizontal, 44)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity) // 在剩余空间里居中
+            .layoutPriority(-1) // 屏幕矮时优先保住下方信息区，封面让位
+            .animation(.easeInOut(duration: 0.4), value: store.currentIndex)
     }
 
     // MARK: - 顶栏
@@ -200,6 +205,7 @@ struct PlayerView: View {
                 // 原来贴着 home indicator，上提一段让控制键落在拇指更顺手的位置
                 .padding(.bottom, 30)
         }
+        .layoutPriority(1) // 信息区（歌名/按钮/进度）优先于封面占空间，任何机型都完整显示
     }
 
     private var tagRow: some View {
