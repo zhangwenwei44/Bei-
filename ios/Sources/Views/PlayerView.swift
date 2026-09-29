@@ -509,7 +509,7 @@ struct LyricsPageView: View {
                 .padding(.horizontal, 26)
         }
         .padding(.top, 12)
-        .background(.black.opacity(0.45).ignoresSafeArea())
+        .background { Color.black.opacity(0.45).ignoresSafeArea() }
         .highPriorityGesture(
             DragGesture(minimumDistance: 24).onEnded { value in
                 if value.translation.height > 60 {

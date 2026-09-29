@@ -23,7 +23,7 @@ enum FilePicker {
         for scene in UIApplication.shared.connectedScenes {
             guard let windowScene = scene as? UIWindowScene else { continue }
             let window = windowScene.keyWindow
-                ?? windowScene.windows.first { $0.isKey }
+                ?? windowScene.windows.first { $0.isKeyWindow }
                 ?? windowScene.windows.first
             if let root = window?.rootViewController {
                 presenter = root
