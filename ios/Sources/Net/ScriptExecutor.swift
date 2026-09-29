@@ -15,28 +15,23 @@ final class ScriptExecutor {
     private final class Box {
         private let ready = DispatchSemaphore(value: 0)
         private let lock = NSLock()
-        private var pending: (() -> Void)?
+        /// 任务队列。之前是单个 pending 槽位：上一条还没被取走时再提交
+        /// 会直接丢弃新任务且只写 NSLog（App 日志里看不到），
+        /// invoke 的任务就可能这样凭空消失。
+        private var tasks: [() -> Void] = []
 
         /// 线程主体：取一个任务执行，再等下一个，严格串行。
         func runLoop() {
             while true {
                 ready.wait()
-                if let task = takePending() { task() }
+                while let task = takeNext() { task() }
             }
         }
 
         /// 提交任务。保证对 JSContext 的访问严格串行。
-        ///
-        /// 如果上一条任务还没被取走就再提交，旧任务会被丢弃并记一条警告。
-        /// 正常使用时每条都会被取走，这里只是防止任务被静默丢掉。
         func submit(_ work: @escaping () -> Void) {
             lock.lock()
-            if pending != nil {
-                lock.unlock()
-                NSLog("[ScriptExecutor] 上一个任务还没被取走，新任务被丢弃")
-                return
-            }
-            pending = work
+            tasks.append(work)
             lock.unlock()
             ready.signal()
         }
@@ -52,10 +47,10 @@ final class ScriptExecutor {
             done.wait()
         }
 
-        private func takePending() -> (() -> Void)? {
+        private func takeNext() -> (() -> Void)? {
             lock.lock()
-            defer { pending = nil }
-            return pending
+            defer { lock.unlock() }
+            return tasks.isEmpty ? nil : tasks.removeFirst()
         }
     }
 

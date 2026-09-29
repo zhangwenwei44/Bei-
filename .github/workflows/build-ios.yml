@@ -233,20 +233,19 @@ jobs:
             ls -la "$APP" 2>&1
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          # 这一步是有意为之：之前 project.yml 把资源写在顶层 resources: 键里，
-          # XcodeGen 静默忽略，打出来的 .app 里一个 .js 都没有，
-          # 结果 App 里音源列表永远是空的，而构建全程「成功」。
-          # 资源缺失必须让构建失败，不能再悄悄发一个坏包出去。
+          # 有意为之：仓库不再内置任何音源脚本（无 license 的脚本不能公开再分发），
+          # CI 打出来的 IPA 不带音源，装好后需要手动导入 .js 音源文件。
+          # 这里只做信息报告，零个 .js 是正常状态，不能让构建失败。
+          # 之前曾强制要求至少一个 .js，那是为了防 XcodeGen 静默丢资源；
+          # 现在「没有音源」是预期状态，改为：有 .js 就确认数量，没有就提示手动导入。
           if [ -d "$APP/BundledSources" ]; then
             COUNT=$(find "$APP/BundledSources" -name '*.js' | wc -l | tr -d ' ')
             echo "BundledSources 里有 $COUNT 个 .js"
             if [ "$COUNT" -eq 0 ]; then
-              echo "::error::BundledSources 目录存在但没有 .js，内置音源会装不上"
-              exit 1
+              echo "::notice::IPA 不含内置音源（有意为之）。安装后请到「我的 → 第三方音源」手动导入音源脚本"
             fi
           else
-            echo "::error::.app 里没有 BundledSources 目录，检查 ios/project.yml 里 resources 是否写在 sources 下"
-            exit 1
+            echo "::notice::.app 里没有 BundledSources 目录（project.yml 里标记 optional，可接受）"
           fi
 
       - name: Package unsigned IPA

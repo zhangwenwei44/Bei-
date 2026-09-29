@@ -27,14 +27,36 @@ struct UpdateView: View {
                     Button("完成") { dismiss() }
                 }
             }
-            // 进入 .ready 就把包搬到公共目录，用户点按钮时直接可用
+            // 进入 .ready 就把包搬到公共目录，并自动弹出安装器选择
             .onChange(of: updater.phase) { phase in
                 if case let .ready(file) = phase {
-                    installURL = file
-                    sharedURL = updater.prepareInstall(file)
-                    shareFailed = false
+                    enterReadyState(file, autoPresent: true)
                 }
             }
+            // 下载完成后用户可能把本页关掉再重开：那时 phase 已经是 .ready，
+            // onChange 不会再触发，URL 状态会一直是 nil，点「选择软件安装」
+            // 会静默失败。进入页面时补一次初始化（不自动弹，避免开门就糊脸）。
+            .task {
+                if case let .ready(file) = updater.phase {
+                    enterReadyState(file, autoPresent: false)
+                }
+            }
+        }
+    }
+
+    /// 下载完成（或进入页面时已是 ready）：准备可分享的包路径。
+    private func enterReadyState(_ file: URL, autoPresent: Bool) {
+        installURL = file
+        sharedURL = updater.prepareInstall(file)
+        shareFailed = false
+        guard autoPresent else { return }
+        // 下载完成后自动弹出安装器选择——用户不用再手动点一次按钮。
+        // 稍等一拍让 .ready 界面渲染完，否则 present 会撞上视图更新被吞。
+        let target = sharedURL ?? file
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            let ok = IPAInstaller.presentShareSheet(for: target)
+            if !ok { shareFailed = true }
         }
     }
 
@@ -43,8 +65,22 @@ struct UpdateView: View {
     /// 不用 `.sheet` 套 `.sheet`：UpdateView 本身就是 ProfileView 用 sheet 呈现的，
     /// iOS 16 上嵌套 sheet 经常弹不出来。改成直接拿顶层 ViewController present。
     private func presentInstaller() {
-        // 优先用公共目录那份；拷不过去就退回沙盒里的
-        guard let target = sharedURL ?? installURL else { return }
+        // 优先用公共目录那份；拷不过去就退回沙盒里的；
+        // 状态丢失（重开页面等）就从 phase 现取，按钮不允许静默失败
+        let target: URL?
+        if let sharedURL {
+            target = sharedURL
+        } else if let installURL {
+            target = installURL
+        } else if case let .ready(file) = updater.phase {
+            let shared = updater.prepareInstall(file)
+            installURL = file
+            sharedURL = shared
+            target = shared
+        } else {
+            target = nil
+        }
+        guard let target else { return }
         shareFailed = !IPAInstaller.presentShareSheet(for: target)
         if shareFailed {
             Log.error("更新", "分享面板没能弹出，请改用「在文件 App 中查看」")
@@ -203,7 +239,7 @@ struct UpdateView: View {
                         .multilineTextAlignment(.center)
                 } else {
                     VStack(spacing: 3) {
-                        Text("点上面第一个按钮，在分享面板里选 AppSync / Zebra / Filza")
+                        Text("下载完成后会自动弹出分享面板，选 AppSync / Zebra / Filza 即可安装")
                             .font(.system(size: 11))
                             .foregroundStyle(AppStyle.tertiaryText)
                             .multilineTextAlignment(.center)

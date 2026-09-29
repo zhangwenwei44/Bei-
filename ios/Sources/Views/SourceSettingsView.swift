@@ -52,7 +52,7 @@ struct SourceSettingsView: View {
                         EmptyStateView(icon: "antenna.radiowaves.left.and.right",
                                        title: "还没有添加音源",
                                        message: presets.isEmpty
-                                        ? "包内没有找到内置音源脚本，这个安装包可能不完整"
+                                        ? "这版安装包不带内置音源。用下面「添加」区的「从文件导入」或「从剪贴板导入」，把音源 .js 脚本加进来即可"
                                         : "下面有内置音源，点一下就能用")
                         if !presets.isEmpty {
                             Button {
@@ -104,53 +104,57 @@ struct SourceSettingsView: View {
                     .foregroundStyle(AppStyle.tertiaryText)
             }
 
-            Section {
-                ForEach(presets) { preset in
-                    HStack(spacing: 12) {
-                        Image(systemName: "shippingbox.fill")
-                            .font(.system(size: 15))
-                            .foregroundStyle(AppStyle.gold)
-                            .frame(width: 28)
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack(spacing: 6) {
-                                Text(preset.displayName)
-                                    .font(.system(size: 15, weight: .medium))
-                                    .foregroundStyle(AppStyle.primaryText)
-                                Text(preset.version)
-                                    .font(.system(size: 10, design: .monospaced))
+            // 安装包里没有任何内置脚本时整块隐藏：只留一个空标题会让人
+            // 以为包坏了。现在的 CI 包就是不带音源的，这是预期状态。
+            if !presets.isEmpty {
+                Section {
+                    ForEach(presets) { preset in
+                        HStack(spacing: 12) {
+                            Image(systemName: "shippingbox.fill")
+                                .font(.system(size: 15))
+                                .foregroundStyle(AppStyle.gold)
+                                .frame(width: 28)
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 6) {
+                                    Text(preset.displayName)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundStyle(AppStyle.primaryText)
+                                    Text(preset.version)
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(AppStyle.tertiaryText)
+                                }
+                                Text(presetLine(preset))
+                                    .font(.system(size: 11))
                                     .foregroundStyle(AppStyle.tertiaryText)
+                                    .lineLimit(2)
                             }
-                            Text(presetLine(preset))
-                                .font(.system(size: 11))
-                                .foregroundStyle(AppStyle.tertiaryText)
-                                .lineLimit(2)
-                        }
-                        Spacer(minLength: 4)
-                        if isInstalled(preset) {
-                            Button("已添加") { }
-                                .font(.system(size: 12))
-                                .foregroundStyle(AppStyle.accent)
-                                .disabled(true)
-                        } else {
-                            Button {
-                                add(preset)
-                            } label: {
-                                Text("添加")
-                                    .font(.system(size: 12, weight: .medium))
+                            Spacer(minLength: 4)
+                            if isInstalled(preset) {
+                                Button("已添加") { }
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(AppStyle.accent)
+                                    .disabled(true)
+                            } else {
+                                Button {
+                                    add(preset)
+                                } label: {
+                                    Text("添加")
+                                        .font(.system(size: 12, weight: .medium))
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
+                        .padding(.vertical, 3)
                     }
-                    .padding(.vertical, 3)
+                } header: {
+                    Text("内置音源")
+                        .font(.system(size: 12))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                } footer: {
+                    Text("随包发布，不用再选文件。第三方脚本由原作者提供服务，可能随时失效；仅供个人学习使用。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppStyle.tertiaryText)
                 }
-            } header: {
-                Text("内置音源")
-                    .font(.system(size: 12))
-                    .foregroundStyle(AppStyle.tertiaryText)
-            } footer: {
-                Text("随包发布，不用再选文件。第三方脚本由原作者提供服务，可能随时失效；仅供个人学习使用。")
-                    .font(.system(size: 11))
-                    .foregroundStyle(AppStyle.tertiaryText)
             }
 
             Section {

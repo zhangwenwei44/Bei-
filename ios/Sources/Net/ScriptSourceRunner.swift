@@ -53,6 +53,8 @@ private func jsInt(_ value: JSValue?) -> Int? {
 final class ScriptCompletion: NSObject, ScriptDoneBridge {
     private let lock = NSLock()
     private var finished = false
+    /// reject 带过来的原因，仅用于记日志。
+    private(set) var errorMessage: String?
     var onFinish: ((Any?) -> Void)?
 
     func resolve(_ value: JSValue?) {
@@ -60,6 +62,9 @@ final class ScriptCompletion: NSObject, ScriptDoneBridge {
     }
 
     func reject(_ value: JSValue?) {
+        if let value, !value.isUndefined, !value.isNull {
+            errorMessage = value.toString()
+        }
         finish(nil)
     }
 
@@ -71,7 +76,11 @@ final class ScriptCompletion: NSObject, ScriptDoneBridge {
         }
         finished = true
         lock.unlock()
-        onFinish?(value)
+        // onFinish 闭包里会引用 completion 自己（读 errorMessage），
+        // 触发完就断开，避免循环引用。
+        let callback = onFinish
+        onFinish = nil
+        callback?(value)
     }
 }
 
@@ -566,6 +575,11 @@ final class ScriptRuntime {
         log: function () { if (typeof console !== 'undefined') console.log.apply(console, arguments); }
       };      globalThis.lx = lx;
       globalThis.__beansCall = function (payload, done) {
+        // 注意：done 是原生 JSExport 对象（ScriptCompletion），只能调方法。
+        // 之前写成 done({ value: ... }) —— JS 对象不是函数，
+        // JavaScriptCore 直接抛 TypeError: done is not a function，
+        // 而且异常发生在 Promise 回调里，被静默吞掉，
+        // 表现为「invoke 永远超时、任何脚本音源都解析不了」。
         var info = payload.info || {};
         var invoke = null;
         try {
@@ -580,16 +594,16 @@ final class ScriptRuntime {
           } else if (globalThis.__beansPlugin && typeof globalThis.__beansPlugin.getMusicUrl === 'function') {
             invoke = globalThis.__beansPlugin.getMusicUrl(payload.source, info.musicInfo, info.type);
           } else {
-            done({ error: '脚本没有可用的解析入口' });
+            done.reject('脚本没有可用的解析入口');
             return;
           }
         } catch (error) {
-          done({ error: String(error) });
+          done.reject(String(error));
           return;
         }
         Promise.resolve(invoke).then(
-          function (value) { done({ value: value }); },
-          function (error) { done({ error: String(error) }); }
+          function (value) { done.resolve(value); },
+          function (error) { done.reject(String(error)); }
         );
       };
     })();
@@ -597,46 +611,49 @@ final class ScriptRuntime {
 
     /// 调用脚本，超时或失败返回 nil。
     ///
-    /// 超时从 12 秒降到 8 秒：音源是串行尝试的，超时太长会让用户干等，
-    /// 而且失败时迟迟看不到反馈。8 秒足够脚本完成一次带签名的请求。
-    func invoke(payload: [String: Any], timeout: TimeInterval = 8) async -> Any? {
+    /// 超时 12 秒：长青这类音源在一次解析里会串行发两个请求
+    /// （计数 ping + 解析 POST），8 秒在弱网下不够。
+    /// 音源本身是串行尝试的，超时太长会让用户干等，不能再往上加了。
+    func invoke(payload: [String: Any], timeout: TimeInterval = 12) async -> Any? {
         Log.debug("脚本音源", "invoke 开始，超时 \(Int(timeout)) 秒")
         let result: Any? = await withCheckedContinuation { continuation in
             let completion = ScriptCompletion()
             let lock = NSLock()
             var resumed = false
 
-            func resume(_ value: Any?) {
+            /// 返回 true 表示是本次调用第一次落地（用于区分真超时和迟到回调）。
+            @discardableResult
+            func resume(_ value: Any?) -> Bool {
                 lock.lock()
                 if resumed {
                     lock.unlock()
-                    return
+                    return false
                 }
                 resumed = true
                 lock.unlock()
                 continuation.resume(returning: value)
+                return true
             }
 
             completion.onFinish = { value in
-                // value 形如 { value: ... } 或 { error: "..." }
-                // 注意 guard let 绑定的 dict 只在 guard 之后的分支可见，
-                // 之前在 else 里又写了一次 dict，编译不过。
-                guard let payloadDict = value as? [String: Any] else {
-                    return resume(nil)
+                // resolve 直接给值，reject 给 nil（原因在 errorMessage 里）
+                if let value {
+                    Log.debug("脚本音源", "invoke 收到脚本返回")
+                    resume(value)
+                    return
                 }
-                if let error = payloadDict["error"] {
-                    Log.error("脚本音源", "脚本自己报错：\(error)")
-                    return resume(nil)
+                if let message = completion.errorMessage, !message.isEmpty {
+                    Log.error("脚本音源", "脚本自己报错：\(message)")
                 }
-                Log.debug("脚本音源", "invoke 收到脚本返回")
-                resume(payloadDict["value"])
+                resume(nil)
             }
 
             queue.async { [weak self] in
-                guard let self else { return resume(nil) }
+                guard let self else { resume(nil); return }
                 guard self.isUsable else {
                     Log.error("脚本音源", "「\(self.sourceName)」运行时已因异常失效，跳过本次调用")
-                    return resume(nil)
+                    resume(nil)
+                    return
                 }
                 self.context.setObject(payload as NSDictionary, forKeyedSubscript: "__beansPayload" as NSString)
                 self.context.setObject(completion, forKeyedSubscript: "__beansDone" as NSString)
@@ -656,13 +673,16 @@ final class ScriptRuntime {
                 if self.context.exception != nil || self.sawException {
                     Log.error("脚本音源", "「\(self.sourceName)」调用期间出现异常，运行时作废")
                     self.invalidate()
-                    return resume(nil)
+                    resume(nil)
+                    return
                 }
             }
 
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
-                Log.warn("脚本音源", "invoke 超过 \(Int(timeout)) 秒没有返回，按超时处理")
-                resume(nil)
+                // 已经成功/失败过的调用不要再记超时，否则每次慢解析都多一条假告警
+                if resume(nil) {
+                    Log.warn("脚本音源", "invoke 超过 \(Int(timeout)) 秒没有返回，按超时处理")
+                }
             }
         }
         if result == nil {

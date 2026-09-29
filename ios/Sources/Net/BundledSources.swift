@@ -22,14 +22,18 @@ enum BundledSources {
     }
 
     /// 随包发布、已确认许可的脚本。
-    private static let known: [Preset] = [
-        Preset(scriptName: "molan",
-               displayName: "墨澜聚合音源",
-               version: "2.3.3",
-               author: "白姬9527",
-               license: "MIT",
-               homepage: "https://github.com/baiji6/molanyinyueyuan",
-               notes: "全平台支持 flac，wy / qq / kw / kg 支持母带")
+    ///
+    /// 目前为空：墨澜音源已下架，长青SVIP（无 license）按约定以
+    /// `ios/BundledSources/changqing.js` 本地放置（.gitignore 排除，
+    /// 打进 IPA 但不入库），元信息走头注释解析。
+    private static let known: [Preset] = []
+
+    /// 历史上随包发过的音源。设备上已经装过的要在启动时清掉，
+    /// 否则包里删了、用户列表里还留着一堆失效音源。
+    private static let legacyBundledNames: Set<String> = [
+        "墨澜聚合音源",
+        "星海音乐源",
+        "独家音源",
     ]
 
     /// 包里所有能读到的音源脚本（含本地放的）。
@@ -69,6 +73,11 @@ enum BundledSources {
         Log.info("内置音源", "包内脚本文件 \(urls.count) 个：\(urls.map(\.lastPathComponent).joined(separator: ", "))")
         if urls.isEmpty {
             Log.error("内置音源", "包内没有 BundledSources 目录里的 .js，内置音源一个都装不上（检查 project.yml 里资源是否写在 sources 下）")
+        }
+        // 清掉设备上还留着的旧内置音源（包里已经不带了）
+        for source in store.sources where legacyBundledNames.contains(source.name) {
+            Log.info("内置音源", "移除已下架的内置音源「\(source.name)」")
+            store.remove(id: source.id)
         }
         let existing = Set(store.sources.map(\.name))
         var added = 0

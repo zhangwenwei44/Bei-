@@ -30,7 +30,6 @@ Cartfile
 ios/ExportOptions.plist
 
 # 内置音源
-# 只提交有明确开源许可的（molan.js 是 MIT）和说明文档。
 # 没有 license 声明的第三方音源放本地槽位，照样打进 IPA，但不入库。
 ios/BundledSources/changqing.js
 ios/BundledSources/*.local.js

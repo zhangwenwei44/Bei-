@@ -104,6 +104,9 @@ final class LogStore: ObservableObject {
     /// 低于这个级别的不记，调试时可以在设置里放开。
     @Published var minLevel: Log.Level = .debug
 
+    /// 落盘专用串行队列。见 append 里的说明。
+    private let diskQueue = DispatchQueue(label: "Aurora.LogStore.disk")
+
     private var currentFile: URL?
     private var currentHandle: FileHandle?
     private var currentBytes = 0
@@ -145,24 +148,31 @@ final class LogStore: ObservableObject {
     // MARK: 写入
 
     nonisolated func append(level: Log.Level, category: String, message: String) {
-        // 静态入口可能被非主线程调用，这里统一切回主线程
+        guard level >= minLevel else { return }
+        // 时间戳在调用点取：之前是主线程真正写入时才取，主线程一忙
+        // 日志时间整体漂移，事件顺序看着都对不上。
+        let entry = Log.Entry(date: Date(), level: level, category: category, message: message)
+        // 落盘走专用串行队列，不等主线程：之前整个写入都在
+        // Task { @MainActor } 里，进程崩溃/冻结时排在队列里的日志全部丢失
+        // ——恰恰是排查问题最需要的那几行。
+        diskQueue.async { [weak self] in
+            self?.appendToDisk(entry)
+        }
+        // 内存里的条目给界面看，仍然回主线程更新
         Task { @MainActor [weak self] in
-            self?.write(level: level, category: category, message: message)
+            self?.write(entry)
         }
     }
 
     @MainActor
-    private func write(level: Log.Level, category: String, message: String) {
-        guard level >= minLevel else { return }
-        let entry = Log.Entry(date: Date(), level: level, category: category, message: message)
+    private func write(_ entry: Log.Entry) {
         entries.append(entry)
         if entries.count > memoryLimit {
             entries.removeFirst(entries.count - memoryLimit)
         }
-        appendToDisk(entry)
     }
 
-    @MainActor
+    /// 只在 diskQueue 上跑。
     private func appendToDisk(_ entry: Log.Entry) {
         // 用 | 分隔而不是 "] "：原来用 "] " 会把级别后面的右方括号当成分隔符吃掉，
         // 解析时 head 里就找不到配对的 "]"，导致每一行都解析失败、整份日志被清空。
@@ -178,7 +188,7 @@ final class LogStore: ObservableObject {
         }
     }
 
-    @MainActor
+    /// 只在 diskQueue 上跑。
     private func openNewFile() {
         closeHandle()
         let name = "aurora-\(fileStamp()).log"
@@ -190,7 +200,7 @@ final class LogStore: ObservableObject {
         pruneOldFiles()
     }
 
-    @MainActor
+    /// 只在 diskQueue 上跑。
     private func closeHandle() {
         try? currentHandle?.close()
         currentHandle = nil
@@ -198,7 +208,7 @@ final class LogStore: ObservableObject {
         currentBytes = 0
     }
 
-    @MainActor
+    /// 只在 diskQueue 上跑。
     private func rotate() {
         closeHandle()
         openNewFile()
@@ -210,13 +220,16 @@ final class LogStore: ObservableObject {
         return f.string(from: Date())
     }
 
-    @MainActor
+    /// 只在 diskQueue 上跑。
     private func pruneOldFiles() {
         let dir = Self.logDirectoryURL()
         let files = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
             .filter { $0.pathExtension == "log" }
             .sorted { Self.modified($0) > Self.modified($1) }
-        logFileURLs = files
+        // logFileURLs 是 @Published，回主线程更新
+        Task { @MainActor in
+            self.logFileURLs = files
+        }
         // 自己刚建的那个不能删，从最旧的开始清
         for file in files.dropFirst(fileLimit) {
             if file != currentFile { try? FileManager.default.removeItem(at: file) }
@@ -314,10 +327,14 @@ final class LogStore: ObservableObject {
     @MainActor
     func clear() {
         entries = []
-        closeHandle()
-        for file in logFileURLs { try? FileManager.default.removeItem(at: file) }
+        let files = logFileURLs
         logFileURLs = []
-        openNewFile()
+        // 句柄和文件操作都在 diskQueue 上做，和正常写入保持串行
+        diskQueue.async { [weak self] in
+            self?.closeHandle()
+            for file in files { try? FileManager.default.removeItem(at: file) }
+            self?.openNewFile()
+        }
     }
 
     /// 崩溃现场用的同步写入。

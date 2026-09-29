@@ -73,12 +73,13 @@ cd ios && xcodegen generate && open AuroraMusic.xcodeproj
 
 ## 第三方音源
 
-音源页里有「内置音源」区块，随包带了两个洛雪脚本，点一下就能启用，不用再选文件。
+CI 打出的安装包**不带音源脚本**（无 license 的脚本不能公开再分发）。
+装好 App 后到「我的 → 第三方音源」用「从文件导入」或「从剪贴板导入」加入
+长青SVIP洛雪脚本即可，导入一次会一直保留。
 
-- **墨澜聚合音源 v2.3.3** — MIT，作者白姬9527，随仓库分发
 - **长青SVIP音源 v1.2.0** — 没有 license 声明，仓库无权再分发。
-  它的文件已放在 ios/BundledSources/changqing.js（被 .gitignore 排除），
-  **你本地打包会带上它**，别人克隆则需要自己放
+  本地打包想内置的话，把脚本放到 ios/BundledSources/changqing.js
+  （被 .gitignore 排除），打出来的包就会随包携带，启动时一键启用
 
 想加别的脚本，把 .js 丢进 ios/BundledSources/ 重新打包即可，
 详见 [ios/BundledSources/README.local.md](ios/BundledSources/README.local.md)
