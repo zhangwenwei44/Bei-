@@ -608,14 +608,18 @@ final class ScriptRuntime {
             }
 
             completion.onFinish = { value in
-                guard let dict = value as? [String: Any], dict["error"] == nil else {
-                    if let dict, let err = dict["error"] {
-                        Log.error("脚本音源", "脚本自己报错：\(err)")
-                    }
+                // value 形如 { value: ... } 或 { error: "..." }
+                // 注意 guard let 绑定的 dict 只在 guard 之后的分支可见，
+                // 之前在 else 里又写了一次 dict，编译不过。
+                guard let payloadDict = value as? [String: Any] else {
+                    return resume(nil)
+                }
+                if let error = payloadDict["error"] {
+                    Log.error("脚本音源", "脚本自己报错：\(error)")
                     return resume(nil)
                 }
                 Log.debug("脚本音源", "invoke 收到脚本返回")
-                resume(dict["value"])
+                resume(payloadDict["value"])
             }
 
             queue.async { [weak self] in
