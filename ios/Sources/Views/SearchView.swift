@@ -15,12 +15,13 @@ struct SearchView: View {
     @FocusState private var isFieldFocused: Bool
 
     private enum Scope: Int, CaseIterable {
-        case songs, playlists, artists
+        case songs, playlists, albums, artists
 
         var title: String {
             switch self {
             case .songs: return "单曲"
             case .playlists: return "榜单"
+            case .albums: return "专辑"
             case .artists: return "歌手"
             }
         }
@@ -167,6 +168,40 @@ struct SearchView: View {
                         }
                     }
                     .padding(.horizontal, 16)
+                case .albums:
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(results.albums) { album in
+                            Button {
+                                runSearch("\(album.artist) \(album.name)")
+                            } label: {
+                                HStack(spacing: 12) {
+                                    CoverImage(url: album.coverURL,
+                                               fallbackKeys: album.albumID.isEmpty ? [] : ["al:\(album.albumID)"],
+                                               seed: album.name,
+                                               size: 48,
+                                               corner: 8)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(album.name)
+                                            .font(.system(size: 15, weight: .medium))
+                                            .foregroundStyle(AppStyle.primaryText)
+                                            .lineLimit(1)
+                                        Text(album.artist)
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(AppStyle.secondaryText)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(AppStyle.tertiaryText)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 7)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                 case .artists:
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(results.artists) { artist in
@@ -291,9 +326,10 @@ struct SearchView: View {
         let ranks = await topLists
         let filteredRanks = ranks.filter { $0.name.localizedCaseInsensitiveContains(text) }
         let artists = Self.artistHints(from: found)
+        let albums = Self.albumHints(from: found)
 
         guard submitted == text else { return }
-        results = SearchResults(songs: found, playlists: filteredRanks, artists: artists)
+        results = SearchResults(songs: found, playlists: filteredRanks, artists: artists, albums: albums)
         if results.isEmpty {
             errorMessage = "换个关键词试试"
         }
@@ -308,6 +344,25 @@ struct SearchView: View {
                 guard !name.isEmpty, seen.insert(name).inserted else { continue }
                 result.append(Artist(id: "kw:\(name)", name: name, coverURL: nil))
             }
+        }
+        return Array(result.prefix(20))
+    }
+
+    /// 从歌曲的专辑名聚合出「专辑」板块（酷狗结果无独立专辑实体）。
+    private static func albumHints(from songs: [Song]) -> [Album] {
+        var seen = Set<String>()
+        var result: [Album] = []
+        for song in songs {
+            let name = song.album.trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty, name != song.title else { continue } // 过滤“专辑名=歌名”的单曲占位
+            let key = "\(name)|\(song.artist)"
+            guard seen.insert(key).inserted else { continue }
+            let cover = song.artworkURL
+            result.append(Album(id: "al:\(song.kugouAlbumID.isEmpty ? key : song.kugouAlbumID)",
+                                name: name,
+                                artist: song.artist,
+                                coverURL: cover,
+                                albumID: song.kugouAlbumID))
         }
         return Array(result.prefix(20))
     }

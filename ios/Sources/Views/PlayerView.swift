@@ -205,38 +205,43 @@ struct PlayerView: View {
         .layoutPriority(1) // 信息区（歌名/按钮/进度）优先于封面占空间，任何机型都完整显示
     }
 
+    /// 标签行：固定不换行的 HStack，超长截尾。不再用横向 ScrollView ——
+    /// 窄屏(XS)上 ScrollView 会把内容滚出可视区，导致歌手名/标签看起来像被挤没了。
     private var tagRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                Text(store.current?.artist ?? "")
+        HStack(spacing: 8) {
+            Text(store.current?.artist ?? "")
+                .font(.system(size: 11))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+
+            qualityPill
+
+            if let album = store.current?.album, !album.isEmpty {
+                Text(album)
                     .font(.system(size: 11))
-                    .foregroundStyle(.white)
-
-                qualityPill
-
-                if let album = store.current?.album, !album.isEmpty {
-                    Text(album)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.82))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(.white.opacity(0.06))
-                        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .stroke(.white.opacity(0.3)))
-                }
-
-                ForEach(store.current?.tags ?? [], id: \.self) { tag in
-                    Text(tag)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.82))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(.white.opacity(0.06))
-                        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .stroke(.white.opacity(0.3)))
-                }
+                    .foregroundStyle(.white.opacity(0.82))
+                    .lineLimit(1)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.white.opacity(0.06))
+                    .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .stroke(.white.opacity(0.3)))
             }
+
+            ForEach((store.current?.tags ?? []).prefix(2), id: \.self) { tag in
+                Text(tag)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.82))
+                    .lineLimit(1)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.white.opacity(0.06))
+                    .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .stroke(.white.opacity(0.3)))
+            }
+            Spacer(minLength: 0)
         }
+        .clipped()
     }
 
     /// 当前行歌词胶囊（酷狗式单行），点击进入全屏歌词页

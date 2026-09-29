@@ -41,13 +41,31 @@ struct Artist: Identifiable, Hashable {
     }
 }
 
+/// 专辑。酷狗搜索结果里没有独立专辑实体，从歌曲的专辑名聚合。
+struct Album: Identifiable, Hashable {
+    var id: String
+    var name: String
+    var artist: String
+    var coverURL: URL?
+    var albumID: String = ""
+
+    init(id: String, name: String, artist: String, coverURL: URL? = nil, albumID: String = "") {
+        self.id = id
+        self.name = name
+        self.artist = artist
+        self.coverURL = coverURL
+        self.albumID = albumID
+    }
+}
+
 /// 搜索结果聚合。
 struct SearchResults {
     var songs: [Song] = []
     var playlists: [Playlist] = []
     var artists: [Artist] = []
+    var albums: [Album] = []
 
-    var isEmpty: Bool { songs.isEmpty && playlists.isEmpty && artists.isEmpty }
+    var isEmpty: Bool { songs.isEmpty && playlists.isEmpty && artists.isEmpty && albums.isEmpty }
 }
 
 /// 首页聚合数据。

@@ -9,6 +9,7 @@ struct DiscoverView: View {
     @State private var query = ""
     @State private var guessSongs: [Song] = []
     @State private var isLoadingGuess = false
+    @State private var artistPhotos: [String: URL] = [:]
 
     /// 热门歌手名单。酷狗没有免签名的热门歌手接口，先放一份经典名单，
     /// 点击直接跳歌手搜索结果。
@@ -163,7 +164,7 @@ struct DiscoverView: View {
                             SearchView(initialKeyword: name)
                         } label: {
                             VStack(spacing: 6) {
-                                CoverImage(url: nil, seed: name, size: 64, corner: 32)
+                                ArtistAvatar(name: name, url: artistPhotos[name], size: 64)
                                 Text(name)
                                     .font(.system(size: 11))
                                     .foregroundStyle(AppStyle.primaryText)
@@ -254,9 +255,24 @@ struct DiscoverView: View {
         }
         // 猜你喜欢先刷出来（两次搜索就够），再慢慢补榜单曲目数
         await loadGuess()
+        // 热门歌手头像并发拉（singerimg 接口），拉到就刷新
+        await loadArtistPhotos()
         // 曲目数要单独请求榜单页才拿得到（列表接口里没有 songcount），
         // 只补前若干个，避免一进页面就打 55 个请求。
         await loadTrackCounts(for: feed.topLists.prefix(12))
+    }
+
+    /// 并发拉取热门歌手头像。singerimg 域名某些网络可能慢，失败就保持文字占位。
+    private func loadArtistPhotos() async {
+        let client = KugouClient.shared
+        await withTaskGroup(of: (String, URL?).self) { group in
+            for name in Self.hotArtists {
+                group.addTask { (name, await client.artistPhoto(name: name)) }
+            }
+            for await (name, url) in group {
+                if let url { artistPhotos[name] = url }
+            }
+        }
     }
 
     /// 猜你喜欢：随机挑两个热词各搜一页，按 id 去重后拼一组推荐。
@@ -290,3 +306,26 @@ struct DiscoverView: View {
         }
     }
 }
+
+/// 歌手圆形头像：有头像 URL 就显示图，没有就用首字+渐变底色占位（保证任何情况下不空白）。
+private struct ArtistAvatar: View {
+    let name: String
+    let url: URL?
+    var size: CGFloat = 64
+
+    var body: some View {
+        if let url {
+            CoverImage(url: url, seed: name, size: size, corner: size / 2)
+        } else {
+            ZStack {
+                Circle()
+                    .fill(AppStyle.accent.opacity(0.25))
+                Text(name.prefix(1))
+                    .font(.system(size: size * 0.38, weight: .semibold))
+                    .foregroundStyle(AppStyle.accent)
+            }
+            .frame(width: size, height: size)
+        }
+    }
+}
+
