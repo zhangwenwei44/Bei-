@@ -121,10 +121,12 @@ final class KugouClient {
 
     /// 专辑封面。榜单页的歌曲节点不带任何图片字段、只带 album_id，
     /// 所以榜单里的小图要靠这个接口按专辑补。{size} 占位统一换成 300。
+    /// 用 https 的 mobiles 域名：http 在设备上会被 ATS 拦，
+    /// 而 mobilecdn 这个老域名不支持 https，mobiles 是同一套 v3 接口的 https 入口。
     func albumCover(albumID: String) async -> URL? {
         guard let id = Int(albumID), id > 0 else { return nil }
         guard let json = try? await getJSON(path: "/api/v3/album/info",
-                                            host: "http://mobilecdn.kugou.com",
+                                            host: "https://mobiles.kugou.com",
                                             params: ["albumid": String(id)],
                                             headers: [:]),
               let data = json["data"] as? [String: Any],
@@ -187,12 +189,13 @@ final class KugouClient {
         return fallbackURL
     }
 
-    /// 从歌手卡片里抠出头像地址。first_frame_image 常为空，imgurl 才是稳定字段。
+    /// 从歌手卡片里抠出头像地址。优先 imgurl（singerimg 的正式歌手头像），
+    /// first_frame_image 是 MV 抽帧，经常是怼脸的奇怪截图，只做兜底。
     private static func portraitURL(node: [String: Any], extra: [String: Any]?) -> URL? {
-        let raw = KugouClient.string(node["first_frame_image"])
-            ?? KugouClient.string(node["imgurl"])
-            ?? KugouClient.string(extra?["first_frame_image"])
+        let raw = KugouClient.string(node["imgurl"])
             ?? KugouClient.string(extra?["imgurl"])
+            ?? KugouClient.string(node["first_frame_image"])
+            ?? KugouClient.string(extra?["first_frame_image"])
         guard let raw, raw.contains("singerimg") else { return nil }
         let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
             .replacingOccurrences(of: "{si}", with: "480")
@@ -201,7 +204,7 @@ final class KugouClient {
 
     // MARK: - 歌词
 
-    /// 歌词。酷狗的歌词接口只认 http，且缺 Referer 会 400。
+    /// 歌词。缺 Referer 会 400。用 https：http 版会被设备上的 ATS 拦。
     func lyric(hash: String, duration: Double) async -> String? {
         let upper = hash.uppercased()
         let millis = Int(duration * 1000)
@@ -210,7 +213,7 @@ final class KugouClient {
             "hash": upper, "duration": String(millis),
         ]
         guard let search = try? await getJSON(path: "/search",
-                                              host: "http://lyrics.kugou.com",
+                                              host: "https://lyrics.kugou.com",
                                               params: searchParams,
                                               headers: ["Referer": "https://www.kugou.com/"]),
               let candidates = search["candidates"] as? [[String: Any]],
@@ -223,7 +226,7 @@ final class KugouClient {
             "accesskey": "\(accessKey)", "fmt": "lrc", "charset": "utf8",
         ]
         guard let download = try? await getJSON(path: "/download",
-                                                host: "http://lyrics.kugou.com",
+                                                host: "https://lyrics.kugou.com",
                                                 params: downloadParams,
                                                 headers: ["Referer": "https://www.kugou.com/"]),
               let content = download["content"] as? String,

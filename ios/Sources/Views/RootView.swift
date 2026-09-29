@@ -33,7 +33,7 @@ struct RootView: View {
                 NavigationStack {
                     ProfileView()
                 }
-                .tabItem { Label("我的", systemImage: "person.crop.circle") }
+                .tabItem { Label("设置", systemImage: "person.crop.circle") }
                 .tag(Tab.profile)
             }
 

@@ -198,12 +198,21 @@ final class PlayerStore: ObservableObject {
                 }
                 return
             }
+            // 音源吐回来的 http 地址在设备上会被 ATS 直接拦掉（表现就是
+            // 「解析成功却播放失败」），能升级 https 的先升级。
+            // 注意 MainActor.run 的闭包里不能 await，升级要在进主线程之前做完。
+            let finalURL: URL?
+            if let url = outcome.url, !url.isFileURL {
+                finalURL = await Self.upgradeToHTTPS(url)
+            } else {
+                finalURL = outcome.url
+            }
             await MainActor.run { [weak self] in
                 guard let self, self.current?.id == song.id else { return }
                 self.isLoading = false
                 self.sourceName = outcome.name
                 self.bitrateLabel = outcome.label
-                guard let url = outcome.url else {
+                guard let url = finalURL else {
                     self.playbackError = "这首歌暂时无法播放，去「我的 - 音源」看看"
                     self.player.pause()
                     self.isPlaying = false
@@ -213,6 +222,27 @@ final class PlayerStore: ObservableObject {
             }
         }
         preparingTask = task
+    }
+
+    /// http → https 升级。先用 Range GET 探测 https 是否可用（HEAD 有一部分 CDN 不支持），
+    /// 通了就换 https；不通保留原地址交给 AVPlayer，不额外增加失败面。
+    private static func upgradeToHTTPS(_ url: URL) async -> URL {
+        guard url.scheme?.lowercased() == "http",
+              let secure = URL(string: url.absoluteString.replacingOccurrences(of: "http://", with: "https://")) else {
+            return url
+        }
+        var request = URLRequest(url: secure)
+        request.httpMethod = "GET"
+        request.setValue("bytes=0-1", forHTTPHeaderField: "Range")
+        request.timeoutInterval = 6
+        if let (_, response) = try? await URLSession.shared.data(for: request),
+           let code = (response as? HTTPURLResponse)?.statusCode,
+           code == 200 || code == 206 {
+            Log.info("音源解析", "播放地址已从 http 升级为 https：\(secure.host ?? "")")
+            return secure
+        }
+        Log.warn("音源解析", "https 探测不通（\(secure.host ?? "")），保留原 http 地址")
+        return url
     }
 
     private func attach(url: URL, thirdParty: Bool, autoplay: Bool) {

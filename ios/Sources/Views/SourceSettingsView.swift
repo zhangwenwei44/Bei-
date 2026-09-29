@@ -12,17 +12,13 @@ struct SourceSettingsView: View {
     /// 表现就是「点从文件导入，什么都没发生」。
     private enum Sheet: Identifiable {
         case editor(ThirdPartySource)
-        case newTemplate
-        case newScript
-        case paste
+        case urlImport
         case export
 
         var id: String {
             switch self {
             case .editor(let source): return "editor-\(source.id)"
-            case .newTemplate: return "newTemplate"
-            case .newScript: return "newScript"
-            case .paste: return "paste"
+            case .urlImport: return "urlImport"
             case .export: return "export"
             }
         }
@@ -157,16 +153,6 @@ struct SourceSettingsView: View {
 
             Section {
                 Button {
-                    sheet = .newTemplate
-                } label: {
-                    Label("新增接口模板音源", systemImage: "link.badge.plus")
-                }
-                Button {
-                    sheet = .newScript
-                } label: {
-                    Label("新增 JS 脚本音源", systemImage: "curlybraces")
-                }
-                Button {
                     FilePicker.pick(types: Self.importableTypes) { urls in
                         Task { await importFromFiles(urls) }
                     }
@@ -174,19 +160,9 @@ struct SourceSettingsView: View {
                     Label("从文件导入", systemImage: "doc.badge.plus")
                 }
                 Button {
-                    importFromAppDirectory()
+                    sheet = .urlImport
                 } label: {
-                    Label("从 App 目录导入", systemImage: "folder")
-                }
-                Button {
-                    sheet = .paste
-                } label: {
-                    Label("粘贴内容导入", systemImage: "text.alignleft")
-                }
-                Button {
-                    importFromClipboard()
-                } label: {
-                    Label("从剪贴板导入", systemImage: "doc.on.clipboard")
+                    Label("从网址导入", systemImage: "link")
                 }
                 Button {
                     sheet = .export
@@ -199,7 +175,7 @@ struct SourceSettingsView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(AppStyle.tertiaryText)
             } footer: {
-                Text("「从文件导入」用系统选择器挑任意位置的文件。\n「从 App 目录导入」读的是本 App 自己的 Documents/Imports，用 iTunes/Finder/SSH 把音源文件放进去即可，最不容易出问题。\n也可以在「文件」App 里点分享，选择本 App 直接导入。")
+                Text("「从文件导入」用系统选择器挑任意位置的文件；「从网址导入」填音源文件的直链，下载后自动识别是脚本还是配置。")
                     .font(.system(size: 11))
                     .foregroundStyle(AppStyle.tertiaryText)
             }
@@ -216,12 +192,11 @@ struct SourceSettingsView: View {
             switch item {
             case .editor(let source):
                 SourceEditorView(source: source)
-            case .newTemplate:
-                SourceEditorView(source: SourceFormTemplate.templateForm)
-            case .newScript:
-                SourceEditorView(source: SourceFormTemplate.scriptForm)
-            case .paste:
-                SourceImportView()
+            case .urlImport:
+                SourceURLImportView { urlString in
+                    sheet = nil
+                    Task { await importFromURL(urlString) }
+                }
             case .export:
                 SourceExportView()
             }
@@ -306,44 +281,44 @@ struct SourceSettingsView: View {
         importMessage = "成功添加内置音源：\(preset.displayName)，到下面打开它的开关"
     }
 
-    /// 剪贴板导入：文件选择器出问题时的兜底路径。
+    /// 从网址导入：下载音源文件直链，落到临时文件后复用整套文件导入逻辑
+    /// （类型识别、解码兜底、重名替换都和「从文件导入」完全一致）。
     @MainActor
-    private func importFromClipboard() {
-        guard let text = UIPasteboard.general.string,
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            importMessage = "剪贴板是空的，先复制音源内容再试"
+    private func importFromURL(_ urlString: String) async {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              url.host != nil else {
+            importMessage = "网址格式不对，要 http(s):// 开头的完整直链"
             return
         }
-        let parsed = SourceStore.parseImport(text)
-        if !parsed.isEmpty {
-            for source in parsed { store.upsertReplacingByName(source) }
-            importMessage = "成功导入 \(parsed.count) 条：\(parsed.map(\.name).joined(separator: "、"))"
-            return
+        isImportingFiles = true
+        defer { isImportingFiles = false }
+        Log.info("音源导入", "从网址下载：\(trimmed)")
+        do {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 20
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            guard code == 200, !data.isEmpty else {
+                Log.error("音源导入", "下载失败 HTTP \(code)，\(data.count) 字节")
+                importMessage = "下载失败：HTTP \(code)"
+                return
+            }
+            var filename = url.lastPathComponent
+            if filename.isEmpty || filename.count > 80 {
+                filename = "remote-source.js"
+            }
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("import-\(UUID().uuidString.prefix(6))-\(filename)")
+            try data.write(to: tmp)
+            await importFromFiles([tmp])
+            try? FileManager.default.removeItem(at: tmp)
+        } catch {
+            Log.error("音源导入", "网址下载出错：\(error.localizedDescription)")
+            importMessage = "下载失败：\(error.localizedDescription)"
         }
-        var name = "剪贴板脚本音源"
-        if text.hasPrefix("/*!"), let firstLine = text.components(separatedBy: .newlines).first,
-           let parsed = SourceImportView.scriptName(from: firstLine), !parsed.isEmpty {
-            name = parsed
-        }
-        store.upsertReplacingByName(ThirdPartySource(name: name, kind: .script, script: text))
-        importMessage = "成功导入脚本音源：\(name)"
-    }
-
-    /// App 自己的 Documents/Imports 目录。用 iTunes/Finder/SSH 把文件放进去就行，
-    /// 不经过系统选择器，绕开它可能不回调的老问题。
-    @MainActor
-    private func importFromAppDirectory() {
-        let dir = SourceStore.importDirectory()
-        let files = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
-            .filter { ["js", "mjs", "cjs", "txt", "json", "conf", "json5", "ini"].contains($0.pathExtension.lowercased()) }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        guard !files.isEmpty else {
-            Log.warn("音源导入", "App 目录 \(dir.path) 里没有可导入的文件")
-            importMessage = "App 目录里还没有音源文件。把 .js 放进 \(dir.path) 再试一次。"
-            return
-        }
-        Log.info("音源导入", "从 App 目录 \(dir.path) 找到 \(files.count) 个候选文件")
-        Task { await importFromFiles(files) }
     }
 
     /// 解码文本。BOM 和 UTF-16 都要照顾到：洛雪的 .js 常带 UTF-8 BOM，
@@ -810,5 +785,50 @@ struct SourceExportView: View {
             }
             .onAppear { text = store.exportJSON() ?? "[]" }
         }
+    }
+}
+
+/// 从网址导入：输入音源文件的直链，下载后走和文件导入完全同一套解析。
+struct SourceURLImportView: View {
+    var onImport: (String) -> Void
+
+    @State private var urlString = ""
+    @FocusState private var isFieldFocused: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("https://example.com/source.js", text: $urlString)
+                        .font(.system(size: 14))
+                        .keyboardType(.URL)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .focused($isFieldFocused)
+                } header: {
+                    Text("音源文件网址")
+                        .font(.system(size: 12))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                } footer: {
+                    Text("填可以直连下载的完整链接（.js 脚本或 JSON 配置）。下载后会自动识别类型并替换同名音源。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+            }
+            .navigationTitle("从网址导入")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("导入") { onImport(urlString) }
+                        .disabled(urlString.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .onAppear { isFieldFocused = true }
+        }
+        .presentationDetents([.medium])
     }
 }

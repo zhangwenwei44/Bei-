@@ -145,14 +145,16 @@ struct CoverImage: View {
     }
 }
 
-/// 封面图片下载。带 https 重试：酷狗图床 http/https 都通，
-/// 个别网络环境下明文 http 会被劫持或超时，失败后换 https 再试一次。
+/// 封面图片下载。优先 https：设备上 ATS 会拦明文 http（Info.plist 放行了也没用），
+/// 所以 http 地址一律先换 https 试，https 不通再回头试原地址。
 enum CoverLoader {
     static func download(_ url: URL) async -> UIImage? {
-        if let image = await request(url) { return image }
-        guard url.scheme == "http" else { return nil }
-        guard let secure = URL(string: url.absoluteString.replacingOccurrences(of: "http://", with: "https://")) else { return nil }
-        return await request(secure)
+        if url.scheme?.lowercased() == "http",
+           let secure = URL(string: url.absoluteString.replacingOccurrences(of: "http://", with: "https://")),
+           let image = await request(secure) {
+            return image
+        }
+        return await request(url)
     }
 
     private static func request(_ target: URL) async -> UIImage? {

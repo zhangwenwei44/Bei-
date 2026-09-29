@@ -186,8 +186,14 @@ struct ProfileView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(AppStyle.background)
-        .navigationTitle("我的")
+        .navigationTitle("设置")
         .navigationBarTitleDisplayMode(.large)
+        // 迷你播放条悬浮在 TabBar 上方，会把列表最后几行盖住（运行日志/关于），
+        // 有歌在播时给滚动内容让出底部空间
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: store.current == nil ? 0 : 78)
+                .accessibilityHidden(true)
+        }
         .sheet(item: $sheet) { item in
             switch item {
             case .about: AboutView()

@@ -27,6 +27,11 @@ struct DiscoverView: View {
         .task { if feed.isEmpty { await load() } }
         .navigationTitle("发现")
         .navigationBarTitleDisplayMode(.large)
+        // 悬浮迷你播放条会盖住榜单宫格最后一行，让出底部空间
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: store.current == nil ? 0 : 62)
+                .accessibilityHidden(true)
+        }
     }
 
     // MARK: 搜索入口
