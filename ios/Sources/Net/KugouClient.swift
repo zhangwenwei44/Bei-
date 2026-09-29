@@ -146,11 +146,30 @@ final class KugouClient {
 
     // MARK: - 播放地址
 
+    /// /v5/url 从 v1.3.0 起就一直返回 85 字节错误体（errcode + errmsg + status），
+    /// 设备指纹/盐/版本号任何一个对不上服务端都会拒绝。每次切歌都白白发 3 次
+    /// 请求再失败、再落到第三方音源，用户多等 1 秒。这里加一个进程内熔断：
+    /// 连续失败超过阈值就不再试，直到 App 重启或某次成功后清零。
+    /// 阈值留 3 次：太低误杀偶发抖动，太高失去熔断意义。
+    static let failureThreshold = 3
+    private static let failureLock = NSLock()
+    private static var consecutiveFailures = 0
+
     /// 直连播放地址。设备指纹过不了时返回 nil，交给第三方音源。
     func songURL(hash: String,
                  audioID: String?,
                  albumID: String?,
                  quality: MusicQuality) async -> String? {
+        // 熔断中：之前已经连续失败超过阈值，本次运行期不再试。
+        // 第三方音源会兜住解析，用户感知只是少了无谓的等待。
+        Self.failureLock.lock()
+        let failures = Self.consecutiveFailures
+        Self.failureLock.unlock()
+        if failures >= Self.failureThreshold {
+            Log.info("音乐接口", "/v5/url 已熔断（连续失败 \(failures) 次），跳过直连，交给第三方音源")
+            return nil
+        }
+
         let fileHash = hash.lowercased()
         let level: String
         switch quality {
@@ -199,13 +218,36 @@ final class KugouClient {
                                                 "x-router": "trackercdn.kugou.com",
                                             ]) else { return nil }
         for key in ["play_backup_url", "play_url", "url", "src", "backup_url"] {
-            if let value = json[key] as? String, !value.isEmpty { return value }
+            if let value = json[key] as? String, !value.isEmpty {
+                // 成功一次就清零熔断计数：服务端协议可能某天修好，
+                // 不能让旧的失败计数永久封住直连。
+                Self.failureLock.lock()
+                Self.consecutiveFailures = 0
+                Self.failureLock.unlock()
+                return value
+            }
         }
-        // 这个接口从 v1.3.0 起就一直返回 85 字节的错误体（err clientver or mid or
-        // dfid or clienttime），之前错误内容被静默丢掉，日志里只看得到
-        // 「200 / 85 字节」，无从判断原因。记下来，并且标记成「别再试」。
-        let reason = (json["error"] as? String) ?? (json["msg"] as? String) ?? "响应里没有地址字段"
-        Log.error("音乐接口", "/v5/url 没有返回播放地址：\(reason)（字段：\(json.keys.sorted().joined(separator: ","))）")
+        // 这个接口从 v1.3.0 起就一直返回 85 字节错误体。日志里看到字段名是
+        // `errcode, errmsg, status`（不是 `error` / `msg`），之前读错了字段，
+        // reason 永远落到 fallback 的「响应里没有地址字段」，看不出真正错在哪。
+        // errcode 是数字，强制转字符串兜住；errmsg 才是文字。
+        let errcode = (json["errcode"] as? NSNumber)?.stringValue
+            ?? (json["errcode"] as? Int).map(String.init)
+            ?? (json["errcode"] as? String)
+            ?? "?"
+        let errmsg = (json["errmsg"] as? String)
+            ?? (json["msg"] as? String)
+            ?? (json["error"] as? String)
+            ?? "无文字说明"
+        Log.error("音乐接口", "/v5/url 没有返回播放地址：errcode=\(errcode) errmsg=\(errmsg)（字段：\(json.keys.sorted().joined(separator: ","))）")
+        // 失败计数 +1，达到阈值后本次运行期熔断，不再浪费一次切歌 3 个请求。
+        Self.failureLock.lock()
+        Self.consecutiveFailures += 1
+        let total = Self.consecutiveFailures
+        Self.failureLock.unlock()
+        if total >= Self.failureThreshold {
+            Log.warn("音乐接口", "/v5/url 累计失败 \(total) 次，已熔断，本次运行期不再尝试，交给第三方音源")
+        }
         return nil
     }
 

@@ -130,6 +130,12 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "1.5.8", date: "", items: [
+            "修复第三方音源脚本网络请求的方法名被设成字符串 \"undefined\"：JSValue.toString() 对 undefined 返回 \"undefined\" 而不是 nil，?? \"GET\" 兜底永远不触发，导致 nginx 返回 400 Bad Request，「长青SVIP音源」等脚本类音源一直解析失败",
+            "为酷狗 /v5/url 接口加进程内熔断：该接口自 v1.3.0 起就一直返回 85 字节错误体，每次切歌都白白试 3 个 quality 再失败、再交给第三方音源，用户多等 1 秒。连续失败 3 次后本次运行期直接跳过，第三方音源兜住解析",
+            "修复音乐接口失败日志的字段读取：实际字段是 errcode/errmsg，代码读的是 error/msg，导致 reason 永远落到 fallback 的「响应里没有地址字段」，看不出真正错在哪。现在直接打印 errcode 和 errmsg",
+            "脚本音源的 HTTP method 现在 uppercase（HTTP method 大小写敏感）",
+        ]),
         Entry(version: "1.5.6", date: "", items: [
             "修复榜单曲目数全部显示成 3 首：之前误把接口里的推荐位数量当成了曲目数",
             "曲目数改为从榜单页的真实总数读取，取不到时不再显示错误数字",

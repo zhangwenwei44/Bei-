@@ -94,7 +94,17 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
         }
 
         var request = URLRequest(url: url)
-        request.httpMethod = (options?.forProperty("method")?.toString()) ?? "GET"
+        // JSValue.toString() 对 undefined 返回字符串 "undefined"（不是 nil），
+        // 之前 `?? "GET"` 永远不触发，脚本没传 method 时 httpMethod 被设成
+        // 字符串 "undefined"，服务端 nginx 直接 400 Bad Request。
+        // 必须显式判 undefined / null，并 uppercase（HTTP method 大小写敏感）。
+        let methodValue = options?.forProperty("method")
+        let resolvedMethod: String = {
+            guard let methodValue, !methodValue.isUndefined, !methodValue.isNull else { return "GET" }
+            let s = methodValue.toString() ?? ""
+            return s.isEmpty ? "GET" : s.uppercased()
+        }()
+        request.httpMethod = resolvedMethod
         request.setValue("AuroraMusic/1.0", forHTTPHeaderField: "User-Agent")
 
         // 脚本发出什么请求、拿到什么结果，之前完全没有记录，
