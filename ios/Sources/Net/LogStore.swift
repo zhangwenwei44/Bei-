@@ -88,7 +88,12 @@ enum Log {
 ///
 /// 刻意不标 @MainActor：网络层是非隔离的，标了连单例都初始化不了。
 /// 需要动 @Published 的方法单独标 @MainActor。
-final class LogStore: ObservableObject {
+///
+/// 线程模型：@Published 只在主线程写；文件/句柄只在 diskQueue 串行队列上动。
+/// 两个隔离域各自串行，跨域只传不可变的 Log.Entry 值——这就是
+/// @unchecked Sendable 所声明的事实（CI 的警告即失败关卡会拦
+/// "capture of 'self' with non-sendable type"，没有这个标注编译不过）。
+final class LogStore: ObservableObject, @unchecked Sendable {
     static let shared = LogStore()
 
     /// 内存里最多留这么多条，太老的丢掉。
