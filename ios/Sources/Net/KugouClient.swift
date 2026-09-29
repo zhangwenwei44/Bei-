@@ -151,9 +151,24 @@ final class KugouClient {
     /// 请求再失败、再落到第三方音源，用户多等 1 秒。这里加一个进程内熔断：
     /// 连续失败超过阈值就不再试，直到 App 重启或某次成功后清零。
     /// 阈值留 3 次：太低误杀偶发抖动，太高失去熔断意义。
+    ///
+    /// 用 actor 而不是 NSLock：NSLock 在 async 上下文里会被 Swift 6 严格并发
+    /// 检查警告「lock is unavailable from asynchronous contexts」，CI 的
+    /// 「Fail on compiler warnings」步骤会把警告当 error 直接终止构建。
+    /// actor 是 Swift Concurrency 原生的 async-safe 同步原语，没有这个问题。
     static let failureThreshold = 3
-    private static let failureLock = NSLock()
-    private static var consecutiveFailures = 0
+    private actor FailureCounter {
+        static let shared = FailureCounter()
+        private(set) var count = 0
+        func increment() -> Int {
+            count += 1
+            return count
+        }
+        func reset() {
+            count = 0
+        }
+    }
+    private static let failures = FailureCounter.shared
 
     /// 直连播放地址。设备指纹过不了时返回 nil，交给第三方音源。
     func songURL(hash: String,
@@ -162,9 +177,7 @@ final class KugouClient {
                  quality: MusicQuality) async -> String? {
         // 熔断中：之前已经连续失败超过阈值，本次运行期不再试。
         // 第三方音源会兜住解析，用户感知只是少了无谓的等待。
-        Self.failureLock.lock()
-        let failures = Self.consecutiveFailures
-        Self.failureLock.unlock()
+        let failures = await Self.failures.count
         if failures >= Self.failureThreshold {
             Log.info("音乐接口", "/v5/url 已熔断（连续失败 \(failures) 次），跳过直连，交给第三方音源")
             return nil
@@ -221,9 +234,7 @@ final class KugouClient {
             if let value = json[key] as? String, !value.isEmpty {
                 // 成功一次就清零熔断计数：服务端协议可能某天修好，
                 // 不能让旧的失败计数永久封住直连。
-                Self.failureLock.lock()
-                Self.consecutiveFailures = 0
-                Self.failureLock.unlock()
+                await Self.failures.reset()
                 return value
             }
         }
@@ -241,10 +252,7 @@ final class KugouClient {
             ?? "无文字说明"
         Log.error("音乐接口", "/v5/url 没有返回播放地址：errcode=\(errcode) errmsg=\(errmsg)（字段：\(json.keys.sorted().joined(separator: ","))）")
         // 失败计数 +1，达到阈值后本次运行期熔断，不再浪费一次切歌 3 个请求。
-        Self.failureLock.lock()
-        Self.consecutiveFailures += 1
-        let total = Self.consecutiveFailures
-        Self.failureLock.unlock()
+        let total = await Self.failures.increment()
         if total >= Self.failureThreshold {
             Log.warn("音乐接口", "/v5/url 累计失败 \(total) 次，已熔断，本次运行期不再尝试，交给第三方音源")
         }
