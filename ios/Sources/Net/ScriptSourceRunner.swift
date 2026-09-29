@@ -757,23 +757,36 @@ final class ScriptSourceRunner {
 
     /// 连续失败次数。表现为一首歌就连续失败时，阈值设低一点。
     private let failureLimit = 3
+    /// 熔断窗口：只封 60 秒，别一断就是整个运行期——网络抖一下不至于废掉整个音源。
+    private let breakerWindow: TimeInterval = 60
     private var failureCounts: [String: Int] = [:]
+    private var trippedAt: [String: Date] = [:]
     private let failureLock = NSLock()
 
     private func noteFailure(_ source: ThirdPartySource) {
         failureLock.lock()
         let next = failureCounts[source.id, default: 0] + 1
         failureCounts[source.id] = next
+        if next >= failureLimit, trippedAt[source.id] == nil {
+            trippedAt[source.id] = Date()
+        }
         failureLock.unlock()
         if next == failureLimit {
-            Log.warn("脚本音源", "「\(source.name)」已连续失败 \(next) 次，接下来会暂时跳过它")
+            Log.warn("脚本音源", "「\(source.name)」已连续失败 \(next) 次，暂时跳过 \(Int(breakerWindow)) 秒")
         }
     }
 
     /// 熔断中的音源不再参与解析，避免每首歌都白等一次超时。
+    /// 窗口过了自动解封（计数清零），网络恢复后音源立即可用。
     private func isTripped(_ source: ThirdPartySource) -> Bool {
         failureLock.lock()
         defer { failureLock.unlock() }
+        guard let tripped = trippedAt[source.id] else { return false }
+        if Date().timeIntervalSince(tripped) > breakerWindow {
+            trippedAt[source.id] = nil
+            failureCounts[source.id] = 0
+            return false
+        }
         return failureCounts[source.id, default: 0] >= failureLimit
     }
 

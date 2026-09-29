@@ -10,6 +10,7 @@ struct UpdateView: View {
     /// 所以分享面板必须用它；沙盒里那份留给「在文件 App 中查看」。
     @State private var sharedURL: URL?
     @State private var shareFailed = false
+    @State private var showUpdatePrompt = false
 
     var body: some View {
         NavigationStack {
@@ -39,9 +40,39 @@ struct UpdateView: View {
             .task {
                 if case let .ready(file) = updater.phase {
                     enterReadyState(file, autoPresent: false)
+                } else if updater.phase == .idle || isFailurePhase {
+                    // 进页发现还没查过（或上次失败）就补一次检查
+                    await updater.check(force: true)
+                }
+                // 有新版本：进页面直接弹窗提示，不用用户再手动点检查
+                if case .available = updater.phase {
+                    showUpdatePrompt = true
                 }
             }
+            .alert("发现新版本", isPresented: $showUpdatePrompt) {
+                Button("稍后再说", role: .cancel) {}
+                Button("立即下载更新") {
+                    if case let .available(release) = updater.phase {
+                        Task { await updater.install(release) }
+                    }
+                }
+            } message: {
+                Text(updatePromptMessage)
+            }
         }
+    }
+
+    private var isFailurePhase: Bool {
+        if case .failed = updater.phase { return true }
+        return false
+    }
+
+    private var updatePromptMessage: String {
+        if case let .available(release) = updater.phase {
+            let line = release.name ?? release.tag_name
+            return "最新版本 \(line)，当前 \(updater.versionText)。下载完成后会自动弹出安装器选择。"
+        }
+        return ""
     }
 
     /// 下载完成（或进入页面时已是 ready）：准备可分享的包路径。

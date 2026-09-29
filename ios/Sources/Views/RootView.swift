@@ -15,7 +15,7 @@ struct RootView: View {
                 NavigationStack {
                     DiscoverView()
                 }
-                .tabItem { Label("发现", systemImage: "flame.fill") }
+                .tabItem { Label("发现", systemImage: "safari.fill") }
                 .tag(Tab.discover)
 
                 NavigationStack {
@@ -33,7 +33,7 @@ struct RootView: View {
                 NavigationStack {
                     ProfileView()
                 }
-                .tabItem { Label("设置", systemImage: "person.crop.circle") }
+                .tabItem { Label("设置", systemImage: "gearshape.fill") }
                 .tag(Tab.profile)
             }
 

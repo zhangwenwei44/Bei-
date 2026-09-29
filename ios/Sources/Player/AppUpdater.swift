@@ -45,7 +45,7 @@ final class AppUpdater: ObservableObject {
     @Published private(set) var lastCheckedAt: Date?
 
     /// 仓库地址，和仓库 README 保持一致
-    private let repo = "zhangwenwei44/KUgou"
+    private let repo = "zhangwenwei44/Bei-"
     private let currentVersion: String
     private let currentBuild: String
     private var progressTask: Task<Void, Never>?

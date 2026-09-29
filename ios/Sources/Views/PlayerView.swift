@@ -18,8 +18,7 @@ struct PlayerView: View {
             VStack(spacing: 0) {
                 topBar
                     .padding(.horizontal, 18)
-                lyrics
-                    .frame(maxHeight: .infinity)
+                artworkStage
                 meta
             }
             if isLyricsPage {
@@ -34,42 +33,60 @@ struct PlayerView: View {
         .onDisappear(perform: animateOut)
     }
 
-    // MARK: - 背景（优先当前歌手写真，其次封面取色）
+    // MARK: - 背景（封面取色渐变 + 封面虚化，酷狗风格）
 
     private var immersiveBackground: some View {
         ZStack {
-            if let photo = store.artistPhoto {
-                Image(uiImage: photo)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipped()
-            } else if let artwork = store.artwork {
+            LinearGradient(colors: store.currentPalette.gradient,
+                           startPoint: .topLeading,
+                           endPoint: .bottomTrailing)
+            if let artwork = store.artwork {
                 Image(uiImage: artwork)
                     .resizable()
                     .scaledToFill()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .blur(radius: 18)
-                    .scaleEffect(1.12)
+                    .blur(radius: 64)
+                    .opacity(0.38)
+                    .scaleEffect(1.25)
                     .clipped()
-            } else {
-                LinearGradient(colors: store.currentPalette.gradient,
-                               startPoint: .topLeading,
-                               endPoint: .bottomTrailing)
             }
-            // 写真不做模糊，靠上下两端的暗色渐变把歌词和控件衬出来
-            LinearGradient(colors: [.black.opacity(0.34),
-                                    .black.opacity(0.08),
+            LinearGradient(colors: [.black.opacity(0.22),
+                                    .black.opacity(0.05),
                                     .clear,
-                                    store.currentPalette.scrim.opacity(0.6),
-                                    store.currentPalette.scrim.opacity(0.94)],
+                                    store.currentPalette.scrim.opacity(0.4),
+                                    store.currentPalette.scrim.opacity(0.88)],
                            startPoint: .top,
                            endPoint: .bottom)
         }
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 0.5), value: store.currentIndex)
         .animation(.easeInOut(duration: 0.5), value: store.currentPalette)
-        .animation(.easeInOut(duration: 0.5), value: store.artistPhoto)
+    }
+
+    // MARK: - 封面大图（占满顶栏和信息区之间的弹性区域）
+
+    private var artworkStage: some View {
+        Group {
+            if let artwork = store.artwork {
+                Image(uiImage: artwork)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ZStack {
+                    Rectangle().fill(.white.opacity(0.08))
+                    Image(systemName: "music.note")
+                        .font(.system(size: 54, weight: .light))
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+            }
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .stroke(.white.opacity(0.14), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.35), radius: 22, y: 10)
+        .padding(.horizontal, 44)
+        .frame(maxWidth: .infinity, maxHeight: .infinity) // 在剩余空间里居中
+        .animation(.easeInOut(duration: 0.4), value: store.currentIndex)
     }
 
     // MARK: - 顶栏
@@ -166,6 +183,10 @@ struct PlayerView: View {
                 .padding(.top, 10)
                 .padding(.horizontal, 18)
 
+            currentLyricPill
+                .padding(.top, 14)
+                .padding(.horizontal, 18)
+
             actionRow
                 .padding(.top, 18)
                 .padding(.horizontal, 14)
@@ -213,6 +234,35 @@ struct PlayerView: View {
                 }
             }
         }
+    }
+
+    /// 当前行歌词胶囊（酷狗式单行），点击进入全屏歌词页
+    private var currentLyricPill: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "text.quote")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(currentLyricText)
+                    .font(.system(size: 12))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(.white.opacity(0.8))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(.white.opacity(0.1), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .animation(.easeInOut(duration: 0.25), value: currentLyricText)
+    }
+
+    private var currentLyricText: String {
+        if store.isLoading { return "正在解析歌词…" }
+        if let index = store.currentLyricIndex, store.lyrics.indices.contains(index) {
+            return store.lyrics[index].text
+        }
+        return store.lyrics.isEmpty ? "纯音乐 · 暂无歌词" : "点击查看完整歌词"
     }
 
     private var actionRow: some View {

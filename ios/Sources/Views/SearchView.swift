@@ -199,12 +199,9 @@ struct SearchView: View {
     // MARK: 搜索历史
 
     private var historyView: some View {
-        Group {
-            if history.isEmpty {
-                EmptyStateView(icon: "magnifyingglass", title: "搜点什么吧",
-                               message: "支持歌名、歌手、歌单和专辑")
-            } else {
-                VStack(alignment: .leading, spacing: 0) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if !history.isEmpty {
                     HStack {
                         Text("最近搜索")
                             .font(.system(size: 13))
@@ -218,27 +215,46 @@ struct SearchView: View {
                         .foregroundStyle(AppStyle.tertiaryText)
                     }
                     .padding(.horizontal, 16)
-                    .padding(.bottom, 6)
+                    .padding(.bottom, 10)
 
-                    ForEach(history, id: \.self) { item in
-                        HStack(spacing: 10) {
-                            Image(systemName: "clock")
-                                .font(.system(size: 13))
-                                .foregroundStyle(AppStyle.tertiaryText)
-                            Text(item)
-                                .font(.system(size: 14))
-                                .foregroundStyle(AppStyle.primaryText)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 9)
-                        .contentShape(Rectangle())
-                        .onTapGesture { runSearch(item) }
+                    FlowChips(items: history) { item in
+                        keyword = item
+                        runSearch(item)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 26)
                 }
+
+                HStack(spacing: 4) {
+                    Image(systemName: "flame.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppStyle.accent)
+                    Text("热门搜索")
+                        .font(.system(size: 13))
+                        .foregroundStyle(AppStyle.secondaryText)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
+
+                FlowChips(items: Self.hotKeywords) { item in
+                    keyword = item
+                    runSearch(item)
+                }
+                .padding(.horizontal, 16)
             }
+            .padding(.bottom, 30)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
+
+    /// 热门搜索词。酷狗的热搜接口要签名，先放一份稳定的热门标签，
+    /// 点一下直接出结果，比空白页热闹得多。
+    static let hotKeywords: [String] = [
+        "抖音热歌", "周杰伦", "华语经典", "粤语金曲", "薛之谦",
+        "伤感情歌", "欧美流行", "网络热歌", "轻音乐", "邓紫棋",
+        "90后回忆", "KTV必点", "民谣", "说唱", "影视金曲", "深夜循环",
+    ]
 
     // MARK: 行为
 

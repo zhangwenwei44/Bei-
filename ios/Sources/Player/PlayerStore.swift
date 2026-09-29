@@ -44,6 +44,9 @@ final class PlayerStore: ObservableObject {
     private var observers: [NSObjectProtocol] = []
     private var shuffleHistory: [Int] = []
     private var failedHosts = Set<String>()
+    /// 换源重试限制：同一首歌最多自动重试 1 次，防止把音源打熔断
+    private var recoverySongID: String?
+    private var recoveryAttempts = 0
     private var preparingTask: Task<Void, Never>?
     private var artworkTaskID: String?
     private var artistPhotoTaskID: String?
@@ -168,7 +171,8 @@ final class PlayerStore: ObservableObject {
         isLoading = true
         artistPhoto = nil
         refreshArtwork(for: song)
-        loadArtistPhoto(for: song)
+        // 歌手写真背景已下线（播放页改为酷狗式封面大图），不再发起写真请求
+        // loadArtistPhoto(for: song)
         loadLyrics(for: song)
 
         let excluded = failedHosts
@@ -491,11 +495,27 @@ final class PlayerStore: ObservableObject {
                                             object: nil,
                                             queue: .main) { [weak self] notification in
             guard let self, let item = notification.object as? AVPlayerItem, item === self.player.currentItem else { return }
-            self.handlePlaybackFailure()
+            // 卡顿不是失败：AVPlayer 会自己缓冲恢复，绝不能在这里拉黑域名重解析，
+            // 否则网络稍微一抖就把音源熔断了，后面所有歌都放不出来
+            Log.info("播放", "缓冲卡顿（\(assetHost(of: item) ?? "?")），等待自动恢复")
+        })
+
+        observers.append(center.addObserver(forName: .AVPlayerItemNewErrorLogEntry,
+                                            object: nil,
+                                            queue: .main) { [weak self] notification in
+            guard let self, let item = notification.object as? AVPlayerItem, item === self.player.currentItem else { return }
+            if let log = item.errorLog() {
+                Log.error("播放", "播放器错误日志: \(log.comments ?? "无详情") (\(log.errorStatusCode)) \(log.errorString ?? "")")
+            }
         })
     }
 
+    private func assetHost(of item: AVPlayerItem) -> String? {
+        (item.asset as? AVURLAsset)?.url.host?.lowercased()
+    }
+
     /// 播放失败：如果是第三方地址，把该域名拉黑并换源重试一次。
+    /// 同一首歌最多自动重试 1 次，再多就会把音源打熔断，殃及后面所有歌。
     private func handlePlaybackFailure() {
         guard current != nil else { return }
         guard itemThirdParty,
@@ -505,6 +525,17 @@ final class PlayerStore: ObservableObject {
             pause()
             return
         }
+        Log.error("播放", "播放失败（\(host)），准备换源重试")
+        if recoverySongID != current?.id {
+            recoverySongID = current?.id
+            recoveryAttempts = 0
+        }
+        guard recoveryAttempts < 1 else {
+            playbackError = "这首歌暂时无法播放，去「我的 - 音源」看看"
+            pause()
+            return
+        }
+        recoveryAttempts += 1
         failedHosts.insert(host)
         if failedHosts.count > 8 { failedHosts.removeAll() }
         playbackError = "当前节点不可用，正在换源"

@@ -7,6 +7,21 @@ struct DiscoverView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var query = ""
+    @State private var guessSongs: [Song] = []
+    @State private var isLoadingGuess = false
+
+    /// 热门歌手名单。酷狗没有免签名的热门歌手接口，先放一份经典名单，
+    /// 点击直接跳歌手搜索结果。
+    static let hotArtists: [String] = [
+        "周杰伦", "林俊杰", "陈奕迅", "邓紫棋", "薛之谦", "周深",
+        "毛不易", "梁静茹", "王心凌", "李荣浩", "张碧晨", "许嵩",
+    ]
+
+    /// 猜你喜欢的抽词池：随机挑两个词各搜一页，拼成一组推荐。
+    static let guessPool: [String] = [
+        "抖音热歌", "华语经典", "粤语金曲", "伤感情歌", "欧美流行",
+        "网络热歌", "轻音乐", "90后回忆", "KTV必点", "影视金曲",
+    ]
 
     var body: some View {
         ScrollView {
@@ -17,6 +32,8 @@ struct DiscoverView: View {
                     LoadingRow()
                 } else {
                     searchEntry
+                    guessSection
+                    hotArtistsSection
                     topListSection
                 }
             }
@@ -63,6 +80,105 @@ struct DiscoverView: View {
     /// 三列宫格的封面边长。按最窄机型（375pt 宽）算：
     /// (375 - 左右各 16 - 列间距 12×2) / 3 ≈ 106，宽屏上留白多一点也协调。
     private let rankTileSize: CGFloat = 106
+
+    // MARK: 猜你喜欢
+
+    private var guessSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("猜你喜欢")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(AppStyle.primaryText)
+                Spacer()
+                Button {
+                    Task { await loadGuess() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("换一批")
+                            .font(.system(size: 12))
+                    }
+                    .foregroundStyle(AppStyle.accent)
+                }
+                .buttonStyle(.plain)
+                .disabled(isLoadingGuess)
+            }
+            .padding(.horizontal, 16)
+
+            if !guessSongs.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(guessSongs) { song in
+                            Button {
+                                playGuess(song)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    CoverImage(url: song.artworkURL,
+                                               fallbackKeys: [song.kugouAlbumID].compactMap { $0 },
+                                               seed: song.title,
+                                               size: 124,
+                                               corner: 12)
+                                    Text(song.title)
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(AppStyle.primaryText)
+                                        .lineLimit(1)
+                                    Text(song.artist)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(AppStyle.secondaryText)
+                                        .lineLimit(1)
+                                }
+                                .frame(width: 124)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .songMenu(song)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+            }
+        }
+        .padding(.bottom, 24)
+    }
+
+    private func playGuess(_ song: Song) {
+        guard let index = guessSongs.firstIndex(where: { $0.id == song.id }) else { return }
+        store.play(guessSongs, startAt: index)
+        Haptics.soft()
+    }
+
+    // MARK: 热门歌手
+
+    private var hotArtistsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("热门歌手")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(AppStyle.primaryText)
+                .padding(.horizontal, 16)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    ForEach(Self.hotArtists, id: \.self) { name in
+                        NavigationLink {
+                            SearchView(initialKeyword: name)
+                        } label: {
+                            VStack(spacing: 6) {
+                                CoverImage(url: nil, seed: name, size: 64, corner: 32)
+                                Text(name)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(AppStyle.primaryText)
+                                    .lineLimit(1)
+                            }
+                            .frame(width: 66)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+        }
+        .padding(.bottom, 24)
+    }
 
     @ViewBuilder
     private var topListSection: some View {
@@ -136,9 +252,31 @@ struct DiscoverView: View {
             errorMessage = "拿不到榜单，检查一下网络或稍后再试"
             return
         }
+        // 猜你喜欢先刷出来（两次搜索就够），再慢慢补榜单曲目数
+        await loadGuess()
         // 曲目数要单独请求榜单页才拿得到（列表接口里没有 songcount），
         // 只补前若干个，避免一进页面就打 55 个请求。
         await loadTrackCounts(for: feed.topLists.prefix(12))
+    }
+
+    /// 猜你喜欢：随机挑两个热词各搜一页，按 id 去重后拼一组推荐。
+    private func loadGuess() async {
+        guard !isLoadingGuess else { return }
+        isLoadingGuess = true
+        defer { isLoadingGuess = false }
+        let picks = Self.guessPool.shuffled().prefix(2)
+        var songs: [Song] = []
+        var seen = Set<String>()
+        for keyword in picks {
+            guard let got = try? await KugouClient.shared.searchSongs(keyword: keyword, limit: 8) else { continue }
+            for song in got where !seen.contains(song.id) {
+                seen.insert(song.id)
+                songs.append(song)
+                if songs.count >= 10 { break }
+            }
+            if songs.count >= 10 { break }
+        }
+        guessSongs = songs
     }
 
     /// 逐个补齐真实曲目数，补到就刷新界面。

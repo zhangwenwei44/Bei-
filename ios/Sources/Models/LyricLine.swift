@@ -26,6 +26,13 @@ enum LRCParser {
             let ns = line as NSString
             let stamps = pattern.matches(in: line, range: NSRange(location: 0, length: ns.length))
             guard let first = stamps.first else {
+                // [ar:xxx] [ti:xxx] [hash:xxx] 这类 LRC 头部元数据不是歌词，
+                // 跳过，不然播放页/歌词页会显示一排 [ar:...] 标签
+                if line.hasPrefix("["), line.hasSuffix("]"),
+                   let key = line.dropFirst().dropLast().split(separator: ":", maxSplits: 1).first,
+                   !key.isEmpty, key.allSatisfy({ $0.isLetter }) {
+                    continue
+                }
                 result.append(LyricLine(time: 0, text: line))
                 continue
             }
