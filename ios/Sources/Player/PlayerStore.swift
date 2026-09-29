@@ -598,16 +598,11 @@ final class PlayerStore: ObservableObject {
             self?.seek(to: event.positionTime)
             return .success
         }
-        center.skipForwardCommand.preferredIntervals = [15]
-        center.skipForwardCommand.addTarget { [weak self] _ in
-            self?.skip(by: 15)
-            return .success
-        }
-        center.skipBackwardCommand.preferredIntervals = [15]
-        center.skipBackwardCommand.addTarget { [weak self] _ in
-            self?.skip(by: -15)
-            return .success
-        }
+        // 注意：±15 秒跳转命令不能注册——锁屏的传输键位是互斥的，
+        // 注册了 skip 命令 iOS 就只显示 ±15，把上一首/下一首藏起来。
+        // 明确禁用，锁屏才会显示 ⏮ ⏭。
+        center.skipForwardCommand.isEnabled = false
+        center.skipBackwardCommand.isEnabled = false
         center.changeRepeatModeCommand.addTarget { [weak self] event in
             guard let event = event as? MPChangeRepeatModeCommandEvent else { return .commandFailed }
             self?.mode = event.repeatType == .one ? .single : .order
