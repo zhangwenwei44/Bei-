@@ -128,6 +128,7 @@ struct CoverImage: View {
     private func load() async {
         guard let target = effectiveURL else {
             image = nil
+            Log.warn("封面", "「\(seed)」没有任何可用地址")
             return
         }
         if target.isFileURL, let data = try? Data(contentsOf: target), let loaded = UIImage(data: data) {
@@ -143,10 +144,18 @@ struct CoverImage: View {
         request.setValue("AuroraMusic/1.0", forHTTPHeaderField: "User-Agent")
         // 酷狗图床在没有 Referer 时会 403
         request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")
-        guard let (data, _) = try? await URLSession.shared.data(for: request),
-              let loaded = UIImage(data: data) else { return }
-        CoverCache.shared.store(loaded, for: target)
-        image = loaded
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            guard code == 200, let loaded = UIImage(data: data) else {
+                Log.error("封面", "「\(seed)」加载失败 HTTP \(code) / \(data.count) 字节 <- \(target.absoluteString)")
+                return
+            }
+            CoverCache.shared.store(loaded, for: target)
+            image = loaded
+        } catch {
+            Log.error("封面", "「\(seed)」请求出错：\(error.localizedDescription) <- \(target.absoluteString)")
+        }
     }
 }
 

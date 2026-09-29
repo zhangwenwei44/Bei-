@@ -52,10 +52,22 @@ enum SourceResolver {
     static func thirdPartyURL(for song: Song,
                               quality: MusicQuality,
                               excludedHosts: Set<String>) async -> ResolvedAudio? {
-        await thirdPartyURL(sources: SourceStore.shared.enabledSources,
-                            song: song,
-                            quality: quality,
-                            excludedHosts: excludedHosts)
+        let all = SourceStore.shared.sources
+        let enabled = SourceStore.shared.enabledSources
+        // 音源到底是因为开关关掉还是本身不可用，这里一次说清楚。
+        // 之前只打 enabledSources 的个数，看到「1 个音源」根本不知道另外两个去哪了。
+        if enabled.count != all.count {
+            let detail = all.map { source -> String in
+                let reason = !source.enabled ? "已关闭"
+                    : (!source.isUsable ? "不可用" : "可用")
+                return "\(source.name)[\(reason)]"
+            }.joined(separator: ", ")
+            Log.info("音源解析", "音源状态：\(detail)")
+        }
+        return await thirdPartyURL(sources: enabled,
+                                   song: song,
+                                   quality: quality,
+                                   excludedHosts: excludedHosts)
     }
 
     /// 用指定的音源列表解析，供「测试解析」在保存前验证草稿配置。

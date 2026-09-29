@@ -78,8 +78,9 @@ struct DiscoverView: View {
                                     .lineLimit(2)
                                     .multilineTextAlignment(.leading)
                                 if playlist.trackCount > 0 {
+                                    // 真实曲目数在榜单页的 global.total 里，由 loadTrackCounts 异步补。
+                                    // 补不到就不显示，而不是显示一个错的数字。
                                     HStack(spacing: 4) {
-                                        // 酷狗榜单卡片上的曲目数用蓝色小标签
                                         Text("\(playlist.trackCount) 首")
                                             .font(.system(size: 10, weight: .medium))
                                             .foregroundStyle(AppStyle.accent)
@@ -134,6 +135,21 @@ struct DiscoverView: View {
         feed.topLists = await KugouClient.shared.topLists()
         if feed.isEmpty {
             errorMessage = "拿不到榜单，检查一下网络或稍后再试"
+            return
+        }
+        // 曲目数要单独请求榜单页才拿得到（列表接口里没有 songcount），
+        // 只补前若干个，避免一进页面就打 55 个请求。
+        await loadTrackCounts(for: feed.topLists.prefix(12))
+    }
+
+    /// 逐个补齐真实曲目数，补到就刷新界面。
+    private func loadTrackCounts(for lists: ArraySlice<Playlist>) async {
+        let client = KugouClient.shared
+        for (index, playlist) in lists.enumerated() {
+            guard let rankID = playlist.kugouRankID else { continue }
+            guard let total = await client.rankTotal(rankID: rankID) else { continue }
+            guard index < feed.topLists.count, feed.topLists[index].id == playlist.id else { return }
+            feed.topLists[index].trackCount = total
         }
     }
 }

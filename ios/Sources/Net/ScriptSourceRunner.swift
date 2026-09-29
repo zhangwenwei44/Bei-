@@ -97,6 +97,10 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
         request.httpMethod = (options?.forProperty("method")?.toString()) ?? "GET"
         request.setValue("AuroraMusic/1.0", forHTTPHeaderField: "User-Agent")
 
+        // 脚本发出什么请求、拿到什么结果，之前完全没有记录，
+        // 播放失败时只能看到「invoke 没返回地址」，无从判断卡在哪一步。
+        Log.info("脚本网络", "\(request.httpMethod ?? "GET") \(urlString.prefix(160))")
+
         if let headers = options?.forProperty("headers")?.toObject() as? [String: Any] {
             for (key, value) in headers {
                 request.setValue(String(describing: value), forHTTPHeaderField: key)
@@ -138,6 +142,8 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
                 result["body"] = String(data: payload, encoding: .utf8) ?? ""
                 result["bodyType"] = "text"
             }
+            let preview = String(data: payload.prefix(160), encoding: .utf8) ?? ""
+            Log.info("脚本网络", "  -> \(http?.statusCode ?? 0) / \(payload.count) 字节 / \(preview.prefix(120))")
             self?.respond(callback, result)
         }.resume()
     }
@@ -580,8 +586,12 @@ final class ScriptRuntime {
     """
 
     /// 调用脚本，超时或失败返回 nil。
-    func invoke(payload: [String: Any], timeout: TimeInterval = 12) async -> Any? {
-        await withCheckedContinuation { continuation in
+    ///
+    /// 超时从 12 秒降到 8 秒：音源是串行尝试的，超时太长会让用户干等，
+    /// 而且失败时迟迟看不到反馈。8 秒足够脚本完成一次带签名的请求。
+    func invoke(payload: [String: Any], timeout: TimeInterval = 8) async -> Any? {
+        Log.debug("脚本音源", "invoke 开始，超时 \(Int(timeout)) 秒")
+        let result: Any? = await withCheckedContinuation { continuation in
             let completion = ScriptCompletion()
             let lock = NSLock()
             var resumed = false
@@ -599,20 +609,25 @@ final class ScriptRuntime {
 
             completion.onFinish = { value in
                 guard let dict = value as? [String: Any], dict["error"] == nil else {
+                    if let dict, let err = dict["error"] {
+                        Log.error("脚本音源", "脚本自己报错：\(err)")
+                    }
                     return resume(nil)
                 }
+                Log.debug("脚本音源", "invoke 收到脚本返回")
                 resume(dict["value"])
             }
 
             queue.async { [weak self] in
                 guard let self else { return resume(nil) }
                 guard self.isUsable else {
-                    Log.error("脚本音源", "运行时已因异常失效，跳过本次调用")
+                    Log.error("脚本音源", "「\(self.sourceName)」运行时已因异常失效，跳过本次调用")
                     return resume(nil)
                 }
                 self.context.setObject(payload as NSDictionary, forKeyedSubscript: "__beansPayload" as NSString)
                 self.context.setObject(completion, forKeyedSubscript: "__beansDone" as NSString)
                 self.sawException = false
+                Log.debug("脚本音源", "「\(self.sourceName)」开始执行 musicUrl")
                 self.context.evaluateScript("""
                 (function () {
                   try {
@@ -623,17 +638,23 @@ final class ScriptRuntime {
                   return 1;
                 })();
                 """)
+                Log.debug("脚本音源", "「\(self.sourceName)」musicUrl 同步部分执行完毕")
                 if self.context.exception != nil || self.sawException {
-                    Log.error("脚本音源", "「\(self.sourceName)」调用 musicUrl 期间出现异常，这个运行时作废")
+                    Log.error("脚本音源", "「\(self.sourceName)」调用期间出现异常，运行时作废")
                     self.invalidate()
                     return resume(nil)
                 }
             }
 
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                Log.warn("脚本音源", "invoke 超过 \(Int(timeout)) 秒没有返回，按超时处理")
                 resume(nil)
             }
         }
+        if result == nil {
+            Log.error("脚本音源", "invoke 最终没有拿到地址")
+        }
+        return result
     }
 }
 

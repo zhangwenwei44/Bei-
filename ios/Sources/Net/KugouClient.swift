@@ -236,13 +236,40 @@ final class KugouClient {
             return Playlist(id: "kg-rank:\(rankID)",
                             name: name,
                             coverURL: cover.flatMap { URL(string: $0) },
-                            trackCount: KugouClient.intValue(item["songcount"])
-                                ?? (item["songinfo"] as? [[String: Any]])?.count
-                                ?? 0,
+                            // songcount 字段实际不存在，songinfo 只有 3 条推荐位——
+                            // 之前拿 songinfo.count 当曲目数，结果所有榜单都显示「3 首」。
+                            // 真实总数在榜单页的 global.total 里，由 rankTotal() 异步补。
+                            trackCount: 0,
                             creatorName: "酷狗音乐",
                             source: .kugou,
                             kugouRankID: rankID,
                             updateFrequency: KugouClient.string(item["update_frequency"]) ?? "")
+        }
+    }
+
+    /// 榜单的真实曲目总数。
+    ///
+    /// 榜单列表接口里没有 songcount，songinfo 只有 3 条推荐位，不能当曲目数用。
+    /// 真实总数在榜单页的 `global.total` 里（TOP500 是 500，其余榜单多为 100）。
+    /// 取不到就返回 nil，让界面显示「—」而不是一个错的数字。
+    func rankTotal(rankID: String) async -> Int? {
+        guard let numericID = Int(rankID), numericID > 0 else { return nil }
+        do {
+            let html = try await getRaw(path: "/yy/rank/home/1-\(numericID).html",
+                                        host: "https://www.kugou.com",
+                                        params: [:],
+                                        headers: [:])
+            // 形如 total: '500'
+            guard let range = html.range(of: "total:\\s*'") else { return nil }
+            let rest = html[range.upperBound...]
+            guard let end = rest.firstIndex(of: "'") else { return nil }
+            let digits = rest[rest.startIndex..<end]
+            guard let total = Int(digits), total > 0 else { return nil }
+            Log.info("榜单", "rankid=\(numericID) 真实曲目数 \(total)")
+            return total
+        } catch {
+            Log.warn("榜单", "rankid=\(numericID) 取曲目数失败：\(error.localizedDescription)")
+            return nil
         }
     }
 
