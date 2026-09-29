@@ -504,8 +504,8 @@ final class PlayerStore: ObservableObject {
                                             object: nil,
                                             queue: .main) { [weak self] notification in
             guard let self, let item = notification.object as? AVPlayerItem, item === self.player.currentItem else { return }
-            if let log = item.errorLog() {
-                Log.error("播放", "播放器错误日志: \(log.comments ?? "无详情") (\(log.errorStatusCode)) \(log.errorString ?? "")")
+            if let log = item.errorLog(), let event = log.events.first {
+                Log.error("播放", "播放器错误日志: \(event.comments ?? event.errorString ?? "无详情") (code=\(event.errorStatusCode)) \(event.uri ?? "")")
             }
         })
     }
