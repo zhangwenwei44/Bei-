@@ -130,6 +130,9 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "1.9.6", date: "", items: [
+            "播放页偏移根治（方向二）：GeometryReader 会被内部 ignoresSafeArea 反向撑成超屏宽，改用窗口真实尺寸 UIScreen bounds 逐元素钉宽",
+        ]),
         Entry(version: "1.9.5", date: "", items: [
             "彻底修复播放页偏移：元凶是进度条宽度用 PreferenceKey(max) 回传 state，一旦量到超宽值只增不减，把整个信息区撑成近两倍屏宽；现全部改为 GeometryReader 传入的确定宽度并根裁剪",
         ]),

@@ -13,22 +13,23 @@ struct PlayerView: View {
     private var displayTime: Double { isScrubbing ? scrubValue : store.currentTime }
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                immersiveBackground
-                VStack(spacing: 0) {
-                    topBar
-                        .frame(width: geo.size.width - 36)
-                    artworkStage(available: geo.size)
-                    meta(width: geo.size.width)
-                }
-                // 双重保险：容器钉死屏宽 + 根裁剪，任何子视图都不可能画出屏幕
-                .frame(width: geo.size.width)
-                .clipped()
-                if isLyricsPage {
-                    LyricsPageView(isShown: $isLyricsPage)
-                        .transition(.opacity)
-                }
+        // 直接用窗口的真实物理尺寸。绝不能用 GeometryReader：
+        // 内部背景的 .ignoresSafeArea() 会反向把 GeometryReader 撑成超屏宽，
+        // 导致整页被居中后左右偏移。
+        let size = Self.windowBounds
+        return ZStack {
+            immersiveBackground
+            VStack(spacing: 0) {
+                topBar
+                    .frame(width: size.width - 36)
+                artworkStage(width: size.width, height: size.height)
+                meta(width: size.width)
+            }
+            .frame(width: size.width)
+            .clipped()
+            if isLyricsPage {
+                LyricsPageView(isShown: $isLyricsPage)
+                    .transition(.opacity)
             }
         }
         .ignoresSafeArea(edges: .bottom)
@@ -36,6 +37,19 @@ struct PlayerView: View {
         .overlay(alignment: .bottom) { toastLayer }
         .onAppear(perform: animateIn)
         .onDisappear(perform: animateOut)
+    }
+
+    /// 设备窗口尺寸（keyWindow.bounds），取不到时给 XS 的 375×812 兜底。
+    private static var windowBounds: CGSize {
+        for scene in UIApplication.shared.connectedScenes {
+            guard let ws = scene as? UIWindowScene else { continue }
+            if let window = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first,
+               window.bounds.width > 0 {
+                return window.bounds.size
+            }
+            if ws.screen.bounds.width > 0 { return ws.screen.bounds.size }
+        }
+        return CGSize(width: 375, height: 812)
     }
 
     // MARK: - 背景（封面取色渐变 + 封面虚化，酷狗风格）
@@ -69,8 +83,8 @@ struct PlayerView: View {
 
     // MARK: - 封面大图（确定性尺寸：宽-88 与可用高度 42% 取小，信息区永远完整）
 
-    private func artworkStage(available: CGSize) -> some View {
-        let side = max(140, min(available.width - 88, available.height * 0.42, 360))
+    private func artworkStage(width: CGFloat, height: CGFloat) -> some View {
+        let side = max(140, min(width - 88, height * 0.42, 360))
         return Group {
             if let artwork = store.artwork {
                 Image(uiImage: artwork)
@@ -90,7 +104,7 @@ struct PlayerView: View {
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
             .stroke(.white.opacity(0.14), lineWidth: 0.5))
         .shadow(color: .black.opacity(0.35), radius: 22, y: 10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity) // 在剩余空间里居中
+        .frame(maxWidth: .infinity, maxHeight: .infinity) // 在剩余空间里居中（横向已被固定屏宽锁死）
         .animation(.easeInOut(duration: 0.4), value: store.currentIndex)
     }
 
@@ -180,6 +194,8 @@ struct PlayerView: View {
 
             currentLyricPill
                 .padding(.top, 14)
+                .frame(width: width - 36, alignment: .leading)
+                .clipped()
                 .padding(.horizontal, 18)
 
             actionRow(width: width)
