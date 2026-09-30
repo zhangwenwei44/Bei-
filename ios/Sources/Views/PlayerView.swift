@@ -6,29 +6,29 @@ struct PlayerView: View {
     @Binding var isExpanded: Bool
     @State private var isScrubbing = false
     @State private var scrubValue: Double = 0
-    @State private var geometryWidth: CGFloat = 0
+
     @State private var showToast: String?
     @State private var isLyricsPage = false
 
     private var displayTime: Double { isScrubbing ? scrubValue : store.currentTime }
 
     var body: some View {
-        ZStack {
-            immersiveBackground
-            GeometryReader { geo in
+        GeometryReader { geo in
+            ZStack {
+                immersiveBackground
                 VStack(spacing: 0) {
                     topBar
-                        .padding(.horizontal, 18)
+                        .frame(width: geo.size.width - 36)
                     artworkStage(available: geo.size)
-                    meta
+                    meta(width: geo.size.width)
                 }
-                // 关键：强制容器宽度=屏宽。否则操作行等 intrinsic 超宽子视图
-                // 会把 VStack 撑宽并被外层居中，导致标题/标签/按钮整体左移出屏。
+                // 双重保险：容器钉死屏宽 + 根裁剪，任何子视图都不可能画出屏幕
                 .frame(width: geo.size.width)
-            }
-            if isLyricsPage {
-                LyricsPageView(isShown: $isLyricsPage)
-                    .transition(.opacity)
+                .clipped()
+                if isLyricsPage {
+                    LyricsPageView(isShown: $isLyricsPage)
+                        .transition(.opacity)
+                }
             }
         }
         .ignoresSafeArea(edges: .bottom)
@@ -148,6 +148,7 @@ struct PlayerView: View {
             }
             Text(qualityText)
                 .font(.system(size: 10, weight: .medium))
+                .lineLimit(1)
         }
         .foregroundStyle(.white.opacity(0.9))
         .padding(.horizontal, 7)
@@ -163,40 +164,28 @@ struct PlayerView: View {
         return store.bitrateLabel.isEmpty ? SourceStore.shared.quality.title : store.bitrateLabel
     }
 
-    private var lyrics: some View {
-        LyricsView(lyrics: store.lyrics,
-                   currentIndex: store.currentLyricIndex,
-                   showsTranslation: store.showTranslation)
-            .padding(.horizontal, 18)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
-            }
-    }
-
     // MARK: - 信息区
 
-    private var meta: some View {
+    private func meta(width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(store.current?.title ?? "")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
+                .frame(width: width - 36, alignment: .leading)
                 .padding(.horizontal, 18)
 
-            tagRow
+            tagRow(width: width)
                 .padding(.top, 10)
-                .padding(.horizontal, 18)
 
             currentLyricPill
                 .padding(.top, 14)
                 .padding(.horizontal, 18)
 
-            actionRow
+            actionRow(width: width)
                 .padding(.top, 18)
-                .padding(.horizontal, 14)
 
-            progressSection
+            progressSection(width: width)
                 .padding(.top, 20)
                 .padding(.horizontal, 18)
 
@@ -205,12 +194,11 @@ struct PlayerView: View {
                 // 原来贴着 home indicator，上提一段让控制键落在拇指更顺手的位置
                 .padding(.bottom, 30)
         }
+        .frame(width: width, alignment: .leading)
         .layoutPriority(1) // 信息区（歌名/按钮/进度）优先于封面占空间，任何机型都完整显示
     }
 
-    /// 标签行：固定不换行的 HStack，超长截尾。不再用横向 ScrollView ——
-    /// 窄屏(XS)上 ScrollView 会把内容滚出可视区，导致歌手名/标签看起来像被挤没了。
-    private var tagRow: some View {
+    private func tagRow(width: CGFloat) -> some View {
         HStack(spacing: 8) {
             Text(store.current?.artist ?? "")
                 .font(.system(size: 11))
@@ -244,7 +232,9 @@ struct PlayerView: View {
             }
             Spacer(minLength: 0)
         }
+        .frame(width: width - 36)
         .clipped()
+        .padding(.horizontal, 18)
     }
 
     /// 当前行歌词胶囊（酷狗式单行），点击进入全屏歌词页
@@ -276,8 +266,8 @@ struct PlayerView: View {
         return store.lyrics.isEmpty ? "纯音乐 · 暂无歌词" : "点击查看完整歌词"
     }
 
-    private var actionRow: some View {
-        // 六个按钮等分整行宽度，任何机型都一屏显示，不滚动、不裁切
+    private func actionRow(width: CGFloat) -> some View {
+        // 六个按钮等分【显式指定的屏宽-28】，任何机型都一屏显示，不滚动、不裁切
         HStack(spacing: 0) {
             actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
             actionButton(icon: store.isLiked ? "heart.fill" : "heart",
@@ -298,7 +288,9 @@ struct PlayerView: View {
                 store.cycleMode()
             }
         }
-        .padding(.horizontal, 4)
+        .frame(width: width - 28)
+        .clipped()
+        .padding(.horizontal, 14)
     }
 
     private var modeLabel: String {
@@ -346,35 +338,38 @@ struct PlayerView: View {
 
     // MARK: - 进度
 
-    private var progressSection: some View {
-        VStack(spacing: 4) {
+    private func progressSection(width: CGFloat) -> some View {
+        // 直接用外层传入的确定宽度，不再用 preference 回传 @State
+        // （旧方案形成「胶囊宽度→测量→state→更宽」的反馈环，会把进度条撑到屏外）。
+        let trackWidth = width - 36
+        return VStack(spacing: 4) {
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(.white.opacity(0.28))
                     .frame(height: 2)
                 Capsule()
                     .fill(.white.opacity(0.35))
-                    .frame(width: max(0, min(1, store.bufferedFraction)) * geometryWidth, height: 2)
+                    .frame(width: max(0, min(1, store.bufferedFraction)) * trackWidth, height: 2)
                 Capsule()
                     .fill(.white)
-                    .frame(width: max(0, min(1, store.progress)) * geometryWidth, height: 2)
+                    .frame(width: max(0, min(1, store.progress)) * trackWidth, height: 2)
                 Circle()
                     .fill(.white)
                     .frame(width: 10, height: 10)
-                    .offset(x: max(0, min(1, store.progress)) * geometryWidth - 5)
+                    .offset(x: max(0, min(1, store.progress)) * trackWidth - 5)
                     .opacity(isScrubbing ? 1 : 0)
             }
-            .frame(height: 12)
+            .frame(width: trackWidth, height: 12, alignment: .leading)
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    guard store.duration > 0, geometryWidth > 0 else { return }
+                    guard store.duration > 0, trackWidth > 0 else { return }
                     if !isScrubbing {
                         isScrubbing = true
                         scrubValue = store.currentTime
                         Haptics.light()
                     }
-                    scrubValue = min(1, max(0, value.location.x / geometryWidth)) * store.duration
+                    scrubValue = min(1, max(0, value.location.x / trackWidth)) * store.duration
                 }
                 .onEnded { _ in
                     store.seek(to: scrubValue)
@@ -386,13 +381,12 @@ struct PlayerView: View {
                 Spacer()
                 Text(store.duration.clockString)
             }
+            .frame(width: trackWidth)
             .font(.system(size: 11, design: .monospaced))
             .foregroundStyle(.white.opacity(0.7))
         }
-        .background(GeometryReader { proxy in
-            Color.clear.preference(key: TrackWidthKey.self, value: proxy.size.width)
-        })
-        .onPreferenceChange(TrackWidthKey.self) { geometryWidth = $0 }
+        .frame(width: trackWidth)
+        .clipped()
     }
 
     // MARK: - 控制
@@ -477,14 +471,7 @@ struct PlayerView: View {
     }
 }
 
-private struct TrackWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
-struct PlayButton: View {
+private struct PlayButton: View {
     @EnvironmentObject private var store: PlayerStore
     @State private var pulse = false
 

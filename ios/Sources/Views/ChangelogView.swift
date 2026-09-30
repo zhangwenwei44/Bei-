@@ -130,6 +130,9 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "1.9.5", date: "", items: [
+            "彻底修复播放页偏移：元凶是进度条宽度用 PreferenceKey(max) 回传 state，一旦量到超宽值只增不减，把整个信息区撑成近两倍屏宽；现全部改为 GeometryReader 传入的确定宽度并根裁剪",
+        ]),
         Entry(version: "1.9.4", date: "", items: [
             "根治 iPhone XS 播放页内容整体左移被裁切：操作行超宽 ScrollView 把容器撑爆导致标题/标签/按钮出屏；现强制页面宽度=屏宽，操作行改六等分按钮全部一屏可见",
         ]),
