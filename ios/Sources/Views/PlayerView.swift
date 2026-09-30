@@ -22,6 +22,9 @@ struct PlayerView: View {
                     artworkStage(available: geo.size)
                     meta
                 }
+                // 关键：强制容器宽度=屏宽。否则操作行等 intrinsic 超宽子视图
+                // 会把 VStack 撑宽并被外层居中，导致标题/标签/按钮整体左移出屏。
+                .frame(width: geo.size.width)
             }
             if isLyricsPage {
                 LyricsPageView(isShown: $isLyricsPage)
@@ -274,31 +277,28 @@ struct PlayerView: View {
     }
 
     private var actionRow: some View {
-        // 窄屏（320pt 的老设备）上六个按钮挤不下，两端会被裁掉，
-        // 包一层横向滚动保证都够得着
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
-                actionButton(icon: store.isLiked ? "heart.fill" : "heart",
-                             label: "收藏",
-                             tint: store.isLiked ? AppStyle.like : .white) {
-                    store.toggleFavorite()
-                }
-                actionButton(icon: "character.bubble", label: "翻译") {
-                    store.showTranslation.toggle()
-                }
-                actionButton(icon: "text.quote", label: "歌词") {
-                    withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
-                }
-                actionButton(icon: "list.bullet", label: "队列") {
-                    store.isQueuePresented = true
-                }
-                actionButton(icon: store.mode.icon, label: modeLabel) {
-                    store.cycleMode()
-                }
+        // 六个按钮等分整行宽度，任何机型都一屏显示，不滚动、不裁切
+        HStack(spacing: 0) {
+            actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
+            actionButton(icon: store.isLiked ? "heart.fill" : "heart",
+                         label: "收藏",
+                         tint: store.isLiked ? AppStyle.like : .white) {
+                store.toggleFavorite()
             }
-            .frame(maxWidth: .infinity)
+            actionButton(icon: "character.bubble", label: "翻译") {
+                store.showTranslation.toggle()
+            }
+            actionButton(icon: "text.quote", label: "歌词") {
+                withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+            }
+            actionButton(icon: "list.bullet", label: "队列") {
+                store.isQueuePresented = true
+            }
+            actionButton(icon: store.mode.icon, label: modeLabel) {
+                store.cycleMode()
+            }
         }
+        .padding(.horizontal, 4)
     }
 
     private var modeLabel: String {
@@ -334,7 +334,7 @@ struct PlayerView: View {
                         .font(.system(size: 9))
                         .foregroundStyle(.white.opacity(0.75))
                         .lineLimit(1)
-                        .fixedSize()
+                        .minimumScaleFactor(0.75)
                 }
             }
             .foregroundStyle(tint)

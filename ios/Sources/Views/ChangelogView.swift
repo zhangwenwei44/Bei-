@@ -130,6 +130,9 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "1.9.4", date: "", items: [
+            "根治 iPhone XS 播放页内容整体左移被裁切：操作行超宽 ScrollView 把容器撑爆导致标题/标签/按钮出屏；现强制页面宽度=屏宽，操作行改六等分按钮全部一屏可见",
+        ]),
         Entry(version: "1.9.3", date: "", items: [
             "修复 iPhone XS 等窄屏播放页标签/歌手名被挤出屏幕：标签行不再用横向滚动，超长截尾保证完整",
             "发现页热门歌手显示真实头像（拉不到时显示首字圆形占位，不再空白）",
