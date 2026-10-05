@@ -130,6 +130,11 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "1.9.8", date: "", items: [
+            "修复封面一边宽一边窄：CoverImage 内部 Image 自身也要 frame+clipped，只靠外层 ZStack 裁剪在 iOS 16 上不能保证 scaledToFill 居中",
+            "修复部分歌手头像不加载：portraitURL 不再硬卡 singerimg 域名，酷狗不同板块 imgurl 走 imge.kugou.com 等 CDN 也能认",
+            "歌词页过滤词曲元数据：time≈0 且正文以「词/曲/编曲/制作人/监制」等开头的行不再显示",
+        ]),
         Entry(version: "1.9.7", date: "", items: [
             "修复封面请求风暴：列表封面的刷新键错误依赖了批量补封面时不断变化的地址表，导致整屏请求被反复取消重发（满屏「已取消」）；改为稳定刷新键 + 同一图片并发请求合并，封面加载更快、更省流量，滚动不再卡顿，也不再和播放抢带宽",
             "滚动中被取消的封面请求不再记成错误；未内置音源的安装包启动不再误报红色错误",

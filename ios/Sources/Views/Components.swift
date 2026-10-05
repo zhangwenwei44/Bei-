@@ -107,13 +107,19 @@ struct CoverImage: View {
                            startPoint: .topLeading,
                            endPoint: .bottomTrailing)
             if let image {
+                // 关键：给 Image 自身也钉住固定 frame + clipped。
+                // 只靠外层 ZStack 的 frame+clipShape 在 iOS 16 上不能保证 scaledToFill 的图片
+                // 在圆角裁剪后居中，会出现一边宽一边窄的视觉偏差。
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
+                    .frame(width: size, height: size)
+                    .clipped()
             } else {
                 Image(systemName: "music.note")
                     .font(.system(size: size * 0.32, weight: .medium))
                     .foregroundStyle(.white.opacity(0.5))
+                    .frame(width: size, height: size)
             }
         }
         .frame(width: size, height: size)

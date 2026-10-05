@@ -189,17 +189,22 @@ final class KugouClient {
         return fallbackURL
     }
 
-    /// 从歌手卡片里抠出头像地址。优先 imgurl（singerimg 的正式歌手头像），
+    /// 从歌手卡片里抠出头像地址。优先 imgurl（正式歌手头像），
     /// first_frame_image 是 MV 抽帧，经常是怼脸的奇怪截图，只做兜底。
+    /// 域名不再硬卡 singerimg：酷狗不同板块可能走 imge.kugou.com / special.kgou.org
+    /// 等不同 CDN，只要 URL 像图片（.jpg/.png/.jpeg）就接受。
     private static func portraitURL(node: [String: Any], extra: [String: Any]?) -> URL? {
         let raw = KugouClient.string(node["imgurl"])
             ?? KugouClient.string(extra?["imgurl"])
             ?? KugouClient.string(node["first_frame_image"])
             ?? KugouClient.string(extra?["first_frame_image"])
-        guard let raw, raw.contains("singerimg") else { return nil }
-        let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
-            .replacingOccurrences(of: "{si}", with: "480")
-        return URL(string: fixed)
+        guard let raw,
+              let fixed = URL(string: raw.replacingOccurrences(of: "{size}", with: "480")
+                                 .replacingOccurrences(of: "{si}", with: "480")),
+              ["jpg", "jpeg", "png", "webp"].contains(fixed.pathExtension.lowercased()) ||
+              fixed.absoluteString.contains("singerimg") ||
+              fixed.absoluteString.contains("kugou") else { return nil }
+        return fixed
     }
 
     // MARK: - 歌词

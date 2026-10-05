@@ -14,6 +14,15 @@ enum LRCParser {
         return try? NSRegularExpression(pattern: p)
     }()
 
+    /// 词曲元数据关键词——这些行出现在歌词时间戳后面，但不是歌词正文。
+    private static let metadataKeywords: Set<String> = [
+        "词", "曲", "作曲", "编曲", "制作", "制作人", "演奏", "混音",
+        "母带", "母", "监制", "出品", "发行", "和声", "配唱", "录音",
+        "吉他", "钢琴", "贝斯", "鼓", "弦乐", "中阮", "编曲",
+        "改编", "cover", "Cover", "词：", "曲：", "编曲：",
+        "制作人：", "监制：", "录音：", "混音："
+    ]
+
     static func parse(_ text: String) -> [LyricLine] {
         guard let pattern else { return [] }
         var result: [LyricLine] = []
@@ -39,6 +48,20 @@ enum LRCParser {
 
             let contentStart = first.range.upperBound
             let content = ns.substring(from: contentStart).trimmingCharacters(in: .whitespaces)
+
+            // time≈0 的行：正文如果以词曲元数据关键词开头，跳过——
+            // 这些是创作人员信息（词：郑国江 / 曲：陈百强 等），不是歌词正文。
+            let firstMin = Double(ns.substring(with: first.range(at: 1))) ?? 0
+            let firstSec = Double(ns.substring(with: first.range(at: 2))) ?? 0
+            if firstMin == 0, firstSec <= 1.5 {
+                let lower = content.lowercased()
+                if Self.metadataKeywords.contains(where: { kw in
+                    let k = kw.lowercased()
+                    return lower.hasPrefix(k + ":") || lower.hasPrefix(k + "：") || lower == k
+                }) {
+                    continue
+                }
+            }
 
             for stamp in stamps {
                 let m = ns.substring(with: stamp.range(at: 1))
