@@ -415,14 +415,12 @@ struct PlayerView: View {
 
     private func controls(safeBottom: CGFloat) -> some View {
         HStack(spacing: 0) {
-            // 左：顺序模式（用户指定的左下角）
+            // 左：顺序模式（紧贴上一首）
             Button { store.cycleMode() } label: {
                 Image(systemName: store.mode.icon)
-                    .font(.system(size: 22))
-                    .frame(width: 56, height: 56)
+                    .font(.system(size: 20))
+                    .frame(width: 48, height: 56)
             }
-
-            Spacer()
 
             Button { store.step(-1) } label: {
                 Image(systemName: "backward.end.fill")
@@ -438,13 +436,11 @@ struct PlayerView: View {
                     .frame(width: 68, height: 56)
             }
 
-            Spacer()
-
-            // 右：队列（用户指定的右下角）
+            // 右：队列（紧贴下一首）
             Button { store.isQueuePresented = true } label: {
                 Image(systemName: "list.bullet")
-                    .font(.system(size: 22))
-                    .frame(width: 56, height: 56)
+                    .font(.system(size: 20))
+                    .frame(width: 48, height: 56)
             }
         }
         .frame(maxWidth: .infinity)
@@ -553,12 +549,33 @@ private struct PlayButton: View {
 struct LyricsPageView: View {
     @EnvironmentObject private var store: PlayerStore
     @Binding var isShown: Bool
-    @State private var artistPhotoURL: URL?
+
+    private var safeTop: CGFloat {
+        for scene in UIApplication.shared.connectedScenes {
+            if let ws = scene as? UIWindowScene,
+               let w = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first {
+                return max(12, w.safeAreaInsets.top + 6)
+            }
+        }
+        return 50
+    }
 
     var body: some View {
         ZStack {
-            // 背景层：歌手写真模糊 + 暗色遮罩
-            backgroundLayer
+            // 沉浸式取色背景：和播放页沉浸式背景同款颜色，但更实色（0.95 不透明）
+            LinearGradient(colors: store.currentPalette.gradient,
+                           startPoint: .topLeading,
+                           endPoint: .bottomTrailing)
+                .opacity(0.95)
+                .ignoresSafeArea()
+
+            // 歌词文字用黑色背景蒙版保证可读
+            LinearGradient(colors: [.black.opacity(0.25),
+                                    .black.opacity(0.15),
+                                    .black.opacity(0.35),
+                                    .black.opacity(0.5)],
+                           startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
@@ -596,24 +613,17 @@ struct LyricsPageView: View {
                     }
                 }
                 .foregroundStyle(.white)
-                .padding(.top, 6)
+                .padding(.top, safeTop)
 
                 BigLyricsView(lyrics: store.lyrics,
                               currentIndex: store.currentLyricIndex,
                               showsTranslation: store.showTranslation)
                     .frame(maxHeight: .infinity)
                     .padding(.horizontal, 26)
+                    .padding(.top, 16)
             }
-            .padding(.top, 12)
         }
         .ignoresSafeArea()
-        .task(id: store.current?.id) {
-            // 切歌时重新拉歌手写真
-            let artist = store.current?.artist ?? ""
-            let title = store.current?.title ?? ""
-            if artist.isEmpty { artistPhotoURL = nil; return }
-            artistPhotoURL = await KugouClient.shared.artistPhoto(name: artist, title: title)
-        }
         .highPriorityGesture(
             DragGesture(minimumDistance: 24).onEnded { value in
                 if value.translation.height > 60 {
@@ -621,32 +631,6 @@ struct LyricsPageView: View {
                 }
             }
         )
-    }
-
-    /// 背景层：歌手写真模糊 + 暗色遮罩。拉不到写真时回退纯黑渐变。
-    private var backgroundLayer: some View {
-        ZStack {
-            if let url = artistPhotoURL {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let img):
-                        img.resizable().scaledToFill()
-                    default:
-                        Color.clear
-                    }
-                }
-                .blur(radius: 60)
-                .opacity(0.55)
-                .scaleEffect(1.3)
-            }
-            // 暗色遮罩：保证歌词文字可读
-            LinearGradient(colors: [.black.opacity(0.88),
-                                    .black.opacity(0.72),
-                                    .black.opacity(0.82),
-                                    .black.opacity(0.92)],
-                           startPoint: .top, endPoint: .bottom)
-        }
-        .ignoresSafeArea()
     }
 }
 

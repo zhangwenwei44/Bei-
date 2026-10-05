@@ -192,15 +192,15 @@ final class KugouClient {
         for group in groups {
             let nodes = group["lists"] as? [[String: Any]] ?? []
             for node in nodes {
-                let nodeType = Self.string(node["type"]) ?? ""
                 let extra = node["extra"] as? [String: Any]
 
-                // 路径 1：type=4 歌手卡片
-                if nodeType == "4" {
+                // 路径 1（主）：任何节点（不限 type==4）只要有 imgurl 就当歌手卡片
+                // 邓紫棋/周深/毛不易的 recommend 分组节点 type 不是 "4" 但带 imgurl
+                if let portrait = Self.portraitURL(node: node, extra: extra) {
                     let matchedName = Self.string(node["singername"])
                         ?? Self.string(extra?["singername"])
                         ?? Self.string(node["title"])
-                    guard let portrait = Self.portraitURL(node: node, extra: extra) else { continue }
+                        ?? Self.string(node["SingerName"])
                     if matchedName == lead {
                         exactURL = portrait
                     } else if fallbackURL == nil {
@@ -209,12 +209,16 @@ final class KugouClient {
                     continue
                 }
 
-                // 路径 2：歌曲节点的 singerimg 字段（最稳，酷狗每首歌都带）
+                // 路径 2：歌曲节点的 singerimg 字段
+                // 酷狗 song 分组里字段是大写驼峰：SingerName（不是 singername）、Singers
                 let matchedArtist = Self.string(node["singername"])
+                    ?? Self.string(node["SingerName"])
                     ?? Self.string(node["artistname"])
+                    ?? Self.string(node["ArtistName"])
                     ?? Self.string(node["artist"])
+                    ?? Self.string(node["Singers"])
                 guard matchedArtist == lead else { continue }
-                for field in ["singerimg", "singerImg", "singer_img", "imgurl", "singermid"] {
+                for field in ["singerimg", "singerImg", "singer_img", "imgurl", "singermid", "SingerImg"] {
                     if let raw = Self.string(node[field]) {
                         let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
                             .replacingOccurrences(of: "{si}", with: "480")

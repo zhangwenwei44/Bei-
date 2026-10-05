@@ -130,6 +130,13 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "2.0.3", date: "", items: [
+            "歌手头像修复：去掉 type==4 硬限制，任何分组任何节点只要有 imgurl 就尝试当歌手卡片（邓紫棋/周深/毛不易之前被挡住就是因为 recommend 分组的节点 type 不是 4）",
+            "歌曲节点歌手名匹配加大写字段 SingerName/Singers（酷狗 song 分组实际是大写驼峰，之前只查小写 singername）",
+            "播放页控制行重排：顺序/队列按钮紧贴播放键旁（去掉两个 Spacer 撑到屏幕边缘）",
+            "歌词页背景改为 currentPalette 沉浸式取色渐变（和播放页同款封面取色），不再是歌手写真或纯黑",
+            "歌词页标题下移：用 safeAreaInsets.top + 6，刘海下标题不再太上",
+        ]),
         Entry(version: "2.0.2", date: "", items: [
             "播放页顶栏安全区改用 window.safeAreaInsets，刘海下按键距离更合理",
             "播放页控制行重排：顺序模式按钮在左、队列按钮在右，紧邻上一首/播放/下一首",
