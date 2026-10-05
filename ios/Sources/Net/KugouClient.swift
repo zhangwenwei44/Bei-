@@ -189,7 +189,6 @@ final class KugouClient {
         var exactURL: URL?
         for group in allGroups {
             let nodes = group["lists"] as? [[String: Any]] ?? []
-            let gtype = Self.string(group["type"]) ?? ""
             for node in nodes {
                 let extra = node["extra"] as? [String: Any]
 

@@ -319,13 +319,18 @@ struct SearchView: View {
 
         let client = KugouClient.shared
         // 酷狗 mixedSearch song 分组每页固定 15 条，拉 4 页 = 最多 60 条
+        // async let 保持并行，但数组拼接拆开来写避免 Swift WMO 类型检查超时
         async let p1 = try? client.searchSongs(keyword: text, page: 1)
         async let p2 = try? client.searchSongs(keyword: text, page: 2)
         async let p3 = try? client.searchSongs(keyword: text, page: 3)
         async let p4 = try? client.searchSongs(keyword: text, page: 4)
         async let topLists = client.topLists()
 
-        var found = (await p1 ?? []) + (await p2 ?? []) + (await p3 ?? []) + (await p4 ?? [])
+        var found: [Song] = []
+        found.append(contentsOf: await p1 ?? [])
+        found.append(contentsOf: await p2 ?? [])
+        found.append(contentsOf: await p3 ?? [])
+        found.append(contentsOf: await p4 ?? [])
         // 按 id 去重
         var seen = Set<String>()
         found = found.filter { seen.insert($0.id).inserted }
