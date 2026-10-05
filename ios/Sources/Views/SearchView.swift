@@ -339,8 +339,13 @@ struct SearchView: View {
         let artists = Self.artistHints(from: found)
         let albums = Self.albumHints(from: found)
 
-        guard submitted == text else { return }
+        Log.info("搜索", "keyword=\(text) 合并去重后 found=\(found.count) 首 submitted=\(submitted)")
+        guard submitted == text else {
+            Log.info("搜索", "丢弃结果：submitted=\(submitted) != text=\(text)")
+            return
+        }
         results = SearchResults(songs: found, playlists: filteredRanks, artists: artists, albums: albums)
+        Log.info("搜索", "results.songs 最终赋值 = \(results.songs.count) 首")
         if results.isEmpty {
             errorMessage = "换个关键词试试"
         }
