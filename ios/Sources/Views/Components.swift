@@ -156,8 +156,9 @@ struct CoverImage: View {
 enum CoverLoader {
     // 同一时刻对同一 URL 的并发请求合并成一个任务，
     // 避免榜单/歌单几十行同时为同一张图发请求。
-    private static let lock = NSLock()
-    private static var inflight: [String: Task<UIImage?, Never>] = [:]
+    // 注意：锁全部收在这个同步类内部——NSLock.lock/unlock 在 async 函数里
+    // 直接调用会产生编译器警告（CI 零警告即失败）。
+    private static let inflight = InflightTasks()
 
     static func download(_ url: URL) async -> UIImage? {
         if url.scheme?.lowercased() == "http",
@@ -174,23 +175,35 @@ enum CoverLoader {
         if let cached = CoverCache.shared.image(for: target) {
             return cached
         }
-        lock.lock()
         let key = target.absoluteString
-        if let existing = inflight[key] {
-            lock.unlock()
+        if let existing = inflight.existing(key) {
             return await existing.value
         }
         let task = Task<UIImage?, Never> {
-            defer {
-                lock.lock()
-                inflight[key] = nil
-                lock.unlock()
-            }
+            defer { inflight.remove(key) }
             return await performRequest(target)
         }
-        inflight[key] = task
-        lock.unlock()
+        inflight.insert(key, task)
         return await task.value
+    }
+
+    /// 在途请求登记表（所有方法都是同步的，锁不暴露到 async 上下文）。
+    private final class InflightTasks {
+        private var map: [String: Task<UIImage?, Never>] = [:]
+        private let lock = NSLock()
+
+        func existing(_ key: String) -> Task<UIImage?, Never>? {
+            lock.lock(); defer { lock.unlock() }
+            return map[key]
+        }
+
+        func insert(_ key: String, _ task: Task<UIImage?, Never>) {
+            lock.lock(); map[key] = task; lock.unlock()
+        }
+
+        func remove(_ key: String) {
+            lock.lock(); map[key] = nil; lock.unlock()
+        }
     }
 
     private static func performRequest(_ target: URL) async -> UIImage? {
