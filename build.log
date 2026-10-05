@@ -1,0 +1,397 @@
+Command line invocation:
+    /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/xcodebuild -project AuroraMusic.xcodeproj -scheme AuroraMusic -configuration Release -sdk iphoneos -derivedDataPath build -destination generic/platform=iOS CODE_SIGN_IDENTITY= CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO CODE_ENTITLEMENTS= CODE_SIGN_ENTITLEMENTS= DEVELOPMENT_TEAM= build
+
+Build settings from command line:
+    CODE_ENTITLEMENTS = 
+    CODE_SIGN_ENTITLEMENTS = 
+    CODE_SIGN_IDENTITY = 
+    CODE_SIGNING_ALLOWED = NO
+    CODE_SIGNING_REQUIRED = NO
+    DEVELOPMENT_TEAM = 
+    SDKROOT = iphoneos26.5
+
+2026-10-05 18:32:57.527 xcodebuild[5910:21604] [MT] IDERunDestination: Supported platforms for the buildables in the current scheme is empty.
+note: Using codesigning identity override: 
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (1 target)
+    Target 'AuroraMusic' in project 'AuroraMusic' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ExecuteExternalTool /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/actool --print-asset-tag-combinations --output-format xml1 /Users/runner/work/Bei-/Bei-/ios/Sources/Resources/Assets.xcassets
+
+ExecuteExternalTool /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -isysroot /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/actool --version --output-format xml1
+
+ExecuteExternalTool /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc --version
+
+ExecuteExternalTool /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
+
+Build description signature: ccecd73de9a4eaedd41e8cac1b8ccfd2
+Build description path: /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/XCBuildData/ccecd73de9a4eaedd41e8cac1b8ccfd2.xcbuilddata
+ClangStatCache /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk /Users/runner/work/Bei-/Bei-/ios/build/SDKStatCaches.noindex/iphoneos26.5-23F81a-688ef53f1462e2c8f657fdc38a81448fee66e23052a0157c865c76b268046726.sdkstatcache
+    cd /Users/runner/work/Bei-/Bei-/ios/AuroraMusic.xcodeproj
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk -o /Users/runner/work/Bei-/Bei-/ios/build/SDKStatCaches.noindex/iphoneos26.5-23F81a-688ef53f1462e2c8f657fdc38a81448fee66e23052a0157c865c76b268046726.sdkstatcache
+
+CreateBuildDirectory /Users/runner/work/Bei-/Bei-/ios/build/Build/Products
+    cd /Users/runner/work/Bei-/Bei-/ios/AuroraMusic.xcodeproj
+    builtin-create-build-directory /Users/runner/work/Bei-/Bei-/ios/build/Build/Products
+
+CreateBuildDirectory /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex
+    cd /Users/runner/work/Bei-/Bei-/ios/AuroraMusic.xcodeproj
+    builtin-create-build-directory /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex
+
+CreateBuildDirectory /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos
+    cd /Users/runner/work/Bei-/Bei-/ios/AuroraMusic.xcodeproj
+    builtin-create-build-directory /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos
+
+WriteAuxiliaryFile /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic-6b308c689e8be67d8c67c4bdcb629587-VFS-iphoneos/all-product-headers.yaml
+    cd /Users/runner/work/Bei-/Bei-/ios/AuroraMusic.xcodeproj
+    write-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic-6b308c689e8be67d8c67c4bdcb629587-VFS-iphoneos/all-product-headers.yaml
+
+CreateBuildDirectory /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules
+    cd /Users/runner/work/Bei-/Bei-/ios/AuroraMusic.xcodeproj
+    builtin-create-build-directory /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules
+
+CreateBuildDirectory /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/ExplicitPrecompiledModules
+    cd /Users/runner/work/Bei-/Bei-/ios/AuroraMusic.xcodeproj
+    builtin-create-build-directory /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/ExplicitPrecompiledModules
+
+CreateBuildDirectory /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/EagerLinkingTBDs/Release-iphoneos
+    cd /Users/runner/work/Bei-/Bei-/ios/AuroraMusic.xcodeproj
+    builtin-create-build-directory /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/EagerLinkingTBDs/Release-iphoneos
+
+WriteAuxiliaryFile /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic_const_extract_protocols.json (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    write-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic_const_extract_protocols.json
+
+WriteAuxiliaryFile /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.SwiftFileList (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    write-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.SwiftFileList
+
+WriteAuxiliaryFile /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.SwiftConstValuesFileList (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    write-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.SwiftConstValuesFileList
+
+WriteAuxiliaryFile /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.LinkFileList (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    write-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.LinkFileList
+
+WriteAuxiliaryFile /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic-OutputFileMap.json (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    write-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic-OutputFileMap.json
+
+WriteAuxiliaryFile /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic.hmap (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    write-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic.hmap
+
+WriteAuxiliaryFile /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic.DependencyStaticMetadataFileList (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    write-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic.DependencyStaticMetadataFileList
+
+WriteAuxiliaryFile /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic.DependencyMetadataFileList (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    write-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic.DependencyMetadataFileList
+
+WriteAuxiliaryFile /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-project-headers.hmap (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    write-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-project-headers.hmap
+
+WriteAuxiliaryFile /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-own-target-headers.hmap (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    write-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-own-target-headers.hmap
+
+WriteAuxiliaryFile /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-generated-files.hmap (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    write-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-generated-files.hmap
+
+WriteAuxiliaryFile /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-all-target-headers.hmap (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    write-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-all-target-headers.hmap
+
+WriteAuxiliaryFile /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-all-non-framework-target-headers.hmap (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    write-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-all-non-framework-target-headers.hmap
+
+MkDir /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    /bin/mkdir -p /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app
+
+MkDir /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_output/unthinned (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    /bin/mkdir -p /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_output/unthinned
+
+MkDir /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_output/thinned (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    /bin/mkdir -p /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_output/thinned
+
+GenerateAssetSymbols /Users/runner/work/Bei-/Bei-/ios/Sources/Resources/Assets.xcassets (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/actool /Users/runner/work/Bei-/Bei-/ios/Sources/Resources/Assets.xcassets --compile /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app --output-format human-readable-text --notices --warnings --export-dependency-info /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_dependencies --output-partial-info-plist /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_generated_info.plist --app-icon AppIcon --accent-color AccentColor --compress-pngs --enable-on-demand-resources YES --development-region en --target-device iphone --target-device ipad --minimum-deployment-target 16.0 --platform iphoneos --bundle-identifier com.aurora.music --generate-swift-asset-symbol-extensions NO --generate-swift-asset-symbols /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources/GeneratedAssetSymbols.swift --generate-objc-asset-symbols /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources/GeneratedAssetSymbols.h --generate-asset-symbol-index /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources/GeneratedAssetSymbols-Index.plist
+/* com.apple.actool.compilation-results */
+/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources/GeneratedAssetSymbols-Index.plist
+/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources/GeneratedAssetSymbols.h
+/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources/GeneratedAssetSymbols.swift
+
+
+CpResource /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/BundledSources /Users/runner/work/Bei-/Bei-/ios/BundledSources (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks /Users/runner/work/Bei-/Bei-/ios/BundledSources /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app
+
+CompileAssetCatalogVariant thinned /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app /Users/runner/work/Bei-/Bei-/ios/Sources/Resources/Assets.xcassets (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/actool /Users/runner/work/Bei-/Bei-/ios/Sources/Resources/Assets.xcassets --compile /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_output/thinned --output-format human-readable-text --notices --warnings --export-dependency-info /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_dependencies_thinned --output-partial-info-plist /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_generated_info.plist_thinned --app-icon AppIcon --accent-color AccentColor --compress-pngs --enable-on-demand-resources YES --development-region en --target-device iphone --target-device ipad --minimum-deployment-target 16.0 --platform iphoneos
+/* com.apple.actool.compilation-results */
+/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_generated_info.plist_thinned
+/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_output/thinned/AppIcon60x60@2x.png
+/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_output/thinned/AppIcon76x76@2x~ipad.png
+/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_output/thinned/Assets.car
+
+
+SwiftDriver AuroraMusic normal arm64 com.apple.xcode.tools.swift.compiler (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    builtin-SwiftDriver -- /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name AuroraMusic -O -whole-module-optimization @/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.SwiftFileList -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk -target arm64-apple-ios16.0 -g -module-cache-path /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex -Xfrontend -serialize-debugging-options -swift-version 5 -I /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos -F /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos -emit-localized-strings -emit-localized-strings-path /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64 -c -num-threads 3 -Xcc -ivfsstatcache -Xcc /Users/runner/work/Bei-/Bei-/ios/build/SDKStatCaches.noindex/iphoneos26.5-23F81a-688ef53f1462e2c8f657fdc38a81448fee66e23052a0157c865c76b268046726.sdkstatcache -output-file-map /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex -sdk-module-cache-path /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-generated-files.hmap -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-own-target-headers.hmap -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-project-headers.hmap -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/include -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources-normal/arm64 -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources/arm64 -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources -emit-objc-header -emit-objc-header-path /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic-Swift.h -working-directory /Users/runner/work/Bei-/Bei-/ios -no-emit-module-separately-wmo
+
+SwiftDriver\ Compilation AuroraMusic normal arm64 com.apple.xcode.tools.swift.compiler (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    builtin-Swift-Compilation -- /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name AuroraMusic -O -whole-module-optimization @/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.SwiftFileList -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk -target arm64-apple-ios16.0 -g -module-cache-path /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex -Xfrontend -serialize-debugging-options -swift-version 5 -I /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos -F /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos -emit-localized-strings -emit-localized-strings-path /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64 -c -num-threads 3 -Xcc -ivfsstatcache -Xcc /Users/runner/work/Bei-/Bei-/ios/build/SDKStatCaches.noindex/iphoneos26.5-23F81a-688ef53f1462e2c8f657fdc38a81448fee66e23052a0157c865c76b268046726.sdkstatcache -output-file-map /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex -sdk-module-cache-path /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-generated-files.hmap -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-own-target-headers.hmap -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-project-headers.hmap -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/include -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources-normal/arm64 -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources/arm64 -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources -emit-objc-header -emit-objc-header-path /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic-Swift.h -working-directory /Users/runner/work/Bei-/Bei-/ios -no-emit-module-separately-wmo
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/DeveloperToolsSupport-EAYR6EN7GU4EOSZU90G3Z7W2M.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_stdbool-4KGBXCF1R3XQQLG9VGMAPOCCW.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_stddef-CMJTZGUHTVW1XTAUW1U0NPBTU.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/ptrcheck-4XJK2A1P5706YE72IAWX6OK8C.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/ptrauth-CUU1KDCG7HNC7H7YBBV70P275.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_SwiftConcurrencyShims-D5QAJ5XUW5ZBLP2X4HUYACYEM.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/SwiftShims-90SELIOUG8MXTZLVTC5FCCJ1N.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_float-B707U5DVI4VV16O9WUFYWYQV3.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_AvailabilityInternal-2RKCD79YB7DS8S3092LM1ZC41.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_stdarg-6QNPYQD1PA8S4KJN3INZKWHU1.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_DarwinFoundation1-BIWFSIQBV6P5TDTT6ZJYTB0W0.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_limits-38YUYF9LPHZ7SJT2DY81KOKC8.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_DarwinFoundation2-4XRV3T6XD9LQS6PIZIUIY3QWP.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_tgmath-5O6HNOOSNMSB527AQPFVLUNOM.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_stdint-E2CXOLLRG70U9ZUUQ6LQW3K98.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/sys_types-DEQB1GQHC3HVMZ90G1Q88ABRV.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_stdatomic-19ZP3K7MIG877WQ4E77XXUUZJ.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_intrinsics-5IHFJN7M64SLKWX4AU8KDQZSX.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_DarwinFoundation3-2RK8W4O4NR40W0GJO5OYGYDM9.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CommonCrypto-EX0KDB7OG6RF4ZCIWBUZWIKHD.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_inttypes-5MAXJ3UZ2IAOGBQZMXH0J9FBW.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Darwin-3F9QTSLVK6VA0TIBTIAK2K7SS.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/simd-9OAIEINP8G9HQJQ5HMARBMT0U.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/ObjectiveC-EBRS0M5ZK390ZV83O3IARD237.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/MachO-BVELQO3CDRNGIM5L7UOZH2O8V.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/os_object-CGYEUSH6VMTAKFN20O4YNR9W3.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Spatial-5FGHMN2P3M0YKE44CX9QC0L89.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/os_workgroup-ATYS8GQF3LFHRECMZJ3E8DZ90.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Dispatch-672Y40QZAF5XR6PW9C1J51645.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/XPC-8E7VKZYNDE7EFW3RXY2T2N2NE.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/dnssd-8ETS2TZL58JU1O9OMNH5N06Y5.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/os-899160ZRJ4Y3FUYI9TFMJ2LS5.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreFoundation-76HN3GQQKL8YNX023FXDDJZNI.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreGraphics-8ABZJ0AM6WD9BXRK453VUVKNX.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreAudioTypes-6JF6SS3S1J2986K2M89IEUXYR.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CFNetwork-3I66JHTRDCLZS3CAC6R7TA033.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreAudio-XTRX3OBXUNTL7GAPCFTX7PXO.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/ImageIO-E5TT1OZOYF3UEIQWHIKJH8UDS.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreText-19AQPGVBL1CCBNV43PUFVDD8N.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Security-EPVUZDQXKJRTAS7D16QKRAJ0E.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Foundation-1L28FLT094GQ6HLWSAWGRV3VI.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/FileProvider-2UZ5BQCQ0MTMPFCSWKKH39M4V.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Accessibility-CQG18N4ZHKCDFUQDBMYP89U6J.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreMIDI-BK1URAVWEHCMBMTSOICFO9DSK.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Network-89JZC5YJC3KPPHFBIJEBV3OLH.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/OSLog-1AXF8JCOQ5VQYZ2FU1BGR9GIB.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/AudioToolbox-6L308KVHQZMJ5M6O620RUVVGG.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/AVRouting-PPJC83W8Q322RKGUYSOY16KI.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Symbols-AVQXZEICGMJH2H4XYQBQNE7ZW.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/DataDetection-862Q1CVPJHUKEAUL35KR6AJ63.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreData-4IO5FYCK7SRKK0N25KLSQPKOH.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/JavaScriptCore-2SCGOWQN03XXKYK079SAUAFFR.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreTransferable-L5I10ETJVNNVPHWM4323HUK3.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/UIUtilities-AQJTPM63BBZZ0KFUJGI9IVK5R.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/UserNotifications-8VKGDWZGBWKEGPH82II9W3525.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/LocalAuthentication-7JRJ30Z082U0FJUN83YCN08OO.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/IOSurface-747ZYP13PP35CRZAVQZ2ZVSYX.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/UniformTypeIdentifiers-55FAND0JT76WRD1DIZVG1EPSR.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Metal-BPATKO02FPHRLKTNH4X2NGNEA.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/OpenGLES-BIXLDP9HUKED2DPMO6TWV5171.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreVideo-4Q8NDVKVKSOQ7NM1FRJP79NHP.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreMedia-4O5KKXPXDBZF7W4S0H9XZLDR0.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreImage-4OMKO50PLIYC2011UUPCNZDS.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/QuartzCore-DBAND7BYAFUUYKADL2ASCTZVO.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/MediaToolbox-7DZNV0TFDONMKO35E7QMGKQ8A.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/AVFAudio-9MVMRUJS746OBM3HYXHZJKNYK.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/SwiftUICore-6Y91L1QJU1J6RLDPRSEELEDIF.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/UIKit-22J9FF1104X7R8VY90FYW2ZU4.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/AVFoundation-3OVIKVAPSJ60DLYXMGANTK98O.pcm
+
+LinkAssetCatalog /Users/runner/work/Bei-/Bei-/ios/Sources/Resources/Assets.xcassets (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    builtin-linkAssetCatalog --thinned /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_output/thinned --thinned-dependencies /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_dependencies_thinned --thinned-info-plist-content /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_generated_info.plist_thinned --unthinned /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_output/unthinned --unthinned-dependencies /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_dependencies_unthinned --unthinned-info-plist-content /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_generated_info.plist_unthinned --output /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app --plist-output /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_generated_info.plist
+note: Emplaced /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/AppIcon76x76@2x~ipad.png (in target 'AuroraMusic' from project 'AuroraMusic')
+note: Emplaced /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/AppIcon60x60@2x.png (in target 'AuroraMusic' from project 'AuroraMusic')
+note: Emplaced /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/Assets.car (in target 'AuroraMusic' from project 'AuroraMusic')
+
+ProcessInfoPlistFile /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/Info.plist /Users/runner/work/Bei-/Bei-/ios/Sources/Resources/Info.plist (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    builtin-infoPlistUtility /Users/runner/work/Bei-/Bei-/ios/Sources/Resources/Info.plist -producttype com.apple.product-type.application -genpkginfo /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/PkgInfo -expandbuildsettings -format binary -platform iphoneos -additionalcontentfile /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/assetcatalog_generated_info.plist -requiredArchitecture arm64 -o /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/Info.plist
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/SwiftUI-N5LVH7MD5TA2TG74BREBBJ5V.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/MediaPlayer-DJMKPXWKB7XBIACA2JXFEKMLA.pcm
+
+SwiftCompile normal arm64 Compiling\ AppUpdater.swift,\ ArtworkPalette.swift,\ AuroraMusicApp.swift,\ AuthService.swift,\ BundledSources.swift,\ Catalog.swift,\ ChangelogView.swift,\ Components.swift,\ CoverResolver.swift,\ CrashGuard.swift,\ DiagnosticsView.swift,\ Digest.swift,\ DiscoverView.swift,\ DocumentPicker.swift,\ DownloadManager.swift,\ IPAInstaller.swift,\ KugouClient.swift,\ LibraryStore.swift,\ LibraryView.swift,\ LogStore.swift,\ LoginView.swift,\ LyricLine.swift,\ LyricsView.swift,\ PlayerStore.swift,\ PlayerView.swift,\ PlaylistViews.swift,\ ProfileView.swift,\ QueueView.swift,\ RootView.swift,\ ScriptExecutor.swift,\ ScriptSourceRunner.swift,\ SearchView.swift,\ ShareSheet.swift,\ Song.swift,\ SourceResolver.swift,\ SourceSettingsView.swift,\ ThirdPartySource.swift,\ UpdateView.swift,\ GeneratedAssetSymbols.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Player/AppUpdater.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Player/ArtworkPalette.swift /Users/runner/work/Bei-/Bei-/ios/Sources/App/AuroraMusicApp.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Player/AuthService.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Net/BundledSources.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Models/Catalog.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Views/ChangelogView.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Views/Components.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Player/CoverResolver.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Net/CrashGuard.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Views/DiagnosticsView.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Net/Digest.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Views/DiscoverView.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Views/DocumentPicker.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Player/DownloadManager.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Player/IPAInstaller.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Net/KugouClient.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Player/LibraryStore.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Views/LibraryView.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Net/LogStore.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Views/LoginView.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Models/LyricLine.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Views/LyricsView.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Player/PlayerStore.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Views/PlayerView.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Views/PlaylistViews.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Views/ProfileView.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Views/QueueView.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Views/RootView.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Net/ScriptExecutor.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Net/ScriptSourceRunner.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Views/SearchView.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Views/ShareSheet.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Models/Song.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Net/SourceResolver.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Views/SourceSettingsView.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Net/ThirdPartySource.swift /Users/runner/work/Bei-/Bei-/ios/Sources/Views/UpdateView.swift /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources/GeneratedAssetSymbols.swift /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/_Builtin_float.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/FileProvider.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreFoundation.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreGraphics.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/DataDetection.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/_Concurrency.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Synchronization.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CryptoKit.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/SwiftUICore.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreText.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Combine.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/AVFoundation.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/DeveloperToolsSupport.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreVideo.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Spatial.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/UniformTypeIdentifiers.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/MediaPlayer.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Foundation.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreMIDI.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/simd.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/SwiftUI.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreImage.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/LocalAuthentication.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Accessibility.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/_StringProcessing.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/AVFAudio.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreMedia.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Dispatch.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Swift.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/UIKit.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Darwin.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/XPC.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Metal.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/_DarwinFoundation3.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/System.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/os.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreData.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/AudioToolbox.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/QuartzCore.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/_DarwinFoundation1.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/OSLog.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/_DarwinFoundation2.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreAudio.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Observation.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/ObjectiveC.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/CoreTransferable.swiftmodule/arm64e-apple-ios.swiftmodule /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos/prebuilt-modules/26.5/Symbols.swiftmodule/arm64e-apple-ios.swiftmodule /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_inttypes-5MAXJ3UZ2IAOGBQZMXH0J9FBW.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/FileProvider-2UZ5BQCQ0MTMPFCSWKKH39M4V.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_float-B707U5DVI4VV16O9WUFYWYQV3.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/SwiftShims-90SELIOUG8MXTZLVTC5FCCJ1N.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/ptrcheck-4XJK2A1P5706YE72IAWX6OK8C.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Spatial-5FGHMN2P3M0YKE44CX9QC0L89.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/AVRouting-PPJC83W8Q322RKGUYSOY16KI.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/SwiftUICore-6Y91L1QJU1J6RLDPRSEELEDIF.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/OpenGLES-BIXLDP9HUKED2DPMO6TWV5171.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/DeveloperToolsSupport-EAYR6EN7GU4EOSZU90G3Z7W2M.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/os_object-CGYEUSH6VMTAKFN20O4YNR9W3.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreMedia-4O5KKXPXDBZF7W4S0H9XZLDR0.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/MachO-BVELQO3CDRNGIM5L7UOZH2O8V.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/os_workgroup-ATYS8GQF3LFHRECMZJ3E8DZ90.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_stdint-E2CXOLLRG70U9ZUUQ6LQW3K98.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/MediaPlayer-DJMKPXWKB7XBIACA2JXFEKMLA.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_AvailabilityInternal-2RKCD79YB7DS8S3092LM1ZC41.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/IOSurface-747ZYP13PP35CRZAVQZ2ZVSYX.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/UIUtilities-AQJTPM63BBZZ0KFUJGI9IVK5R.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_stdarg-6QNPYQD1PA8S4KJN3INZKWHU1.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_stdbool-4KGBXCF1R3XQQLG9VGMAPOCCW.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_DarwinFoundation1-BIWFSIQBV6P5TDTT6ZJYTB0W0.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/OSLog-1AXF8JCOQ5VQYZ2FU1BGR9GIB.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/AudioToolbox-6L308KVHQZMJ5M6O620RUVVGG.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreMIDI-BK1URAVWEHCMBMTSOICFO9DSK.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CommonCrypto-EX0KDB7OG6RF4ZCIWBUZWIKHD.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Metal-BPATKO02FPHRLKTNH4X2NGNEA.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Darwin-3F9QTSLVK6VA0TIBTIAK2K7SS.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/ptrauth-CUU1KDCG7HNC7H7YBBV70P275.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/dnssd-8ETS2TZL58JU1O9OMNH5N06Y5.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/AVFoundation-3OVIKVAPSJ60DLYXMGANTK98O.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreAudio-XTRX3OBXUNTL7GAPCFTX7PXO.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreData-4IO5FYCK7SRKK0N25KLSQPKOH.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_SwiftConcurrencyShims-D5QAJ5XUW5ZBLP2X4HUYACYEM.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Dispatch-672Y40QZAF5XR6PW9C1J51645.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/simd-9OAIEINP8G9HQJQ5HMARBMT0U.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CFNetwork-3I66JHTRDCLZS3CAC6R7TA033.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_tgmath-5O6HNOOSNMSB527AQPFVLUNOM.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Foundation-1L28FLT094GQ6HLWSAWGRV3VI.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/UserNotifications-8VKGDWZGBWKEGPH82II9W3525.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreFoundation-76HN3GQQKL8YNX023FXDDJZNI.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/SwiftUI-N5LVH7MD5TA2TG74BREBBJ5V.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_limits-38YUYF9LPHZ7SJT2DY81KOKC8.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Symbols-AVQXZEICGMJH2H4XYQBQNE7ZW.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Security-EPVUZDQXKJRTAS7D16QKRAJ0E.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/LocalAuthentication-7JRJ30Z082U0FJUN83YCN08OO.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/QuartzCore-DBAND7BYAFUUYKADL2ASCTZVO.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Network-89JZC5YJC3KPPHFBIJEBV3OLH.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/JavaScriptCore-2SCGOWQN03XXKYK079SAUAFFR.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_DarwinFoundation3-2RK8W4O4NR40W0GJO5OYGYDM9.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/sys_types-DEQB1GQHC3HVMZ90G1Q88ABRV.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/AVFAudio-9MVMRUJS746OBM3HYXHZJKNYK.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreText-19AQPGVBL1CCBNV43PUFVDD8N.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/MediaToolbox-7DZNV0TFDONMKO35E7QMGKQ8A.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/ImageIO-E5TT1OZOYF3UEIQWHIKJH8UDS.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/UIKit-22J9FF1104X7R8VY90FYW2ZU4.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreAudioTypes-6JF6SS3S1J2986K2M89IEUXYR.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/DataDetection-862Q1CVPJHUKEAUL35KR6AJ63.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreTransferable-L5I10ETJVNNVPHWM4323HUK3.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_intrinsics-5IHFJN7M64SLKWX4AU8KDQZSX.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/XPC-8E7VKZYNDE7EFW3RXY2T2N2NE.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/os-899160ZRJ4Y3FUYI9TFMJ2LS5.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_stddef-CMJTZGUHTVW1XTAUW1U0NPBTU.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_Builtin_stdatomic-19ZP3K7MIG877WQ4E77XXUUZJ.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Accessibility-CQG18N4ZHKCDFUQDBMYP89U6J.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreVideo-4Q8NDVKVKSOQ7NM1FRJP79NHP.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreImage-4OMKO50PLIYC2011UUPCNZDS.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/CoreGraphics-8ABZJ0AM6WD9BXRK453VUVKNX.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/_DarwinFoundation2-4XRV3T6XD9LQS6PIZIUIY3QWP.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/ObjectiveC-EBRS0M5ZK390ZV83O3IARD237.pcm /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/UniformTypeIdentifiers-55FAND0JT76WRD1DIZVG1EPSR.pcm /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic-dependencies-1.json (in target 'AuroraMusic' from project 'AuroraMusic')
+
+CompileSwift normal arm64 (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    
+
+SwiftDriverJobDiscovery normal arm64 Compiling AppUpdater.swift, ArtworkPalette.swift, AuroraMusicApp.swift, AuthService.swift, BundledSources.swift, Catalog.swift, ChangelogView.swift, Components.swift, CoverResolver.swift, CrashGuard.swift, DiagnosticsView.swift, Digest.swift, DiscoverView.swift, DocumentPicker.swift, DownloadManager.swift, IPAInstaller.swift, KugouClient.swift, LibraryStore.swift, LibraryView.swift, LogStore.swift, LoginView.swift, LyricLine.swift, LyricsView.swift, PlayerStore.swift, PlayerView.swift, PlaylistViews.swift, ProfileView.swift, QueueView.swift, RootView.swift, ScriptExecutor.swift, ScriptSourceRunner.swift, SearchView.swift, ShareSheet.swift, Song.swift, SourceResolver.swift, SourceSettingsView.swift, ThirdPartySource.swift, UpdateView.swift, GeneratedAssetSymbols.swift (in target 'AuroraMusic' from project 'AuroraMusic')
+
+SwiftDriver\ Compilation\ Requirements AuroraMusic normal arm64 com.apple.xcode.tools.swift.compiler (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name AuroraMusic -O -whole-module-optimization @/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.SwiftFileList -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk -target arm64-apple-ios16.0 -g -module-cache-path /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex -Xfrontend -serialize-debugging-options -swift-version 5 -I /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos -F /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos -emit-localized-strings -emit-localized-strings-path /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64 -c -num-threads 3 -Xcc -ivfsstatcache -Xcc /Users/runner/work/Bei-/Bei-/ios/build/SDKStatCaches.noindex/iphoneos26.5-23F81a-688ef53f1462e2c8f657fdc38a81448fee66e23052a0157c865c76b268046726.sdkstatcache -output-file-map /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex -sdk-module-cache-path /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/work/Bei-/Bei-/ios/build/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-generated-files.hmap -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-own-target-headers.hmap -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic-project-headers.hmap -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/include -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources-normal/arm64 -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources/arm64 -Xcc -I/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources -emit-objc-header -emit-objc-header-path /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic-Swift.h -working-directory /Users/runner/work/Bei-/Bei-/ios -no-emit-module-separately-wmo
+
+SwiftMergeGeneratedHeaders /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources/AuroraMusic-Swift.h /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic-Swift.h (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    builtin-swiftHeaderTool -arch arm64 /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic-Swift.h -o /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/DerivedSources/AuroraMusic-Swift.h
+
+Copy /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.swiftmodule/arm64-apple-ios.swiftdoc /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.swiftdoc (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.swiftdoc /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.swiftmodule/arm64-apple-ios.swiftdoc
+
+Copy /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.swiftmodule/arm64-apple-ios.swiftmodule /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.swiftmodule (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.swiftmodule /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.swiftmodule/arm64-apple-ios.swiftmodule
+
+Copy /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.swiftmodule/arm64-apple-ios.abi.json /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.abi.json (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.abi.json /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.swiftmodule/arm64-apple-ios.abi.json
+
+Copy /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.swiftmodule/Project/arm64-apple-ios.swiftsourceinfo /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.swiftsourceinfo (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.swiftsourceinfo /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.swiftmodule/Project/arm64-apple-ios.swiftsourceinfo
+
+Ld /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/AuroraMusic normal (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios16.0 -isysroot /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk -Os -L/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/EagerLinkingTBDs/Release-iphoneos -L/Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos -F/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/EagerLinkingTBDs/Release-iphoneos -F/Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos -filelist /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.LinkFileList -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker @executable_path/Frameworks -Xlinker -dead_strip -Xlinker -object_path_lto -Xlinker /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic_lto.o -Xlinker -dependency_info -Xlinker /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.swiftmodule @/Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic-linker-args.resp -framework JavaScriptCore -framework AVFoundation -framework MediaPlayer -o /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/AuroraMusic
+
+CopySwiftLibs /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    builtin-swiftStdLibTool --copy --verbose --scan-executable /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/AuroraMusic --scan-folder /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/Frameworks --scan-folder /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/PlugIns --scan-folder /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/SystemExtensions --scan-folder /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/Extensions --scan-folder /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk/System/Library/Frameworks/JavaScriptCore.framework --scan-folder /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk/System/Library/Frameworks/AVFoundation.framework --scan-folder /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk/System/Library/Frameworks/MediaPlayer.framework --platform iphoneos --toolchain /var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v17.6.109.0.hegjKQ/Metal.xctoolchain --toolchain /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/Frameworks --strip-bitcode --strip-bitcode-tool /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os --back-deploy-swift-span
+Ignoring --strip-bitcode because --sign was not passed
+
+ExtractAppIntentsMetadata (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v17.6.109.0.hegjKQ/Metal.xctoolchain --module-name AuroraMusic --sdk-root /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk --xcode-version 17F113 --platform-family iOS --deployment-target 16.0 --bundle-identifier com.aurora.music --output /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app --target-triple arm64-apple-ios16.0 --binary-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/AuroraMusic --dependency-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic_dependency_info.dat --stringsdata-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.SwiftFileList --metadata-file-list /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic.DependencyMetadataFileList --static-metadata-file-list /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic.DependencyStaticMetadataFileList --swift-const-vals-list /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/Objects-normal/arm64/AuroraMusic.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-10-05 18:34:04.599 appintentsmetadataprocessor[8021:27085] Starting appintentsmetadataprocessor export
+2026-10-05 18:34:04.612 appintentsmetadataprocessor[8021:27085] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+GenerateDSYMFile /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app.dSYM /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/AuroraMusic (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/dsymutil /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/AuroraMusic -o /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app.dSYM
+
+AppIntentsSSUTraining (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsnltrainingprocessor --infoplist-path /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/Info.plist --temp-dir-path /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/ssu --bundle-id com.aurora.music --product-path /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app --extracted-metadata-path /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/Metadata.appintents --metadata-file-list /Users/runner/work/Bei-/Bei-/ios/build/Build/Intermediates.noindex/AuroraMusic.build/Release-iphoneos/AuroraMusic.build/AuroraMusic.DependencyMetadataFileList --source-file /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app/Info.plist --archive-ssu-assets
+2026-10-05 18:34:04.658 appintentsnltrainingprocessor[8023:27092] Parsing options for appintentsnltrainingprocessor
+2026-10-05 18:34:04.660 appintentsnltrainingprocessor[8023:27092] Starting AppIntents SSU YAML Generation
+2026-10-05 18:34:04.665 appintentsnltrainingprocessor[8023:27092] No AppShortcuts found - Skipping.
+
+RegisterExecutionPolicyException /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    builtin-RegisterExecutionPolicyException /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app
+
+Validate /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    builtin-validationUtility /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app -shallow-bundle -infoplist-subpath Info.plist
+
+Touch /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app (in target 'AuroraMusic' from project 'AuroraMusic')
+    cd /Users/runner/work/Bei-/Bei-/ios
+    /usr/bin/touch -c /Users/runner/work/Bei-/Bei-/ios/build/Build/Products/Release-iphoneos/AuroraMusic.app
+
+** BUILD SUCCEEDED **
+
