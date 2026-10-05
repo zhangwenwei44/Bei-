@@ -351,13 +351,18 @@ final class KugouClient {
     private actor FailureCounter {
         static let shared = FailureCounter()
         private(set) var count = 0
-        var trippedLogged = false
+        private var trippedLogged = false
         func increment() -> Int {
             count += 1
             return count
         }
-        func markLogged() {
-            trippedLogged = true
+        /// 返回当前 count，超过阈值后第一次调用返回 true，之后返回 false。
+        /// 用方法封装，actor 的 stored property 不能直接 await 访问。
+        func checkAndMarkTripped(threshold: Int) -> (isTripped: Bool, shouldLog: Bool) {
+            let isTripped = count >= threshold
+            let shouldLog = isTripped && !trippedLogged
+            if isTripped { trippedLogged = true }
+            return (isTripped, shouldLog)
         }
         func reset() {
             count = 0
@@ -374,11 +379,10 @@ final class KugouClient {
         // 熔断中：之前已经连续失败超过阈值，本次运行期不再试。
         // 第三方音源会兜住解析，用户感知只是少了无谓的等待。
         // 日志只打一次，避免每档 quality 都打一遍（日志爆炸）。
-        let current = await Self.failures.count
-        if current >= Self.failureThreshold {
-            if !await Self.failures.trippedLogged {
-                await Self.failures.markLogged()
-                Log.info("音乐接口", "/v5/url 已熔断（连续失败 \(current) 次），跳过直连，交给第三方音源")
+        let (isTripped, shouldLog) = await Self.failures.checkAndMarkTripped(threshold: Self.failureThreshold)
+        if isTripped {
+            if shouldLog {
+                Log.info("音乐接口", "/v5/url 已熔断（连续失败，跳过直连，交给第三方音源）")
             }
             return nil
         }
