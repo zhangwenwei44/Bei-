@@ -35,13 +35,8 @@ final class DownloadManager: NSObject, ObservableObject {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 60 * 60
-        // ATS 默认拦 http，但很多音源的 CDN 只有 http 出口（酷狗/qqmusic 的 bdycdn.cn
-        // 在国内网络下 http 经常能通但 https 探测失败）。给下载 session 放开 http 限制。
-        // allowsConstrainedDownloads 是 iOS 17+ 的 API，iOS 16 靠 Info.plist 里的
-        // NSAllowsArbitraryLoads 已经放开了整个 App 的 http。
-        if #available(iOS 17.0, *) {
-            config.allowsConstrainedDownloads = true
-        }
+        // Info.plist 里已经设了 NSAllowsArbitraryLoads=true，
+        // 整个 App 的 http 请求都不被 ATS 拦，不需要额外配。
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
 
