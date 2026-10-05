@@ -319,15 +319,17 @@ struct DiscoverView: View {
             var active = 0
             for (index, playlist) in lists.enumerated() {
                 guard let rankID = playlist.kugouRankID else { continue }
+                let pid = playlist.id
+                let rid = rankID
                 while active >= concurrency { _ = await sem.stream.first(where: { _ in true }) }
                 active += 1
-                group.addTask { [playlist.id] in
+                group.addTask {
                     defer {
                         active -= 1
                         sem.continuation.yield()
                     }
-                    if let total = await client.rankTotal(rankID: rankID) {
-                        return (playlist.id, rankID, index, total)
+                    if let total = await client.rankTotal(rankID: rid) {
+                        return (pid, rid, index, total)
                     }
                     return nil
                 }

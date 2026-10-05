@@ -167,7 +167,7 @@ final class KugouClient {
               let json = try? await mixedSearchJSON(keyword: keyword, page: 1),
               let data = json["data"] as? [String: Any],
               let groups = data["lists"] as? [[String: Any]] else {
-            Log.info("歌手头像", "搜索 \(keyword) 失败：json=\(json.keys)  data keys=\((json["data"] as? [String: Any])?.keys ?? [])")
+            Log.info("歌手头像", "搜索 \(keyword) 失败（mixedSearch 或 groups 为空）")
             return nil
         }
 

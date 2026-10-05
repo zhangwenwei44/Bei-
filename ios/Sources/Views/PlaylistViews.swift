@@ -169,10 +169,9 @@ struct PlaylistDetailView: View {
                     if playlist.trackCount > 0 {
                         Text("\(playlist.trackCount) 首")
                     } else if !playlist.creatorName.isEmpty {
-                        // 曲目数还没补到，用刷新小标代替
-                        Label("加载中", systemImage: "arrow.clockwise")
-                            .symbolEffect(.rotate, options: .repeating)
-                            .font(.system(size: 11))
+                        // 曲目数还没补到，用进度圈代替（iOS 16 兼容）
+                        ProgressView()
+                            .controlSize(.small)
                     }
                 }
                 .font(.system(size: 12))
