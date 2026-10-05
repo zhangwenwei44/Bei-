@@ -318,12 +318,14 @@ struct SearchView: View {
         defer { isLoading = false }
 
         let client = KugouClient.shared
-        // 酷狗一页约 50 条，拉 2 页合并去重
-        async let page1 = try? client.searchSongs(keyword: text, page: 1)
-        async let page2 = try? client.searchSongs(keyword: text, page: 2)
+        // 酷狗 mixedSearch song 分组每页固定 15 条，拉 4 页 = 最多 60 条
+        async let p1 = try? client.searchSongs(keyword: text, page: 1)
+        async let p2 = try? client.searchSongs(keyword: text, page: 2)
+        async let p3 = try? client.searchSongs(keyword: text, page: 3)
+        async let p4 = try? client.searchSongs(keyword: text, page: 4)
         async let topLists = client.topLists()
 
-        var found = (await page1 ?? []) + (await page2 ?? [])
+        var found = (await p1 ?? []) + (await p2 ?? []) + (await p3 ?? []) + (await p4 ?? [])
         // 按 id 去重
         var seen = Set<String>()
         found = found.filter { seen.insert($0.id).inserted }

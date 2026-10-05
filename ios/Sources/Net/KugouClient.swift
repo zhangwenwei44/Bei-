@@ -158,59 +158,61 @@ final class KugouClient {
         return nil
     }
 
-    /// 核心实现：遍历 mixedSearchJSON 所有分组，先找 type=4 歌手卡片，
-    /// 再遍历歌曲节点抠 singerimg 字段作为兜底（酷狗搜索结果里每首歌都带 singerimg）。
+    /// 核心实现：翻 3 页 mixedSearch，遍历所有分组的所有节点，
+    /// 从 imgurl / 歌曲 singerimg / 专辑 AlbumImage / MV Pic 多路抓图。
+    ///
+    /// 毛不易根因：recommend 分组节点 keys 里连 imgurl 都没有，
+    /// song 分组也没 singerimg —— 酷狗返回数据里确实没歌手图。
+    /// 兜底：拿 song 分组的 AlbumImage（专辑封面），再不行就构造酷狗歌手页 URL。
     private func artistPhoto(name: String, keyword: String) async -> URL? {
         let lead = name.components(separatedBy: CharacterSet(charactersIn: "、/&，,"))
             .first?.trimmingCharacters(in: .whitespaces) ?? name
-        guard !keyword.isEmpty,
-              let json = try? await mixedSearchJSON(keyword: keyword, page: 1),
-              let data = json["data"] as? [String: Any],
-              let groups = data["lists"] as? [[String: Any]] else {
-            Log.info("歌手头像", "搜索 \(keyword) 失败（mixedSearch 或 groups 为空）")
-            return nil
+        guard !keyword.isEmpty else { return nil }
+
+        // 内存缓存命中直接返回（NSCache 线程安全）
+        if let cached = photoCache.object(forKey: keyword as NSString) as URL? {
+            return cached
         }
 
-        // 打印完整结构方便调试
-        Log.info("歌手头像", "搜索 \(keyword) 返回 \(groups.count) 个分组，data 顶层 keys=\(data.keys)")
-        for (i, group) in groups.enumerated() {
-            let gtype = Self.string(group["type"]) ?? "?"
-            let gname = Self.string(group["name"]) ?? ""
-            let nodes = group["lists"] as? [[String: Any]] ?? []
-            Log.info("歌手头像", "分组[\(i)] type=\(gtype) name=\(gname) 节点数=\(nodes.count)")
-            // 打前 2 个节点的 key + 关键字段
-            for (j, node) in nodes.prefix(2).enumerated() {
-                let keys = Array(node.keys).prefix(8).joined(separator: ",")
-                let img = Self.string(node["imgurl"]) ?? Self.string(node["singerimg"]) ?? Self.string(node["first_frame_image"]) ?? ""
-                let singer = Self.string(node["singername"]) ?? Self.string(node["artistname"]) ?? Self.string(node["artist"]) ?? ""
-                Log.info("歌手头像", "  节点[\(j)] keys={\(keys)}  singer=\(singer) img=\(img.prefix(80))")
+        // 翻 3 页 mixedSearch — 第一页拿不到，第二三页可能有
+        // （毛不易第一页 recommend 只有 1 个没 imgurl 的节点，翻页可能有更多）
+        var allGroups: [[String: Any]] = []
+        for page in 1...3 {
+            if let json = try? await mixedSearchJSON(keyword: keyword, page: page),
+               let data = json["data"] as? [String: Any],
+               let groups = data["lists"] as? [[String: Any]] {
+                allGroups.append(contentsOf: groups)
             }
         }
 
         var fallbackURL: URL?
         var exactURL: URL?
-        for group in groups {
+        for group in allGroups {
             let nodes = group["lists"] as? [[String: Any]] ?? []
+            let gtype = Self.string(group["type"]) ?? ""
             for node in nodes {
                 let extra = node["extra"] as? [String: Any]
 
-                // 路径 1（主）：任何节点（不限 type==4）只要有 imgurl 就当歌手卡片
-                // 邓紫棋/周深/毛不易的 recommend 分组节点 type 不是 "4" 但带 imgurl
-                if let portrait = Self.portraitURL(node: node, extra: extra) {
+                // 路径 1（主）：任何节点只要有 imgurl/Pic/ErectPic 就尝试当歌手卡片
+                if let portrait = Self.anyImageURL(node: node, extra: extra) {
                     let matchedName = Self.string(node["singername"])
                         ?? Self.string(extra?["singername"])
                         ?? Self.string(node["title"])
                         ?? Self.string(node["SingerName"])
+                        ?? Self.string(node["artistname"])
+                        ?? Self.string(node["ArtistName"])
+                        ?? Self.string(node["artist"])
+                        ?? Self.string(node["Singers"])
                     if matchedName == lead {
                         exactURL = portrait
+                        break
                     } else if fallbackURL == nil {
                         fallbackURL = portrait
                     }
                     continue
                 }
 
-                // 路径 2：歌曲节点的 singerimg 字段
-                // 酷狗 song 分组里字段是大写驼峰：SingerName（不是 singername）、Singers
+                // 路径 2：歌曲节点 —— 严格匹配歌手名后，抓 singerimg / AlbumImage / Image
                 let matchedArtist = Self.string(node["singername"])
                     ?? Self.string(node["SingerName"])
                     ?? Self.string(node["artistname"])
@@ -218,14 +220,27 @@ final class KugouClient {
                     ?? Self.string(node["artist"])
                     ?? Self.string(node["Singers"])
                 guard matchedArtist == lead else { continue }
-                for field in ["singerimg", "singerImg", "singer_img", "imgurl", "singermid", "SingerImg"] {
+
+                // 歌手头像字段（singerimg 系列）
+                for field in ["singerimg", "singerImg", "singer_img", "singermid", "SingerImg"] {
                     if let raw = Self.string(node[field]) {
                         let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
                             .replacingOccurrences(of: "{si}", with: "480")
-                        if let url = URL(string: fixed) {
-                            if ["jpg", "jpeg", "png", "webp"].contains(url.pathExtension.lowercased()) ||
-                               url.absoluteString.contains("kugou") {
-                                if exactURL == nil { exactURL = url }
+                        if let url = URL(string: fixed), Self.looksLikeImage(url) {
+                            if exactURL == nil { exactURL = url }
+                        }
+                    }
+                }
+
+                // 兜底：专辑封面（AlbumImage/AlbumImg/Image）— 虽然是专辑不是歌手，但比首字占位好
+                if exactURL == nil, fallbackURL == nil {
+                    for field in ["AlbumImage", "albumImage", "AlbumImg", "albumImg", "Image"] {
+                        if let raw = Self.string(node[field]) {
+                            let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
+                                .replacingOccurrences(of: "{si}", with: "480")
+                            if let url = URL(string: fixed), Self.looksLikeImage(url) {
+                                fallbackURL = url
+                                break
                             }
                         }
                     }
@@ -234,7 +249,39 @@ final class KugouClient {
             if exactURL != nil { break }
         }
         Log.info("歌手头像", "keyword=\(keyword) 结果 exact=\(exactURL?.absoluteString ?? "nil") fallback=\(fallbackURL?.absoluteString ?? "nil")")
-        return exactURL ?? fallbackURL
+        let result = exactURL ?? fallbackURL
+        if let result { photoCache.setObject(result as NSURL, forKey: keyword as NSString) }
+        return result
+    }
+
+    /// 统一判断 URL 看起来是图片（扩展名或域名）
+    private static func looksLikeImage(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        if ["jpg", "jpeg", "png", "webp", "gif", "bmp"].contains(ext) { return true }
+        let host = url.host ?? ""
+        return host.contains("kugou") || host.contains("singerimg") || host.contains("imge")
+            || host.contains("mdpfile") || host.contains("bdycdn")
+    }
+
+    /// 从任何节点（歌手卡、MV 节点、歌曲节点）里抓图片 URL。
+    /// 字段优先级：imgurl > first_frame_image > Pic > ErectPic > ThumbGif > ThumbMp4(封面)
+    private static func anyImageURL(node: [String: Any], extra: [String: Any]?) -> URL? {
+        let fields: [String] = [
+            "imgurl", "first_frame_image", "Pic", "ErectPic",
+            "ThumbGif", "ThumbMp4", "AlbumImage", "AlbumImg", "Image",
+            "singerimg", "singerImg", "singer_img", "singermid", "SingerImg"
+        ]
+        for field in fields {
+            for value in [node[field], extra?[field]] {
+                guard let raw = Self.string(value) else { continue }
+                let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
+                    .replacingOccurrences(of: "{si}", with: "480")
+                if let url = URL(string: fixed), Self.looksLikeImage(url) {
+                    return url
+                }
+            }
+        }
+        return nil
     }
 
     /// 从歌手卡片里抠出头像地址。优先 imgurl（正式歌手头像），

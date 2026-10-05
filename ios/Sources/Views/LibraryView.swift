@@ -8,7 +8,6 @@ struct LibraryView: View {
     @EnvironmentObject private var store: PlayerStore
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var downloads = DownloadManager.shared
-    @State private var isImporterPresented = false
     @State private var isCreatingPlaylist = false
     @State private var isRenaming = false
     @State private var renamingID: String?
@@ -93,16 +92,6 @@ struct LibraryView: View {
         .background(AppStyle.background)
         .navigationTitle("我的音乐")
         .navigationBarTitleDisplayMode(.large)
-        .fileImporter(isPresented: $isImporterPresented,
-                      allowedContentTypes: Self.audioImportTypes,
-                      allowsMultipleSelection: true) { result in
-            switch result {
-            case let .success(urls):
-                importLocal(urls)
-            case let .failure(error):
-                importError = "打开文件选择器失败：\(error.localizedDescription)"
-            }
-        }
         .alert("导入本地音乐", isPresented: Binding(get: { importError != nil },
                                                 set: { if !$0 { importError = nil } })) {
             Button("从「文件」App 拷进来", role: .cancel) { importError = nil }
@@ -244,7 +233,11 @@ struct LibraryView: View {
         switch section {
         case .local:
             Button {
-                isImporterPresented = true
+                FilePicker.pick(types: Self.audioImportTypes, multiple: true) { urls in
+                    importLocal(urls)
+                } onCancel: {
+                    Log.info("文件选择", "用户取消本地导入")
+                }
             } label: {
                 if isImporting {
                     ProgressView()

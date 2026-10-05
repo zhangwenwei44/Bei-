@@ -419,13 +419,15 @@ struct PlayerView: View {
             Button { store.cycleMode() } label: {
                 Image(systemName: store.mode.icon)
                     .font(.system(size: 20))
-                    .frame(width: 48, height: 56)
+                    .frame(width: 44, height: 56)
             }
+
+            Spacer().frame(width: 12)
 
             Button { store.step(-1) } label: {
                 Image(systemName: "backward.end.fill")
                     .font(.system(size: 28))
-                    .frame(width: 68, height: 56)
+                    .frame(width: 60, height: 56)
             }
 
             PlayButton()
@@ -433,14 +435,16 @@ struct PlayerView: View {
             Button { store.step(1) } label: {
                 Image(systemName: "forward.end.fill")
                     .font(.system(size: 28))
-                    .frame(width: 68, height: 56)
+                    .frame(width: 60, height: 56)
             }
+
+            Spacer().frame(width: 12)
 
             // 右：队列（紧贴下一首）
             Button { store.isQueuePresented = true } label: {
                 Image(systemName: "list.bullet")
                     .font(.system(size: 20))
-                    .frame(width: 48, height: 56)
+                    .frame(width: 44, height: 56)
             }
         }
         .frame(maxWidth: .infinity)

@@ -130,6 +130,14 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "2.0.4", date: "", items: [
+            "歌手头像根治：翻 3 页 mixedSearch（之前只翻 1 页），加 AlbumImage/AlbumImg/MV Pic 字段兜底（毛不易 recommend 分组节点连 imgurl 都没有，翻页或专辑封面就能拿到图）",
+            "歌手头像加 NSCache 内存缓存 — 同名字段不重复请求，解决重复搜索同一歌手导致的发热",
+            "搜索页数从 2 页（30 条）加到 4 页（60 条），song 分组每页固定 15 条",
+            "播放页控制行加 12pt 小间距，按钮不贴得太近",
+            "本地导入修复：删掉 iOS 16 上回调被吞的 SwiftUI .fileImporter，改用 FilePicker.pick() 直接 present UIDocumentPickerViewController",
+            "Discover 页加已加载标记 — 榜单/歌手头像/猜你喜欢已拉过就不再重复请求，大幅减少进页面时的网络请求量（之前每次进页面拉 10 个歌手 × 3 页 + 12 个榜单）",
+        ]),
         Entry(version: "2.0.3", date: "", items: [
             "歌手头像修复：去掉 type==4 硬限制，任何分组任何节点只要有 imgurl 就尝试当歌手卡片（邓紫棋/周深/毛不易之前被挡住就是因为 recommend 分组的节点 type 不是 4）",
             "歌曲节点歌手名匹配加大写字段 SingerName/Singers（酷狗 song 分组实际是大写驼峰，之前只查小写 singername）",

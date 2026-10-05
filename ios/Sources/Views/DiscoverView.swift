@@ -248,20 +248,25 @@ struct DiscoverView: View {
 
     private func load() async {
         guard !isLoading else { return }
+        // 已经 load 过且有数据 — 不再重复拉（NSCache 会兜住歌手头像，但榜单/曲目数没必要每次重拉）
+        if !feed.topLists.isEmpty && !artistPhotos.isEmpty && !guessSongs.isEmpty {
+            return
+        }
         isLoading = true
         defer { isLoading = false }
         errorMessage = nil
-        feed.topLists = await KugouClient.shared.topLists()
+        if feed.topLists.isEmpty {
+            feed.topLists = await KugouClient.shared.topLists()
+        }
         if feed.isEmpty {
             errorMessage = "拿不到榜单，检查一下网络或稍后再试"
             return
         }
         // 猜你喜欢先刷出来（两次搜索就够），再慢慢补榜单曲目数
-        await loadGuess()
-        // 热门歌手头像并发拉（singerimg 接口），拉到就刷新
-        await loadArtistPhotos()
-        // 曲目数要单独请求榜单页才拿得到（列表接口里没有 songcount），
-        // 只补前若干个，避免一进页面就打 55 个请求。
+        if guessSongs.isEmpty { await loadGuess() }
+        // 热门歌手头像：NSCache 已兜住大部分，loadArtistPhotos 内部会自动跳过缓存命中的
+        if artistPhotos.isEmpty { await loadArtistPhotos() }
+        // 曲目数也要补
         await loadTrackCounts(for: feed.topLists.prefix(12))
     }
 
