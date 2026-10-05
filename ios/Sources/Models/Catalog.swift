@@ -42,7 +42,7 @@ struct Artist: Identifiable, Hashable {
 }
 
 /// 专辑。酷狗搜索结果里没有独立专辑实体，从歌曲的专辑名聚合。
-struct Album: Identifiable, Hashable {
+struct Album: Identifiable, Hashable, Codable {
     var id: String
     var name: String
     var artist: String

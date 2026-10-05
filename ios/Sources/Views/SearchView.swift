@@ -5,6 +5,8 @@ struct SearchView: View {
     var initialKeyword: String = ""
 
     @EnvironmentObject private var store: PlayerStore
+    @ObservedObject private var library = LibraryStore.shared
+    @ObservedObject private var downloads = DownloadManager.shared
     @State private var keyword = ""
     @State private var submitted = ""
     @State private var results = SearchResults()
@@ -13,6 +15,10 @@ struct SearchView: View {
     @State private var errorMessage: String?
     @State private var history: [String] = []
     @FocusState private var isFieldFocused: Bool
+
+    // 多选模式
+    @State private var isSelecting = false
+    @State private var selectedIDs: Set<String> = []
 
     private enum Scope: Int, CaseIterable {
         case songs, playlists, albums, artists
@@ -49,12 +55,44 @@ struct SearchView: View {
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                if isSelecting {
+                    Button {
+                        isSelecting = false
+                        selectedIDs.removeAll()
+                    } label: {
+                        Text("完成")
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
-                if !submitted.isEmpty {
+                if isSelecting {
+                    Button {
+                        if selectedIDs.count == results.songs.count {
+                            selectedIDs.removeAll()
+                        } else {
+                            selectedIDs = Set(results.songs.map(\.id))
+                        }
+                    } label: {
+                        Text(selectedIDs.count == results.songs.count ? "取消全选" : "全选")
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                } else if !submitted.isEmpty, scope == .songs, !results.songs.isEmpty {
+                    Button {
+                        isSelecting = true
+                        selectedIDs.removeAll()
+                    } label: {
+                        Label("多选", systemImage: "checkmark.circle")
+                    }
+                    .font(.system(size: 13))
+                } else if !submitted.isEmpty {
                     Button("清空") {
                         submitted = ""
                         keyword = ""
                         results = SearchResults()
+                        isSelecting = false
+                        selectedIDs.removeAll()
                     }
                     .font(.system(size: 13))
                 }
@@ -148,12 +186,40 @@ struct SearchView: View {
                 switch scope {
                 case .songs:
                     ForEach(results.songs) { song in
-                        SongRow(song: song,
-                                isCurrent: store.current?.id == song.id,
-                                isPlaying: store.isPlaying)
-                            .songMenu(song)
-                            .padding(.horizontal, 16)
-                            .onTapGesture { play(song) }
+                        let selected = selectedIDs.contains(song.id)
+                        HStack(spacing: 0) {
+                            if isSelecting {
+                                Button {
+                                    if selected {
+                                        selectedIDs.remove(song.id)
+                                    } else {
+                                        selectedIDs.insert(song.id)
+                                    }
+                                } label: {
+                                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 24))
+                                        .foregroundStyle(selected ? AppStyle.accent : AppStyle.tertiaryText)
+                                        .frame(width: 44, height: 44)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            SongRow(song: song,
+                                    isCurrent: store.current?.id == song.id,
+                                    isPlaying: store.isPlaying)
+                                .songMenu(song)
+                                .padding(.horizontal, 16)
+                                .onTapGesture {
+                                    if isSelecting {
+                                        if selected {
+                                            selectedIDs.remove(song.id)
+                                        } else {
+                                            selectedIDs.insert(song.id)
+                                        }
+                                    } else {
+                                        play(song)
+                                    }
+                                }
+                        }
                     }
                 case .playlists:
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
@@ -171,8 +237,8 @@ struct SearchView: View {
                 case .albums:
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(results.albums) { album in
-                            Button {
-                                runSearch("\(album.artist) \(album.name)")
+                            NavigationLink {
+                                AlbumDetailView(album: album)
                             } label: {
                                 HStack(spacing: 12) {
                                     CoverImage(url: album.coverURL,
@@ -191,6 +257,17 @@ struct SearchView: View {
                                             .lineLimit(1)
                                     }
                                     Spacer()
+                                    Button {
+                                        _ = library.toggleAlbumFavorite(album)
+                                        Haptics.light()
+                                    } label: {
+                                        Image(systemName: library.isAlbumFavorite(album) ? "heart.fill" : "heart")
+                                            .font(.system(size: 16))
+                                            .foregroundStyle(library.isAlbumFavorite(album) ? AppStyle.like : AppStyle.tertiaryText)
+                                            .frame(width: 36, height: 36)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .onTapGesture {} // 阻止 NavigationLink 触发
                                     Image(systemName: "chevron.right")
                                         .font(.system(size: 12, weight: .semibold))
                                         .foregroundStyle(AppStyle.tertiaryText)
@@ -229,6 +306,71 @@ struct SearchView: View {
             }
             .padding(.bottom, 24)
         }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting, !selectedIDs.isEmpty {
+                selectedActionBar
+            }
+        }
+    }
+
+    /// 多选模式下的底部操作条。
+    private var selectedActionBar: some View {
+        let selected = results.songs.filter { selectedIDs.contains($0.id) }
+        return HStack(spacing: 0) {
+            actionButton(title: "播放", icon: "play.fill") {
+                store.play(selected)
+                Haptics.soft()
+                isSelecting = false
+                selectedIDs.removeAll()
+            }
+            Divider().frame(height: 24)
+            actionButton(title: "下载", icon: "arrow.down.circle") {
+                Task {
+                    for song in selected {
+                        if song.isRemote { _ = try? await downloads.download(song) }
+                    }
+                }
+                Haptics.soft()
+                isSelecting = false
+                selectedIDs.removeAll()
+            }
+            Divider().frame(height: 24)
+            Menu {
+                if library.playlists.isEmpty {
+                    Text("还没有歌单")
+                }
+                ForEach(library.playlists) { playlist in
+                    Button(playlist.name) {
+                        for song in selected { library.add(song, toPlaylist: playlist.id) }
+                        Haptics.soft()
+                        isSelecting = false
+                        selectedIDs.removeAll()
+                    }
+                }
+            } label: {
+                actionButton(title: "加入歌单", icon: "text.badge.plus") {}
+            }
+        }
+        .background(AppStyle.surface)
+        .overlay(
+            Rectangle().fill(AppStyle.stroke).frame(height: 0.5),
+            alignment: .top
+        )
+    }
+
+    private func actionButton(title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 18))
+                Text(title)
+                    .font(.system(size: 11))
+            }
+            .foregroundStyle(AppStyle.primaryText)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: 搜索历史

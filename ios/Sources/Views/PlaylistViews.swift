@@ -283,3 +283,157 @@ struct PlaylistDetailView: View {
         }
     }
 }
+
+// MARK: - 专辑详情
+
+struct AlbumDetailView: View {
+    let album: Album
+
+    @EnvironmentObject private var store: PlayerStore
+    @ObservedObject private var library = LibraryStore.shared
+    @State private var songs: [Song] = []
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+
+    private var isFavorited: Bool { library.isAlbumFavorite(album) }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+
+                if isLoading, songs.isEmpty {
+                    LoadingRow()
+                } else if let errorMessage, songs.isEmpty {
+                    EmptyStateView(icon: "exclamationmark.triangle", title: "加载失败", message: errorMessage)
+                } else if songs.isEmpty {
+                    EmptyStateView(icon: "music.note.list", title: "专辑里没找到歌曲", message: "可能这个专辑在酷狗上的信息较少")
+                } else {
+                    actionBar
+                    VStack(spacing: 0) {
+                        ForEach(songs) { song in
+                            SongRow(song: song,
+                                    isCurrent: store.current?.id == song.id,
+                                    isPlaying: store.isPlaying)
+                                .songMenu(song)
+                                .padding(.horizontal, 16)
+                                .onTapGesture { play(song) }
+                        }
+                    }
+                }
+            }
+            .padding(.bottom, 30)
+        }
+        .background(AppStyle.background)
+        .navigationTitle(album.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    _ = library.toggleAlbumFavorite(album)
+                    Haptics.light()
+                } label: {
+                    Image(systemName: isFavorited ? "heart.fill" : "heart")
+                        .foregroundStyle(isFavorited ? AppStyle.like : AppStyle.primaryText)
+                }
+            }
+        }
+        .task { await load() }
+    }
+
+    private var header: some View {
+        HStack(spacing: 14) {
+            CoverImage(url: album.coverURL,
+                       fallbackKeys: album.albumID.isEmpty ? [] : ["al:\(album.albumID)"],
+                       seed: album.name,
+                       size: 128,
+                       corner: 12)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(album.name)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(AppStyle.primaryText)
+                    .lineLimit(3)
+                Text(album.artist)
+                    .font(.system(size: 13))
+                    .foregroundStyle(AppStyle.secondaryText)
+                    .lineLimit(1)
+                if !songs.isEmpty {
+                    Text("\(songs.count) 首")
+                        .font(.system(size: 12))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 16)
+    }
+
+    private var actionBar: some View {
+        HStack(spacing: 22) {
+            Button {
+                store.play(songs)
+            } label: {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(AppStyle.onAccent)
+                    .frame(width: 52, height: 52)
+                    .background(AppStyle.accent, in: Circle())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                store.append(songs)
+                Haptics.soft()
+            } label: {
+                Label("加入播放列表", systemImage: "text.badge.plus")
+                    .font(.system(size: 13))
+                    .foregroundStyle(AppStyle.primaryText)
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 18)
+    }
+
+    private func play(_ song: Song) {
+        guard let index = songs.firstIndex(where: { $0.id == song.id }) else { return }
+        store.play(songs, startAt: index)
+        Haptics.soft()
+    }
+
+    private func load() async {
+        isLoading = true
+        defer { isLoading = false }
+        // 用 "{artist} {album}" 组合关键词搜索，从结果里过滤出专辑名精确匹配的歌曲
+        // artist 里可能带 "、" 分隔多个歌手，取第一个
+        let leadArtist = album.artist.components(separatedBy: CharacterSet(charactersIn: "、/,")).first?.trimmingCharacters(in: .whitespaces) ?? album.artist
+        let keyword = "\(leadArtist) \(album.name)"
+        do {
+            async let p1 = try? KugouClient.shared.searchSongs(keyword: keyword, page: 1)
+            async let p2 = try? KugouClient.shared.searchSongs(keyword: keyword, page: 2)
+            var found: [Song] = []
+            found.append(contentsOf: await p1 ?? [])
+            found.append(contentsOf: await p2 ?? [])
+            var seen = Set<String>()
+            found = found.filter { seen.insert($0.id).inserted }
+            // 优先用 album_id 精确匹配（如果有），否则用专辑名模糊匹配
+            let filtered: [Song]
+            if !album.albumID.isEmpty {
+                filtered = found.filter { $0.kugouAlbumID == album.albumID }
+            } else {
+                filtered = found.filter {
+                    let songAlbum = $0.album.trimmingCharacters(in: .whitespaces)
+                    return !songAlbum.isEmpty && songAlbum.localizedCaseInsensitiveContains(album.name)
+                }
+            }
+            songs = filtered.isEmpty ? found : filtered
+            if songs.isEmpty { errorMessage = "没找到专辑相关的歌曲" }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}

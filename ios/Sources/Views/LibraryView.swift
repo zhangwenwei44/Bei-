@@ -18,13 +18,14 @@ struct LibraryView: View {
     @State private var section: Section = .favorites
 
     private enum Section: Int, CaseIterable, Identifiable {
-        case favorites, downloads, local, playlists
+        case favorites, albums, downloads, local, playlists
 
         var id: Int { rawValue }
 
         var title: String {
             switch self {
             case .favorites: return "收藏"
+            case .albums: return "专辑"
             case .downloads: return "下载"
             case .local: return "本地"
             case .playlists: return "歌单"
@@ -34,6 +35,7 @@ struct LibraryView: View {
         var icon: String {
             switch self {
             case .favorites: return "heart.fill"
+            case .albums: return "square.stack.fill"
             case .downloads: return "arrow.down.circle.fill"
             case .local: return "iphone"
             case .playlists: return "music.note.list"
@@ -43,6 +45,7 @@ struct LibraryView: View {
         var tint: Color {
             switch self {
             case .favorites: return AppStyle.like
+            case .albums: return .orange
             case .downloads: return AppStyle.accent
             case .local: return .purple
             case .playlists: return AppStyle.gold
@@ -62,6 +65,7 @@ struct LibraryView: View {
     private func count(for item: Section) -> Int {
         switch item {
         case .favorites: return library.favorites.count
+        case .albums: return library.albumFavorites.count
         case .downloads: return library.downloads.count
         case .local: return library.localSongs.count
         case .playlists: return library.playlists.count
@@ -222,6 +226,7 @@ struct LibraryView: View {
     private var subtitle: String {
         switch section {
         case .favorites: return "在歌曲上右键收藏"
+        case .albums: return "搜索专辑时点爱心收藏"
         case .downloads: return "下载后可离线播放"
         case .local: return "从「文件」导入的音频"
         case .playlists: return "自建歌单"
@@ -271,11 +276,51 @@ struct LibraryView: View {
     private var content: some View {
         if section == .playlists {
             playlistsContent
+        } else if section == .albums {
+            albumsContent
         } else if songs.isEmpty {
             emptyState
         } else {
             songList
         }
+    }
+
+    private var albumsContent: some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+                  spacing: 14) {
+            ForEach(library.albumFavorites) { album in
+                NavigationLink {
+                    AlbumDetailView(album: album)
+                } label: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        CoverImage(url: album.coverURL,
+                                   fallbackKeys: album.albumID.isEmpty ? [] : ["al:\(album.albumID)"],
+                                   seed: album.name,
+                                   size: 160,
+                                   corner: 10)
+                        Text(album.name)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(AppStyle.primaryText)
+                            .lineLimit(1)
+                        Text(album.artist)
+                            .font(.system(size: 11))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    Button(role: .destructive) {
+                        _ = library.toggleAlbumFavorite(album)
+                    } label: {
+                        Label("取消收藏", systemImage: "heart.slash")
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 24)
     }
 
     private var songList: some View {
@@ -318,6 +363,10 @@ struct LibraryView: View {
                 EmptyStateView(icon: "heart",
                                title: "还没有收藏",
                                message: "在歌曲上长按就能收藏")
+            case .albums:
+                EmptyStateView(icon: "square.stack",
+                               title: "还没有收藏的专辑",
+                               message: "搜索专辑后点爱心就能收藏")
             case .downloads:
                 EmptyStateView(icon: "arrow.down.circle",
                                title: "还没有下载",

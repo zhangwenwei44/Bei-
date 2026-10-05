@@ -23,6 +23,7 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var localSongs: [Song] = []
     @Published private(set) var playlists: [UserPlaylist] = []
     @Published private(set) var history: [Song] = []
+    @Published private(set) var albumFavorites: [Album] = []
 
     private let defaults = UserDefaults.standard
     /// 「歌曲 ID → 歌曲」索引，歌单靠它还原曲目。
@@ -83,7 +84,8 @@ final class LibraryStore: ObservableObject {
         // 迁移所有游客数据 key 到目标用户前缀下
         let guestKeys = ["aurora.library.favorites", "aurora.library.downloads",
                          "aurora.library.local", "aurora.library.playlists",
-                         "aurora.library.history", "aurora.library.songTable"]
+                         "aurora.library.history", "aurora.library.songTable",
+                         "aurora.library.albumFavorites"]
         for guestKey in guestKeys {
             if let data = defaults.data(forKey: guestKey) {
                 defaults.set(data, forKey: prefix + guestKey)
@@ -99,6 +101,7 @@ final class LibraryStore: ObservableObject {
         localSongs = Self.load([Song].self, key: key("local")) ?? []
         history = Self.load([Song].self, key: key("history")) ?? []
         playlists = Self.load([UserPlaylist].self, key: key("playlists")) ?? []
+        albumFavorites = Self.load([Album].self, key: key("albumFavorites")) ?? []
         songCache = Self.load([String: Song].self, key: key("songTable")) ?? [:]
         indexAll()
     }
@@ -276,5 +279,23 @@ final class LibraryStore: ObservableObject {
     func removeHistory(ids: [String]) {
         history.removeAll { ids.contains($0.id) }
         persist(history, key: key("history"))
+    }
+
+    // MARK: 专辑收藏
+
+    func isAlbumFavorite(_ album: Album) -> Bool {
+        albumFavorites.contains { $0.id == album.id }
+    }
+
+    @discardableResult
+    func toggleAlbumFavorite(_ album: Album) -> Bool {
+        if let index = albumFavorites.firstIndex(where: { $0.id == album.id }) {
+            albumFavorites.remove(at: index)
+            persist(albumFavorites, key: key("albumFavorites"))
+            return false
+        }
+        albumFavorites.insert(album, at: 0)
+        persist(albumFavorites, key: key("albumFavorites"))
+        return true
     }
 }

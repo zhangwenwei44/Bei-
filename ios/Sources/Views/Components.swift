@@ -147,13 +147,32 @@ struct CoverImage: View {
             image = nil
             return
         }
-        if target.isFileURL, let data = try? Data(contentsOf: target), let loaded = UIImage(data: data) {
-            image = loaded
+        if target.isFileURL, let data = try? Data(contentsOf: target) {
+            image = Self.decodeImageData(data, maxPixelSize: size * 3)
             return
         }
-        if let loaded = await CoverLoader.download(target) {
+        if let loaded = await CoverLoader.download(target, maxPixelSize: size * 3) {
             image = loaded
         }
+    }
+
+    /// 在后台线程用 ImageIO 解码图片数据，避免主线程解码阻塞 120Hz。
+    /// `maxPixelSize` 是缩略图的最长边像素（传 size*3 留出 3x 屏幕的清晰度）。
+    static func decodeImageData(_ data: Data, maxPixelSize: CGFloat) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            // 兜底：直接用 UIImage 构造（SwiftUI 渲染时才真正解码，但保证有图）
+            return UIImage(data: data)
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: Int(maxPixelSize),
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return UIImage(data: data)
+        }
+        return UIImage(cgImage: cgImage)
     }
 }
 
@@ -166,18 +185,18 @@ enum CoverLoader {
     // 直接调用会产生编译器警告（CI 零警告即失败）。
     private static let inflight = InflightTasks()
 
-    static func download(_ url: URL) async -> UIImage? {
+    static func download(_ url: URL, maxPixelSize: CGFloat = 300) async -> UIImage? {
         if url.scheme?.lowercased() == "http",
            let secure = URL(string: url.absoluteString.replacingOccurrences(of: "http://", with: "https://")),
-           let image = await request(secure) {
+           let image = await request(secure, maxPixelSize: maxPixelSize) {
             // https 成功，顺手给原 http 地址也缓存同一张图
             CoverCache.shared.store(image, for: url)
             return image
         }
-        return await request(url)
+        return await request(url, maxPixelSize: maxPixelSize)
     }
 
-    private static func request(_ target: URL) async -> UIImage? {
+    private static func request(_ target: URL, maxPixelSize: CGFloat) async -> UIImage? {
         if let cached = CoverCache.shared.image(for: target) {
             return cached
         }
@@ -187,7 +206,7 @@ enum CoverLoader {
         }
         let task = Task<UIImage?, Never> {
             defer { inflight.remove(key) }
-            return await performRequest(target)
+            return await performRequest(target, maxPixelSize: maxPixelSize)
         }
         inflight.insert(key, task)
         return await task.value
@@ -212,7 +231,7 @@ enum CoverLoader {
         }
     }
 
-    private static func performRequest(_ target: URL) async -> UIImage? {
+    private static func performRequest(_ target: URL, maxPixelSize: CGFloat) async -> UIImage? {
         // 排队期间可能已被别的任务下载好
         if let cached = CoverCache.shared.image(for: target) {
             return cached
@@ -225,8 +244,12 @@ enum CoverLoader {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-            guard code == 200, let loaded = UIImage(data: data) else {
+            guard code == 200 else {
                 Log.error("封面", "加载失败 HTTP \(code) / \(data.count) 字节 <- \(target.absoluteString)")
+                return nil
+            }
+            // 用 ImageIO 在后台解码成缩略图，避免主线程解码阻塞 120Hz
+            guard let loaded = CoverImage.decodeImageData(data, maxPixelSize: maxPixelSize) else {
                 return nil
             }
             CoverCache.shared.store(loaded, for: target)
