@@ -65,7 +65,7 @@ final class LibraryStore: ObservableObject {
 
     /// 构造完整的 UserDefaults key：`aurora.user.<userId>.library.<suffix>` 或 `aurora.library.<suffix>`（游客）。
     private func key(_ suffix: String) -> String {
-        let prefix = AuthService.userKeyPrefix(for: userId)
+        let prefix = auroraUserKeyPrefix(for: userId)
         return prefix + "aurora.library." + suffix
     }
 

@@ -92,11 +92,7 @@ struct LoginView: View {
             Spacer()
         }
         .background(AppStyle.background)
-        .onChange(of: mode) { _, _ in
-            errorMessage = nil
-            password = ""
-            confirmPassword = ""
-        }
+        .onChange(of: mode) { errorMessage = nil; password = ""; confirmPassword = "" }
     }
 
     private var canSubmit: Bool {

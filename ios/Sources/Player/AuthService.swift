@@ -80,7 +80,7 @@ final class AuthService: ObservableObject {
         deletePassword(for: name)
 
         // 删用户数据（UserDefaults）
-        let prefix = userKeyPrefix(for: name)
+        let prefix = auroraUserKeyPrefix(for: name)
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
             defaults.removeObject(forKey: key)
         }
@@ -150,7 +150,7 @@ final class AuthService: ObservableObject {
     /// 把无前缀 key 的游客数据复制到 aurora.user.<userId>.* 前缀下。
     /// 只在注册时调一次。
     private func migrateGuestData(to userId: String) {
-        let prefix = userKeyPrefix(for: userId)
+        let prefix = auroraUserKeyPrefix(for: userId)
         let guestKeys = ["aurora.library.favorites", "aurora.library.downloads",
                          "aurora.library.local", "aurora.library.playlists",
                          "aurora.library.history", "aurora.library.songTable"]
@@ -163,17 +163,21 @@ final class AuthService: ObservableObject {
     }
 
     static func userKeyPrefix(for userId: String?) -> String {
-        guard let userId, !userId.isEmpty else { return "" }
-        return "aurora.user.\(userId)."
+        auroraUserKeyPrefix(for: userId)
     }
 
     private func sha256(_ data: Data) -> Data {
-        var hash = [UInt8](repeating: 0, count: 32)
-        _ = data.withUnsafeBytes { bytes in
-            SHA256.hash(bytes, into: &hash)
-        }
-        return Data(hash)
+        let digest = SHA256.hash(data: data)
+        return Data(digest)
     }
+}
+
+/// 全局函数：构造用户数据的 UserDefaults key 前缀。
+/// - nil 或空字符串 → 返回 ""（无前缀，兼容老游客数据）
+/// - 有值 → 返回 "aurora.user.<userId>."
+func auroraUserKeyPrefix(for userId: String?) -> String {
+    guard let userId, !userId.isEmpty else { return "" }
+    return "aurora.user.\(userId)."
 }
 
 enum AuthError: LocalizedError {
