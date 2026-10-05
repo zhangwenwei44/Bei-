@@ -87,9 +87,13 @@ struct PlayerView: View {
         let side = max(140, min(width - 88, height * 0.42, 360))
         return Group {
             if let artwork = store.artwork {
+                // 和 CoverImage 同理：Image 自身也要 frame+clipped，
+                // 只靠外层 Group 的 clipShape 在 iOS 16 上不能保证 scaledToFill 居中。
                 Image(uiImage: artwork)
                     .resizable()
                     .scaledToFill()
+                    .frame(width: side, height: side)
+                    .clipped()
             } else {
                 ZStack {
                     Rectangle().fill(.white.opacity(0.08))
@@ -97,6 +101,7 @@ struct PlayerView: View {
                         .font(.system(size: 54, weight: .light))
                         .foregroundStyle(.white.opacity(0.55))
                 }
+                .frame(width: side, height: side)
             }
         }
         .frame(width: side, height: side)

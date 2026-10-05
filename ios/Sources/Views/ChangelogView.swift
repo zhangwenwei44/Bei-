@@ -130,6 +130,11 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "1.9.9", date: "", items: [
+            "修复切歌不换封面：refreshArtwork 里 if let current=artwork { return } 早返回导致所有歌显示同一张封面，已删除该条件让每首歌都加载自己的封面",
+            "播放页大封面 Image 自身加 frame+clipped（和列表 CoverImage 同理），iOS 16 圆角裁剪后居中",
+            "歌手头像搜索放宽分组：之前硬卡 recommend 分组，邓紫棋/周深等歌手卡片落在其他分组会被漏掉；现在遍历所有分组找 type=4 歌手节点",
+        ]),
         Entry(version: "1.9.8", date: "", items: [
             "修复封面一边宽一边窄：CoverImage 内部 Image 自身也要 frame+clipped，只靠外层 ZStack 裁剪在 iOS 16 上不能保证 scaledToFill 居中",
             "修复部分歌手头像不加载：portraitURL 不再硬卡 singerimg 域名，酷狗不同板块 imgurl 走 imge.kugou.com 等 CDN 也能认",

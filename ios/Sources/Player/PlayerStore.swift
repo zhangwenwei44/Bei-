@@ -395,12 +395,11 @@ final class PlayerStore: ObservableObject {
     private func refreshArtwork(for song: Song) {
         artworkTaskID = song.id
         let seed = "\(song.artist)-\(song.title)"
-        let placeholder = ArtworkPaletteEngine.palette(for: nil, seed: seed)
-        if let current = artwork {
-            currentPalette = ArtworkPaletteEngine.palette(for: current, seed: seed)
-            return
-        }
-        currentPalette = placeholder
+        currentPalette = ArtworkPaletteEngine.palette(for: nil, seed: seed)
+        // 关键：每首歌必须加载自己的封面。之前这里有个早返回：
+        // if let current = artwork { ... return }
+        // 导致切歌时如果 artwork 已经有值（上一首歌的封面），
+        // 就永远不加载当前歌的封面——所有歌都显示同一张图。
         Task { [weak self] in
             let image = await Self.loadArtwork(for: song)
             guard let image else { return }

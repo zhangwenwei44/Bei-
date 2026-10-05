@@ -159,8 +159,10 @@ final class KugouClient {
         return url
     }
 
-    /// 用指定关键词搜索，在 recommend 分组里找歌手卡片。
+    /// 用指定关键词搜索，在所有分组里找 type=4（歌手卡片）节点。
     /// 匹配规则：歌手名精确相等优先，其次取第一个带头像的歌手卡片。
+    /// 不只限 recommend 分组——邓紫棋/周深等在某些搜索结果里的歌手卡片
+    /// 落在其他分组（search / singer / hot），之前硬卡 recommend 会漏掉。
     private func artistPhoto(name: String, keyword: String) async -> URL? {
         let lead = name.components(separatedBy: CharacterSet(charactersIn: "、/&，,"))
             .first?
@@ -171,7 +173,8 @@ final class KugouClient {
               let groups = data["lists"] as? [[String: Any]] else { return nil }
 
         var fallbackURL: URL?
-        for group in groups where (Self.string(group["type"]) ?? "") == "recommend" {
+        var exactURL: URL?
+        for group in groups {
             let nodes = group["lists"] as? [[String: Any]] ?? []
             for node in nodes where (Self.string(node["type"]) ?? "") == "4" {
                 let extra = node["extra"] as? [String: Any]
@@ -180,13 +183,14 @@ final class KugouClient {
                     ?? Self.string(node["title"])
                 guard let portrait = Self.portraitURL(node: node, extra: extra) else { continue }
                 if matchedName == lead {
-                    return portrait
+                    exactURL = portrait
+                } else if fallbackURL == nil {
+                    fallbackURL = portrait
                 }
-                if fallbackURL == nil { fallbackURL = portrait }
             }
-            break
+            if exactURL != nil { break } // 精确匹配到就提前退出
         }
-        return fallbackURL
+        return exactURL ?? fallbackURL
     }
 
     /// 从歌手卡片里抠出头像地址。优先 imgurl（正式歌手头像），
