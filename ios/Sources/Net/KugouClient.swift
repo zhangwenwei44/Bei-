@@ -53,7 +53,7 @@ final class KugouClient {
     // MARK: - 搜索
 
     /// 搜索歌曲。返回空数组表示没搜到。
-    func searchSongs(keyword: String, page: Int = 1, limit: Int = 30) async throws -> [Song] {
+    func searchSongs(keyword: String, page: Int = 1, limit: Int = 50) async throws -> [Song] {
         let json = try await mixedSearchJSON(keyword: keyword, page: page)
         guard let data = json["data"] as? [String: Any],
               let groups = data["lists"] as? [[String: Any]] else { return [] }
@@ -166,15 +166,31 @@ final class KugouClient {
         guard !keyword.isEmpty,
               let json = try? await mixedSearchJSON(keyword: keyword, page: 1),
               let data = json["data"] as? [String: Any],
-              let groups = data["lists"] as? [[String: Any]] else { return nil }
+              let groups = data["lists"] as? [[String: Any]] else {
+            Log.info("歌手头像", "搜索 \(keyword) 失败：json=\(json.keys)  data keys=\((json["data"] as? [String: Any])?.keys ?? [])")
+            return nil
+        }
 
-        Log.info("歌手头像", "搜索 \(keyword) 返回 \(groups.count) 个分组")
+        // 打印完整结构方便调试
+        Log.info("歌手头像", "搜索 \(keyword) 返回 \(groups.count) 个分组，data 顶层 keys=\(data.keys)")
+        for (i, group) in groups.enumerated() {
+            let gtype = Self.string(group["type"]) ?? "?"
+            let gname = Self.string(group["name"]) ?? ""
+            let nodes = group["lists"] as? [[String: Any]] ?? []
+            Log.info("歌手头像", "分组[\(i)] type=\(gtype) name=\(gname) 节点数=\(nodes.count)")
+            // 打前 2 个节点的 key + 关键字段
+            for (j, node) in nodes.prefix(2).enumerated() {
+                let keys = Array(node.keys).prefix(8).joined(separator: ",")
+                let img = Self.string(node["imgurl"]) ?? Self.string(node["singerimg"]) ?? Self.string(node["first_frame_image"]) ?? ""
+                let singer = Self.string(node["singername"]) ?? Self.string(node["artistname"]) ?? Self.string(node["artist"]) ?? ""
+                Log.info("歌手头像", "  节点[\(j)] keys={\(keys)}  singer=\(singer) img=\(img.prefix(80))")
+            }
+        }
 
         var fallbackURL: URL?
         var exactURL: URL?
         for group in groups {
             let nodes = group["lists"] as? [[String: Any]] ?? []
-            Log.info("歌手头像", "分组 \(Self.string(group["type"]) ?? "?") 返回 \(nodes.count) 个节点")
             for node in nodes {
                 let nodeType = Self.string(node["type"]) ?? ""
                 let extra = node["extra"] as? [String: Any]

@@ -16,20 +16,20 @@ struct PlayerView: View {
         // 直接用窗口的真实物理尺寸。绝不能用 GeometryReader：
         // 内部背景的 .ignoresSafeArea() 会反向把 GeometryReader 撑成超屏宽，
         // 导致整页被居中后左右偏移。
-        let size = Self.windowBounds
+        let win = Self.windowInfo
         return ZStack {
             immersiveBackground
             VStack(spacing: 0) {
-                topBar
-                    .frame(width: size.width - 36)
-                artworkStage(width: size.width, height: size.height)
-                meta(width: size.width)
+                topBar(safeTop: win.safeTop)
+                    .frame(width: win.size.width - 36)
+                artworkStage(width: win.size.width, height: win.size.height)
+                meta(width: win.size.width, safeBottom: win.safeBottom)
             }
             // 关键：VStack 钉住屏宽 + 居中对齐。
             // immersiveBackground 里有 .ignoresSafeArea() 把 ZStack 隐式宽度撑成超屏宽，
             // VStack 只有屏宽，SwiftUI 默认把它在宽 ZStack 里居中 → 视觉右移。
             // 加 alignment: .center 是保险，关键是 VStack 自己要对齐到中心。
-            .frame(width: size.width, alignment: .center)
+            .frame(width: win.size.width, alignment: .center)
             .clipped()
             if isLyricsPage {
                 LyricsPageView(isShown: $isLyricsPage)
@@ -37,7 +37,7 @@ struct PlayerView: View {
             }
         }
         // 根 ZStack 也钉住屏宽，否则背景的 ignoresSafeArea 会把整页撑宽
-        .frame(width: size.width, height: size.height, alignment: .center)
+        .frame(width: win.size.width, height: win.size.height, alignment: .center)
         .ignoresSafeArea(edges: .bottom)
         .gesture(dragGesture)
         .overlay(alignment: .bottom) { toastLayer }
@@ -45,17 +45,19 @@ struct PlayerView: View {
         .onDisappear(perform: animateOut)
     }
 
-    /// 设备窗口尺寸（keyWindow.bounds），取不到时给 XS 的 375×812 兜底。
-    private static var windowBounds: CGSize {
+    /// 设备窗口尺寸 + safeAreaInsets（keyWindow），取不到时给 XS 兜底。
+    private static var windowInfo: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat) {
         for scene in UIApplication.shared.connectedScenes {
             guard let ws = scene as? UIWindowScene else { continue }
             if let window = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first,
                window.bounds.width > 0 {
-                return window.bounds.size
+                return (window.bounds.size, window.safeAreaInsets.top, window.safeAreaInsets.bottom)
             }
-            if ws.screen.bounds.width > 0 { return ws.screen.bounds.size }
+            if ws.screen.bounds.width > 0 {
+                return (ws.screen.bounds.size, 0, 0)
+            }
         }
-        return CGSize(width: 375, height: 812)
+        return (CGSize(width: 375, height: 812), 44, 34)
     }
 
     // MARK: - 背景（封面取色渐变 + 封面虚化，酷狗风格）
@@ -121,7 +123,7 @@ struct PlayerView: View {
 
     // MARK: - 顶栏
 
-    private var topBar: some View {
+    private func topBar(safeTop: CGFloat) -> some View {
         HStack(spacing: 0) {
             Button { animateOut() } label: {
                 Image(systemName: "chevron.down")
@@ -153,7 +155,8 @@ struct PlayerView: View {
             }
         }
         .foregroundStyle(.white)
-        .padding(.top, 12)
+        // safeAreaInsets.top 在 XS 上是 44，刘海已经占了，再加 8pt 让按键完全不贴刘海
+        .padding(.top, max(12, safeTop + 4))
     }
 
     private var shareText: String {
@@ -191,7 +194,7 @@ struct PlayerView: View {
 
     // MARK: - 信息区
 
-    private func meta(width: CGFloat) -> some View {
+    private func meta(width: CGFloat, safeBottom: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(store.current?.title ?? "")
                 .font(.system(size: 18, weight: .bold))
@@ -216,10 +219,8 @@ struct PlayerView: View {
                 .padding(.top, 20)
                 .padding(.horizontal, 18)
 
-            controls
+            controls(safeBottom: safeBottom)
                 .padding(.top, 10)
-                // 原来贴着 home indicator，上提一段让控制键落在拇指更顺手的位置
-                .padding(.bottom, 30)
         }
         .frame(width: width, alignment: .leading)
         .layoutPriority(1) // 信息区（歌名/按钮/进度）优先于封面占空间，任何机型都完整显示
@@ -294,30 +295,19 @@ struct PlayerView: View {
     }
 
     private func actionRow(width: CGFloat) -> some View {
-        // 上排：下载/收藏/翻译/歌词 四等分；下排：顺序（左）… 队列（右）
-        VStack(spacing: 10) {
-            HStack(spacing: 0) {
-                actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
-                actionButton(icon: store.isLiked ? "heart.fill" : "heart",
-                             label: "收藏",
-                             tint: store.isLiked ? AppStyle.like : .white) {
-                    store.toggleFavorite()
-                }
-                actionButton(icon: "character.bubble", label: "翻译") {
-                    store.showTranslation.toggle()
-                }
-                actionButton(icon: "text.quote", label: "歌词") {
-                    withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
-                }
+        // 四个按钮等分【显式指定的屏宽-28】，任何机型都一屏显示
+        HStack(spacing: 0) {
+            actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
+            actionButton(icon: store.isLiked ? "heart.fill" : "heart",
+                         label: "收藏",
+                         tint: store.isLiked ? AppStyle.like : .white) {
+                store.toggleFavorite()
             }
-            HStack(spacing: 0) {
-                actionButton(icon: store.mode.icon, label: modeLabel) {
-                    store.cycleMode()
-                }
-                Spacer()
-                actionButton(icon: "list.bullet", label: "队列") {
-                    store.isQueuePresented = true
-                }
+            actionButton(icon: "character.bubble", label: "翻译") {
+                store.showTranslation.toggle()
+            }
+            actionButton(icon: "text.quote", label: "歌词") {
+                withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
             }
         }
         .frame(width: width - 28)
@@ -423,13 +413,21 @@ struct PlayerView: View {
 
     // MARK: - 控制
 
-    private var controls: some View {
-        // 整行居中，且控制键整体上提
+    private func controls(safeBottom: CGFloat) -> some View {
         HStack(spacing: 0) {
+            // 左：顺序模式（用户指定的左下角）
+            Button { store.cycleMode() } label: {
+                Image(systemName: store.mode.icon)
+                    .font(.system(size: 22))
+                    .frame(width: 56, height: 56)
+            }
+
+            Spacer()
+
             Button { store.step(-1) } label: {
                 Image(systemName: "backward.end.fill")
                     .font(.system(size: 28))
-                    .frame(width: 68, height: 68)
+                    .frame(width: 68, height: 56)
             }
 
             PlayButton()
@@ -437,12 +435,23 @@ struct PlayerView: View {
             Button { store.step(1) } label: {
                 Image(systemName: "forward.end.fill")
                     .font(.system(size: 28))
-                    .frame(width: 68, height: 68)
+                    .frame(width: 68, height: 56)
+            }
+
+            Spacer()
+
+            // 右：队列（用户指定的右下角）
+            Button { store.isQueuePresented = true } label: {
+                Image(systemName: "list.bullet")
+                    .font(.system(size: 22))
+                    .frame(width: 56, height: 56)
             }
         }
         .frame(maxWidth: .infinity)
         .foregroundStyle(.white)
         .buttonStyle(.plain)
+        // 底部间距：safeAreaInsets.bottom 在 XS 上是 34（home indicator），再加 6pt
+        .padding(.bottom, max(12, safeBottom + 6))
     }
 
     // MARK: - 反馈
@@ -539,60 +548,72 @@ private struct PlayButton: View {
 
 // MARK: - 全屏歌词页
 
-/// 酷狗那种整页大字滚动歌词。半透明黑底压住播放页的其他元素，
-/// 点返回或下滑收起，翻译开关直接放在页内。
+/// 酷狗那种整页大字滚动歌词。歌手写真做模糊背景 + 暗色遮罩，
+/// 既好看又不会像纯黑那么生硬，也不会透底下播放页的控件。
 struct LyricsPageView: View {
     @EnvironmentObject private var store: PlayerStore
     @Binding var isShown: Bool
+    @State private var artistPhotoURL: URL?
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.3)) { isShown = false }
-                } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 20, weight: .semibold))
-                        .frame(width: 44, height: 44)
+        ZStack {
+            // 背景层：歌手写真模糊 + 暗色遮罩
+            backgroundLayer
+
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.3)) { isShown = false }
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 20, weight: .semibold))
+                            .frame(width: 44, height: 44)
+                    }
+
+                    Spacer()
+
+                    VStack(spacing: 3) {
+                        Text(store.current?.title ?? "")
+                            .font(.system(size: 15, weight: .semibold))
+                            .lineLimit(1)
+                        Text(store.current?.artist ?? "")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.white.opacity(0.6))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 8)
+
+                    Spacer()
+
+                    Button {
+                        store.showTranslation.toggle()
+                    } label: {
+                        Image(systemName: "character.bubble")
+                            .font(.system(size: 18, weight: .medium))
+                            .opacity(store.showTranslation ? 1 : 0.45)
+                            .frame(width: 44, height: 44)
+                    }
                 }
+                .foregroundStyle(.white)
+                .padding(.top, 6)
 
-                Spacer()
-
-                VStack(spacing: 3) {
-                    Text(store.current?.title ?? "")
-                        .font(.system(size: 15, weight: .semibold))
-                        .lineLimit(1)
-                    Text(store.current?.artist ?? "")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.white.opacity(0.6))
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 8)
-
-                Spacer()
-
-                Button {
-                    store.showTranslation.toggle()
-                } label: {
-                    Image(systemName: "character.bubble")
-                        .font(.system(size: 18, weight: .medium))
-                        .opacity(store.showTranslation ? 1 : 0.45)
-                        .frame(width: 44, height: 44)
-                }
+                BigLyricsView(lyrics: store.lyrics,
+                              currentIndex: store.currentLyricIndex,
+                              showsTranslation: store.showTranslation)
+                    .frame(maxHeight: .infinity)
+                    .padding(.horizontal, 26)
             }
-            .foregroundStyle(.white)
-            .padding(.top, 6)
-
-            BigLyricsView(lyrics: store.lyrics,
-                          currentIndex: store.currentLyricIndex,
-                          showsTranslation: store.showTranslation)
-                .frame(maxHeight: .infinity)
-                .padding(.horizontal, 26)
+            .padding(.top, 12)
         }
-        .padding(.top, 12)
-        // 不透明纯黑：避免底下播放页的控件透出来像重影
-        .background { Color.black.ignoresSafeArea() }
+        .ignoresSafeArea()
+        .task(id: store.current?.id) {
+            // 切歌时重新拉歌手写真
+            let artist = store.current?.artist ?? ""
+            let title = store.current?.title ?? ""
+            if artist.isEmpty { artistPhotoURL = nil; return }
+            artistPhotoURL = await KugouClient.shared.artistPhoto(name: artist, title: title)
+        }
         .highPriorityGesture(
             DragGesture(minimumDistance: 24).onEnded { value in
                 if value.translation.height > 60 {
@@ -600,6 +621,32 @@ struct LyricsPageView: View {
                 }
             }
         )
+    }
+
+    /// 背景层：歌手写真模糊 + 暗色遮罩。拉不到写真时回退纯黑渐变。
+    private var backgroundLayer: some View {
+        ZStack {
+            if let url = artistPhotoURL {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let img):
+                        img.resizable().scaledToFill()
+                    default:
+                        Color.clear
+                    }
+                }
+                .blur(radius: 60)
+                .opacity(0.55)
+                .scaleEffect(1.3)
+            }
+            // 暗色遮罩：保证歌词文字可读
+            LinearGradient(colors: [.black.opacity(0.88),
+                                    .black.opacity(0.72),
+                                    .black.opacity(0.82),
+                                    .black.opacity(0.92)],
+                           startPoint: .top, endPoint: .bottom)
+        }
+        .ignoresSafeArea()
     }
 }
 

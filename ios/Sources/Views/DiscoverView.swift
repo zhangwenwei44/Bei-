@@ -207,7 +207,6 @@ struct DiscoverView: View {
                                 .lineLimit(1)
                             if playlist.trackCount > 0 {
                                 // 真实曲目数在榜单页的 global.total 里，由 loadTrackCounts 异步补。
-                                // 补不到就不显示，而不是显示一个错的数字。
                                 Text("\(playlist.trackCount) 首")
                                     .font(.system(size: 10))
                                     .foregroundStyle(AppStyle.accent)
@@ -216,6 +215,10 @@ struct DiscoverView: View {
                                     .font(.system(size: 10))
                                     .foregroundStyle(AppStyle.tertiaryText)
                                     .lineLimit(1)
+                            } else {
+                                // 正在加载曲目数
+                                ProgressView()
+                                    .controlSize(.small)
                             }
                         }
                     }
@@ -262,15 +265,24 @@ struct DiscoverView: View {
         await loadTrackCounts(for: feed.topLists.prefix(12))
     }
 
-    /// 并发拉取热门歌手头像。singerimg 域名某些网络可能慢，失败就保持文字占位。
+    /// 并发拉取热门歌手头像。限制 6 并发避免卡网络，失败就保持文字占位。
     private func loadArtistPhotos() async {
         let client = KugouClient.shared
-        await withTaskGroup(of: (String, URL?).self) { group in
-            for name in Self.hotArtists {
-                group.addTask { (name, await client.artistPhoto(name: name)) }
-            }
-            for await (name, url) in group {
-                if let url { artistPhotos[name] = url }
+        // 信号量限流：最多 6 个并发
+        let sem = AsyncStream.makeStream(of: Void.self)
+        let concurrency = 6
+        var active = 0
+        for name in Self.hotArtists {
+            while active >= concurrency { _ = await sem.stream.first(where: { _ in true }) }
+            active += 1
+            Task {
+                defer {
+                    active -= 1
+                    sem.continuation.yield()
+                }
+                if let url = await client.artistPhoto(name: name) {
+                    await MainActor.run { artistPhotos[name] = url }
+                }
             }
         }
     }
@@ -295,14 +307,42 @@ struct DiscoverView: View {
         guessSongs = songs
     }
 
-    /// 逐个补齐真实曲目数，补到就刷新界面。
+    /// 并发补齐真实曲目数（4 并发），补到就刷新界面。
     private func loadTrackCounts(for lists: ArraySlice<Playlist>) async {
         let client = KugouClient.shared
-        for (index, playlist) in lists.enumerated() {
-            guard let rankID = playlist.kugouRankID else { continue }
-            guard let total = await client.rankTotal(rankID: rankID) else { continue }
-            guard index < feed.topLists.count, feed.topLists[index].id == playlist.id else { return }
-            feed.topLists[index].trackCount = total
+        // (playlistID, rankID) -> (index in feed.topLists, total)
+        typealias Hit = (String, String, Int, Int)
+        var hits: [Hit] = []
+        await withTaskGroup(of: Hit?.self) { group in
+            let concurrency = 4
+            let sem = AsyncStream.makeStream(of: Void.self)
+            var active = 0
+            for (index, playlist) in lists.enumerated() {
+                guard let rankID = playlist.kugouRankID else { continue }
+                while active >= concurrency { _ = await sem.stream.first(where: { _ in true }) }
+                active += 1
+                group.addTask { [playlist.id] in
+                    defer {
+                        active -= 1
+                        sem.continuation.yield()
+                    }
+                    if let total = await client.rankTotal(rankID: rankID) {
+                        return (playlist.id, rankID, index, total)
+                    }
+                    return nil
+                }
+            }
+            for await hit in group {
+                if let hit { hits.append(hit) }
+            }
+        }
+        // 一次性合并到 feed（主线程）
+        await MainActor.run {
+            for (pid, _, _, total) in hits {
+                if let idx = feed.topLists.firstIndex(where: { $0.id == pid }) {
+                    feed.topLists[idx].trackCount = total
+                }
+            }
         }
     }
 }

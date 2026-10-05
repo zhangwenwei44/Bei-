@@ -166,7 +166,14 @@ struct PlaylistDetailView: View {
                     if !playlist.creatorName.isEmpty {
                         Label(playlist.creatorName, systemImage: "person.crop.circle")
                     }
-                    if playlist.trackCount > 0 { Text("\(playlist.trackCount) 首") }
+                    if playlist.trackCount > 0 {
+                        Text("\(playlist.trackCount) 首")
+                    } else if !playlist.creatorName.isEmpty {
+                        // 曲目数还没补到，用刷新小标代替
+                        Label("加载中", systemImage: "arrow.clockwise")
+                            .symbolEffect(.rotate, options: .repeating)
+                            .font(.system(size: 11))
+                    }
                 }
                 .font(.system(size: 12))
                 .foregroundStyle(AppStyle.secondaryText)

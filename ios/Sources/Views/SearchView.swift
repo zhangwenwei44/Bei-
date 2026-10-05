@@ -318,11 +318,15 @@ struct SearchView: View {
         defer { isLoading = false }
 
         let client = KugouClient.shared
-        async let songs = try? client.searchSongs(keyword: text)
+        // 酷狗一页约 50 条，拉 2 页合并去重
+        async let page1 = try? client.searchSongs(keyword: text, page: 1)
+        async let page2 = try? client.searchSongs(keyword: text, page: 2)
         async let topLists = client.topLists()
 
-        // 酷狗没有歌单/歌手搜索实体，榜单直接从榜单列表里按关键词过滤
-        let found = await songs ?? []
+        var found = (await page1 ?? []) + (await page2 ?? [])
+        // 按 id 去重
+        var seen = Set<String>()
+        found = found.filter { seen.insert($0.id).inserted }
         let ranks = await topLists
         let filteredRanks = ranks.filter { $0.name.localizedCaseInsensitiveContains(text) }
         let artists = Self.artistHints(from: found)
