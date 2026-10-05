@@ -4,6 +4,7 @@ import SwiftUI
 @main
 struct AuroraMusicApp: App {
     @StateObject private var store = PlayerStore()
+    @StateObject private var auth = AuthService.shared
 
     init() {
         // 必须最先装：播放闪退时全靠它把现场写进运行日志
@@ -24,14 +25,27 @@ struct AuroraMusicApp: App {
         // 首次启动把随包发布的音源装上，用户不用再手动导入
         let installed = BundledSources.installMissing()
         Log.info("启动", "内置音源安装完成，本次装了 \(installed) 个")
+
+        // 恢复用户登录态
+        if let user = auth.currentUser {
+            LibraryStore.shared.switchUser(userId: user)
+            Log.info("启动", "恢复用户 \(user) 的数据")
+        }
     }
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environmentObject(store)
-                .preferredColorScheme(ThemeSettings.mode.colorScheme)
-                .onAppear { store.bootstrap() }
+            Group {
+                if auth.isLoggedIn {
+                    RootView()
+                } else {
+                    LoginView()
+                }
+            }
+            .environmentObject(store)
+            .environmentObject(auth)
+            .preferredColorScheme(ThemeSettings.mode.colorScheme)
+            .onAppear { store.bootstrap() }
         }
     }
 }
