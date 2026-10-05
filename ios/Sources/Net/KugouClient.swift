@@ -64,41 +64,49 @@ final class KugouClient {
 
     /// 搜索歌曲。返回空数组表示没搜到。
     ///
-    /// 酷狗 mixedSearch 的 cursor 参数在不同关键词下表现完全不同：
-    /// - 有些关键词 cursor=1,2,3 能正常翻页（每页固定 15 首）
-    /// - 有些关键词只在 cursor=1 有返回，cursor=2,3 直接空
-    /// - 有些 cursor=2 空但 cursor=3 突然有 15 首
-    /// - cursor=0 (等同于 page-1) 有时能拿到 cursor=1 拿不到的歌
+    /// 用酷狗官方歌曲搜索接口 `/api/v3/search/song`（之前的 mixedSearch cursor 参数是搜索建议用的，
+    /// 对同一关键词无论 cursor=1/2/3/4 都返回相同的第一页，翻页完全不生效）。
+    /// 这个新接口有真正的 `page` 和 `pagesize` 参数，每页固定 30 首，可连续翻页。
     ///
-    /// 策略：每页同时请求 cursor=page（1-based）+ cursor=page-1（0-based），
-    /// 合并去重后返回。调用方并行翻多页累加。
+    /// 调用方并行翻 4 页（共 120 首），合并去重后返回。
     func searchSongs(keyword: String, page: Int = 1, limit: Int = 500) async throws -> [Song] {
-        let json1 = try? await mixedSearchJSON(keyword: keyword, cursor: page)
-        let json0 = page > 1 ? try? await mixedSearchJSON(keyword: keyword, cursor: page - 1) : nil
-
+        let json = try? await searchSongJSON(keyword: keyword, page: page, pageSize: 30)
         var songs: [Song] = []
-        let collect: ([String: Any]?) -> [Song] = { json in
-            guard let data = json?["data"] as? [String: Any],
-                  let groups = data["lists"] as? [[String: Any]] else { return [] }
-            var out: [Song] = []
-            for group in groups where (Self.string(group["type"]) ?? "").lowercased() == "song" {
-                let rows = (group["info"] as? [[String: Any]] ?? [])
-                    + (group["lists"] as? [[String: Any]] ?? [])
-                out.append(contentsOf: rows.compactMap { Song(kugouJSON: $0) })
-            }
-            return out
+        if let info = json?["data"] as? [String: Any],
+           let rows = info["info"] as? [[String: Any]] {
+            songs = rows.compactMap { Song(kugouJSON: $0) }
         }
-        let from1 = collect(json1)
-        let from0 = collect(json0)
-        Log.info("搜索", "keyword=\(keyword) page=\(page) cursor=\(page) 返回 \(from1.count) 首, cursor=\(page-1) 返回 \(from0.count) 首")
-        songs.append(contentsOf: from1)
-        songs.append(contentsOf: from0)
-
-        // 去重
-        var seen = Set<String>()
-        songs = songs.filter { seen.insert($0.id).inserted }
-        if songs.count > limit { songs = Array(songs.prefix(limit)) }
+        Log.info("搜索", "keyword=\(keyword) page=\(page) /api/v3/search/song 返回 \(songs.count) 首 (total=\((json?["data"] as? [String: Any])?["total"] ?? "?"))")
         return songs
+    }
+
+    /// 歌曲搜索专用接口。支持 `page` 真正翻页，每页 `pageSize` 首。
+    private func searchSongJSON(keyword: String, page: Int, pageSize: Int = 30) async throws -> [String: Any] {
+        let params: [String: String] = [
+            "showtype": "14",
+            "highlight": "em",
+            "pagesize": String(pageSize),
+            "tag_aggr": "1",
+            "tagtype": "全部",
+            "plat": "0",
+            "sver": "5",
+            "keyword": keyword,
+            "correct": "1",
+            "api_ver": "1",
+            "version": "9108",
+            "page": String(page),
+            "area_code": "1",
+            "tag": "1",
+            "with_res_tag": "1",
+        ]
+        // 用 mobiles.kugou.com 的 https 接口，msearchcdn 域名可能 ATS 拦截
+        return try await getJSON(path: "/api/v3/search/song",
+                                 host: "https://mobiles.kugou.com",
+                                 params: params,
+                                 headers: [
+                                     "User-Agent": searchUA,
+                                     "Referer": "https://www.kugou.com/",
+                                 ])
     }
 
     /// 签名后的混合搜索请求。歌曲搜索和歌手写真都从这里拿数据。

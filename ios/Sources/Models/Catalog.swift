@@ -98,20 +98,32 @@ extension Song {
     init?(kugouJSON json: [String: Any]) {
         let hash = KugouClient.string(json["FileHash"])
             ?? KugouClient.string(json["Hash"])
+            ?? KugouClient.string(json["hash"])
             ?? ""
         guard !hash.isEmpty else { return nil }
 
-        let rawName = KugouClient.string(json["FileName"]) ?? ""
-        let title = Song.stripHighlight(rawName)
+        // 优先用 songname / singername（搜索接口直接分开），其次才用 FileName 或 filename（可能带歌手名拼接）
+        let songName = KugouClient.string(json["songname"])
+            ?? KugouClient.string(json["SongName"])
+            ?? ""
+        let rawName = KugouClient.string(json["FileName"])
+            ?? KugouClient.string(json["filename"])
+            ?? ""
+        let titleRaw = !songName.isEmpty ? songName : rawName
+        let title = Song.stripHighlight(titleRaw)
         guard !title.isEmpty else { return nil }
 
-        let artist = Song.stripHighlight(
-            KugouClient.string(json["SingerName"])
-                ?? KugouClient.string(json["author_name"])
-                ?? KugouClient.string(json["Singer"])
+        let rawArtist = KugouClient.string(json["singername"])
+            ?? KugouClient.string(json["SingerName"])
+            ?? KugouClient.string(json["author_name"])
+            ?? KugouClient.string(json["Singer"])
+            ?? ""
+        let artist = Song.stripHighlight(rawArtist)
+        let album = Song.stripHighlight(
+            KugouClient.string(json["album_name"])
+                ?? KugouClient.string(json["AlbumName"])
                 ?? ""
         )
-        let album = Song.stripHighlight(KugouClient.string(json["AlbumName"]) ?? "")
 
         var cover: URL?
         for key in ["Image", "AlbumImage", "img", "Img"] {
@@ -128,12 +140,23 @@ extension Song {
         if let seconds = KugouClient.intValue(json["Duration"]) ?? KugouClient.intValue(json["timeLen"]) {
             duration = Double(seconds)
         }
-        if duration == 0, let ms = KugouClient.intValue(json["duration"]) { duration = Double(ms) / 1000 }
+        // 新搜索接口的 duration 是秒（如254），老接口可能是毫秒（如254000）
+        if duration == 0, let raw = KugouClient.intValue(json["duration"]) {
+            duration = raw > 10_000 ? Double(raw) / 1000.0 : Double(raw)
+        }
 
         var tags: [String] = []
-        if let payType = KugouClient.intValue(json["PayType"]), payType > 0 { tags.append("VIP") }
-        if let ext = KugouClient.string(json["ExtName"]), !ext.isEmpty { tags.append(ext.uppercased()) }
-        if let isOriginal = KugouClient.intValue(json["IsOriginal"]), isOriginal == 1 { tags.append("原唱") }
+        let payType = KugouClient.intValue(json["PayType"])
+            ?? KugouClient.intValue(json["pay_type"])
+            ?? 0
+        if payType > 0 { tags.append("VIP") }
+        let ext = KugouClient.string(json["ExtName"])
+            ?? KugouClient.string(json["extname"])
+        if let ext, !ext.isEmpty { tags.append(ext.uppercased()) }
+        let isOriginal = KugouClient.intValue(json["IsOriginal"])
+            ?? KugouClient.intValue(json["isnew"])
+            ?? 0
+        if isOriginal == 1 { tags.append("原唱") }
 
         self.init(id: "kg:\(hash)",
                   title: title,
@@ -144,11 +167,12 @@ extension Song {
                   artworkURL: cover,
                   source: .kugou,
                   kugouHash: hash,
-                  kugouAudioID: KugouClient.string(json["Audioid"])
+                  kugouAudioID: KugouClient.string(json["album_audio_id"])
+                      ?? KugouClient.string(json["Audioid"])
                       ?? KugouClient.string(json["audioid"])
                       ?? "",
-                  kugouAlbumID: KugouClient.string(json["AlbumID"])
-                      ?? KugouClient.string(json["album_id"])
+                  kugouAlbumID: KugouClient.string(json["album_id"])
+                      ?? KugouClient.string(json["AlbumID"])
                       ?? "")
     }
 

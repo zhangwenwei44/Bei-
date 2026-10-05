@@ -47,10 +47,50 @@ final class LibraryStore: ObservableObject {
     // MARK: - 多用户切换
 
     /// 切换到指定用户的命名空间。传 nil = 切回游客（无前缀 key）。
+    ///
+    /// 迁移逻辑：切换到已存在的账号时，如果该账号的数据（favorites）为空，
+    /// 就把游客模式下的无前缀 key 数据复制过去（幂等，已迁移过的不会重复）。
+    /// 避免用户「升级 App → 注册账号 → 发现之前收藏全没了」的情况。
     func switchUser(userId: String?) {
-        self.userId = userId?.lowercased()
+        let targetId = userId?.lowercased()
+        // 只在切到非 nil 用户时做迁移（游客模式就是无前缀 key，不需要迁移）
+        if let targetId {
+            migrateGuestDataIfNeeded(to: targetId)
+        }
+        self.userId = targetId
         reload()
         objectWillChange.send()
+    }
+
+    /// 幂等迁移：只有当目标用户的关键数据为空时，才把游客的无前缀 key 复制过去。
+    /// 迁移完成后写一个标记，避免下次登录同一用户又覆盖已有数据。
+    private func migrateGuestDataIfNeeded(to targetId: String) {
+        let prefix = auroraUserKeyPrefix(for: targetId)
+        let doneKey = prefix + "aurora.user.migration_done"
+        let favoritesKey = key("favorites")
+        let guestFavoritesKey = "aurora.library.favorites"
+
+        // 已经迁移过了就跳过
+        if defaults.bool(forKey: doneKey) { return }
+        // 目标已经有数据了（比如这个账号之前就登录过），不要用游客数据覆盖
+        if defaults.data(forKey: favoritesKey) != nil {
+            defaults.set(true, forKey: doneKey)
+            return
+        }
+        // 游客也没数据 —— 没东西可迁
+        if defaults.data(forKey: guestFavoritesKey) == nil { return }
+
+        // 迁移所有游客数据 key 到目标用户前缀下
+        let guestKeys = ["aurora.library.favorites", "aurora.library.downloads",
+                         "aurora.library.local", "aurora.library.playlists",
+                         "aurora.library.history", "aurora.library.songTable"]
+        for guestKey in guestKeys {
+            if let data = defaults.data(forKey: guestKey) {
+                defaults.set(data, forKey: prefix + guestKey)
+            }
+        }
+        defaults.set(true, forKey: doneKey)
+        Log.info("账号", "游客数据已迁移到 \(prefix)（登录已存在账号触发）")
     }
 
     private func reload() {
