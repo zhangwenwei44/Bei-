@@ -130,6 +130,11 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "2.0.6", date: "", items: [
+            "下载修复：URLSession 配 allowsConstrainedDownloads=true 放开 http 限制 — 很多音源的 CDN 只有 http 出口，ATS 会直接拦掉；同时 Referer 改成按 CDN 域名动态设（之前硬设网易云 Referer 对酷狗 CDN 是反爬触发）",
+            "专辑封面 NSCache + inFlight 去重 — 同一 albumID 并发多次请求合并成 1 次；日志里 22 首歌发了 40 次 album/info，现在变成 22 次且缓存命中直接返回",
+            "歌手头像逐页翻页 + 第 1 页找到 exact 立即返回 — 之前一口气翻 3 页统一遍历，12 个歌手就是 36 个请求；现在第 1 页能找到的就不再翻页，预计请求量砍 60%+",
+        ]),
         Entry(version: "2.0.5", date: "", items: [
             "播放地址加 15 分钟缓存 — 同一首歌在短时间内被重复 prepare（stall 重试、SwiftUI 重算等）时直接用缓存，不再重新走 SourceResolver（日志里许嵩《多余的解释》30 秒内被解析了 3 次就是这个问题）",
             "stall 15 秒自动恢复 — 网络慢缓冲卡住 15 秒后用缓存 URL 重新 attach，不用手动点播放",

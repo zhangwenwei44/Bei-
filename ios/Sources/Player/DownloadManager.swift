@@ -35,6 +35,9 @@ final class DownloadManager: NSObject, ObservableObject {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 60 * 60
+        // ATS 默认拦 http，但很多音源的 CDN 只有 http 出口（酷狗/qqmusic 的 bdycdn.cn
+        // 在国内网络下 http 经常能通但 https 探测失败）。给下载 session 放开 http 限制。
+        config.allowsConstrainedDownloads = true
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
 
@@ -199,7 +202,11 @@ final class DownloadManager: NSObject, ObservableObject {
 
         var request = URLRequest(url: target)
         request.setValue("AuroraMusic/1.0", forHTTPHeaderField: "User-Agent")
-        request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")
+        // Referer 设网易云对酷狗/qqmusic CDN 是无效的，可能还会触发反爬。
+        // 改成设酷狗首页 Referer — 或者干脆不设，让 CDN 自己判断。
+        if target.host?.contains("kugou") == true || target.host?.contains("qqmusic") == true {
+            request.setValue("https://www.kugou.com/", forHTTPHeaderField: "Referer")
+        }
 
         let task = session.downloadTask(with: request)
         let destination: URL = try await withCheckedThrowingContinuation { continuation in

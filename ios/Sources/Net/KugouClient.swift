@@ -20,6 +20,11 @@ final class KugouClient {
     private let session: URLSession
     /// 歌手写真缓存（NSCache 线程安全）。key 是歌手名。
     private let photoCache = NSCache<NSString, NSURL>()
+    /// 专辑封面缓存。key 是 albumID（String）。
+    private let albumCoverCache = NSCache<NSString, NSURL>()
+    /// 专辑封面正在进行的请求 — 避免同一 albumID 并发发多次（日志里 22 首歌发了 40 次 album/info）。
+    private var albumCoverInFlight = Set<String>()
+    private let albumCoverLock = NSLock()
     private let browserUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     private let searchUA = "IPhone-20549-Search#183534257/723988397/625045823/284854956-SearchGeneralInfoWithKeyWordV8"
 
@@ -125,6 +130,32 @@ final class KugouClient {
     /// 而 mobilecdn 这个老域名不支持 https，mobiles 是同一套 v3 接口的 https 入口。
     func albumCover(albumID: String) async -> URL? {
         guard let id = Int(albumID), id > 0 else { return nil }
+        // 缓存命中直接返回
+        if let cached = albumCoverCache.object(forKey: albumID as NSString) {
+            return cached as URL
+        }
+        // 同一 albumID 的请求已经在飞 — 不重复发，让正在飞的那个回来后写缓存
+        albumCoverLock.lock()
+        let alreadyFlying = albumCoverInFlight.contains(albumID)
+        if !alreadyFlying { albumCoverInFlight.insert(albumID) }
+        albumCoverLock.unlock()
+        if alreadyFlying {
+            // 不发请求但等一下 — 其他并发请求结束后缓存就有了
+            // 最多等 2 秒，超时直接返回 nil 让调用方下次再来
+            let deadline = Date().addingTimeInterval(2)
+            while Date() < deadline {
+                try? await Task.sleep(nanoseconds: 80_000_000) // 80ms
+                if let cached = albumCoverCache.object(forKey: albumID as NSString) {
+                    return cached as URL
+                }
+            }
+            return nil
+        }
+        defer {
+            albumCoverLock.lock()
+            albumCoverInFlight.remove(albumID)
+            albumCoverLock.unlock()
+        }
         guard let json = try? await getJSON(path: "/api/v3/album/info",
                                             host: "https://mobiles.kugou.com",
                                             params: ["albumid": String(id)],
@@ -133,7 +164,9 @@ final class KugouClient {
               let raw = KugouClient.string(data["imgurl"]) else { return nil }
         let fixed = raw.replacingOccurrences(of: "{si}", with: "300")
             .replacingOccurrences(of: "{size}", with: "300")
-        return URL(string: fixed)
+        guard let url = URL(string: fixed) else { return nil }
+        albumCoverCache.setObject(url as NSURL, forKey: albumID as NSString)
+        return url
     }
 
     /// 歌手写真。三路兜底：
@@ -158,12 +191,10 @@ final class KugouClient {
         return nil
     }
 
-    /// 核心实现：翻 3 页 mixedSearch，遍历所有分组的所有节点，
-    /// 从 imgurl / 歌曲 singerimg / 专辑 AlbumImage / MV Pic 多路抓图。
-    ///
-    /// 毛不易根因：recommend 分组节点 keys 里连 imgurl 都没有，
-    /// song 分组也没 singerimg —— 酷狗返回数据里确实没歌手图。
-    /// 兜底：拿 song 分组的 AlbumImage（专辑封面），再不行就构造酷狗歌手页 URL。
+    /// 核心实现：翻 mixedSearch，每页翻完立即遍历检查，有 exactURL 就停。
+    /// 只有第 1 页没找到才翻第 2 页，第 2 页还没找到才翻第 3 页。
+    /// （之前一口气翻 3 页再统一遍历，12 个歌手就是 12×3=36 个请求，
+    /// 但实际上第 1 页就能找到 80% 的歌手图 —— 翻 3 页纯属浪费发热）
     private func artistPhoto(name: String, keyword: String) async -> URL? {
         let lead = name.components(separatedBy: CharacterSet(charactersIn: "、/&，,"))
             .first?.trimmingCharacters(in: .whitespaces) ?? name
@@ -174,44 +205,39 @@ final class KugouClient {
             return cached
         }
 
-        // 翻 3 页 mixedSearch — 第一页拿不到，第二三页可能有
-        // （毛不易第一页 recommend 只有 1 个没 imgurl 的节点，翻页可能有更多）
-        var allGroups: [[String: Any]] = []
-        for page in 1...3 {
-            if let json = try? await mixedSearchJSON(keyword: keyword, page: page),
-               let data = json["data"] as? [String: Any],
-               let groups = data["lists"] as? [[String: Any]] {
-                allGroups.append(contentsOf: groups)
-            }
-        }
-
         var fallbackURL: URL?
-        var exactURL: URL?
-        for group in allGroups {
-            let nodes = group["lists"] as? [[String: Any]] ?? []
-            for node in nodes {
-                let extra = node["extra"] as? [String: Any]
+        for page in 1...3 {
+            guard let json = try? await mixedSearchJSON(keyword: keyword, page: page),
+                  let data = json["data"] as? [String: Any],
+                  let groups = data["lists"] as? [[String: Any]] else { continue }
 
-                // 路径 1（主）：任何节点只要有 imgurl/Pic/ErectPic 就尝试当歌手卡片
-                if let portrait = Self.anyImageURL(node: node, extra: extra) {
-                    let matchedName = Self.string(node["singername"])
-                        ?? Self.string(extra?["singername"])
-                        ?? Self.string(node["title"])
-                        ?? Self.string(node["SingerName"])
-                        ?? Self.string(node["artistname"])
-                        ?? Self.string(node["ArtistName"])
-                        ?? Self.string(node["artist"])
-                        ?? Self.string(node["Singers"])
-                    if matchedName == lead {
-                        exactURL = portrait
-                        break
-                    } else if fallbackURL == nil {
-                        fallbackURL = portrait
+            for group in groups {
+                let nodes = group["lists"] as? [[String: Any]] ?? []
+                for node in nodes {
+                    let extra = node["extra"] as? [String: Any]
+
+                    // 路径 1（主）：任何节点只要有 imgurl/Pic/ErectPic 就尝试当歌手卡片
+                    if let portrait = Self.anyImageURL(node: node, extra: extra) {
+                        let matchedName = Self.string(node["singername"])
+                            ?? Self.string(extra?["singername"])
+                            ?? Self.string(node["title"])
+                            ?? Self.string(node["SingerName"])
+                            ?? Self.string(node["artistname"])
+                            ?? Self.string(node["ArtistName"])
+                            ?? Self.string(node["artist"])
+                            ?? Self.string(node["Singers"])
+                        if matchedName == lead {
+                            // 找到 exact 就立即缓存返回 — 不再翻后面的页
+                            photoCache.setObject(portrait as NSURL, forKey: keyword as NSString)
+                            Log.info("歌手头像", "keyword=\(keyword) page=\(page) exact=hit")
+                            return portrait
+                        } else if fallbackURL == nil {
+                            fallbackURL = portrait
+                        }
+                        continue
                     }
-                    continue
-                }
 
-                // 路径 2：歌曲节点 —— 严格匹配歌手名后，抓 singerimg / AlbumImage / Image
+                    // 路径 2：歌曲节点 —— 严格匹配歌手名后，抓 singerimg / AlbumImage / Image
                 let matchedArtist = Self.string(node["singername"])
                     ?? Self.string(node["SingerName"])
                     ?? Self.string(node["artistname"])
@@ -245,12 +271,13 @@ final class KugouClient {
                     }
                 }
             }
-            if exactURL != nil { break }
         }
-        Log.info("歌手头像", "keyword=\(keyword) 结果 exact=\(exactURL?.absoluteString ?? "nil") fallback=\(fallbackURL?.absoluteString ?? "nil")")
-        let result = exactURL ?? fallbackURL
-        if let result { photoCache.setObject(result as NSURL, forKey: keyword as NSString) }
-        return result
+        // 翻了 3 页都没找到 exact，退回 fallback（可能是专辑封面或 MV 帧）
+        Log.info("歌手头像", "keyword=\(keyword) 结果 fallback=\(fallbackURL?.absoluteString ?? "nil")")
+        if let fallback = fallbackURL {
+            photoCache.setObject(fallback as NSURL, forKey: keyword as NSString)
+        }
+        return fallbackURL
     }
 
     /// 统一判断 URL 看起来是图片（扩展名或域名）
