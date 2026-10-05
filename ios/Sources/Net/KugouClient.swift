@@ -64,22 +64,39 @@ final class KugouClient {
 
     /// 搜索歌曲。返回空数组表示没搜到。
     func searchSongs(keyword: String, page: Int = 1, limit: Int = 50) async throws -> [Song] {
-        let json = try await mixedSearchJSON(keyword: keyword, page: page)
-        guard let data = json["data"] as? [String: Any],
-              let groups = data["lists"] as? [[String: Any]] else { return [] }
+        // 酷狗 mixedSearch 的 cursor 参数：实测有些关键词用 cursor=1,2,3 能翻页，
+        // 有些关键词只在 cursor=1 有返回。酷狗可能有两种 cursor 策略，先试 1-based，
+        // 同时翻 0-based (page-1) 兜底合并。
+        let json1 = try? await mixedSearchJSON(keyword: keyword, cursor: page)
+        let json0 = page > 1 ? try? await mixedSearchJSON(keyword: keyword, cursor: page - 1) : nil
 
         var songs: [Song] = []
-        for group in groups where (Self.string(group["type"]) ?? "").lowercased() == "song" {
-            let rows = (group["info"] as? [[String: Any]] ?? [])
-                + (group["lists"] as? [[String: Any]] ?? [])
-            songs.append(contentsOf: rows.compactMap { Song(kugouJSON: $0) })
-            if songs.count >= limit { break }
+        let collect: ([String: Any]?) -> [Song] = { json in
+            guard let data = json?["data"] as? [String: Any],
+                  let groups = data["lists"] as? [[String: Any]] else { return [] }
+            var out: [Song] = []
+            for group in groups where (Self.string(group["type"]) ?? "").lowercased() == "song" {
+                let rows = (group["info"] as? [[String: Any]] ?? [])
+                    + (group["lists"] as? [[String: Any]] ?? [])
+                out.append(contentsOf: rows.compactMap { Song(kugouJSON: $0) })
+            }
+            return out
         }
-        return Array(songs.prefix(limit))
+        let from1 = collect(json1)
+        let from0 = collect(json0)
+        Log.info("搜索", "keyword=\(keyword) page=\(page) cursor=1 返回 \(from1.count) 首, cursor=0 返回 \(from0.count) 首")
+        songs.append(contentsOf: from1)
+        songs.append(contentsOf: from0)
+
+        // 去重
+        var seen = Set<String>()
+        songs = songs.filter { seen.insert($0.id).inserted }
+        if songs.count > limit { songs = Array(songs.prefix(limit)) }
+        return songs
     }
 
     /// 签名后的混合搜索请求。歌曲搜索和歌手写真都从这里拿数据。
-    private func mixedSearchJSON(keyword: String, page: Int) async throws -> [String: Any] {
+    private func mixedSearchJSON(keyword: String, cursor: Int) async throws -> [String: Any] {
         var params: [String: String] = [
             "ab_tag": "1",
             "ability": "57343",
@@ -90,7 +107,7 @@ final class KugouClient {
             "clienttime": String(Int(Date().timeIntervalSince1970)),
             "clientver": "20549",
             "com_user_type": "0",
-            "cursor": String(max(page, 1)),
+            "cursor": String(cursor),
             "dfid": dfid,
             "is_gpay": "0",
             "iscorrection": "1",
@@ -208,7 +225,7 @@ final class KugouClient {
 
         var fallbackURL: URL?
         for page in 1...3 {
-            guard let json = try? await mixedSearchJSON(keyword: keyword, page: page),
+            guard let json = try? await mixedSearchJSON(keyword: keyword, cursor: page),
                   let data = json["data"] as? [String: Any],
                   let groups = data["lists"] as? [[String: Any]] else { continue }
 

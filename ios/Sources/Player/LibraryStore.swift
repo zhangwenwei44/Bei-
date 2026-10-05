@@ -43,6 +43,7 @@ final class LibraryStore: ObservableObject {
 
     private init() {
         favorites = Self.load([Song].self, key: Key.favorites) ?? []
+        downloads = Self.load([Song].self, key: Key.downloads) ?? []
         localSongs = Self.load([Song].self, key: Key.local) ?? []
         history = Self.load([Song].self, key: Key.history) ?? []
         playlists = Self.load([UserPlaylist].self, key: Key.playlists) ?? []
@@ -66,9 +67,9 @@ final class LibraryStore: ObservableObject {
         }
     }
 
-    /// 收藏 / 本地 / 听过的歌都登记进歌曲表，保证歌单能还原曲目。
+    /// 收藏 / 下载 / 本地 / 听过的歌都登记进歌曲表，保证歌单能还原曲目。
     private func indexAll() {
-        remember(favorites + localSongs + history)
+        remember(favorites + downloads + localSongs + history)
     }
 
     // MARK: 收藏
