@@ -72,7 +72,8 @@ enum BundledSources {
         // 之前这个函数只返回装了几个，出问题时「0 个」完全看不出是包里没有资源。
         Log.info("内置音源", "包内脚本文件 \(urls.count) 个：\(urls.map(\.lastPathComponent).joined(separator: ", "))")
         if urls.isEmpty {
-            Log.error("内置音源", "包内没有 BundledSources 目录里的 .js，内置音源一个都装不上（检查 project.yml 里资源是否写在 sources 下）")
+            // CI 出的包默认不带内置音源（用户手动导入），这是正常状态，不应当成错误
+            Log.info("内置音源", "包内未内置 .js 音源（如需内置请放入 ios/BundledSources），将使用用户手动导入的音源")
         }
         // 清掉设备上还留着的旧内置音源（包里已经不带了）
         for source in store.sources where legacyBundledNames.contains(source.name) {

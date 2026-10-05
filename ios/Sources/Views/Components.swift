@@ -122,7 +122,13 @@ struct CoverImage: View {
     }
 
     private var taskKey: String {
-        (effectiveURL?.absoluteString ?? "-") + "|" + size.description
+        // 只能用外部输入做 key。绝不能依赖 resolve 后回填到登记表的地址：
+        // 榜单一次批量补封面会持续改登记表，导致所有行 key 集体变化、
+        // 正在进行的请求被集体取消再重发，形成满屏「已取消」的请求风暴。
+        if let url {
+            return url.absoluteString + "|" + size.description
+        }
+        return "k:" + fallbackKeys.joined(separator: ",") + "|" + size.description
     }
 
     private func load() async {
@@ -148,16 +154,47 @@ struct CoverImage: View {
 /// 封面图片下载。优先 https：设备上 ATS 会拦明文 http（Info.plist 放行了也没用），
 /// 所以 http 地址一律先换 https 试，https 不通再回头试原地址。
 enum CoverLoader {
+    // 同一时刻对同一 URL 的并发请求合并成一个任务，
+    // 避免榜单/歌单几十行同时为同一张图发请求。
+    private static let lock = NSLock()
+    private static var inflight: [String: Task<UIImage?, Never>] = [:]
+
     static func download(_ url: URL) async -> UIImage? {
         if url.scheme?.lowercased() == "http",
            let secure = URL(string: url.absoluteString.replacingOccurrences(of: "http://", with: "https://")),
            let image = await request(secure) {
+            // https 成功，顺手给原 http 地址也缓存同一张图
+            CoverCache.shared.store(image, for: url)
             return image
         }
         return await request(url)
     }
 
     private static func request(_ target: URL) async -> UIImage? {
+        if let cached = CoverCache.shared.image(for: target) {
+            return cached
+        }
+        lock.lock()
+        let key = target.absoluteString
+        if let existing = inflight[key] {
+            lock.unlock()
+            return await existing.value
+        }
+        let task = Task<UIImage?, Never> {
+            defer {
+                lock.lock()
+                inflight[key] = nil
+                lock.unlock()
+            }
+            return await performRequest(target)
+        }
+        inflight[key] = task
+        lock.unlock()
+        return await task.value
+    }
+
+    private static func performRequest(_ target: URL) async -> UIImage? {
+        // 排队期间可能已被别的任务下载好
         if let cached = CoverCache.shared.image(for: target) {
             return cached
         }
@@ -176,6 +213,10 @@ enum CoverLoader {
             CoverCache.shared.store(loaded, for: target)
             return loaded
         } catch {
+            // 列表快速滚动、视图销毁导致的取消是正常行为，不刷错误日志
+            if (error as? URLError)?.code == .cancelled || error is CancellationError {
+                return nil
+            }
             Log.error("封面", "请求出错：\(error.localizedDescription) <- \(target.absoluteString)")
             return nil
         }

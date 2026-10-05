@@ -130,6 +130,10 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "1.9.7", date: "", items: [
+            "修复封面请求风暴：列表封面的刷新键错误依赖了批量补封面时不断变化的地址表，导致整屏请求被反复取消重发（满屏「已取消」）；改为稳定刷新键 + 同一图片并发请求合并，封面加载更快、更省流量，滚动不再卡顿，也不再和播放抢带宽",
+            "滚动中被取消的封面请求不再记成错误；未内置音源的安装包启动不再误报红色错误",
+        ]),
         Entry(version: "1.9.6", date: "", items: [
             "播放页偏移根治（方向二）：GeometryReader 会被内部 ignoresSafeArea 反向撑成超屏宽，改用窗口真实尺寸 UIScreen bounds 逐元素钉宽",
         ]),
