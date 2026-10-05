@@ -130,6 +130,14 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "2.0.5", date: "", items: [
+            "播放地址加 15 分钟缓存 — 同一首歌在短时间内被重复 prepare（stall 重试、SwiftUI 重算等）时直接用缓存，不再重新走 SourceResolver（日志里许嵩《多余的解释》30 秒内被解析了 3 次就是这个问题）",
+            "stall 15 秒自动恢复 — 网络慢缓冲卡住 15 秒后用缓存 URL 重新 attach，不用手动点播放",
+            "榜单翻页 — 之前只拉第一页（22 首），现在翻到每页返回空或不满 22 首才停，最多 25 页",
+            "/v5/url 熔断日志只打一次 — 之前每档 quality（320/128）都打一遍，同首歌打 3 遍就是 9 条，日志爆炸",
+            "下载功能加 http→https 升级 — 下载的 CDN 地址如果是 http 会被 ATS 拦，先探测 https 可用就升级",
+            "本地导入已在 v2.0.4 修（FilePicker.pick()），v2.0.5 毛不易头像已通过 AlbumImage 兜底拿到 imge.kugou.com 图片",
+        ]),
         Entry(version: "2.0.4", date: "", items: [
             "歌手头像根治：翻 3 页 mixedSearch（之前只翻 1 页），加 AlbumImage/AlbumImg/MV Pic 字段兜底（毛不易 recommend 分组节点连 imgurl 都没有，翻页或专辑封面就能拿到图）",
             "歌手头像加 NSCache 内存缓存 — 同名字段不重复请求，解决重复搜索同一歌手导致的发热",

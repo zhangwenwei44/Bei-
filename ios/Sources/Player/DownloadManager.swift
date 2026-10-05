@@ -177,7 +177,27 @@ final class DownloadManager: NSObject, ObservableObject {
         let resolved = await SourceResolver.resolve(song: song, quality: SourceStore.shared.quality)
         guard let resolved else { throw DownloadError.unresolved }
 
-        var request = URLRequest(url: resolved.url)
+        // http→https 升级（和 PlayerStore 一样的逻辑）。
+        // 下载用 URLSession 走 ATS 的策略如果是 Default，http 会被拦截。
+        let target: URL
+        if resolved.url.scheme?.lowercased() == "http",
+           let secure = URL(string: resolved.url.absoluteString.replacingOccurrences(of: "http://", with: "https://")) {
+            var probe = URLRequest(url: secure)
+            probe.httpMethod = "GET"
+            probe.setValue("bytes=0-1", forHTTPHeaderField: "Range")
+            probe.timeoutInterval = 6
+            if let (_, resp) = try? await URLSession.shared.data(for: probe),
+               let code = (resp as? HTTPURLResponse)?.statusCode,
+               code == 200 || code == 206 {
+                target = secure
+            } else {
+                target = resolved.url
+            }
+        } else {
+            target = resolved.url
+        }
+
+        var request = URLRequest(url: target)
         request.setValue("AuroraMusic/1.0", forHTTPHeaderField: "User-Agent")
         request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")
 

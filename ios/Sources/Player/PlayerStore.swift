@@ -48,10 +48,20 @@ final class PlayerStore: ObservableObject {
     private var recoverySongID: String?
     private var recoveryAttempts = 0
     private var preparingTask: Task<Void, Never>?
+    /// 解析过的播放地址缓存（key = song.id, value = (url, thirdParty, timestamp)）。
+    /// 同一首歌在短时间内被 prepare 多次（AVPlayer stall 重试、SwiftUI body 重新计算等）
+    /// 时直接用缓存，不再重复走 SourceResolver。
+    /// CDN 地址是分时 token，有效窗口约 2 小时，缓存 15 分钟就够覆盖 99% 的场景。
+    private struct ResolvedEntry { let url: URL; let thirdParty: Bool; let at: Date }
+    private var resolvedURLCache: [String: ResolvedEntry] = [:]
+    private let resolvedURLCacheTTL: TimeInterval = 15 * 60
     private var artworkTaskID: String?
     private var artistPhotoTaskID: String?
     private var lyricTaskID: String?
     private var lastNowPlayingSecond = -1
+    /// stall 自动恢复定时器 — 15 秒内没恢复就重新 attach
+    private var stallRecoveryTimer: Timer?
+    private var stalledSongID: String?
 
     var current: Song? { queue.indices.contains(currentIndex) ? queue[currentIndex] : nil }
     var progress: Double { duration > 0 ? min(1, currentTime / duration) : 0 }
@@ -171,9 +181,17 @@ final class PlayerStore: ObservableObject {
         isLoading = true
         artistPhoto = nil
         refreshArtwork(for: song)
-        // 歌手写真背景已下线（播放页改为酷狗式封面大图），不再发起写真请求
-        // loadArtistPhoto(for: song)
         loadLyrics(for: song)
+
+        // 缓存命中 —— 短时间内切回来或 stall 后重试同一首歌，不再重新解析
+        let now = Date()
+        if let cached = resolvedURLCache[song.id],
+           now.timeIntervalSince(cached.at) < resolvedURLCacheTTL {
+            Log.info("播放", "缓存命中，直接用上次解析的 URL（\(song.title.prefix(20))）")
+            isLoading = false
+            attach(url: cached.url, thirdParty: cached.thirdParty, autoplay: autoplay)
+            return
+        }
 
         let excluded = failedHosts
         let task = Task { [weak self] in
@@ -223,6 +241,13 @@ final class PlayerStore: ObservableObject {
                     return
                 }
                 self.attach(url: url, thirdParty: outcome.isThirdParty, autoplay: autoplay)
+                // 解析成功，写入缓存（CDN 分时 token 15 分钟内不会过期）
+                self.resolvedURLCache[song.id] = ResolvedEntry(url: url, thirdParty: outcome.isThirdParty, at: Date())
+                // 缓存只留最近 10 条，防止内存泄漏
+                if self.resolvedURLCache.count > 10 {
+                    let oldest = self.resolvedURLCache.sorted { $0.value.at < $1.value.at }.first?.key
+                    if let oldest { self.resolvedURLCache.removeValue(forKey: oldest) }
+                }
             }
         }
         preparingTask = task
@@ -494,9 +519,18 @@ final class PlayerStore: ObservableObject {
                                             object: nil,
                                             queue: .main) { [weak self] notification in
             guard let self, let item = notification.object as? AVPlayerItem, item === self.player.currentItem else { return }
-            // 卡顿不是失败：AVPlayer 会自己缓冲恢复，绝不能在这里拉黑域名重解析，
-            // 否则网络稍微一抖就把音源熔断了，后面所有歌都放不出来
-            Log.info("播放", "缓冲卡顿（\(assetHost(of: item) ?? "?")），等待自动恢复")
+            // 卡顿不是失败：AVPlayer 会自己缓冲恢复，但网络慢时可能卡很久。
+            // 15 秒内没恢复 → 用缓存 URL 重新 attach 一次（CDN 地址没变的话相当于
+            // 给 AVPlayer 一个「重新拉流」的信号，网络抖动经常就恢复了）。
+            // 绝不能在这里拉黑域名重解析 —— 否则网络稍微一抖就把音源熔断了。
+            Log.info("播放", "缓冲卡顿（\(self.assetHost(of: item) ?? "?")），15 秒没恢复就自动重 attach")
+            self.stallRecoveryTimer?.invalidate()
+            self.stalledSongID = self.current?.id
+            self.stallRecoveryTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: false) { [weak self] _ in
+                Task { @MainActor in
+                    self?.recoverFromStall()
+                }
+            }
         })
 
         observers.append(center.addObserver(forName: .AVPlayerItemNewErrorLogEntry,
@@ -511,6 +545,19 @@ final class PlayerStore: ObservableObject {
 
     private func assetHost(of item: AVPlayerItem) -> String? {
         (item.asset as? AVURLAsset)?.url.host?.lowercased()
+    }
+
+    /// stall 自动恢复：用缓存的 URL 重新 attach 一次，
+    /// CDN 地址没变的话相当于给 AVPlayer 一个「重新拉流」的信号。
+    /// 已经在走 handlePlaybackFailure 的话就不要再重 attach 了（避免并发两个恢复流程）。
+    private func recoverFromStall() {
+        stallRecoveryTimer?.invalidate()
+        stallRecoveryTimer = nil
+        guard stalledSongID == current?.id else { return }
+        guard let cached = resolvedURLCache[current!.id] else { return }
+        Log.info("播放", "stall 15 秒未恢复，用缓存 URL 重新 attach")
+        // 直接 attach，不经过 prepare（prepare 会重新解析）
+        attach(url: cached.url, thirdParty: cached.thirdParty, autoplay: isPlaying || true)
     }
 
     /// 播放失败：如果是第三方地址，把该域名拉黑并换源重试一次。

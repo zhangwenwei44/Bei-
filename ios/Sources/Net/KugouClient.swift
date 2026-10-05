@@ -351,12 +351,17 @@ final class KugouClient {
     private actor FailureCounter {
         static let shared = FailureCounter()
         private(set) var count = 0
+        var trippedLogged = false
         func increment() -> Int {
             count += 1
             return count
         }
+        func markLogged() {
+            trippedLogged = true
+        }
         func reset() {
             count = 0
+            trippedLogged = false
         }
     }
     private static let failures = FailureCounter.shared
@@ -368,9 +373,13 @@ final class KugouClient {
                  quality: MusicQuality) async -> String? {
         // 熔断中：之前已经连续失败超过阈值，本次运行期不再试。
         // 第三方音源会兜住解析，用户感知只是少了无谓的等待。
-        let failures = await Self.failures.count
-        if failures >= Self.failureThreshold {
-            Log.info("音乐接口", "/v5/url 已熔断（连续失败 \(failures) 次），跳过直连，交给第三方音源")
+        // 日志只打一次，避免每档 quality 都打一遍（日志爆炸）。
+        let current = await Self.failures.count
+        if current >= Self.failureThreshold {
+            if !await Self.failures.trippedLogged {
+                await Self.failures.markLogged()
+                Log.info("音乐接口", "/v5/url 已熔断（连续失败 \(current) 次），跳过直连，交给第三方音源")
+            }
             return nil
         }
 
@@ -521,18 +530,35 @@ final class KugouClient {
     /// 注意 URL 用的是 `rankid` 而不是 `id`，用错会返回 "You need get the right classid!"。
     func rankSongs(rankID: String, limit: Int = 50) async throws -> [Song] {
         guard let numericID = Int(rankID), numericID > 0 else { throw KugouError.badURL }
-        let html = try await getRaw(path: "/yy/rank/home/1-\(numericID).html",
-                                    host: "https://www.kugou.com",
-                                    params: [:],
-                                    headers: [:])
-        guard let rows = Self.javascriptArray(named: "global.features", in: html) else {
-            Log.error("榜单", "rankid=\(numericID) 的页面里没找到 global.features 数组，收到 \(html.count) 字节：\(html.prefix(120))")
-            throw KugouError.parse("榜单页里没找到 global.features 数组（页面结构可能变了，实际收到 \(html.count) 字节）")
+        // 酷狗榜单每页固定 22 首（日志里 TOP500 也是每页 22 首），
+        // 翻到每页返回空或 rows.count < 22 就停。
+        var allRows: [[String: Any]] = []
+        var page = 1
+        let maxPages = 25 // 安全上限：TOP500 翻 23 页，其他榜单远少于此
+        while allRows.count < limit && page <= maxPages {
+            let urlPath = "/yy/rank/home/\(page)-\(numericID).html"
+            let html: String
+            do {
+                html = try await getRaw(path: urlPath,
+                                        host: "https://www.kugou.com",
+                                        params: [:],
+                                        headers: [:])
+            } catch {
+                Log.warn("榜单", "rankid=\(numericID) 翻到第 \(page) 页失败：\(error.localizedDescription)")
+                break
+            }
+            guard let rows = Self.javascriptArray(named: "global.features", in: html), !rows.isEmpty else {
+                Log.info("榜单", "rankid=\(numericID) 第 \(page) 页返回空，停止翻页")
+                break
+            }
+            allRows.append(contentsOf: rows)
+            if rows.count < 22 { break } // 最后一页不满，停止
+            page += 1
         }
-        let songs = Array(rows.compactMap { Song(kugouJSON: $0) }.prefix(limit))
-        Log.info("榜单", "rankid=\(numericID) 解析到 \(rows.count) 条记录 -> \(songs.count) 首歌")
+        let songs = Array(allRows.compactMap { Song(kugouJSON: $0) }.prefix(limit))
+        Log.info("榜单", "rankid=\(numericID) 解析到 \(allRows.count) 条记录（翻了 \(page-1) 页） -> \(songs.count) 首歌")
         if songs.isEmpty {
-            Log.error("榜单", "rankid=\(numericID) 有 \(rows.count) 条记录但一首歌都没解析出来，字段名可能又变了")
+            Log.error("榜单", "rankid=\(numericID) 有 \(allRows.count) 条记录但一首歌都没解析出来，字段名可能又变了")
         }
         return songs
     }
