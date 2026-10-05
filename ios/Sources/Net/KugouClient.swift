@@ -238,40 +238,44 @@ final class KugouClient {
                     }
 
                     // 路径 2：歌曲节点 —— 严格匹配歌手名后，抓 singerimg / AlbumImage / Image
-                let matchedArtist = Self.string(node["singername"])
-                    ?? Self.string(node["SingerName"])
-                    ?? Self.string(node["artistname"])
-                    ?? Self.string(node["ArtistName"])
-                    ?? Self.string(node["artist"])
-                    ?? Self.string(node["Singers"])
-                guard matchedArtist == lead else { continue }
+                    let matchedArtist = Self.string(node["singername"])
+                        ?? Self.string(node["SingerName"])
+                        ?? Self.string(node["artistname"])
+                        ?? Self.string(node["ArtistName"])
+                        ?? Self.string(node["artist"])
+                        ?? Self.string(node["Singers"])
+                    guard matchedArtist == lead else { continue }
 
-                // 歌手头像字段（singerimg 系列）
-                for field in ["singerimg", "singerImg", "singer_img", "singermid", "SingerImg"] {
-                    if let raw = Self.string(node[field]) {
-                        let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
-                            .replacingOccurrences(of: "{si}", with: "480")
-                        if let url = URL(string: fixed), Self.looksLikeImage(url) {
-                            if exactURL == nil { exactURL = url }
-                        }
-                    }
-                }
-
-                // 兜底：专辑封面（AlbumImage/AlbumImg/Image）— 虽然是专辑不是歌手，但比首字占位好
-                if exactURL == nil, fallbackURL == nil {
-                    for field in ["AlbumImage", "albumImage", "AlbumImg", "albumImg", "Image"] {
+                    // 歌手头像字段（singerimg 系列）
+                    for field in ["singerimg", "singerImg", "singer_img", "singermid", "SingerImg"] {
                         if let raw = Self.string(node[field]) {
                             let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
                                 .replacingOccurrences(of: "{si}", with: "480")
                             if let url = URL(string: fixed), Self.looksLikeImage(url) {
-                                fallbackURL = url
-                                break
+                                // singerimg 也算 exact — 严格匹配了歌手名
+                                photoCache.setObject(url as NSURL, forKey: keyword as NSString)
+                                Log.info("歌手头像", "keyword=\(keyword) page=\(page) exact=singerimg")
+                                return url
                             }
                         }
                     }
-                }
-            }
-        }
+
+                    // 兜底：专辑封面（AlbumImage/AlbumImg/Image）— 虽然是专辑不是歌手，但比首字占位好
+                    if fallbackURL == nil {
+                        for field in ["AlbumImage", "albumImage", "AlbumImg", "albumImg", "Image"] {
+                            if let raw = Self.string(node[field]) {
+                                let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
+                                    .replacingOccurrences(of: "{si}", with: "480")
+                                if let url = URL(string: fixed), Self.looksLikeImage(url) {
+                                    fallbackURL = url
+                                    break
+                                }
+                            }
+                        }
+                    }
+                } // for node
+            } // for group
+        } // for page
         // 翻了 3 页都没找到 exact，退回 fallback（可能是专辑封面或 MV 帧）
         Log.info("歌手头像", "keyword=\(keyword) 结果 fallback=\(fallbackURL?.absoluteString ?? "nil")")
         if let fallback = fallbackURL {
