@@ -130,6 +130,11 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "2.0.1", date: "", items: [
+            "播放页顶栏安全区加大：padding(top) 从 4pt 提到 12pt，XS 刘海下按键不再贴得太近",
+            "播放页操作行重排：顺序模式按钮移到左下角，队列按钮移到右下角，上排保留下载/收藏/翻译/歌词",
+            "歌词页背景改为纯黑不透明：之前半透明 (0.62) 底下播放页控件透出来像重影",
+        ]),
         Entry(version: "2.0.0", date: "", items: [
             "修复播放页整体右移：根 ZStack 钉住屏高屏宽 + VStack 居中对齐，之前背景的 ignoresSafeArea 把 ZStack 撑宽导致内容右移",
             "歌手头像搜索加歌曲节点 singerimg 兜底（最稳，酷狗每首歌都带）+ 搜索过程写日志方便定位",

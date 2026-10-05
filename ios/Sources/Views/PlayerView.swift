@@ -153,7 +153,7 @@ struct PlayerView: View {
             }
         }
         .foregroundStyle(.white)
-        .padding(.top, 4)
+        .padding(.top, 12)
     }
 
     private var shareText: String {
@@ -294,25 +294,30 @@ struct PlayerView: View {
     }
 
     private func actionRow(width: CGFloat) -> some View {
-        // 六个按钮等分【显式指定的屏宽-28】，任何机型都一屏显示，不滚动、不裁切
-        HStack(spacing: 0) {
-            actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
-            actionButton(icon: store.isLiked ? "heart.fill" : "heart",
-                         label: "收藏",
-                         tint: store.isLiked ? AppStyle.like : .white) {
-                store.toggleFavorite()
+        // 上排：下载/收藏/翻译/歌词 四等分；下排：顺序（左）… 队列（右）
+        VStack(spacing: 10) {
+            HStack(spacing: 0) {
+                actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
+                actionButton(icon: store.isLiked ? "heart.fill" : "heart",
+                             label: "收藏",
+                             tint: store.isLiked ? AppStyle.like : .white) {
+                    store.toggleFavorite()
+                }
+                actionButton(icon: "character.bubble", label: "翻译") {
+                    store.showTranslation.toggle()
+                }
+                actionButton(icon: "text.quote", label: "歌词") {
+                    withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+                }
             }
-            actionButton(icon: "character.bubble", label: "翻译") {
-                store.showTranslation.toggle()
-            }
-            actionButton(icon: "text.quote", label: "歌词") {
-                withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
-            }
-            actionButton(icon: "list.bullet", label: "队列") {
-                store.isQueuePresented = true
-            }
-            actionButton(icon: store.mode.icon, label: modeLabel) {
-                store.cycleMode()
+            HStack(spacing: 0) {
+                actionButton(icon: store.mode.icon, label: modeLabel) {
+                    store.cycleMode()
+                }
+                Spacer()
+                actionButton(icon: "list.bullet", label: "队列") {
+                    store.isQueuePresented = true
+                }
             }
         }
         .frame(width: width - 28)
@@ -586,8 +591,8 @@ struct LyricsPageView: View {
                 .padding(.horizontal, 26)
         }
         .padding(.top, 12)
-        // 加深一点：太透的话底下播放页的歌词/控件会透出来，看着像重影
-        .background { Color.black.opacity(0.62).ignoresSafeArea() }
+        // 不透明纯黑：避免底下播放页的控件透出来像重影
+        .background { Color.black.ignoresSafeArea() }
         .highPriorityGesture(
             DragGesture(minimumDistance: 24).onEnded { value in
                 if value.translation.height > 60 {
