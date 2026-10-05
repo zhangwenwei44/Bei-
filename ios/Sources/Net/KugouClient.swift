@@ -22,9 +22,14 @@ final class KugouClient {
     private let photoCache = NSCache<NSString, NSURL>()
     /// 专辑封面缓存。key 是 albumID（String）。
     private let albumCoverCache = NSCache<NSString, NSURL>()
-    /// 专辑封面正在进行的请求 — 避免同一 albumID 并发发多次（日志里 22 首歌发了 40 次 album/info）。
-    private var albumCoverInFlight = Set<String>()
-    private let albumCoverLock = NSLock()
+    /// 专辑封面正在进行的请求 — actor 内部维护，async-safe。
+    private actor AlbumInflight {
+        private var set = Set<String>()
+        func contains(_ id: String) -> Bool { set.contains(id) }
+        func insert(_ id: String) { set.insert(id) }
+        func remove(_ id: String) { set.remove(id) }
+    }
+    private let albumCoverInFlight = AlbumInflight()
     private let browserUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     private let searchUA = "IPhone-20549-Search#183534257/723988397/625045823/284854956-SearchGeneralInfoWithKeyWordV8"
 
@@ -135,10 +140,8 @@ final class KugouClient {
             return cached as URL
         }
         // 同一 albumID 的请求已经在飞 — 不重复发，让正在飞的那个回来后写缓存
-        albumCoverLock.lock()
-        let alreadyFlying = albumCoverInFlight.contains(albumID)
-        if !alreadyFlying { albumCoverInFlight.insert(albumID) }
-        albumCoverLock.unlock()
+        let alreadyFlying = await albumCoverInFlight.contains(albumID)
+        if !alreadyFlying { await albumCoverInFlight.insert(albumID) }
         if alreadyFlying {
             // 不发请求但等一下 — 其他并发请求结束后缓存就有了
             // 最多等 2 秒，超时直接返回 nil 让调用方下次再来
@@ -152,9 +155,7 @@ final class KugouClient {
             return nil
         }
         defer {
-            albumCoverLock.lock()
-            albumCoverInFlight.remove(albumID)
-            albumCoverLock.unlock()
+            Task { await albumCoverInFlight.remove(albumID) }
         }
         guard let json = try? await getJSON(path: "/api/v3/album/info",
                                             host: "https://mobiles.kugou.com",
