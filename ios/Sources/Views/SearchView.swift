@@ -267,7 +267,6 @@ struct SearchView: View {
                                             .frame(width: 36, height: 36)
                                     }
                                     .buttonStyle(.plain)
-                                    .onTapGesture {} // 阻止 NavigationLink 触发
                                     Image(systemName: "chevron.right")
                                         .font(.system(size: 12, weight: .semibold))
                                         .foregroundStyle(AppStyle.tertiaryText)
