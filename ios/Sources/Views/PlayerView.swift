@@ -25,13 +25,19 @@ struct PlayerView: View {
                 artworkStage(width: size.width, height: size.height)
                 meta(width: size.width)
             }
-            .frame(width: size.width)
+            // 关键：VStack 钉住屏宽 + 居中对齐。
+            // immersiveBackground 里有 .ignoresSafeArea() 把 ZStack 隐式宽度撑成超屏宽，
+            // VStack 只有屏宽，SwiftUI 默认把它在宽 ZStack 里居中 → 视觉右移。
+            // 加 alignment: .center 是保险，关键是 VStack 自己要对齐到中心。
+            .frame(width: size.width, alignment: .center)
             .clipped()
             if isLyricsPage {
                 LyricsPageView(isShown: $isLyricsPage)
                     .transition(.opacity)
             }
         }
+        // 根 ZStack 也钉住屏宽，否则背景的 ignoresSafeArea 会把整页撑宽
+        .frame(width: size.width, height: size.height, alignment: .center)
         .ignoresSafeArea(edges: .bottom)
         .gesture(dragGesture)
         .overlay(alignment: .bottom) { toastLayer }

@@ -130,6 +130,10 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "2.0.0", date: "", items: [
+            "修复播放页整体右移：根 ZStack 钉住屏高屏宽 + VStack 居中对齐，之前背景的 ignoresSafeArea 把 ZStack 撑宽导致内容右移",
+            "歌手头像搜索加歌曲节点 singerimg 兜底（最稳，酷狗每首歌都带）+ 搜索过程写日志方便定位",
+        ]),
         Entry(version: "1.9.9", date: "", items: [
             "修复切歌不换封面：refreshArtwork 里 if let current=artwork { return } 早返回导致所有歌显示同一张封面，已删除该条件让每首歌都加载自己的封面",
             "播放页大封面 Image 自身加 frame+clipped（和列表 CoverImage 同理），iOS 16 圆角裁剪后居中",

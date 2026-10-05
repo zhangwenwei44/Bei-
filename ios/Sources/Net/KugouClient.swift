@@ -136,60 +136,84 @@ final class KugouClient {
         return URL(string: fixed)
     }
 
-    /// 歌手写真。混合搜索的 recommend 分组里有歌手卡片（type=4），
-    /// 头像在 singerimg.kugou.com，{size} 占位换成 480。
-    ///
-    /// 节点字段有两种排布，都得认：
-    /// - 大众歌手：singername / first_frame_image 直接在节点顶层
-    /// - 小众歌手：这两个字段在顶层是空的，真身在 extra.singername / extra.imgurl；
-    ///   imgurl（singerimg 头像）顶层和 extra 里一般都有
-    /// 先按歌手名精确匹配；匹配不到再把歌名搜一遍兜底。
+    /// 歌手写真。三路兜底：
+    /// 1) mixedSearchJSON 里找 type=4 歌手卡片（imgurl / first_frame_image）
+    /// 2) mixedSearchJSON 里找歌曲节点的 singerimg 字段（最稳，酷狗必返回）
+    /// 3) 兜底 MV 抽帧
     func artistPhoto(name: String, title: String = "") async -> URL? {
         if let cached = photoCache.object(forKey: name as NSString) { return cached as URL }
-        if let url = await artistPhoto(name: name, keyword: name) {
+        let lead = name.components(separatedBy: CharacterSet(charactersIn: "、/&，,"))
+            .first?.trimmingCharacters(in: .whitespaces) ?? name
+        if let url = await artistPhoto(name: name, keyword: lead) {
             photoCache.setObject(url as NSURL, forKey: name as NSString)
             return url
         }
-        // 歌手名搜不出卡片（冷门歌手）时，用歌名再试一次：
-        // recommend 分组里常带这首歌的歌手卡片
+        // 歌名兜底
         let trimmedTitle = title.trimmingCharacters(in: .whitespaces)
-        guard !trimmedTitle.isEmpty,
-              let url = await artistPhoto(name: name, keyword: trimmedTitle) else { return nil }
-        photoCache.setObject(url as NSURL, forKey: name as NSString)
-        return url
+        if !trimmedTitle.isEmpty,
+           let url = await artistPhoto(name: name, keyword: trimmedTitle) {
+            photoCache.setObject(url as NSURL, forKey: name as NSString)
+            return url
+        }
+        return nil
     }
 
-    /// 用指定关键词搜索，在所有分组里找 type=4（歌手卡片）节点。
-    /// 匹配规则：歌手名精确相等优先，其次取第一个带头像的歌手卡片。
-    /// 不只限 recommend 分组——邓紫棋/周深等在某些搜索结果里的歌手卡片
-    /// 落在其他分组（search / singer / hot），之前硬卡 recommend 会漏掉。
+    /// 核心实现：遍历 mixedSearchJSON 所有分组，先找 type=4 歌手卡片，
+    /// 再遍历歌曲节点抠 singerimg 字段作为兜底（酷狗搜索结果里每首歌都带 singerimg）。
     private func artistPhoto(name: String, keyword: String) async -> URL? {
         let lead = name.components(separatedBy: CharacterSet(charactersIn: "、/&，,"))
-            .first?
-            .trimmingCharacters(in: .whitespaces) ?? name
+            .first?.trimmingCharacters(in: .whitespaces) ?? name
         guard !keyword.isEmpty,
               let json = try? await mixedSearchJSON(keyword: keyword, page: 1),
               let data = json["data"] as? [String: Any],
               let groups = data["lists"] as? [[String: Any]] else { return nil }
 
+        Log.info("歌手头像", "搜索 \(keyword) 返回 \(groups.count) 个分组")
+
         var fallbackURL: URL?
         var exactURL: URL?
         for group in groups {
             let nodes = group["lists"] as? [[String: Any]] ?? []
-            for node in nodes where (Self.string(node["type"]) ?? "") == "4" {
+            Log.info("歌手头像", "分组 \(Self.string(group["type"]) ?? "?") 返回 \(nodes.count) 个节点")
+            for node in nodes {
+                let nodeType = Self.string(node["type"]) ?? ""
                 let extra = node["extra"] as? [String: Any]
-                let matchedName = Self.string(node["singername"])
-                    ?? Self.string(extra?["singername"])
-                    ?? Self.string(node["title"])
-                guard let portrait = Self.portraitURL(node: node, extra: extra) else { continue }
-                if matchedName == lead {
-                    exactURL = portrait
-                } else if fallbackURL == nil {
-                    fallbackURL = portrait
+
+                // 路径 1：type=4 歌手卡片
+                if nodeType == "4" {
+                    let matchedName = Self.string(node["singername"])
+                        ?? Self.string(extra?["singername"])
+                        ?? Self.string(node["title"])
+                    guard let portrait = Self.portraitURL(node: node, extra: extra) else { continue }
+                    if matchedName == lead {
+                        exactURL = portrait
+                    } else if fallbackURL == nil {
+                        fallbackURL = portrait
+                    }
+                    continue
+                }
+
+                // 路径 2：歌曲节点的 singerimg 字段（最稳，酷狗每首歌都带）
+                let matchedArtist = Self.string(node["singername"])
+                    ?? Self.string(node["artistname"])
+                    ?? Self.string(node["artist"])
+                guard matchedArtist == lead else { continue }
+                for field in ["singerimg", "singerImg", "singer_img", "imgurl", "singermid"] {
+                    if let raw = Self.string(node[field]) {
+                        let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
+                            .replacingOccurrences(of: "{si}", with: "480")
+                        if let url = URL(string: fixed) {
+                            if ["jpg", "jpeg", "png", "webp"].contains(url.pathExtension.lowercased()) ||
+                               url.absoluteString.contains("kugou") {
+                                if exactURL == nil { exactURL = url }
+                            }
+                        }
+                    }
                 }
             }
-            if exactURL != nil { break } // 精确匹配到就提前退出
+            if exactURL != nil { break }
         }
+        Log.info("歌手头像", "keyword=\(keyword) 结果 exact=\(exactURL?.absoluteString ?? "nil") fallback=\(fallbackURL?.absoluteString ?? "nil")")
         return exactURL ?? fallbackURL
     }
 
