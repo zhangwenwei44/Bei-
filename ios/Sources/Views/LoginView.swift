@@ -35,6 +35,11 @@ struct LoginView: View {
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, 40)
+            .onChange(of: mode) { _ in
+                errorMessage = nil
+                password = ""
+                confirmPassword = ""
+            }
 
             // 表单
             VStack(spacing: 14) {
@@ -92,7 +97,6 @@ struct LoginView: View {
             Spacer()
         }
         .background(AppStyle.background)
-        .onChange(of: mode) { errorMessage = nil; password = ""; confirmPassword = "" }
     }
 
     private var canSubmit: Bool {
