@@ -126,16 +126,17 @@ extension Song {
         )
 
         var cover: URL?
-        // 酷狗搜索接口可能的封面字段：新接口 /api/v3/search/song 返回 img、album_img、pic 等
-        for key in ["Image", "AlbumImage", "img", "Img", "album_img", "pic",
+        // 酷狗搜索接口可能的封面字段
+        let coverKeys = ["Image", "AlbumImage", "img", "Img", "album_img", "pic",
                     "cover", "image_url", "thumb", "icon", "album_image",
-                    "album_pic", "pic_url"] {
+                    "album_pic", "pic_url", "pic_medium", "pic_small", "pic_big",
+                    "pic_slarge", "pic_xlarge", "pic_xxlarge", "AlbumImg", "song_img",
+                    "albumImg", "cover_url", "Cover", "coverImg"]
+        for key in coverKeys {
             if let raw = KugouClient.string(json[key]), !raw.isEmpty {
-                // 酷狗封面地址里有 {si} / {size} 占位符
                 let fixed = raw.replacingOccurrences(of: "{si}", with: "300")
                     .replacingOccurrences(of: "{size}", with: "300")
                     .replacingOccurrences(of: "{sizetype}", with: "4")
-                // 有些返回不带 http(s)，补一下
                 let finalURL: String
                 if fixed.hasPrefix("//") {
                     finalURL = "https:" + fixed
@@ -146,8 +147,23 @@ extension Song {
                 }
                 if let u = URL(string: finalURL) {
                     cover = u
-                    Log.debug("Catalog", "封面命中 key=\(key) url=\(finalURL.prefix(60))")
                     break
+                }
+            }
+        }
+        // 如果没命中，打印全部 key 帮助排查
+        if cover == nil {
+            Log.debug("Catalog", "封面未命中! 全部keys: \(json.keys.sorted())")
+            // 尝试 album 嵌套
+            if let album = json["album"] as? [String: Any] {
+                Log.debug("Catalog", "album子keys: \(album.keys.sorted())")
+                for key in coverKeys {
+                    if let raw = KugouClient.string(album[key]), !raw.isEmpty {
+                        let fixed = raw.replacingOccurrences(of: "{si}", with: "300")
+                            .replacingOccurrences(of: "{size}", with: "300")
+                        let finalURL = fixed.hasPrefix("//") ? "https:" + fixed : fixed
+                        if let u = URL(string: finalURL) { cover = u; break }
+                    }
                 }
             }
         }

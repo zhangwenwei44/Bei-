@@ -134,7 +134,7 @@ struct DiscoverView: View {
         }
     }
 
-    // MARK: 两大两小横向滚动卡片（大在左，小在右，大卡长柱形）
+    // MARK: 两大两小横向滚动卡片（大在左，小在右）
 
     private var bigCardsGrid: some View {
         let cardSpacing: CGFloat = 10
@@ -143,6 +143,8 @@ struct DiscoverView: View {
         let bigWidth = screenW * 0.38
         let bigHeight = bigWidth * 1.55
         let smallStackWidth = screenW - bigWidth * 2 - cardSpacing * 2
+        // 精确：两张小卡 + 一个间距 = 大卡高
+        let smallCardHeight = (bigHeight - cardSpacing) / 2
 
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: cardSpacing) {
@@ -163,7 +165,7 @@ struct DiscoverView: View {
                 }
                 .buttonStyle(.plain)
 
-                // 大卡 2：猜你喜欢（点击播放全部）
+                // 大卡 2：猜你喜欢
                 Button {
                     playGuessAll()
                 } label: {
@@ -175,53 +177,50 @@ struct DiscoverView: View {
                 }
                 .buttonStyle(.plain)
 
-                // 小卡堆：固定高度 = bigHeight，两张小卡平分（精确对齐）
+                // 小卡堆：固定 frame = (smallStackWidth × bigHeight)，保证齐平
                 VStack(spacing: cardSpacing) {
-                    GeometryReader { geo in
-                        VStack(spacing: cardSpacing) {
-                            // 百万收藏 → 百万收藏榜
-                            NavigationLink {
-                                if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
-                                    PlaylistDetailView(playlist: favRank)
-                                } else if !filteredLists.isEmpty {
-                                    PlaylistDetailView(playlist: filteredLists[0])
-                                }
-                            } label: {
-                                IconFeatureCard(
-                                    width: smallStackWidth,
-                                    height: (geo.size.height - cardSpacing) / 2,
-                                    title: "百万收藏", systemIcon: "heart.fill",
-                                    gradientColors: [
-                                        Color(red: 1.0, green: 0.47, blue: 0.33),
-                                        Color(red: 0.94, green: 0.28, blue: 0.42)
-                                    ]
-                                )
-                            }
-                            .buttonStyle(.plain)
-
-                            // 新歌推荐 → 飙升榜
-                            NavigationLink {
-                                if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
-                                    PlaylistDetailView(playlist: newRank)
-                                } else if !filteredLists.isEmpty {
-                                    PlaylistDetailView(playlist: filteredLists[0])
-                                }
-                            } label: {
-                                IconFeatureCard(
-                                    width: smallStackWidth,
-                                    height: (geo.size.height - cardSpacing) / 2,
-                                    title: "新歌推荐", systemIcon: "music.note",
-                                    gradientColors: [
-                                        Color(red: 1.0, green: 0.72, blue: 0.35),
-                                        Color(red: 1.0, green: 0.45, blue: 0.30)
-                                    ]
-                                )
-                            }
-                            .buttonStyle(.plain)
+                    // 百万收藏 → 百万收藏榜
+                    NavigationLink {
+                        if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
+                            PlaylistDetailView(playlist: favRank)
+                        } else if !filteredLists.isEmpty {
+                            PlaylistDetailView(playlist: filteredLists[0])
                         }
+                    } label: {
+                        IconFeatureCard(
+                            width: smallStackWidth,
+                            height: smallCardHeight,
+                            title: "百万收藏", systemIcon: "heart.fill",
+                            gradientColors: [
+                                Color(red: 1.0, green: 0.47, blue: 0.33),
+                                Color(red: 0.94, green: 0.28, blue: 0.42)
+                            ]
+                        )
                     }
+                    .buttonStyle(.plain)
+
+                    // 新歌推荐 → 飙升榜
+                    NavigationLink {
+                        if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
+                            PlaylistDetailView(playlist: newRank)
+                        } else if !filteredLists.isEmpty {
+                            PlaylistDetailView(playlist: filteredLists[0])
+                        }
+                    } label: {
+                        IconFeatureCard(
+                            width: smallStackWidth,
+                            height: smallCardHeight,
+                            title: "新歌推荐", systemIcon: "music.note",
+                            gradientColors: [
+                                Color(red: 1.0, green: 0.72, blue: 0.35),
+                                Color(red: 1.0, green: 0.45, blue: 0.30)
+                            ]
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .frame(width: smallStackWidth, height: bigHeight)   // 固定高 = 大卡高
+                .frame(width: smallStackWidth, height: bigHeight)   // 关键：固定高度
+                .clipped()
             }
             .padding(.horizontal, sidePadding)
         }
@@ -366,7 +365,7 @@ struct DiscoverView: View {
         Group {
             if !recommendedPlaylists.isEmpty {
                 HStack {
-                    Text("精选歌单")
+                    Text("酷狗歌单广场")
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(AppStyle.primaryText)
                     Spacer()
@@ -389,32 +388,6 @@ struct DiscoverView: View {
                     .padding(.horizontal, 16)
                 }
                 .padding(.bottom, 16)
-            }
-
-            if !filteredLists.isEmpty {
-                HStack {
-                    Text("精选榜单")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(AppStyle.primaryText)
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 10)
-
-                VStack(spacing: 0) {
-                    ForEach(filteredLists) { playlist in
-                        NavigationLink {
-                            PlaylistDetailView(playlist: playlist)
-                        } label: {
-                            RankRow(playlist: playlist)
-                        }
-                        .buttonStyle(.plain)
-                        Divider().padding(.leading, 72)
-                    }
-                }
-                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .padding(.horizontal, 16)
             }
         }
     }
