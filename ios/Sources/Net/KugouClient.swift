@@ -681,10 +681,8 @@ final class KugouClient {
         let raw = try await getRaw(path: path, host: host, params: params, headers: headers)
         // 酷狗在 /api/v3/search/song 等接口前面塞 <!--KG_TAG_RES_START--> 注释，
         // JSONSerialization 直接炸。先 try 原样 parse，失败再暴力清掉所有 HTML 注释前缀。
-        let candidates: [String]
-        if let _ = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) {
-            candidates = [raw]
-        } else {
+        var candidates: [String] = [raw]
+        if (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any]) == nil {
             // 清掉 <!--...--> 前缀（可能多个），直到 parse 成功
             var s = raw
             var tried = Set<String>()
@@ -694,14 +692,16 @@ final class KugouClient {
                 s = s.replacingOccurrences(of: #"<!--[^>]*-->"#, with: "", options: .regularExpression)
                 if tried.contains(s) { break }
                 tried.insert(s)
+                candidates.append(s)
                 // 也试一下只保留第一个 { 之后的部分
                 if let idx = s.range(of: "{")?.lowerBound {
                     let fromBrace = String(s[idx...])
-                    if !tried.contains(fromBrace) { tried.insert(fromBrace); candidates.append(fromBrace) }
+                    if !tried.contains(fromBrace) {
+                        tried.insert(fromBrace)
+                        candidates.append(fromBrace)
+                    }
                 }
-                candidates.append(s)
             }
-            candidates.insert(raw, at: 0) // 先试原样
         }
 
         for s in candidates {
