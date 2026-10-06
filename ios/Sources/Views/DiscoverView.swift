@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 发现页（新版）。Tab 栏 → 搜索框（带麦克风） → 登录入口 → 横滚大卡片 → 心情问候 + 歌曲列表。
+/// 发现页（新版）。Tab 栏 → 搜索框 → 2×2 宫格卡片 → 心情问候 + 歌曲列表 → 热门榜单。
 struct DiscoverView: View {
     @EnvironmentObject private var store: PlayerStore
     @ObservedObject private var library = LibraryStore.shared
@@ -14,7 +14,7 @@ struct DiscoverView: View {
 
     /// 保留的 5 个精选榜单 rankID。
     static let whitelistRankIDs: Set<String> = [
-        "82831",  // 网络热歌榜
+        "82831",  // 网络热歌榜（百万收藏榜用这个）
         "6666",   // 飙升榜
         "52144",  // 短视频热歌榜
         "24971",  // DJ热歌榜
@@ -45,15 +45,14 @@ struct DiscoverView: View {
         .background(AppStyle.background)
         .refreshable { await load() }
         .task { if feed.isEmpty { await load() } }
-        .navigationTitle("发现")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: store.current == nil ? 0 : 62)
                 .accessibilityHidden(true)
         }
     }
 
-    // MARK: Tab 栏（酷狗风格：横滚 + 下划线指示器）
+    // MARK: Tab 栏
 
     private var tabBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -82,7 +81,7 @@ struct DiscoverView: View {
         .padding(.bottom, 4)
     }
 
-    // MARK: 搜索入口（带麦克风图标）
+    // MARK: 搜索入口
 
     private var searchEntry: some View {
         NavigationLink {
@@ -107,7 +106,7 @@ struct DiscoverView: View {
         .buttonStyle(.plain)
         .padding(.horizontal, 16)
         .padding(.top, 4)
-        .padding(.bottom, 10)
+        .padding(.bottom, 12)
     }
 
     // MARK: Tab 内容切换
@@ -115,155 +114,115 @@ struct DiscoverView: View {
     @ViewBuilder
     private var tabContent: some View {
         switch selectedTab {
-        case .recommend:
-            recommendContent
-        case .ranks:
-            ranksContent
-        case .playlists:
-            playlistsContent
+        case .recommend: recommendContent
+        case .ranks: ranksContent
+        case .playlists: playlistsContent
         }
     }
 
-    // MARK: 推荐 Tab（默认）— 完整的 Feed 流
+    // MARK: 推荐 Tab — 完整 Feed 流
 
     private var recommendContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            loginEntry
-            bigCardsSection
+            bigCardsGrid
             moodGreeting
-            songsSection(title: "进来听听看", songs: guessSongs, showLimitTag: true)
+            songsSection(songs: guessSongs, showLimitTag: true)
             hotRanksSection
         }
     }
 
-    // MARK: 登录入口
+    // MARK: 2×2 宫格卡片
 
-    private var loginEntry: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("登录畅享精准推荐")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(AppStyle.primaryText)
-                if library.userId == nil {
-                    Text("游客模式")
-                        .font(.system(size: 11))
-                        .foregroundStyle(AppStyle.tertiaryText)
-                } else {
-                    Text("已登录")
-                        .font(.system(size: 11))
-                        .foregroundStyle(AppStyle.accent)
-                }
-            }
-            Spacer()
-            if library.userId == nil {
+    private var bigCardsGrid: some View {
+        let cardSpacing: CGFloat = 10
+        let sidePadding: CGFloat = 16
+        let cardSize = (UIScreen.main.bounds.width - sidePadding * 2 - cardSpacing) / 2
+
+        return LazyVGrid(columns: [
+            GridItem(.flexible(), spacing: cardSpacing),
+            GridItem(.flexible(), spacing: cardSpacing),
+        ], spacing: cardSpacing) {
+            // 左上：每日推荐（封面卡）
+            if let dailyPlaylist = recommendedPlaylists.first {
                 NavigationLink {
-                    ProfileView()
+                    PlaylistDetailView(playlist: dailyPlaylist)
                 } label: {
-                    Text("立即登录")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(AppStyle.accent)
+                    CoverFeatureCard(
+                        size: cardSize,
+                        coverURL: dailyPlaylist.coverURL,
+                        title: "每日推荐",
+                        subtitle: dailyPlaylist.creatorName,
+                        dateText: dateText,
+                        tagText: "免费听"
+                    )
                 }
                 .buttonStyle(.plain)
             } else {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(AppStyle.accent)
+                CoverFeatureCard(
+                    size: cardSize,
+                    coverURL: nil,
+                    title: "每日推荐",
+                    subtitle: "每天都是新的歌单",
+                    dateText: dateText,
+                    tagText: "免费听"
+                )
             }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-    }
 
-    // MARK: 横滚大卡片区
-
-    private var bigCardsSection: some View {
-        Group {
-            if !recommendedPlaylists.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        // 每日推荐（固定第一张）
-                        if let dailyPlaylist = recommendedPlaylists.first {
-                            NavigationLink {
-                                PlaylistDetailView(playlist: dailyPlaylist)
-                            } label: {
-                                RecommendBigCard(
-                                    title: "每日推荐",
-                                    subtitle: "每天都是新的歌单",
-                                    dateText: dateText,
-                                    tagText: "免费听",
-                                    coverURL: dailyPlaylist.coverURL
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        // 猜你喜欢（第二张）— 点击播放全部
-                        Button {
-                            playGuessAll()
-                        } label: {
-                            RecommendBigCard(
-                                title: "猜你喜欢",
-                                subtitle: personalizedHint,
-                                dateText: nil,
-                                tagText: "免费听",
-                                coverURL: guessSongs.first?.artworkURL
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        // 其余是推荐歌单
-                        ForEach(Array(recommendedPlaylists.dropFirst(1).prefix(4))) { playlist in
-                            NavigationLink {
-                                PlaylistDetailView(playlist: playlist)
-                            } label: {
-                                RecommendBigCard(
-                                    title: playlist.name,
-                                    subtitle: playlist.creatorName,
-                                    dateText: nil,
-                                    tagText: "免费听",
-                                    coverURL: playlist.coverURL
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 16)
+            // 右上：百万收藏（纯色图标卡）
+            NavigationLink {
+                if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
+                    PlaylistDetailView(playlist: favRank)
+                } else if !filteredLists.isEmpty {
+                    PlaylistDetailView(playlist: filteredLists[0])
                 }
-                .padding(.vertical, 4)
+            } label: {
+                IconFeatureCard(
+                    size: cardSize,
+                    title: "百万收藏",
+                    systemIcon: "heart.fill",
+                    gradientColors: [
+                        Color(red: 1.0, green: 0.47, blue: 0.33),
+                        Color(red: 0.94, green: 0.28, blue: 0.42)
+                    ]
+                )
             }
+            .buttonStyle(.plain)
+
+            // 左下：猜你喜欢（封面卡，点击播放全部）
+            Button {
+                playGuessAll()
+            } label: {
+                CoverFeatureCard(
+                    size: cardSize,
+                    coverURL: guessSongs.first?.artworkURL,
+                    title: "猜你喜欢",
+                    subtitle: guessSubtitle,
+                    dateText: nil,
+                    tagText: "免费听"
+                )
+            }
+            .buttonStyle(.plain)
+
+            // 右下：新歌推荐（纯色图标卡）
+            IconFeatureCard(
+                size: cardSize,
+                title: "新歌推荐",
+                systemIcon: "music.note",
+                gradientColors: [
+                    Color(red: 1.0, green: 0.72, blue: 0.35),
+                    Color(red: 1.0, green: 0.45, blue: 0.30)
+                ]
+            )
         }
+        .padding(.horizontal, sidePadding)
+        .padding(.bottom, 4)
     }
 
-    // MARK: 心情问候
-
-    private var moodGreeting: some View {
-        HStack {
-            Text(greetingText)
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(AppStyle.primaryText)
-            Spacer()
+    private var guessSubtitle: String {
+        if !guessSongs.isEmpty {
+            return guessSongs.prefix(2).map { $0.artist }.joined(separator: "、")
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 22)
-        .padding(.bottom, 12)
-    }
-
-    /// 根据当前时间和星期生成问候语。
-    private var greetingText: String {
-        let weekday = Calendar.current.component(.weekday, from: Date())
-        let weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
-        let weekdayName = weekdays[weekday - 1]
-
-        let hour = Calendar.current.component(.hour, from: Date())
-        let timePrefix: String
-        let emoji: String
-        switch hour {
-        case 5..<9:  timePrefix = "早上好"; emoji = "🌅"
-        case 9..<12: timePrefix = "上午好"; emoji = "☕"
-        case 12..<14: timePrefix = "中午好"; emoji = "🍵"
-        case 14..<18: timePrefix = "下午好"; emoji = "🎧"
-        case 18..<22: timePrefix = "晚上好"; emoji = "🌙"
-        default:     timePrefix = "夜深了"; emoji = "🌙"
-        }
-        return "\(timePrefix)，今天\(weekdayName)，进来听听看 \(emoji)"
+        return personalizedHint
     }
 
     private var personalizedHint: String {
@@ -278,22 +237,43 @@ struct DiscoverView: View {
         return formatter.string(from: Date())
     }
 
-    // MARK: 歌曲列表（使用 title 参数作为分区标题）
+    // MARK: 心情问候
 
-    private func songsSection(title: String, songs: [Song], showLimitTag: Bool = false) -> some View {
+    private var moodGreeting: some View {
+        HStack {
+            Text(greetingText)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(AppStyle.primaryText)
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 22)
+        .padding(.bottom, 10)
+    }
+
+    private var greetingText: String {
+        let weekday = Calendar.current.component(.weekday, from: Date())
+        let weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
+        let weekdayName = weekdays[weekday - 1]
+        let hour = Calendar.current.component(.hour, from: Date())
+        let timePrefix: String
+        let emoji: String
+        switch hour {
+        case 5..<9:   timePrefix = "早上好"; emoji = "🌅"
+        case 9..<12:  timePrefix = "上午好"; emoji = "☕"
+        case 12..<14: timePrefix = "中午好"; emoji = "🍵"
+        case 14..<18: timePrefix = "下午好"; emoji = "🎧"
+        case 18..<22: timePrefix = "晚上好"; emoji = "🌙"
+        default:      timePrefix = "夜深了"; emoji = "🌙"
+        }
+        return "\(timePrefix)，今天\(weekdayName)，进来听听看 \(emoji)"
+    }
+
+    // MARK: 歌曲列表
+
+    private func songsSection(songs: [Song], showLimitTag: Bool = false) -> some View {
         Group {
             if !songs.isEmpty {
-                // 分区标题行
-                HStack {
-                    Text(title)
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(AppStyle.primaryText)
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
-                .padding(.bottom, 10)
-
                 VStack(spacing: 0) {
                     ForEach(songs.prefix(6)) { song in
                         Button {
@@ -312,7 +292,7 @@ struct DiscoverView: View {
         }
     }
 
-    // MARK: 热门榜单（推荐 Tab 底部）
+    // MARK: 热门榜单
 
     private var hotRanksSection: some View {
         Group {
@@ -344,7 +324,7 @@ struct DiscoverView: View {
         }
     }
 
-    // MARK: 榜单 Tab（精选 5 榜单列表）
+    // MARK: 榜单 Tab
 
     private var ranksContent: some View {
         Group {
@@ -379,7 +359,7 @@ struct DiscoverView: View {
         }
     }
 
-    // MARK: 歌单 Tab（横滚宫格）
+    // MARK: 歌单 Tab
 
     private var playlistsContent: some View {
         Group {
@@ -496,7 +476,6 @@ struct DiscoverView: View {
         if recommendedPlaylists.isEmpty {
             recommendedPlaylists = await KugouClient.shared.recommendedPlaylists()
         }
-        // 只给 whitelist 的 5 个榜单补曲目数
         let whitelist = Self.whitelistRankIDs
         let whitelistedSlices = feed.topLists.filter { whitelist.contains($0.kugouRankID ?? "") }
         await loadTrackCounts(for: whitelistedSlices.prefix(5))
@@ -560,11 +539,10 @@ struct DiscoverView: View {
     }
 }
 
-// MARK: - Tab 枚举（3 个有实际内容的 Tab）
+// MARK: - Tab 枚举
 
 enum DiscoverTab: String, CaseIterable, Hashable {
     case recommend, ranks, playlists
-
     var title: String {
         switch self {
         case .recommend: return "推荐"
@@ -574,77 +552,124 @@ enum DiscoverTab: String, CaseIterable, Hashable {
     }
 }
 
-// MARK: - 横滚大卡片
+// MARK: - 封面功能卡（每日推荐 / 猜你喜欢）
 
-/// 横滚大卡片：封面大图 + 日期/标签叠加 + 标题副标题。
-struct RecommendBigCard: View {
+/// 大封面 + 标签叠加 + 底部标题副标题 + 播放按钮。
+struct CoverFeatureCard: View {
+    let size: CGFloat
+    let coverURL: URL?
     let title: String
     let subtitle: String
     let dateText: String?
     let tagText: String?
-    let coverURL: URL?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ZStack(alignment: .topLeading) {
-                // 封面背景
-                CoverImage(url: coverURL,
-                           fallbackKeys: [],
-                           seed: title,
-                           size: 140,
-                           corner: 12)
-                    .frame(width: 160, height: 110)
+        ZStack(alignment: .bottomLeading) {
+            // 封面图
+            CoverImage(url: coverURL,
+                       fallbackKeys: [],
+                       seed: title,
+                       size: size,
+                       corner: 14)
+                .frame(width: size, height: size)
 
-                // 日期标签（左上角）
-                if let dateText {
-                    Text(dateText)
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(Color.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 4))
-                        .padding(8)
-                }
+            // 底部黑色半透明渐变 + 文字
+            VStack(alignment: .leading, spacing: 0) {
+                Spacer()
+                LinearGradient(colors: [.clear, Color.black.opacity(0.75)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: size * 0.5)
+            }
+            .frame(width: size, height: size)
 
-                // "免费听"标签（右下角）
-                if let tagText {
-                    VStack {
-                        Spacer()
-                        HStack {
-                            Spacer()
-                            Text(tagText)
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(AppStyle.onAccent)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 4))
-                        }
+            // 日期标签（左上角）
+            VStack {
+                HStack {
+                    if let dateText {
+                        Text(dateText)
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.yellow.opacity(0.9), in: RoundedRectangle(cornerRadius: 4))
                     }
-                    .frame(width: 160, height: 110)
+                    Spacer()
+                    // "免费听"标签（右上角）
+                    if let tagText {
+                        Text(tagText)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.blue.opacity(0.85), in: RoundedRectangle(cornerRadius: 4))
+                    }
                 }
+                Spacer()
             }
+            .padding(10)
+            .frame(width: size, height: size)
 
-            // 标题副标题
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(AppStyle.primaryText)
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(.system(size: 11))
-                    .foregroundStyle(AppStyle.secondaryText)
-                    .lineLimit(1)
+            // 标题 + 副标题 + 播放按钮（底部）
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .lineLimit(1)
+                }
+                Spacer()
+                Image(systemName: "play.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
+                    .background(Color.white.opacity(0.25), in: Circle())
             }
-            .padding(.top, 6)
-            .frame(width: 160, alignment: .leading)
+            .padding(10)
+            .frame(width: size)
         }
-        .frame(width: 160)
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
-// MARK: - Feed 歌曲行（右侧心形收藏 + 限免标签）
+// MARK: - 纯色图标卡（百万收藏 / 新歌推荐）
 
-/// Feed 专用歌曲行：封面 + 歌名 + 歌手 + "限免"标签 + 右侧心形收藏按钮。
+/// 渐变背景 + 大图标 + 左上角标题。
+struct IconFeatureCard: View {
+    let size: CGFloat
+    let title: String
+    let systemIcon: String
+    let gradientColors: [Color]
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            LinearGradient(colors: gradientColors,
+                           startPoint: .topLeading,
+                           endPoint: .bottomTrailing)
+
+            // 大图标（右下角偏中心位置，半透明白色）
+            Image(systemName: systemIcon)
+                .font(.system(size: size * 0.55, weight: .light))
+                .foregroundStyle(.white.opacity(0.35))
+                .position(x: size * 0.72, y: size * 0.62)
+
+            // 标题
+            Text(title)
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(12)
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+// MARK: - Feed 歌曲行
+
 struct FeedSongRow: View {
     let song: Song
     var showLimitTag: Bool = false
@@ -657,20 +682,17 @@ struct FeedSongRow: View {
                        seed: "\(song.artist)-\(song.title)",
                        size: 50,
                        corner: 8)
-
             VStack(alignment: .leading, spacing: 4) {
                 Text(song.title)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(AppStyle.primaryText)
                     .lineLimit(1)
-
                 HStack(spacing: 6) {
                     Text(song.artist)
                         .font(.system(size: 12))
                         .foregroundStyle(AppStyle.secondaryText)
                         .lineLimit(1)
                         .layoutPriority(1)
-
                     if showLimitTag {
                         Text("限免")
                             .font(.system(size: 9))
@@ -681,10 +703,7 @@ struct FeedSongRow: View {
                     }
                 }
             }
-
             Spacer(minLength: 4)
-
-            // 右侧心形收藏按钮
             Button {
                 _ = library.toggleFavorite(song)
                 Haptics.light()
@@ -706,7 +725,6 @@ struct FeedSongRow: View {
 
 private struct RankRow: View {
     let playlist: Playlist
-
     var body: some View {
         HStack(spacing: 12) {
             CoverImage(url: playlist.coverURL,
