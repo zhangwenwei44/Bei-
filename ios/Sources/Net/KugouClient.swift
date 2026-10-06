@@ -679,20 +679,39 @@ final class KugouClient {
                          params: [String: String],
                          headers: [String: String]) async throws -> [String: Any] {
         let raw = try await getRaw(path: path, host: host, params: params, headers: headers)
-        // 有些接口（/api/v3/search/song、/api/v3/album/info 等）会在 JSON 前面
-        // 塞 <!--KG_TAG_RES_START--> 或其他 HTML 注释前缀，JSONSerialization 直接炸。
-        // 保险起见统一找第一个 "{" 开始截取。
-        let jsonString: String
-        if let firstBrace = raw.firstIndex(of: "{") {
-            jsonString = String(raw[firstBrace...])
+        // 酷狗在 /api/v3/search/song 等接口前面塞 <!--KG_TAG_RES_START--> 注释，
+        // JSONSerialization 直接炸。先 try 原样 parse，失败再暴力清掉所有 HTML 注释前缀。
+        let candidates: [String]
+        if let _ = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) {
+            candidates = [raw]
         } else {
-            jsonString = raw
+            // 清掉 <!--...--> 前缀（可能多个），直到 parse 成功
+            var s = raw
+            var tried = Set<String>()
+            tried.insert(s)
+            for _ in 0..<5 {
+                // 干掉所有 <!--...--> 注释（不管在开头还是中间）
+                s = s.replacingOccurrences(of: #"<!--[^>]*-->"#, with: "", options: .regularExpression)
+                if tried.contains(s) { break }
+                tried.insert(s)
+                // 也试一下只保留第一个 { 之后的部分
+                if let idx = s.range(of: "{")?.lowerBound {
+                    let fromBrace = String(s[idx...])
+                    if !tried.contains(fromBrace) { tried.insert(fromBrace); candidates.append(fromBrace) }
+                }
+                candidates.append(s)
+            }
+            candidates.insert(raw, at: 0) // 先试原样
         }
-        guard let object = try? JSONSerialization.jsonObject(with: Data(jsonString.utf8)) as? [String: Any] else {
-            Log.error("网络", "JSON 解析失败，前 120 字符：\(String(raw.prefix(120)))")
-            throw KugouError.decoding
+
+        for s in candidates {
+            if let obj = try? JSONSerialization.jsonObject(with: Data(s.utf8)) as? [String: Any] {
+                return obj
+            }
         }
-        return object
+        Log.error("网络", "JSON 解析失败，前 200 字符：\(String(raw.prefix(200)))")
+        Log.error("网络", "字节数=\(raw.utf8.count) hasBOM=\(raw.first == "\u{FEFF}")")
+        throw KugouError.decoding
     }
 
     private func getRaw(path: String,
