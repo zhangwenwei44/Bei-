@@ -72,7 +72,7 @@ struct DisclaimerView: View {
                             Button {
                                 UIPasteboard.general.string = requiredPhrase
                                 input = requiredPhrase
-                                Haptics.medium()
+                                Haptics.light()
                             } label: {
                                 Image(systemName: "doc.on.doc")
                                     .font(.system(size: 16, weight: .medium))
@@ -97,7 +97,7 @@ struct DisclaimerView: View {
                         if !isMatch {
                             Button {
                                 input = requiredPhrase
-                                Haptics.medium()
+                                Haptics.light()
                             } label: {
                                 Text("一键填入：\(requiredPhrase)")
                                     .font(.system(size: 13, weight: .medium))
@@ -115,7 +115,7 @@ struct DisclaimerView: View {
                     // 同意按钮
                     Button {
                         UserDefaults.standard.set(true, forKey: agreedKey)
-                        Haptics.success()
+                        Haptics.soft()
                     } label: {
                         Text("同意并继续")
                             .font(.system(size: 17, weight: .semibold))
