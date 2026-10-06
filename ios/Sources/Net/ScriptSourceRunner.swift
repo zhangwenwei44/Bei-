@@ -623,7 +623,7 @@ final class ScriptRuntime {
 
             /// 返回 true 表示是本次调用第一次落地（用于区分真超时和迟到回调）。
             @discardableResult
-            func resume(_ value: Any?) -> Bool {
+            @Sendable func resume(_ value: Any?) -> Bool {
                 lock.lock()
                 if resumed {
                     lock.unlock()

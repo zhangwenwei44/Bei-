@@ -412,28 +412,24 @@ struct AlbumDetailView: View {
         // artist 里可能带 "、" 分隔多个歌手，取第一个
         let leadArtist = album.artist.components(separatedBy: CharacterSet(charactersIn: "、/,")).first?.trimmingCharacters(in: .whitespaces) ?? album.artist
         let keyword = "\(leadArtist) \(album.name)"
-        do {
-            async let p1 = try? KugouClient.shared.searchSongs(keyword: keyword, page: 1)
-            async let p2 = try? KugouClient.shared.searchSongs(keyword: keyword, page: 2)
-            var found: [Song] = []
-            found.append(contentsOf: await p1 ?? [])
-            found.append(contentsOf: await p2 ?? [])
-            var seen = Set<String>()
-            found = found.filter { seen.insert($0.id).inserted }
-            // 优先用 album_id 精确匹配（如果有），否则用专辑名模糊匹配
-            let filtered: [Song]
-            if !album.albumID.isEmpty {
-                filtered = found.filter { $0.kugouAlbumID == album.albumID }
-            } else {
-                filtered = found.filter {
-                    let songAlbum = $0.album.trimmingCharacters(in: .whitespaces)
-                    return !songAlbum.isEmpty && songAlbum.localizedCaseInsensitiveContains(album.name)
-                }
+        async let p1 = try? KugouClient.shared.searchSongs(keyword: keyword, page: 1)
+        async let p2 = try? KugouClient.shared.searchSongs(keyword: keyword, page: 2)
+        var found: [Song] = []
+        found.append(contentsOf: await p1 ?? [])
+        found.append(contentsOf: await p2 ?? [])
+        var seen = Set<String>()
+        found = found.filter { seen.insert($0.id).inserted }
+        // 优先用 album_id 精确匹配（如果有），否则用专辑名模糊匹配
+        let filtered: [Song]
+        if !album.albumID.isEmpty {
+            filtered = found.filter { $0.kugouAlbumID == album.albumID }
+        } else {
+            filtered = found.filter {
+                let songAlbum = $0.album.trimmingCharacters(in: .whitespaces)
+                return !songAlbum.isEmpty && songAlbum.localizedCaseInsensitiveContains(album.name)
             }
-            songs = filtered.isEmpty ? found : filtered
-            if songs.isEmpty { errorMessage = "没找到专辑相关的歌曲" }
-        } catch {
-            errorMessage = error.localizedDescription
         }
+        songs = filtered.isEmpty ? found : filtered
+        if songs.isEmpty { errorMessage = "没找到专辑相关的歌曲" }
     }
 }
