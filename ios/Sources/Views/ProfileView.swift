@@ -145,6 +145,22 @@ struct ProfileView: View {
                         .labelsHidden()
                         .tint(AppStyle.accent)
                 }
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label("高刷新率", systemImage: "speedometer")
+                        Text("支持 ProMotion 的设备上动画跑到 120Hz")
+                            .font(.system(size: 10))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                    }
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { HighRefreshController.shared.isEnabled },
+                        set: { HighRefreshController.shared.setEnabled($0) }
+                    ))
+                    .labelsHidden()
+                    .tint(AppStyle.accent)
+                }
             } header: {
                 headerText("播放")
             }

@@ -585,8 +585,7 @@ final class KugouClient {
               let infos = list["info"] as? [[String: Any]] else { return [] }
 
         return infos.prefix(12).compactMap { item -> Playlist? in
-            let specialID = KugouClient.string(item["specialid"])
-            guard !specialID.isEmpty else { return nil }
+            guard let specialID = KugouClient.string(item["specialid"]), !specialID.isEmpty else { return nil }
             let name = KugouClient.string(item["specialname"]) ?? "精选歌单"
             var cover = KugouClient.string(item["imgurl"]) ?? ""
             if cover.hasPrefix("http://") { cover = "https://" + cover.dropFirst("http://".count) }

@@ -10,6 +10,7 @@ struct AuroraMusicApp: App {
     init() {
         // 必须最先装：播放闪退时全靠它把现场写进运行日志
         CrashGuard.install()
+        HighRefreshController.shared.install()
         Log.info("启动", "App 启动，版本 \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?")), iOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
         AudioSessionController.activate()
         // 混淆脚本的 JSContext 很占内存，和 AVPlayer 叠加容易触发 jetsam。
