@@ -236,10 +236,32 @@ enum CoverLoader {
         if let cached = CoverCache.shared.image(for: target) {
             return cached
         }
+        // 酷狗图床部分链接仍然是 http://，Info.plist 虽然开了 ATS 但在部分 iOS 版本
+        // 上会静默失败。这里先尝试 https://，不行再 fallback http://
+        let urls = Self.candidateURLs(for: target)
+        for url in urls {
+            if let result = await downloadSingle(url, maxPixelSize: maxPixelSize) {
+                if url != target { CoverCache.shared.store(result, for: target) }
+                return result
+            }
+        }
+        return nil
+    }
+
+    /// 给一个 URL 生成请求候选顺序：https 优先、http 兜底，避免 http 静默失败时整页图片空掉。
+    private static func candidateURLs(for url: URL) -> [URL] {
+        var order: [URL] = [url]
+        if url.scheme == "http", let https = URL(string: "https://" + url.absoluteString.dropFirst("http://".count)) {
+            order.insert(https, at: 0) // https 优先
+        }
+        return order
+    }
+
+    /// 单 URL 下载：内部 request 逻辑抽取复用。
+    private static func downloadSingle(_ target: URL, maxPixelSize: CGFloat) async -> UIImage? {
         var request = URLRequest(url: target)
         request.timeoutInterval = 10
         request.setValue("AuroraMusic/1.0", forHTTPHeaderField: "User-Agent")
-        // 酷狗图床对 Referer 不做校验，但带上 kugou 自己的域名最稳
         request.setValue("https://www.kugou.com/", forHTTPHeaderField: "Referer")
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -248,14 +270,12 @@ enum CoverLoader {
                 Log.error("封面", "加载失败 HTTP \(code) / \(data.count) 字节 <- \(target.absoluteString)")
                 return nil
             }
-            // 用 ImageIO 在后台解码成缩略图，避免主线程解码阻塞 120Hz
             guard let loaded = CoverImage.decodeImageData(data, maxPixelSize: maxPixelSize) else {
                 return nil
             }
             CoverCache.shared.store(loaded, for: target)
             return loaded
         } catch {
-            // 列表快速滚动、视图销毁导致的取消是正常行为，不刷错误日志
             if (error as? URLError)?.code == .cancelled || error is CancellationError {
                 return nil
             }

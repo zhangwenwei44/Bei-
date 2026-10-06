@@ -571,6 +571,40 @@ final class KugouClient {
         }
     }
 
+    // MARK: - 推荐歌单
+
+    /// 网络歌单推荐。走 m.kugou.com/plist/index?json=true，
+    /// 返回 user 精选歌单（specialid 歌单），每个歌单都是用户或酷狗编辑精选的一组主题歌。
+    func recommendedPlaylists() async -> [Playlist] {
+        guard let json = try? await getJSON(path: "/plist/index?json=true",
+                                            host: "https://m.kugou.com",
+                                            params: [:],
+                                            headers: [:]),
+              let outer = json["plist"] as? [String: Any],
+              let list = outer["list"] as? [String: Any],
+              let infos = list["info"] as? [[String: Any]] else { return [] }
+
+        return infos.prefix(12).compactMap { item -> Playlist? in
+            let specialID = KugouClient.string(item["specialid"])
+            guard !specialID.isEmpty else { return nil }
+            let name = KugouClient.string(item["specialname"]) ?? "精选歌单"
+            var cover = KugouClient.string(item["imgurl"]) ?? ""
+            if cover.hasPrefix("http://") { cover = "https://" + cover.dropFirst("http://".count) }
+            cover = cover.replacingOccurrences(of: "{si}", with: "300")
+                .replacingOccurrences(of: "{size}", with: "300")
+            let count = (KugouClient.string(item["songcount"]) ?? "0").flatMap { Int($0) } ?? 0
+            let creator = KugouClient.string(item["username"]) ?? "酷狗音乐"
+            return Playlist(id: "kg-special:\(specialID)",
+                            name: name,
+                            coverURL: cover.flatMap { URL(string: $0) },
+                            trackCount: count,
+                            creatorName: creator,
+                            source: .kugou,
+                            kugouRankID: nil,
+                            updateFrequency: "")
+        }
+    }
+
     /// 榜单的真实曲目总数。
     ///
     /// 榜单列表接口里没有 songcount，songinfo 只有 3 条推荐位，不能当曲目数用。
