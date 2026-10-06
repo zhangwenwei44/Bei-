@@ -143,8 +143,6 @@ struct DiscoverView: View {
         let bigWidth = screenW * 0.38
         let bigHeight = bigWidth * 1.55
         let smallStackWidth = screenW - bigWidth * 2 - cardSpacing * 2
-        // 精确：两张小卡 + 一个间距 = 大卡高
-        let smallCardHeight = (bigHeight - cardSpacing) / 2
 
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: cardSpacing) {
