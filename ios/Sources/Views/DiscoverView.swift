@@ -35,7 +35,6 @@ struct DiscoverView: View {
                 } else if isLoading, feed.isEmpty {
                     LoadingRow()
                 } else {
-                    tabBar
                     searchEntry
                     tabContent
                 }
@@ -46,6 +45,10 @@ struct DiscoverView: View {
         .refreshable { await load() }
         .task { if feed.isEmpty { await load() } }
         .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            tabBar
+                .background(AppStyle.background)
+        }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: store.current == nil ? 0 : 62)
                 .accessibilityHidden(true)
@@ -153,8 +156,7 @@ struct DiscoverView: View {
                         CoverFeatureCard(
                             width: bigWidth, height: bigHeight,
                             coverURL: dailyPlaylist.coverURL,
-                            title: "每日推荐", subtitle: dailyPlaylist.creatorName,
-                            dateText: dateText, tagText: "免费听"
+                            title: "每日推荐", subtitle: dailyPlaylist.creatorName
                         )
                     }
                     .buttonStyle(.plain)
@@ -162,8 +164,7 @@ struct DiscoverView: View {
                     CoverFeatureCard(
                         width: bigWidth, height: bigHeight,
                         coverURL: nil,
-                        title: "每日推荐", subtitle: "每天都是新的歌单",
-                        dateText: dateText, tagText: "免费听"
+                        title: "每日推荐", subtitle: "每天都是新的歌单"
                     )
                 }
 
@@ -174,8 +175,7 @@ struct DiscoverView: View {
                     CoverFeatureCard(
                         width: bigWidth, height: bigHeight,
                         coverURL: guessSongs.first?.artworkURL,
-                        title: "猜你喜欢", subtitle: guessSubtitle,
-                        dateText: nil, tagText: "免费听"
+                        title: "猜你喜欢", subtitle: guessSubtitle
                     )
                 }
                 .buttonStyle(.plain)
@@ -558,14 +558,12 @@ struct CoverFeatureCard: View {
     let coverURL: URL?
     let title: String
     let subtitle: String
-    let dateText: String?
-    let tagText: String?
 
     private var corner: CGFloat { 14 }
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // 封面图（取较短边作为 CoverImage size，外层撑满）
+            // 封面图
             CoverImage(url: coverURL,
                        fallbackKeys: [],
                        seed: title,
@@ -580,32 +578,6 @@ struct CoverFeatureCard: View {
                                startPoint: .top, endPoint: .bottom)
                     .frame(height: height * 0.5)
             }
-            .frame(width: width, height: height)
-
-            // 日期标签（左上角）+ "免费听"标签（右上角）
-            VStack {
-                HStack {
-                    if let dateText {
-                        Text(dateText)
-                            .font(.system(size: 10, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(Color.yellow.opacity(0.9), in: RoundedRectangle(cornerRadius: 4))
-                    }
-                    Spacer()
-                    if let tagText {
-                        Text(tagText)
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(Color.blue.opacity(0.85), in: RoundedRectangle(cornerRadius: 4))
-                    }
-                }
-                Spacer()
-            }
-            .padding(10)
             .frame(width: width, height: height)
 
             // 标题 + 副标题 + 播放按钮（底部）
