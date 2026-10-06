@@ -139,7 +139,7 @@ struct DiscoverView: View {
         let screenW = UIScreen.main.bounds.width - sidePadding * 2
         // 长柱形大卡：窄而高
         let bigWidth = screenW * 0.38
-        let bigHeight = bigWidth * 0.8           // 扁矩形，高是宽的 0.8 倍
+        let bigHeight = bigWidth * 1.55          // 长柱形，高是宽的 1.55 倍
         let smallStackWidth = screenW - bigWidth * 2 - cardSpacing * 2
         let smallCardHeight = (bigHeight - cardSpacing) / 2   // 两张小卡拼齐大卡高度
 
