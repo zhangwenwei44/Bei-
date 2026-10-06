@@ -21,14 +21,12 @@ struct SearchView: View {
     @State private var selectedIDs: Set<String> = []
 
     private enum Scope: Int, CaseIterable {
-        case songs, playlists, albums, artists
+        case songs, albums
 
         var title: String {
             switch self {
             case .songs: return "单曲"
-            case .playlists: return "榜单"
             case .albums: return "专辑"
-            case .artists: return "歌手"
             }
         }
     }
@@ -221,19 +219,6 @@ struct SearchView: View {
                                 }
                         }
                     }
-                case .playlists:
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
-                              spacing: 12) {
-                        ForEach(results.playlists) { playlist in
-                            NavigationLink {
-                                PlaylistDetailView(playlist: playlist)
-                            } label: {
-                                PlaylistCard(playlist: playlist, width: 160)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 16)
                 case .albums:
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(results.albums) { album in
@@ -267,29 +252,6 @@ struct SearchView: View {
                                             .frame(width: 36, height: 36)
                                     }
                                     .buttonStyle(.plain)
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundStyle(AppStyle.tertiaryText)
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 7)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                case .artists:
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(results.artists) { artist in
-                            Button {
-                                runSearch(artist.name)
-                            } label: {
-                                HStack(spacing: 12) {
-                                    CoverImage(url: artist.coverURL, seed: artist.name, size: 44, corner: 22)
-                                    Text(artist.name)
-                                        .font(.system(size: 15, weight: .medium))
-                                        .foregroundStyle(AppStyle.primaryText)
-                                    Spacer()
                                     Image(systemName: "chevron.right")
                                         .font(.system(size: 12, weight: .semibold))
                                         .foregroundStyle(AppStyle.tertiaryText)

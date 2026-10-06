@@ -15,7 +15,7 @@ struct RootView: View {
                 NavigationStack {
                     DiscoverView()
                 }
-                .tabItem { Label("发现", systemImage: "safari.fill") }
+                .tabItem { Label("主页", systemImage: "safari.fill") }
                 .tag(Tab.discover)
 
                 NavigationStack {
