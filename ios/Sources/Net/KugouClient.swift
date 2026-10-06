@@ -597,24 +597,27 @@ final class KugouClient {
     // MARK: - 推荐歌单
 
     /// 网络歌单推荐。走 m.kugou.com/plist/index?json=true，
-    /// 返回 user 精选歌单（specialid 歌单），每个歌单都是用户或酷狗编辑精选的一组主题歌。
-    func recommendedPlaylists() async -> [Playlist] {
-        guard let json = try? await getJSON(path: "/plist/index?json=true",
+    /// 返回 user 精选歌单（specialid 歌单），每页 30 个，全库共 600 个。
+    /// - Returns: (本页歌单, 全库总数)
+    func recommendedPlaylists(page: Int = 1) async -> (playlists: [Playlist], total: Int) {
+        guard let json = try? await getJSON(path: "/plist/index",
                                             host: "https://m.kugou.com",
-                                            params: [:],
+                                            params: ["json": "true",
+                                                     "page": String(page)],
                                             headers: [:]),
               let outer = json["plist"] as? [String: Any],
               let list = outer["list"] as? [String: Any],
-              let infos = list["info"] as? [[String: Any]] else { return [] }
+              let infos = list["info"] as? [[String: Any]] else { return ([], 0) }
 
-        return infos.prefix(12).compactMap { item -> Playlist? in
+        let total = KugouClient.intValue(list["total"]) ?? 0
+        let playlists = infos.compactMap { item -> Playlist? in
             guard let specialID = KugouClient.string(item["specialid"]), !specialID.isEmpty else { return nil }
             let name = KugouClient.string(item["specialname"]) ?? "精选歌单"
             var cover = KugouClient.string(item["imgurl"]) ?? ""
             if cover.hasPrefix("http://") { cover = "https://" + cover.dropFirst("http://".count) }
             cover = cover.replacingOccurrences(of: "{si}", with: "300")
                 .replacingOccurrences(of: "{size}", with: "300")
-            let count = (KugouClient.string(item["songcount"]) ?? "0").flatMap { Int($0) } ?? 0
+            let count = KugouClient.intValue(item["songcount"]) ?? 0
             let creator = KugouClient.string(item["username"]) ?? "酷狗音乐"
             return Playlist(id: "kg-special:\(specialID)",
                             name: name,
@@ -625,6 +628,38 @@ final class KugouClient {
                             kugouRankID: nil,
                             updateFrequency: "")
         }
+        return (playlists, total)
+    }
+
+    /// 普通歌单（specialid）里的歌曲。
+    ///
+    /// 走 mobilecdn `/api/v3/special/song`（实测 http/https 都通），
+    /// 每页 30 首，翻到 total 为止。
+    func specialSongs(specialID: String, limit: Int = 500) async throws -> [Song] {
+        guard Int(specialID) != nil else { throw KugouError.badURL }
+        var all: [Song] = []
+        var page = 1
+        var total = Int.max
+        while all.count < min(limit, total) && page <= 25 {
+            guard let json = try? await getJSON(path: "/api/v3/special/song",
+                                                host: "http://mobilecdn.kugou.com",
+                                                params: ["specialid": specialID,
+                                                         "page": String(page),
+                                                         "pagesize": "30"],
+                                                headers: [:]),
+                  let data = json["data"] as? [String: Any],
+                  let rows = data["info"] as? [[String: Any]] else {
+                Log.warn("歌单", "specialid=\(specialID) 第 \(page) 页拿不到数据")
+                break
+            }
+            total = KugouClient.intValue(data["total"]) ?? total
+            let parsed = rows.compactMap { Song(kugouJSON: $0) }
+            all.append(contentsOf: parsed)
+            Log.info("歌单", "specialid=\(specialID) 第 \(page) 页 \(parsed.count) 首（total=\(total)）")
+            if rows.count < 30 { break }
+            page += 1
+        }
+        return Array(all.prefix(limit))
     }
 
     /// 榜单的真实曲目总数。

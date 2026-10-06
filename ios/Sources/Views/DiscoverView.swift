@@ -10,6 +10,9 @@ struct DiscoverView: View {
     @State private var guessSongs: [Song] = []
     @State private var isLoadingGuess = false
     @State private var recommendedPlaylists: [Playlist] = []
+    @State private var squarePage = 1
+    @State private var squareTotal = 0
+    @State private var isLoadingMore = false
     @State private var selectedTab: DiscoverTab = .recommend
 
     /// 保留的 5 个精选榜单 rankID。
@@ -146,9 +149,9 @@ struct DiscoverView: View {
 
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: cardSpacing) {
-                // 大卡 1：每日推荐
+                // 大卡 1：每日推荐 → 酷狗 TOP500 旗舰榜单（每天更新）
                 NavigationLink {
-                    if let p = dailyPlaylist {
+                    if let p = top500Playlist {
                         PlaylistDetailView(playlist: p)
                     } else if !filteredLists.isEmpty {
                         PlaylistDetailView(playlist: filteredLists[0])
@@ -156,9 +159,9 @@ struct DiscoverView: View {
                 } label: {
                     CoverFeatureCard(
                         width: bigWidth, height: bigHeight,
-                        coverURL: dailyPlaylist?.coverURL ?? filteredLists.first?.coverURL,
+                        coverURL: top500Playlist?.coverURL ?? filteredLists.first?.coverURL,
                         title: "每日推荐",
-                        subtitle: dailyPlaylist?.creatorName ?? "精选好歌，每日更新"
+                        subtitle: "酷狗TOP500 · 每日更新"
                     )
                 }
                 .buttonStyle(.plain)
@@ -224,16 +227,15 @@ struct DiscoverView: View {
                     }
                 }
                 .frame(width: smallStackWidth, height: bigHeight)
-                .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, sidePadding)
         }
         .padding(.bottom, 4)
     }
 
-    /// 每日推荐歌单（从推荐列表取第一个，没有就用榜单）
-    private var dailyPlaylist: Playlist? {
-        recommendedPlaylists.first
+    /// 酷狗 TOP500 旗舰榜单（rankid=8888）
+    private var top500Playlist: Playlist? {
+        feed.topLists.first { $0.kugouRankID == "8888" }
     }
 
     private var guessSubtitle: String {
@@ -382,6 +384,17 @@ struct DiscoverView: View {
                         }
                         .buttonStyle(.plain)
                     }
+
+                    // 底部加载触发器
+                    if recommendedPlaylists.count < squareTotal {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                            Spacer()
+                        }
+                        .padding(.vertical, 10)
+                        .onAppear { Task { await loadMorePlaylists() } }
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
@@ -446,7 +459,10 @@ struct DiscoverView: View {
         }
         if guessSongs.isEmpty { await loadGuess() }
         if recommendedPlaylists.isEmpty {
-            recommendedPlaylists = await KugouClient.shared.recommendedPlaylists()
+            let result = await KugouClient.shared.recommendedPlaylists(page: 1)
+            recommendedPlaylists = result.playlists
+            squareTotal = result.total
+            squarePage = 1
         }
         let whitelist = Self.whitelistRankIDs
         let whitelistedSlices = feed.topLists.filter { whitelist.contains($0.kugouRankID ?? "") }
@@ -475,6 +491,23 @@ struct DiscoverView: View {
         } else {
             Log.info("发现页", "猜你喜欢 0 首")
         }
+    }
+
+    /// 歌单广场滚动加载下一页（共 20 页 600 个）
+    private func loadMorePlaylists() async {
+        guard !isLoadingMore, recommendedPlaylists.count < squareTotal else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        let nextPage = squarePage + 1
+        let result = await KugouClient.shared.recommendedPlaylists(page: nextPage)
+        guard !result.playlists.isEmpty else { return }
+        var existing = Set(recommendedPlaylists.map(\.id))
+        for p in result.playlists where !existing.contains(p.id) {
+            recommendedPlaylists.append(p)
+            existing.insert(p.id)
+        }
+        squarePage = nextPage
+        Log.info("发现页", "歌单广场第 \(nextPage) 页，累计 \(recommendedPlaylists.count)/\(squareTotal)")
     }
 
     private func loadTrackCounts(for lists: ArraySlice<Playlist>) async {

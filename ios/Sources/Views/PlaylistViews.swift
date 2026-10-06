@@ -233,20 +233,27 @@ struct PlaylistDetailView: View {
 
     private func load() async {
         if localPlaylist != nil { return }
-        guard let rankID = playlist.kugouRankID else {
-            errorMessage = "这个歌单没有可用的数据源 ID（kugouRankID 为空），无法加载歌曲。"
-            return
-        }
         isLoading = true
         defer { isLoading = false }
         do {
-            songs = try await KugouClient.shared.rankSongs(rankID: rankID, limit: 50)
-            if songs.isEmpty { errorMessage = "榜单接口返回了 0 首歌，可能是 rankid \(rankID) 已失效。" }
+            if let rankID = playlist.kugouRankID {
+                // 榜单：rankSongs
+                songs = try await KugouClient.shared.rankSongs(rankID: rankID, limit: 50)
+                if songs.isEmpty { errorMessage = "榜单接口返回了 0 首歌，可能是 rankid \(rankID) 已失效。" }
+            } else if playlist.id.hasPrefix("kg-special:") {
+                // 普通歌单：specialid
+                let specialID = String(playlist.id.dropFirst("kg-special:".count))
+                songs = try await KugouClient.shared.specialSongs(specialID: specialID)
+                if songs.isEmpty { errorMessage = "歌单接口返回了 0 首歌，specialid \(specialID) 可能已失效。" }
+            } else {
+                errorMessage = "这个歌单没有可用的数据源 ID，无法加载歌曲。"
+                return
+            }
         } catch {
             // 之前这里直接吞成空数组，歌单空白查不到原因
             errorMessage = error.localizedDescription
         }
-        // 榜单没封面时用第一首歌的专辑图顶上
+        // 没封面时用第一首歌的专辑图顶上
         CoverResolver.shared.bind(from: songs, to: [playlist.id])
         // 榜单接口的曲目不带图，只有专辑 id。这里不等用户滚到哪儿补到哪儿，
         // 直接并发把整页封面拉齐，边拉边刷列表（最多 6 路并发，别把接口打疼）。

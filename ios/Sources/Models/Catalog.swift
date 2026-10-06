@@ -126,12 +126,13 @@ extension Song {
         )
 
         var cover: URL?
-        // 酷狗搜索接口可能的封面字段
+        // 酷狗各接口可能的封面字段
         let coverKeys = ["Image", "AlbumImage", "img", "Img", "album_img", "pic",
                     "cover", "image_url", "thumb", "icon", "album_image",
                     "album_pic", "pic_url", "pic_medium", "pic_small", "pic_big",
                     "pic_slarge", "pic_xlarge", "pic_xxlarge", "AlbumImg", "song_img",
-                    "albumImg", "cover_url", "Cover", "coverImg"]
+                    "albumImg", "cover_url", "Cover", "coverImg",
+                    "album_sizable_cover", "album_sizable_cover_1"]
         for key in coverKeys {
             if let raw = KugouClient.string(json[key]), !raw.isEmpty {
                 let fixed = raw.replacingOccurrences(of: "{si}", with: "300")
@@ -151,7 +152,19 @@ extension Song {
                 }
             }
         }
-        // 如果没命中，打印全部 key 帮助排查
+        // special/song 等接口把封面塞在 trans_param.union_cover 里
+        if cover == nil, let trans = json["trans_param"] as? [String: Any] {
+            for key in ["union_cover", "union_cover_url"] {
+                if let raw = KugouClient.string(trans[key]), !raw.isEmpty {
+                    let fixed = raw.replacingOccurrences(of: "{size}", with: "300")
+                    let finalURL = fixed.hasPrefix("http://")
+                        ? fixed.replacingOccurrences(of: "http://", with: "https://")
+                        : fixed
+                    if let u = URL(string: finalURL) { cover = u; break }
+                }
+            }
+        }
+        // 如果还没命中，打印全部 key 帮助排查
         if cover == nil {
             Log.debug("Catalog", "封面未命中! 全部keys: \(json.keys.sorted())")
             // 尝试 album 嵌套
@@ -205,6 +218,7 @@ extension Song {
                       ?? "",
                   kugouAlbumID: KugouClient.string(json["album_id"])
                       ?? KugouClient.string(json["AlbumID"])
+                      ?? KugouClient.string(json["albumId"])
                       ?? "")
     }
 
