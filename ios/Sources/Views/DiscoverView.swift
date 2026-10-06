@@ -226,7 +226,7 @@ struct DiscoverView: View {
                     .buttonStyle(.plain)
                     .frame(width: smallStackWidth, height: smallCardHeight)
                 }
-                .frame(width: smallStackWidth, height: bigHeight)
+                .frame(width: smallStackWidth, height: bigHeight, alignment: .top)
             }
             .frame(height: bigHeight)
             .padding(.horizontal, sidePadding)
