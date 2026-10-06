@@ -618,8 +618,8 @@ final class ScriptRuntime {
         Log.debug("脚本音源", "invoke 开始，超时 \(Int(timeout)) 秒")
         let result: Any? = await withCheckedContinuation { continuation in
             let completion = ScriptCompletion()
-            let lock = NSLock()
-            var resumed = false
+            nonisolated(unsafe) let lock = NSLock()
+            nonisolated(unsafe) var resumed = false
 
             /// 返回 true 表示是本次调用第一次落地（用于区分真超时和迟到回调）。
             @discardableResult
