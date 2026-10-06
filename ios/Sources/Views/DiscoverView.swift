@@ -486,8 +486,8 @@ struct DiscoverView: View {
             return
         }
         var enriched = songs
-        if enriched[0].artworkURL == nil, !enriched[0].albumID.isEmpty,
-           let cover = await KugouClient.shared.albumCover(albumID: enriched[0].albumID) {
+        if enriched[0].artworkURL == nil, !enriched[0].kugouAlbumID.isEmpty,
+           let cover = await KugouClient.shared.albumCover(albumID: enriched[0].kugouAlbumID) {
             enriched[0].artworkURL = cover
         }
         dailySongs = enriched

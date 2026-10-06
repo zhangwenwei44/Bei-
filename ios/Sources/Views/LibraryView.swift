@@ -529,7 +529,7 @@ struct LibraryView: View {
             targets.forEach { downloads.delete($0) }
         case .local:
             targets.forEach { library.removeLocal(id: $0.id) }
-        case .playlists, .albums:
+        case .playlists, .albums, .artists:
             break
         }
     }
