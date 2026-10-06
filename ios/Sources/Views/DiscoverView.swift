@@ -321,7 +321,7 @@ struct DiscoverView: View {
         await withTaskGroup(of: Hit?.self) { group in
             let concurrency = 4
             let sem = AsyncStream.makeStream(of: Void.self)
-            var active = 0
+            nonisolated(unsafe) var active = 0
             for (index, playlist) in lists.enumerated() {
                 guard let rankID = playlist.kugouRankID else { continue }
                 let pid = playlist.id

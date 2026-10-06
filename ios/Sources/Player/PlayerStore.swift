@@ -527,8 +527,9 @@ final class PlayerStore: ObservableObject {
             self.stallRecoveryTimer?.invalidate()
             self.stalledSongID = self.current?.id
             self.stallRecoveryTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: false) { [weak self] _ in
+                nonisolated(unsafe) let captured = self
                 Task { @MainActor in
-                    self?.recoverFromStall()
+                    captured?.recoverFromStall()
                 }
             }
         })
