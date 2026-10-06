@@ -41,6 +41,10 @@ final class KugouClient {
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 30
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        // 限流：全站最多 5 个并发 HTTP 请求（默认 6，iOS 16 上也够用）。
+        // 酷狗 CDN 很稳但 DNS 解析偶发慢，太多并发会同时打 DNS / TLS 握手，
+        // 反而让首批请求全部卡在握手阶段。
+        config.httpMaximumConnectionsPerHost = 5
         session = URLSession(configuration: config)
 
         // 设备指纹：mid = MD5(guid) 前 15 位十六进制转十进制，和官方客户端一致
@@ -223,10 +227,10 @@ final class KugouClient {
         return nil
     }
 
-    /// 核心实现：翻 mixedSearch，每页翻完立即遍历检查，有 exactURL 就停。
-    /// 只有第 1 页没找到才翻第 2 页，第 2 页还没找到才翻第 3 页。
-    /// （之前一口气翻 3 页再统一遍历，12 个歌手就是 12×3=36 个请求，
-    /// 但实际上第 1 页就能找到 80% 的歌手图 —— 翻 3 页纯属浪费发热）
+    /// 核心实现：只翻 mixedSearch 第 1 页。
+    /// cursor=1/2/3 在 mixedSearch 上返回的是完全相同的第一页数据（酷狗把 cursor 用在
+    /// 搜索建议而非正式搜索），之前翻 3 页纯属浪费请求和发热，现在砍到只翻 1 页。
+    /// 12 个热门歌手头像直接省掉 24 个无用请求。
     private func artistPhoto(name: String, keyword: String) async -> URL? {
         let lead = name.components(separatedBy: CharacterSet(charactersIn: "、/&，,"))
             .first?.trimmingCharacters(in: .whitespaces) ?? name
@@ -238,78 +242,81 @@ final class KugouClient {
         }
 
         var fallbackURL: URL?
-        for page in 1...3 {
-            guard let json = try? await mixedSearchJSON(keyword: keyword, cursor: page),
-                  let data = json["data"] as? [String: Any],
-                  let groups = data["lists"] as? [[String: Any]] else { continue }
+        guard let json = try? await mixedSearchJSON(keyword: keyword, cursor: 1),
+              let data = json["data"] as? [String: Any],
+              let groups = data["lists"] as? [[String: Any]] else {
+            Log.info("歌手头像", "keyword=\(keyword) mixedSearch 无数据 fallback=\(fallbackURL?.absoluteString ?? "nil")")
+            if let fallback = fallbackURL {
+                photoCache.setObject(fallback as NSURL, forKey: keyword as NSString)
+            }
+            return fallbackURL
+        }
 
-            for group in groups {
-                let nodes = group["lists"] as? [[String: Any]] ?? []
-                for node in nodes {
-                    let extra = node["extra"] as? [String: Any]
+        for group in groups {
+            let nodes = group["lists"] as? [[String: Any]] ?? []
+            for node in nodes {
+                let extra = node["extra"] as? [String: Any]
 
-                    // 路径 1（主）：任何节点只要有 imgurl/Pic/ErectPic 就尝试当歌手卡片
-                    if let portrait = Self.anyImageURL(node: node, extra: extra) {
-                        let matchedName = Self.string(node["singername"])
-                            ?? Self.string(extra?["singername"])
-                            ?? Self.string(node["title"])
-                            ?? Self.string(node["SingerName"])
-                            ?? Self.string(node["artistname"])
-                            ?? Self.string(node["ArtistName"])
-                            ?? Self.string(node["artist"])
-                            ?? Self.string(node["Singers"])
-                        if matchedName == lead {
-                            // 找到 exact 就立即缓存返回 — 不再翻后面的页
-                            photoCache.setObject(portrait as NSURL, forKey: keyword as NSString)
-                            Log.info("歌手头像", "keyword=\(keyword) page=\(page) exact=hit")
-                            return portrait
-                        } else if fallbackURL == nil {
-                            fallbackURL = portrait
-                        }
-                        continue
-                    }
-
-                    // 路径 2：歌曲节点 —— 严格匹配歌手名后，抓 singerimg / AlbumImage / Image
-                    let matchedArtist = Self.string(node["singername"])
+                // 路径 1（主）：任何节点只要有 imgurl/Pic/ErectPic 就尝试当歌手卡片
+                if let portrait = Self.anyImageURL(node: node, extra: extra) {
+                    let matchedName = Self.string(node["singername"])
+                        ?? Self.string(extra?["singername"])
+                        ?? Self.string(node["title"])
                         ?? Self.string(node["SingerName"])
                         ?? Self.string(node["artistname"])
                         ?? Self.string(node["ArtistName"])
                         ?? Self.string(node["artist"])
                         ?? Self.string(node["Singers"])
-                    guard matchedArtist == lead else { continue }
+                    if matchedName == lead {
+                        // 找到 exact 就立即缓存返回
+                        photoCache.setObject(portrait as NSURL, forKey: keyword as NSString)
+                        Log.info("歌手头像", "keyword=\(keyword) exact=hit")
+                        return portrait
+                    } else if fallbackURL == nil {
+                        fallbackURL = portrait
+                    }
+                    continue
+                }
 
-                    // 歌手头像字段（singerimg 系列）
-                    for field in ["singerimg", "singerImg", "singer_img", "singermid", "SingerImg"] {
+                // 路径 2：歌曲节点 —— 严格匹配歌手名后，抓 singerimg / AlbumImage / Image
+                let matchedArtist = Self.string(node["singername"])
+                    ?? Self.string(node["SingerName"])
+                    ?? Self.string(node["artistname"])
+                    ?? Self.string(node["ArtistName"])
+                    ?? Self.string(node["artist"])
+                    ?? Self.string(node["Singers"])
+                guard matchedArtist == lead else { continue }
+
+                // 歌手头像字段（singerimg 系列）
+                for field in ["singerimg", "singerImg", "singer_img", "singermid", "SingerImg"] {
+                    if let raw = Self.string(node[field]) {
+                        let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
+                            .replacingOccurrences(of: "{si}", with: "480")
+                        if let url = URL(string: fixed), Self.looksLikeImage(url) {
+                            // singerimg 也算 exact — 严格匹配了歌手名
+                            photoCache.setObject(url as NSURL, forKey: keyword as NSString)
+                            Log.info("歌手头像", "keyword=\(keyword) exact=singerimg")
+                            return url
+                        }
+                    }
+                }
+
+                // 兜底：专辑封面（AlbumImage/AlbumImg/Image）— 虽然是专辑不是歌手，但比首字占位好
+                if fallbackURL == nil {
+                    for field in ["AlbumImage", "albumImage", "AlbumImg", "albumImg", "Image"] {
                         if let raw = Self.string(node[field]) {
                             let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
                                 .replacingOccurrences(of: "{si}", with: "480")
                             if let url = URL(string: fixed), Self.looksLikeImage(url) {
-                                // singerimg 也算 exact — 严格匹配了歌手名
-                                photoCache.setObject(url as NSURL, forKey: keyword as NSString)
-                                Log.info("歌手头像", "keyword=\(keyword) page=\(page) exact=singerimg")
-                                return url
+                                fallbackURL = url
+                                break
                             }
                         }
                     }
-
-                    // 兜底：专辑封面（AlbumImage/AlbumImg/Image）— 虽然是专辑不是歌手，但比首字占位好
-                    if fallbackURL == nil {
-                        for field in ["AlbumImage", "albumImage", "AlbumImg", "albumImg", "Image"] {
-                            if let raw = Self.string(node[field]) {
-                                let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
-                                    .replacingOccurrences(of: "{si}", with: "480")
-                                if let url = URL(string: fixed), Self.looksLikeImage(url) {
-                                    fallbackURL = url
-                                    break
-                                }
-                            }
-                        }
-                    }
-                } // for node
-            } // for group
-        } // for page
-        // 翻了 3 页都没找到 exact，退回 fallback（可能是专辑封面或 MV 帧）
-        Log.info("歌手头像", "keyword=\(keyword) 结果 fallback=\(fallbackURL?.absoluteString ?? "nil")")
+                }
+            } // for node
+        } // for group
+        Log.info("歌手头像", "keyword=\(keyword) fallback=\(fallbackURL?.absoluteString ?? "nil")")
         if let fallback = fallbackURL {
             photoCache.setObject(fallback as NSURL, forKey: keyword as NSString)
         }
