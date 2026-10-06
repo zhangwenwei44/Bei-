@@ -184,8 +184,8 @@ struct DiscoverView: View {
                 .buttonStyle(.plain)
                 .frame(width: bigWidth, height: bigHeight)
 
-                // 小卡堆：VStack 总高度 = bigHeight，两张小卡 + gap 正好填满
-                VStack(spacing: cardGap) {
+                // 小卡堆：总高度强制 = bigHeight，用 Spacer 吸收浮点误差
+                VStack(spacing: 0) {
                     NavigationLink {
                         if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
                             PlaylistDetailView(playlist: favRank)
@@ -201,10 +201,11 @@ struct DiscoverView: View {
                                 Color(red: 0.94, green: 0.28, blue: 0.42)
                             ]
                         )
-                        .frame(width: smallStackWidth, height: smallCardHeight)
                     }
                     .buttonStyle(.plain)
                     .frame(width: smallStackWidth, height: smallCardHeight)
+
+                    Spacer(minLength: 0)
 
                     NavigationLink {
                         if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
@@ -221,12 +222,11 @@ struct DiscoverView: View {
                                 Color(red: 1.0, green: 0.45, blue: 0.30)
                             ]
                         )
-                        .frame(width: smallStackWidth, height: smallCardHeight)
                     }
                     .buttonStyle(.plain)
                     .frame(width: smallStackWidth, height: smallCardHeight)
                 }
-                .frame(width: smallStackWidth, height: bigHeight, alignment: .top)
+                .frame(width: smallStackWidth, height: bigHeight)
             }
             .frame(height: bigHeight)
             .padding(.horizontal, sidePadding)
