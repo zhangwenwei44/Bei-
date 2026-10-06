@@ -672,7 +672,17 @@ final class KugouClient {
                          params: [String: String],
                          headers: [String: String]) async throws -> [String: Any] {
         let raw = try await getRaw(path: path, host: host, params: params, headers: headers)
-        guard let object = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any] else {
+        // 有些接口（/api/v3/search/song、/api/v3/album/info 等）会在 JSON 前面
+        // 塞 <!--KG_TAG_RES_START--> 或其他 HTML 注释前缀，JSONSerialization 直接炸。
+        // 保险起见统一找第一个 "{" 开始截取。
+        let jsonString: String
+        if let firstBrace = raw.firstIndex(of: "{") {
+            jsonString = String(raw[firstBrace...])
+        } else {
+            jsonString = raw
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: Data(jsonString.utf8)) as? [String: Any] else {
+            Log.error("网络", "JSON 解析失败，前 120 字符：\(String(raw.prefix(120)))")
             throw KugouError.decoding
         }
         return object
