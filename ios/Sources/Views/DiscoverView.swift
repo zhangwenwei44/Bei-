@@ -147,19 +147,17 @@ struct DiscoverView: View {
         let screenW = UIScreen.main.bounds.width - sidePadding * 2
         let bigWidth = screenW * 0.38
         let bigHeight = bigWidth * 1.55
-        let bigSmallGap: CGFloat = 10
+        let cardGap: CGFloat = 10
 
-        // 小卡堆：两张小卡整体高度 = bigHeight（严格齐平），但每张卡本身
-        // 比正方形更扁 —— 视觉上更小。卡高 = bigHeight * 0.42，两张加间距
-        // = bigHeight * 0.90，剩余空间均匀撑开。
-        let smallCardHeight = bigHeight * 0.42
-        let smallCardWidth = bigHeight * 0.42
-        let smallCardGap: CGFloat = bigHeight * 0.06
+        // 小卡堆高度必须 = bigHeight（严格齐平），宽度 = 剩余空间填满
+        let smallStackWidth = screenW - bigWidth * 2 - cardGap * 2
         let smallStackHeight = bigHeight
-        let smallStackWidth = smallCardWidth
+        // 每张小卡本身高度比堆高小一点，视觉上更小
+        let smallCardHeight = bigHeight * 0.40
+        let smallCardGap: CGFloat = bigHeight * 0.08
 
         return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: bigSmallGap) {
+            HStack(alignment: .top, spacing: cardGap) {
                 // 大卡 1：每日推荐
                 Button {
                     playDailyAll()
@@ -187,10 +185,9 @@ struct DiscoverView: View {
                 }
                 .buttonStyle(.plain)
 
-                // 小卡堆：外层 frame 锁高 = bigHeight，内部均匀撑
+                // 小卡堆：外层 frame 锁死 bigHeight + clipped，彻底消除子元素溢出
                 VStack(spacing: smallCardGap) {
-                    Spacer(minLength: 0)
-                    // 百万收藏
+                    // 每张小卡单独 frame + clipped，不受 IconFeatureCard 内部布局影响
                     NavigationLink {
                         if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
                             PlaylistDetailView(playlist: favRank)
@@ -199,17 +196,18 @@ struct DiscoverView: View {
                         }
                     } label: {
                         IconFeatureCard(
-                            width: smallCardWidth, height: smallCardHeight,
+                            width: smallStackWidth, height: smallCardHeight,
                             title: "百万收藏", systemIcon: "heart.fill",
                             gradientColors: [
                                 Color(red: 1.0, green: 0.47, blue: 0.33),
                                 Color(red: 0.94, green: 0.28, blue: 0.42)
                             ]
                         )
+                        .frame(width: smallStackWidth, height: smallCardHeight)
+                        .clipped()
                     }
                     .buttonStyle(.plain)
 
-                    // 新歌推荐
                     NavigationLink {
                         if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
                             PlaylistDetailView(playlist: newRank)
@@ -218,18 +216,20 @@ struct DiscoverView: View {
                         }
                     } label: {
                         IconFeatureCard(
-                            width: smallCardWidth, height: smallCardHeight,
+                            width: smallStackWidth, height: smallCardHeight,
                             title: "新歌推荐", systemIcon: "music.note",
                             gradientColors: [
                                 Color(red: 1.0, green: 0.72, blue: 0.35),
                                 Color(red: 1.0, green: 0.45, blue: 0.30)
                             ]
                         )
+                        .frame(width: smallStackWidth, height: smallCardHeight)
+                        .clipped()
                     }
                     .buttonStyle(.plain)
-                    Spacer(minLength: 0)
                 }
-                .frame(width: smallStackWidth, height: smallStackHeight)
+                .frame(width: smallStackWidth, height: smallStackHeight, alignment: .top)
+                .clipped()
             }
             .padding(.horizontal, sidePadding)
         }
@@ -669,17 +669,20 @@ struct IconFeatureCard: View {
                            startPoint: .topLeading,
                            endPoint: .bottomTrailing)
 
-            // 大图标（右下偏中，半透明白色）
-            Image(systemName: systemIcon)
-                .font(.system(size: min(width, height) * 0.55, weight: .light))
-                .foregroundStyle(.white.opacity(0.35))
-                .position(x: width * 0.72, y: height * 0.62)
-
-            // 左上角标题
+            // 标题（左上角）
             Text(title)
                 .font(.system(size: width * 0.16, weight: .bold))
                 .foregroundStyle(.white)
                 .padding(10)
+
+            // 大图标（右下偏中，用 frame+alignment 放在右下区域 ——
+            // 比 .position 好：不影响父容器尺寸计算，布局安全）
+            Image(systemName: systemIcon)
+                .font(.system(size: min(width, height) * 0.55, weight: .light))
+                .foregroundStyle(.white.opacity(0.35))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .padding(.trailing, width * 0.12)
+                .padding(.bottom, height * 0.18)
         }
         .frame(width: width, height: height)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
