@@ -131,105 +131,87 @@ struct DiscoverView: View {
         }
     }
 
-    // MARK: 两大两小宫格卡片
+    // MARK: 两大两小横向滚动卡片
 
     private var bigCardsGrid: some View {
         let cardSpacing: CGFloat = 10
         let sidePadding: CGFloat = 16
-        let totalWidth = UIScreen.main.bounds.width - sidePadding * 2 - cardSpacing
-        // 左列大卡占 62%，右列小卡占 38%
-        let bigWidth = totalWidth * 0.62
-        let smallWidth = totalWidth * 0.38
-        // 大卡高度：宽度的约 1.0（方形略高）
-        let bigHeight = bigWidth * 1.05
-        // 小卡高度：让两张小卡 + 间距 = 大卡高度 * 2 + 间距
-        let smallHeight = (bigHeight * 2 + cardSpacing - cardSpacing) / 2 - (cardSpacing / 2)
+        let screenW = UIScreen.main.bounds.width - sidePadding * 2
+        // 大卡宽 = 小卡堆宽 * 1.5；大卡高 = 屏宽 * 0.55（保证一行展示 + 可横滚）
+        let bigWidth = screenW * 0.60
+        let smallStackWidth = screenW - bigWidth - cardSpacing
+        let bigHeight = bigWidth * 1.1
+        let smallCardHeight = (bigHeight - cardSpacing) / 2
 
-        return HStack(alignment: .top, spacing: cardSpacing) {
-            // 左列：两张大封面卡竖排
-            VStack(spacing: cardSpacing) {
-                // 每日推荐（大封面卡）
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: cardSpacing) {
+                // 大卡 1：每日推荐
                 if let dailyPlaylist = recommendedPlaylists.first {
                     NavigationLink {
                         PlaylistDetailView(playlist: dailyPlaylist)
                     } label: {
                         CoverFeatureCard(
-                            width: bigWidth,
-                            height: bigHeight,
+                            width: bigWidth, height: bigHeight,
                             coverURL: dailyPlaylist.coverURL,
-                            title: "每日推荐",
-                            subtitle: dailyPlaylist.creatorName,
-                            dateText: dateText,
-                            tagText: "免费听"
+                            title: "每日推荐", subtitle: dailyPlaylist.creatorName,
+                            dateText: dateText, tagText: "免费听"
                         )
                     }
                     .buttonStyle(.plain)
                 } else {
                     CoverFeatureCard(
-                        width: bigWidth,
-                        height: bigHeight,
+                        width: bigWidth, height: bigHeight,
                         coverURL: nil,
-                        title: "每日推荐",
-                        subtitle: "每天都是新的歌单",
-                        dateText: dateText,
-                        tagText: "免费听"
+                        title: "每日推荐", subtitle: "每天都是新的歌单",
+                        dateText: dateText, tagText: "免费听"
                     )
                 }
 
-                // 猜你喜欢（大封面卡，点击播放全部）
+                // 小卡堆：百万收藏 + 新歌推荐
+                VStack(spacing: cardSpacing) {
+                    NavigationLink {
+                        if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
+                            PlaylistDetailView(playlist: favRank)
+                        } else if !filteredLists.isEmpty {
+                            PlaylistDetailView(playlist: filteredLists[0])
+                        }
+                    } label: {
+                        IconFeatureCard(
+                            width: smallStackWidth, height: smallCardHeight,
+                            title: "百万收藏", systemIcon: "heart.fill",
+                            gradientColors: [
+                                Color(red: 1.0, green: 0.47, blue: 0.33),
+                                Color(red: 0.94, green: 0.28, blue: 0.42)
+                            ]
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    IconFeatureCard(
+                        width: smallStackWidth, height: smallCardHeight,
+                        title: "新歌推荐", systemIcon: "music.note",
+                        gradientColors: [
+                            Color(red: 1.0, green: 0.72, blue: 0.35),
+                            Color(red: 1.0, green: 0.45, blue: 0.30)
+                        ]
+                    )
+                }
+
+                // 大卡 2：猜你喜欢
                 Button {
                     playGuessAll()
                 } label: {
                     CoverFeatureCard(
-                        width: bigWidth,
-                        height: bigHeight,
+                        width: bigWidth, height: bigHeight,
                         coverURL: guessSongs.first?.artworkURL,
-                        title: "猜你喜欢",
-                        subtitle: guessSubtitle,
-                        dateText: nil,
-                        tagText: "免费听"
+                        title: "猜你喜欢", subtitle: guessSubtitle,
+                        dateText: nil, tagText: "免费听"
                     )
                 }
                 .buttonStyle(.plain)
             }
-
-            // 右列：两张小图标卡竖排
-            VStack(spacing: cardSpacing) {
-                // 百万收藏（小图标卡）
-                NavigationLink {
-                    if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
-                        PlaylistDetailView(playlist: favRank)
-                    } else if !filteredLists.isEmpty {
-                        PlaylistDetailView(playlist: filteredLists[0])
-                    }
-                } label: {
-                    IconFeatureCard(
-                        width: smallWidth,
-                        height: smallHeight,
-                        title: "百万收藏",
-                        systemIcon: "heart.fill",
-                        gradientColors: [
-                            Color(red: 1.0, green: 0.47, blue: 0.33),
-                            Color(red: 0.94, green: 0.28, blue: 0.42)
-                        ]
-                    )
-                }
-                .buttonStyle(.plain)
-
-                // 新歌推荐（小图标卡）
-                IconFeatureCard(
-                    width: smallWidth,
-                    height: smallHeight,
-                    title: "新歌推荐",
-                    systemIcon: "music.note",
-                    gradientColors: [
-                        Color(red: 1.0, green: 0.72, blue: 0.35),
-                        Color(red: 1.0, green: 0.45, blue: 0.30)
-                    ]
-                )
-            }
+            .padding(.horizontal, sidePadding)
         }
-        .padding(.horizontal, sidePadding)
         .padding(.bottom, 4)
     }
 
