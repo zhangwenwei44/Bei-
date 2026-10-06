@@ -72,7 +72,9 @@ final class PlayerStore: ObservableObject {
 
     init() {
         player.actionAtItemEnd = .pause
-        player.automaticallyWaitsToMinimizeStalling = false
+        // 让 AVPlayer 在弱网下自行缓冲等待，避免直接 pause 死在那里。
+        // stall 恢复靠下面的 stall 监听 + 重 attach 兜底。
+        player.automaticallyWaitsToMinimizeStalling = true
         installTimeObserver()
         installNotifications()
         installRemoteCommands()
@@ -520,13 +522,13 @@ final class PlayerStore: ObservableObject {
                                             queue: .main) { [weak self] notification in
             guard let self, let item = notification.object as? AVPlayerItem, item === self.player.currentItem else { return }
             // 卡顿不是失败：AVPlayer 会自己缓冲恢复，但网络慢时可能卡很久。
-            // 15 秒内没恢复 → 用缓存 URL 重新 attach 一次（CDN 地址没变的话相当于
-            // 给 AVPlayer 一个「重新拉流」的信号，网络抖动经常就恢复了）。
-            // 绝不能在这里拉黑域名重解析 —— 否则网络稍微一抖就把音源熔断了。
-            Log.info("播放", "缓冲卡顿（\(self.assetHost(of: item) ?? "?")），15 秒没恢复就自动重 attach")
+            // 先立即尝试一次 play()（有时 stall 后 rate=0 但 play() 能把它拉回来），
+            // 8 秒没恢复 → 用缓存 URL 重新 attach 一次（给 AVPlayer 重新拉流的信号）。
+            Log.info("播放", "缓冲卡顿（\(self.assetHost(of: item) ?? "?")），先尝试 play()，8 秒没恢复就重 attach")
+            if self.isPlaying { self.player.play() }
             self.stallRecoveryTimer?.invalidate()
             self.stalledSongID = self.current?.id
-            self.stallRecoveryTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: false) { [weak self] _ in
+            self.stallRecoveryTimer = Timer.scheduledTimer(withTimeInterval: 8, repeats: false) { [weak self] _ in
                 nonisolated(unsafe) let captured = self
                 Task { @MainActor in
                     captured?.recoverFromStall()
@@ -548,17 +550,34 @@ final class PlayerStore: ObservableObject {
         (item.asset as? AVURLAsset)?.url.host?.lowercased()
     }
 
-    /// stall 自动恢复：用缓存的 URL 重新 attach 一次，
-    /// CDN 地址没变的话相当于给 AVPlayer 一个「重新拉流」的信号。
-    /// 已经在走 handlePlaybackFailure 的话就不要再重 attach 了（避免并发两个恢复流程）。
+    /// stall 自动恢复：优先用缓存的 URL 重新 attach 一次，
+    /// 没有缓存就重新 prepare（可能换源）。attach 后强制 player.play() 确保重新启动。
     private func recoverFromStall() {
         stallRecoveryTimer?.invalidate()
         stallRecoveryTimer = nil
         guard stalledSongID == current?.id else { return }
-        guard let cached = resolvedURLCache[current!.id] else { return }
-        Log.info("播放", "stall 15 秒未恢复，用缓存 URL 重新 attach")
-        // 直接 attach，不经过 prepare（prepare 会重新解析）
-        attach(url: cached.url, thirdParty: cached.thirdParty, autoplay: isPlaying || true)
+        // 如果 AVPlayer 已经自己恢复了播放（rate > 0），直接跳过
+        guard player.rate == 0 else {
+            Log.info("播放", "stall 恢复定时器触发，但 rate 已经 > 0，跳过")
+            return
+        }
+        let wasPlaying = isPlaying || player.rate > 0
+        if let cached = resolvedURLCache[current!.id] {
+            Log.info("播放", "stall 8 秒未恢复，用缓存 URL 重新 attach")
+            attach(url: cached.url, thirdParty: cached.thirdParty, autoplay: wasPlaying)
+        } else {
+            Log.info("播放", "stall 8 秒未恢复，无缓存 URL，重新 prepare")
+            prepare(autoplay: true)
+            return
+        }
+        // attach 完成后 AVPlayer 可能还在等缓冲，显式 play() 再拉一次
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            if self.isPlaying {
+                self.player.play()
+                Log.info("播放", "stall 恢复后显式 player.play()")
+            }
+        }
     }
 
     /// 播放失败：如果是第三方地址，把该域名拉黑并换源重试一次。

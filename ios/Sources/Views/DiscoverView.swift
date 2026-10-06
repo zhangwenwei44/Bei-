@@ -148,8 +148,11 @@ struct DiscoverView: View {
         let screenW = UIScreen.main.bounds.width - sidePadding * 2
         let bigWidth = screenW * 0.38
         let bigHeight = bigWidth * 1.55
-        let smallStackWidth = screenW - bigWidth * 2 - cardSpacing * 2
-        let smallCardHeight = (bigHeight - cardSpacing) / 2
+        // 两张正方形小卡，边长 = (bigHeight - 间距) / 2
+        // 这样小卡堆总高度 = 2 * side + spacing = bigHeight，与大卡严格齐平
+        let smallSide = (bigHeight - cardSpacing) / 2
+        let smallStackHeight = bigHeight
+        let smallStackWidth = smallSide
 
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: cardSpacing) {
@@ -180,47 +183,51 @@ struct DiscoverView: View {
                 }
                 .buttonStyle(.plain)
 
-                // 小卡堆：直接用预算高度，不依赖 GeometryReader
+                // 小卡堆：两张正方形小卡，总高度锁定 = bigHeight，垂直居中
                 VStack(spacing: cardSpacing) {
-                    // 百万收藏
-                    NavigationLink {
-                        if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
-                            PlaylistDetailView(playlist: favRank)
-                        } else if !filteredLists.isEmpty {
-                            PlaylistDetailView(playlist: filteredLists[0])
+                    Spacer(minLength: 0)
+                    VStack(spacing: cardSpacing) {
+                        // 百万收藏
+                        NavigationLink {
+                            if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
+                                PlaylistDetailView(playlist: favRank)
+                            } else if !filteredLists.isEmpty {
+                                PlaylistDetailView(playlist: filteredLists[0])
+                            }
+                        } label: {
+                            IconFeatureCard(
+                                width: smallSide, height: smallSide,
+                                title: "百万收藏", systemIcon: "heart.fill",
+                                gradientColors: [
+                                    Color(red: 1.0, green: 0.47, blue: 0.33),
+                                    Color(red: 0.94, green: 0.28, blue: 0.42)
+                                ]
+                            )
                         }
-                    } label: {
-                        IconFeatureCard(
-                            width: smallStackWidth, height: smallCardHeight,
-                            title: "百万收藏", systemIcon: "heart.fill",
-                            gradientColors: [
-                                Color(red: 1.0, green: 0.47, blue: 0.33),
-                                Color(red: 0.94, green: 0.28, blue: 0.42)
-                            ]
-                        )
-                    }
-                    .buttonStyle(.plain)
+                        .buttonStyle(.plain)
 
-                    // 新歌推荐
-                    NavigationLink {
-                        if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
-                            PlaylistDetailView(playlist: newRank)
-                        } else if !filteredLists.isEmpty {
-                            PlaylistDetailView(playlist: filteredLists[0])
+                        // 新歌推荐
+                        NavigationLink {
+                            if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
+                                PlaylistDetailView(playlist: newRank)
+                            } else if !filteredLists.isEmpty {
+                                PlaylistDetailView(playlist: filteredLists[0])
+                            }
+                        } label: {
+                            IconFeatureCard(
+                                width: smallSide, height: smallSide,
+                                title: "新歌推荐", systemIcon: "music.note",
+                                gradientColors: [
+                                    Color(red: 1.0, green: 0.72, blue: 0.35),
+                                    Color(red: 1.0, green: 0.45, blue: 0.30)
+                                ]
+                            )
                         }
-                    } label: {
-                        IconFeatureCard(
-                            width: smallStackWidth, height: smallCardHeight,
-                            title: "新歌推荐", systemIcon: "music.note",
-                            gradientColors: [
-                                Color(red: 1.0, green: 0.72, blue: 0.35),
-                                Color(red: 1.0, green: 0.45, blue: 0.30)
-                            ]
-                        )
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                    Spacer(minLength: 0)
                 }
-                .frame(width: smallStackWidth, height: bigHeight)
+                .frame(width: smallStackWidth, height: smallStackHeight, alignment: .center)
                 .clipped()
             }
             .padding(.horizontal, sidePadding)
