@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 发现页。搜索入口 → 热门歌手 → 猜你喜欢（列表） → 5 个精选榜单（列表） → 网络歌单推荐。
+/// 发现页。搜索入口 → Tab 栏（热门/榜单/歌单） → 对应内容。
 struct DiscoverView: View {
     @EnvironmentObject private var store: PlayerStore
     @State private var feed = DiscoverFeed()
@@ -8,8 +8,8 @@ struct DiscoverView: View {
     @State private var errorMessage: String?
     @State private var guessSongs: [Song] = []
     @State private var isLoadingGuess = false
-    @State private var artistPhotos: [String: URL] = [:]
     @State private var recommendedPlaylists: [Playlist] = []
+    @State private var selectedTab: DiscoverTab = .popular
 
     /// 保留的 5 个精选榜单 rankID（按用户要求）。
     static let whitelistRankIDs: Set<String> = [
@@ -18,13 +18,6 @@ struct DiscoverView: View {
         "52144",  // 短视频热歌榜
         "24971",  // DJ热歌榜
         "85432",  // 百万收藏榜
-    ]
-
-    /// 热门歌手名单。酷狗没有免签名的热门歌手接口，先放一份经典名单，
-    /// 点击直接跳歌手搜索结果。
-    static let hotArtists: [String] = [
-        "周杰伦", "林俊杰", "陈奕迅", "邓紫棋", "薛之谦", "周深",
-        "毛不易", "梁静茹", "王心凌", "李荣浩", "张碧晨", "许嵩",
     ]
 
     /// 猜你喜欢的抽词池：随机挑两个词各搜一页，拼成一组推荐。
@@ -42,10 +35,8 @@ struct DiscoverView: View {
                     LoadingRow()
                 } else {
                     searchEntry
-                    hotArtistsSection
-                    guessSection
-                    topListSection
-                    playlistsSection
+                    tabBar
+                    tabContent
                 }
             }
             .padding(.bottom, 24)
@@ -82,39 +73,50 @@ struct DiscoverView: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 16)
+        .padding(.top, 4)
         .padding(.bottom, 6)
     }
 
-    // MARK: 热门歌手（搜索框正下方）
+    // MARK: Tab 栏（酷狗风格：下划线指示器）
 
-    private var hotArtistsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("热门歌手")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(AppStyle.primaryText)
-                .padding(.horizontal, 16)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
-                    ForEach(Self.hotArtists, id: \.self) { name in
-                        NavigationLink {
-                            SearchView(initialKeyword: name)
-                        } label: {
-                            VStack(spacing: 6) {
-                                ArtistAvatar(name: name, url: artistPhotos[name], size: 64)
-                                Text(name)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(AppStyle.primaryText)
-                                    .lineLimit(1)
-                            }
-                            .frame(width: 66)
-                        }
-                        .buttonStyle(.plain)
+    private var tabBar: some View {
+        HStack(alignment: .bottom, spacing: 24) {
+            ForEach(DiscoverTab.allCases, id: \.self) { tab in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedTab = tab
+                    }
+                } label: {
+                    VStack(spacing: 6) {
+                        Text(tab.title)
+                            .font(.system(size: 16, weight: selectedTab == tab ? .semibold : .regular))
+                            .foregroundStyle(selectedTab == tab ? AppStyle.accent : AppStyle.primaryText)
+                        Capsule()
+                            .fill(selectedTab == tab ? AppStyle.accent : Color.clear)
+                            .frame(width: tab.title.count == 2 ? 20 : 28, height: 3)
                     }
                 }
-                .padding(.horizontal, 16)
+                .buttonStyle(.plain)
             }
+            Spacer()
         }
-        .padding(.bottom, 20)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
+    }
+
+    // MARK: Tab 内容
+
+    @ViewBuilder
+    private var tabContent: some View {
+        switch selectedTab {
+        case .popular:
+            guessSection
+            playlistsSection
+        case .ranks:
+            topListSection
+        case .playlists:
+            allPlaylistsSection
+        }
     }
 
     // MARK: 猜你喜欢（列表模式）
@@ -160,7 +162,7 @@ struct DiscoverView: View {
                 .padding(.horizontal, 16)
             }
         }
-        .padding(.bottom, 24)
+        .padding(.bottom, 20)
     }
 
     private func playGuess(_ song: Song) {
@@ -188,7 +190,6 @@ struct DiscoverView: View {
             }
             .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .padding(.horizontal, 16)
-            .padding(.bottom, 24)
         }
     }
 
@@ -197,7 +198,7 @@ struct DiscoverView: View {
         return feed.topLists.filter { whitelist.contains($0.kugouRankID ?? "") }
     }
 
-    // MARK: 网络歌单推荐
+    // MARK: 网络歌单推荐（横滚宫格，热门 Tab 用）
 
     @ViewBuilder
     private var playlistsSection: some View {
@@ -206,35 +207,46 @@ struct DiscoverView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 14) {
                     ForEach(recommendedPlaylists) { playlist in
-                        NavigationLink {
-                            PlaylistDetailView(playlist: playlist)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                CoverImage(url: playlist.coverURL,
-                                           fallbackKeys: [playlist.id],
-                                           seed: playlist.name,
-                                           size: 120,
-                                           corner: 10)
-                                    .frame(width: 120, height: 120)
-                                Text(playlist.name)
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundStyle(AppStyle.primaryText)
-                                    .lineLimit(2)
-                                    .frame(width: 120, alignment: .leading)
-                                Text(playlist.creatorName)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(AppStyle.secondaryText)
-                                    .lineLimit(1)
-                                    .frame(width: 120, alignment: .leading)
-                            }
-                            .frame(width: 120)
-                        }
-                        .buttonStyle(.plain)
+                        PlaylistGridCard(playlist: playlist)
                     }
                 }
                 .padding(.horizontal, 16)
             }
             .padding(.bottom, 8)
+        }
+    }
+
+    // MARK: 歌单 Tab：歌单 + 榜单混合列表
+
+    @ViewBuilder
+    private var allPlaylistsSection: some View {
+        if !recommendedPlaylists.isEmpty {
+            SectionHeader(title: "精选歌单")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(recommendedPlaylists) { playlist in
+                        PlaylistGridCard(playlist: playlist)
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+            .padding(.bottom, 20)
+        }
+        if !filteredLists.isEmpty {
+            SectionHeader(title: "精选榜单")
+            VStack(spacing: 0) {
+                ForEach(filteredLists) { playlist in
+                    NavigationLink {
+                        PlaylistDetailView(playlist: playlist)
+                    } label: {
+                        RankRow(playlist: playlist)
+                    }
+                    .buttonStyle(.plain)
+                    Divider().padding(.leading, 72)
+                }
+            }
+            .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding(.horizontal, 16)
         }
     }
 
@@ -251,7 +263,7 @@ struct DiscoverView: View {
 
     private func load() async {
         guard !isLoading else { return }
-        if !feed.topLists.isEmpty && !artistPhotos.isEmpty && !guessSongs.isEmpty {
+        if !feed.topLists.isEmpty && !guessSongs.isEmpty && !recommendedPlaylists.isEmpty {
             return
         }
         isLoading = true
@@ -265,7 +277,6 @@ struct DiscoverView: View {
             return
         }
         if guessSongs.isEmpty { await loadGuess() }
-        if artistPhotos.isEmpty { await loadArtistPhotos() }
         if recommendedPlaylists.isEmpty {
             recommendedPlaylists = await KugouClient.shared.recommendedPlaylists()
         }
@@ -273,26 +284,6 @@ struct DiscoverView: View {
         let whitelist = Self.whitelistRankIDs
         let whitelistedSlices = feed.topLists.filter { whitelist.contains($0.kugouRankID ?? "") }
         await loadTrackCounts(for: whitelistedSlices.prefix(5))
-    }
-
-    private func loadArtistPhotos() async {
-        let client = KugouClient.shared
-        let sem = AsyncStream.makeStream(of: Void.self)
-        let concurrency = 6
-        var active = 0
-        for name in Self.hotArtists {
-            while active >= concurrency { _ = await sem.stream.first(where: { _ in true }) }
-            active += 1
-            Task {
-                defer {
-                    active -= 1
-                    sem.continuation.yield()
-                }
-                if let url = await client.artistPhoto(name: name) {
-                    await MainActor.run { artistPhotos[name] = url }
-                }
-            }
-        }
     }
 
     private func loadGuess() async {
@@ -349,6 +340,20 @@ struct DiscoverView: View {
                     feed.topLists[idx].trackCount = total
                 }
             }
+        }
+    }
+}
+
+// MARK: - Tab 枚举
+
+enum DiscoverTab: String, CaseIterable, Hashable {
+    case popular, ranks, playlists
+
+    var title: String {
+        switch self {
+        case .popular: return "热门"
+        case .ranks: return "榜单"
+        case .playlists: return "歌单"
         }
     }
 }
@@ -432,26 +437,35 @@ private struct RankRow: View {
     }
 }
 
-// MARK: - 歌手头像
+// MARK: - 歌单宫格卡片
 
-/// 歌手圆形头像：有头像 URL 就显示图，没有就用首字+渐变底色占位（保证任何情况下不空白）。
-private struct ArtistAvatar: View {
-    let name: String
-    let url: URL?
-    var size: CGFloat = 64
+private struct PlaylistGridCard: View {
+    let playlist: Playlist
 
     var body: some View {
-        if let url {
-            CoverImage(url: url, seed: name, size: size, corner: size / 2)
-        } else {
-            ZStack {
-                Circle()
-                    .fill(AppStyle.accent.opacity(0.25))
-                Text(name.prefix(1))
-                    .font(.system(size: size * 0.38, weight: .semibold))
-                    .foregroundStyle(AppStyle.accent)
+        NavigationLink {
+            PlaylistDetailView(playlist: playlist)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                CoverImage(url: playlist.coverURL,
+                           fallbackKeys: [playlist.id],
+                           seed: playlist.name,
+                           size: 120,
+                           corner: 10)
+                    .frame(width: 120, height: 120)
+                Text(playlist.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(AppStyle.primaryText)
+                    .lineLimit(2)
+                    .frame(width: 120, alignment: .leading)
+                Text(playlist.creatorName)
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.secondaryText)
+                    .lineLimit(1)
+                    .frame(width: 120, alignment: .leading)
             }
-            .frame(width: size, height: size)
+            .frame(width: 120)
         }
+        .buttonStyle(.plain)
     }
 }
