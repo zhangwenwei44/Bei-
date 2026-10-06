@@ -4,6 +4,7 @@ options:
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
+  objectVersion: "56"
 settings:
   base:
     SWIFT_VERSION: "5.9"
