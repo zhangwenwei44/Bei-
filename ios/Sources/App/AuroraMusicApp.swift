@@ -5,6 +5,7 @@ import SwiftUI
 struct AuroraMusicApp: App {
     @StateObject private var store = PlayerStore()
     @StateObject private var auth = AuthService.shared
+    @AppStorage("aurora.disclaimer.accepted") private var disclaimerAccepted = false
 
     init() {
         // 必须最先装：播放闪退时全靠它把现场写进运行日志
@@ -35,7 +36,7 @@ struct AuroraMusicApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if UserDefaults.standard.bool(forKey: "aurora.disclaimer.accepted") {
+            if disclaimerAccepted {
                 mainContent
             } else {
                 DisclaimerView()
