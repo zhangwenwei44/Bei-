@@ -143,96 +143,97 @@ struct DiscoverView: View {
     // MARK: 两大两小横向滚动卡片（大在左，小在右）
 
     private var bigCardsGrid: some View {
-        GeometryReader { geo in
-            let sidePadding: CGFloat = 16
-            let totalW = geo.size.width - sidePadding * 2
-            let cardGap: CGFloat = 10
-            let bigWidth = totalW * 0.38
-            let bigHeight = bigWidth * 1.55
-            let smallStackWidth = totalW - bigWidth * 2 - cardGap * 2
-            // 每张小卡高度 = (bigHeight - gap) / 2。两张小卡 + 一 gap = 正好 bigHeight
-            let smallCardHeight = (bigHeight - cardGap) / 2
+        let sidePadding: CGFloat = 16
+        let screenW = UIScreen.main.bounds.width
+        let totalW = screenW - sidePadding * 2
+        let cardGap: CGFloat = 10
+        let bigWidth = totalW * 0.38
+        let bigHeight = bigWidth * 1.55
+        let smallStackWidth = totalW - bigWidth * 2 - cardGap * 2
+        // 每张小卡高度 = (bigHeight - gap) / 2。两张 + 一 gap = bigHeight，完美填满
+        let smallCardHeight = (bigHeight - cardGap) / 2
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                // 关键：整个 HStack 外层 frame(height: bigHeight).clipped()
-                HStack(alignment: .top, spacing: cardGap) {
-                    Button {
-                        playDailyAll()
-                    } label: {
-                        CoverFeatureCard(
-                            width: bigWidth, height: bigHeight,
-                            coverURL: dailySongs.first?.artworkURL
-                                ?? top500Playlist?.coverURL
-                                ?? filteredLists.first?.coverURL,
-                            title: "每日推荐", subtitle: dailySubtitle
-                        )
-                        .frame(width: bigWidth, height: bigHeight)
-                    }
-                    .buttonStyle(.plain)
+        // 关键：整个组件给一个明确的固定高度 + minHeight，防止 ScrollView 挤压
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: cardGap) {
+                // 大卡 1：每日推荐
+                Button {
+                    playDailyAll()
+                } label: {
+                    CoverFeatureCard(
+                        width: bigWidth, height: bigHeight,
+                        coverURL: dailySongs.first?.artworkURL
+                            ?? top500Playlist?.coverURL
+                            ?? filteredLists.first?.coverURL,
+                        title: "每日推荐", subtitle: dailySubtitle
+                    )
                     .frame(width: bigWidth, height: bigHeight)
-
-                    Button {
-                        playGuessAll()
-                    } label: {
-                        CoverFeatureCard(
-                            width: bigWidth, height: bigHeight,
-                            coverURL: guessSongs.first?.artworkURL,
-                            title: "猜你喜欢", subtitle: guessSubtitle
-                        )
-                        .frame(width: bigWidth, height: bigHeight)
-                    }
-                    .buttonStyle(.plain)
-                    .frame(width: bigWidth, height: bigHeight)
-
-                    VStack(spacing: cardGap) {
-                        NavigationLink {
-                            if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
-                                PlaylistDetailView(playlist: favRank)
-                            } else if !filteredLists.isEmpty {
-                                PlaylistDetailView(playlist: filteredLists[0])
-                            }
-                        } label: {
-                            IconFeatureCard(
-                                width: smallStackWidth, height: smallCardHeight,
-                                title: "百万收藏", systemIcon: "heart.fill",
-                                gradientColors: [
-                                    Color(red: 1.0, green: 0.47, blue: 0.33),
-                                    Color(red: 0.94, green: 0.28, blue: 0.42)
-                                ]
-                            )
-                            .frame(width: smallStackWidth, height: smallCardHeight)
-                        }
-                        .buttonStyle(.plain)
-                        .frame(width: smallStackWidth, height: smallCardHeight)
-
-                        NavigationLink {
-                            if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
-                                PlaylistDetailView(playlist: newRank)
-                            } else if !filteredLists.isEmpty {
-                                PlaylistDetailView(playlist: filteredLists[0])
-                            }
-                        } label: {
-                            IconFeatureCard(
-                                width: smallStackWidth, height: smallCardHeight,
-                                title: "新歌推荐", systemIcon: "music.note",
-                                gradientColors: [
-                                    Color(red: 1.0, green: 0.72, blue: 0.35),
-                                    Color(red: 1.0, green: 0.45, blue: 0.30)
-                                ]
-                            )
-                            .frame(width: smallStackWidth, height: smallCardHeight)
-                        }
-                        .buttonStyle(.plain)
-                        .frame(width: smallStackWidth, height: smallCardHeight)
-                    }
-                    .frame(width: smallStackWidth, height: bigHeight)
                 }
-                .frame(height: bigHeight)
-                .clipped()
-                .padding(.horizontal, sidePadding)
+                .buttonStyle(.plain)
+                .frame(width: bigWidth, height: bigHeight)
+
+                // 大卡 2：猜你喜欢
+                Button {
+                    playGuessAll()
+                } label: {
+                    CoverFeatureCard(
+                        width: bigWidth, height: bigHeight,
+                        coverURL: guessSongs.first?.artworkURL,
+                        title: "猜你喜欢", subtitle: guessSubtitle
+                    )
+                    .frame(width: bigWidth, height: bigHeight)
+                }
+                .buttonStyle(.plain)
+                .frame(width: bigWidth, height: bigHeight)
+
+                // 小卡堆：VStack 总高度 = bigHeight，两张小卡 + gap 正好填满
+                VStack(spacing: cardGap) {
+                    NavigationLink {
+                        if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
+                            PlaylistDetailView(playlist: favRank)
+                        } else if !filteredLists.isEmpty {
+                            PlaylistDetailView(playlist: filteredLists[0])
+                        }
+                    } label: {
+                        IconFeatureCard(
+                            width: smallStackWidth, height: smallCardHeight,
+                            title: "百万收藏", systemIcon: "heart.fill",
+                            gradientColors: [
+                                Color(red: 1.0, green: 0.47, blue: 0.33),
+                                Color(red: 0.94, green: 0.28, blue: 0.42)
+                            ]
+                        )
+                        .frame(width: smallStackWidth, height: smallCardHeight)
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: smallStackWidth, height: smallCardHeight)
+
+                    NavigationLink {
+                        if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
+                            PlaylistDetailView(playlist: newRank)
+                        } else if !filteredLists.isEmpty {
+                            PlaylistDetailView(playlist: filteredLists[0])
+                        }
+                    } label: {
+                        IconFeatureCard(
+                            width: smallStackWidth, height: smallCardHeight,
+                            title: "新歌推荐", systemIcon: "music.note",
+                            gradientColors: [
+                                Color(red: 1.0, green: 0.72, blue: 0.35),
+                                Color(red: 1.0, green: 0.45, blue: 0.30)
+                            ]
+                        )
+                        .frame(width: smallStackWidth, height: smallCardHeight)
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: smallStackWidth, height: smallCardHeight)
+                }
+                .frame(width: smallStackWidth, height: bigHeight)
             }
-            .frame(height: bigHeight + 4)
+            .frame(height: bigHeight)
+            .padding(.horizontal, sidePadding)
         }
+        .frame(height: bigHeight + 4)  // 固定高度，不允许被 ScrollView 压缩
     }
 
     /// 酷狗 TOP500 旗舰榜单（rankid=8888）
