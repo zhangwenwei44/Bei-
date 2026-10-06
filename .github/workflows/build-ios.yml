@@ -44,6 +44,8 @@ jobs:
         run: |
           set -euo pipefail
           xcodegen generate
+          # XcodeGen 默认生成最新 objectVersion，macos-14/Xcode 15 最多 56
+          sed -i '' 's/objectVersion = [0-9]*/objectVersion = 56/' AuroraMusic.xcodeproj/project.pbxproj
           grep -m1 objectVersion AuroraMusic.xcodeproj/project.pbxproj
           xcodebuild -list -project AuroraMusic.xcodeproj
 
