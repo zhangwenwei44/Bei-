@@ -140,35 +140,30 @@ struct DiscoverView: View {
         let cardSpacing: CGFloat = 10
         let sidePadding: CGFloat = 16
         let screenW = UIScreen.main.bounds.width - sidePadding * 2
-        // 长柱形大卡：窄而高
         let bigWidth = screenW * 0.38
-        let bigHeight = bigWidth * 1.55          // 长柱形，高是宽的 1.55 倍
+        let bigHeight = bigWidth * 1.55
         let smallStackWidth = screenW - bigWidth * 2 - cardSpacing * 2
-        let smallCardHeight = (bigHeight - cardSpacing) / 2   // 两张小卡拼齐大卡高度
 
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: cardSpacing) {
-                // 大卡 1：每日推荐（长柱形）
-                if let dailyPlaylist = recommendedPlaylists.first {
-                    NavigationLink {
-                        PlaylistDetailView(playlist: dailyPlaylist)
-                    } label: {
-                        CoverFeatureCard(
-                            width: bigWidth, height: bigHeight,
-                            coverURL: dailyPlaylist.coverURL,
-                            title: "每日推荐", subtitle: dailyPlaylist.creatorName
-                        )
+                // 大卡 1：每日推荐
+                NavigationLink {
+                    if let p = dailyPlaylist {
+                        PlaylistDetailView(playlist: p)
+                    } else if !filteredLists.isEmpty {
+                        PlaylistDetailView(playlist: filteredLists[0])
                     }
-                    .buttonStyle(.plain)
-                } else {
+                } label: {
                     CoverFeatureCard(
                         width: bigWidth, height: bigHeight,
-                        coverURL: nil,
-                        title: "每日推荐", subtitle: "每天都是新的歌单"
+                        coverURL: dailyPlaylist?.coverURL ?? filteredLists.first?.coverURL,
+                        title: "每日推荐",
+                        subtitle: dailyPlaylist?.creatorName ?? "精选好歌，每日更新"
                     )
                 }
+                .buttonStyle(.plain)
 
-                // 大卡 2：猜你喜欢（长柱形，点击播放全部）
+                // 大卡 2：猜你喜欢（点击播放全部）
                 Button {
                     playGuessAll()
                 } label: {
@@ -180,39 +175,62 @@ struct DiscoverView: View {
                 }
                 .buttonStyle(.plain)
 
-                // 小卡堆：百万收藏 + 新歌推荐（两张小卡总高 = 大卡高）
+                // 小卡堆：固定高度 = bigHeight，两张小卡平分（精确对齐）
                 VStack(spacing: cardSpacing) {
-                    NavigationLink {
-                        if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
-                            PlaylistDetailView(playlist: favRank)
-                        } else if !filteredLists.isEmpty {
-                            PlaylistDetailView(playlist: filteredLists[0])
-                        }
-                    } label: {
-                        IconFeatureCard(
-                            width: smallStackWidth, height: smallCardHeight,
-                            title: "百万收藏", systemIcon: "heart.fill",
-                            gradientColors: [
-                                Color(red: 1.0, green: 0.47, blue: 0.33),
-                                Color(red: 0.94, green: 0.28, blue: 0.42)
-                            ]
-                        )
-                    }
-                    .buttonStyle(.plain)
+                    GeometryReader { geo in
+                        VStack(spacing: cardSpacing) {
+                            // 百万收藏 → 百万收藏榜
+                            NavigationLink {
+                                if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
+                                    PlaylistDetailView(playlist: favRank)
+                                } else if !filteredLists.isEmpty {
+                                    PlaylistDetailView(playlist: filteredLists[0])
+                                }
+                            } label: {
+                                IconFeatureCard(
+                                    width: smallStackWidth,
+                                    height: (geo.size.height - cardSpacing) / 2,
+                                    title: "百万收藏", systemIcon: "heart.fill",
+                                    gradientColors: [
+                                        Color(red: 1.0, green: 0.47, blue: 0.33),
+                                        Color(red: 0.94, green: 0.28, blue: 0.42)
+                                    ]
+                                )
+                            }
+                            .buttonStyle(.plain)
 
-                    IconFeatureCard(
-                        width: smallStackWidth, height: smallCardHeight,
-                        title: "新歌推荐", systemIcon: "music.note",
-                        gradientColors: [
-                            Color(red: 1.0, green: 0.72, blue: 0.35),
-                            Color(red: 1.0, green: 0.45, blue: 0.30)
-                        ]
-                    )
+                            // 新歌推荐 → 飙升榜
+                            NavigationLink {
+                                if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
+                                    PlaylistDetailView(playlist: newRank)
+                                } else if !filteredLists.isEmpty {
+                                    PlaylistDetailView(playlist: filteredLists[0])
+                                }
+                            } label: {
+                                IconFeatureCard(
+                                    width: smallStackWidth,
+                                    height: (geo.size.height - cardSpacing) / 2,
+                                    title: "新歌推荐", systemIcon: "music.note",
+                                    gradientColors: [
+                                        Color(red: 1.0, green: 0.72, blue: 0.35),
+                                        Color(red: 1.0, green: 0.45, blue: 0.30)
+                                    ]
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                 }
+                .frame(width: smallStackWidth, height: bigHeight)   // 固定高 = 大卡高
             }
             .padding(.horizontal, sidePadding)
         }
         .padding(.bottom, 4)
+    }
+
+    /// 每日推荐歌单（从推荐列表取第一个，没有就用榜单）
+    private var dailyPlaylist: Playlist? {
+        recommendedPlaylists.first
     }
 
     private var guessSubtitle: String {
@@ -249,21 +267,7 @@ struct DiscoverView: View {
     }
 
     private var greetingText: String {
-        let weekday = Calendar.current.component(.weekday, from: Date())
-        let weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
-        let weekdayName = weekdays[weekday - 1]
-        let hour = Calendar.current.component(.hour, from: Date())
-        let timePrefix: String
-        let emoji: String
-        switch hour {
-        case 5..<9:   timePrefix = "早上好"; emoji = "🌅"
-        case 9..<12:  timePrefix = "上午好"; emoji = "☕"
-        case 12..<14: timePrefix = "中午好"; emoji = "🍵"
-        case 14..<18: timePrefix = "下午好"; emoji = "🎧"
-        case 18..<22: timePrefix = "晚上好"; emoji = "🌙"
-        default:      timePrefix = "夜深了"; emoji = "🌙"
-        }
-        return "\(timePrefix)，今天\(weekdayName)，进来听听看 \(emoji)"
+        "推荐你听"
     }
 
     // MARK: 歌曲列表
@@ -495,6 +499,11 @@ struct DiscoverView: View {
             if songs.count >= 10 { break }
         }
         guessSongs = songs
+        if let first = songs.first {
+            Log.info("发现页", "猜你喜欢 \(songs.count) 首，第一首封面: \(first.artworkURL?.absoluteString.prefix(60) ?? "nil")")
+        } else {
+            Log.info("发现页", "猜你喜欢 0 首")
+        }
     }
 
     private func loadTrackCounts(for lists: ArraySlice<Playlist>) async {
@@ -665,14 +674,6 @@ struct FeedSongRow: View {
                         .foregroundStyle(AppStyle.secondaryText)
                         .lineLimit(1)
                         .layoutPriority(1)
-                    if showLimitTag {
-                        Text("限免")
-                            .font(.system(size: 9))
-                            .foregroundStyle(AppStyle.secondaryText)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(AppStyle.surfaceHigh, in: RoundedRectangle(cornerRadius: 3))
-                    }
                 }
             }
             Spacer(minLength: 4)
