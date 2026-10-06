@@ -479,11 +479,23 @@ struct PlaylistCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            CoverImage(url: playlist.coverURL,
-                       fallbackKeys: [playlist.id],
-                       seed: playlist.name,
-                       size: width,
-                       corner: 10)
+            if width > 0 {
+                CoverImage(url: playlist.coverURL,
+                           fallbackKeys: [playlist.id],
+                           seed: playlist.name,
+                           size: width,
+                           corner: 10)
+            } else {
+                // Grid 自适应：正方形封面
+                GeometryReader { geo in
+                    CoverImage(url: playlist.coverURL,
+                               fallbackKeys: [playlist.id],
+                               seed: playlist.name,
+                               size: geo.size.width,
+                               corner: 10)
+                }
+                .aspectRatio(1, contentMode: .fit)
+            }
             Text(playlist.name)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(AppStyle.primaryText)
@@ -495,7 +507,7 @@ struct PlaylistCard: View {
                     .foregroundStyle(AppStyle.tertiaryText)
             }
         }
-        .frame(width: width, alignment: .leading)
+        .frame(maxWidth: width > 0 ? width : .infinity, alignment: .leading)
     }
 }
 

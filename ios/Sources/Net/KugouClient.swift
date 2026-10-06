@@ -80,7 +80,30 @@ final class KugouClient {
            let rows = info["info"] as? [[String: Any]] {
             songs = rows.compactMap { Song(kugouJSON: $0) }
         }
-        Log.info("搜索", "keyword=\(keyword) page=\(page) /api/v3/search/song 返回 \(songs.count) 首 (total=\((json?["data"] as? [String: Any])?["total"] ?? "?"))")
+        // 搜索接口完全没封面字段，用 album_id 异步补封面
+        var albumIDs = Set<String>()
+        for s in songs where s.artworkURL == nil && !s.kugouAlbumID.isEmpty {
+            albumIDs.insert(s.kugouAlbumID)
+        }
+        if !albumIDs.isEmpty {
+            Log.info("搜索", "keyword=\(keyword) 补封面 \(albumIDs.count) 个 album_id")
+            try await withThrowingTaskGroup(of: (String, URL?).self) { group in
+                for aid in albumIDs {
+                    group.addTask { [weak self] in
+                        let cover = await self?.albumCover(albumID: aid)
+                        return (aid, cover)
+                    }
+                }
+                for try await (aid, cover) in group {
+                    if let cover {
+                        for i in songs.indices where songs[i].kugouAlbumID == aid {
+                            songs[i].artworkURL = cover
+                        }
+                    }
+                }
+            }
+        }
+        Log.info("搜索", "keyword=\(keyword) page=\(page) 返回 \(songs.count) 首")
         return songs
     }
 
