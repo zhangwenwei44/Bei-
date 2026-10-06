@@ -58,7 +58,7 @@ struct LibraryView: View {
         case .favorites: return library.favorites
         case .downloads: return library.downloads
         case .local: return library.localSongs
-        case .playlists: return []
+        case .playlists, .albums: return []
         }
     }
 
@@ -472,7 +472,7 @@ struct LibraryView: View {
             targets.forEach { downloads.delete($0) }
         case .local:
             targets.forEach { library.removeLocal(id: $0.id) }
-        case .playlists:
+        case .playlists, .albums:
             break
         }
     }
