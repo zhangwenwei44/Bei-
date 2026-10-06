@@ -150,11 +150,9 @@ struct DiscoverView: View {
         let bigWidth = totalW * 0.38
         let bigHeight = bigWidth * 1.55
         let smallStackWidth = totalW - bigWidth * 2 - cardGap * 2
-        // 每张小卡高度 = (bigHeight - gap) / 2。两张 + 一 gap = bigHeight，完美填满
         let smallCardHeight = (bigHeight - cardGap) / 2
 
-        // 关键：整个组件给一个明确的固定高度 + minHeight，防止 ScrollView 挤压
-        ScrollView(.horizontal, showsIndicators: false) {
+        return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: cardGap) {
                 // 大卡 1：每日推荐
                 Button {
