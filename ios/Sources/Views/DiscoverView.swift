@@ -131,21 +131,21 @@ struct DiscoverView: View {
         }
     }
 
-    // MARK: 两大两小横向滚动卡片
+    // MARK: 两大两小横向滚动卡片（大在左，小在右，大卡长柱形）
 
     private var bigCardsGrid: some View {
         let cardSpacing: CGFloat = 10
         let sidePadding: CGFloat = 16
         let screenW = UIScreen.main.bounds.width - sidePadding * 2
-        // 大卡宽 = 小卡堆宽 * 1.5；大卡高 = 屏宽 * 0.55（保证一行展示 + 可横滚）
-        let bigWidth = screenW * 0.60
-        let smallStackWidth = screenW - bigWidth - cardSpacing
-        let bigHeight = bigWidth * 1.1
-        let smallCardHeight = (bigHeight - cardSpacing) / 2
+        // 长柱形大卡：窄而高
+        let bigWidth = screenW * 0.38
+        let bigHeight = bigWidth * 1.55          // 长柱形，高是宽的 1.55 倍
+        let smallStackWidth = screenW - bigWidth * 2 - cardSpacing * 2
+        let smallCardHeight = (bigHeight - cardSpacing) / 2   // 两张小卡拼齐大卡高度
 
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: cardSpacing) {
-                // 大卡 1：每日推荐
+                // 大卡 1：每日推荐（长柱形）
                 if let dailyPlaylist = recommendedPlaylists.first {
                     NavigationLink {
                         PlaylistDetailView(playlist: dailyPlaylist)
@@ -167,7 +167,20 @@ struct DiscoverView: View {
                     )
                 }
 
-                // 小卡堆：百万收藏 + 新歌推荐
+                // 大卡 2：猜你喜欢（长柱形，点击播放全部）
+                Button {
+                    playGuessAll()
+                } label: {
+                    CoverFeatureCard(
+                        width: bigWidth, height: bigHeight,
+                        coverURL: guessSongs.first?.artworkURL,
+                        title: "猜你喜欢", subtitle: guessSubtitle,
+                        dateText: nil, tagText: "免费听"
+                    )
+                }
+                .buttonStyle(.plain)
+
+                // 小卡堆：百万收藏 + 新歌推荐（两张小卡总高 = 大卡高）
                 VStack(spacing: cardSpacing) {
                     NavigationLink {
                         if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
@@ -196,19 +209,6 @@ struct DiscoverView: View {
                         ]
                     )
                 }
-
-                // 大卡 2：猜你喜欢
-                Button {
-                    playGuessAll()
-                } label: {
-                    CoverFeatureCard(
-                        width: bigWidth, height: bigHeight,
-                        coverURL: guessSongs.first?.artworkURL,
-                        title: "猜你喜欢", subtitle: guessSubtitle,
-                        dateText: nil, tagText: "免费听"
-                    )
-                }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, sidePadding)
         }

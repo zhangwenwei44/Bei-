@@ -126,13 +126,29 @@ extension Song {
         )
 
         var cover: URL?
-        for key in ["Image", "AlbumImage", "img", "Img"] {
+        // 酷狗搜索接口可能的封面字段：新接口 /api/v3/search/song 返回 img、album_img、pic 等
+        for key in ["Image", "AlbumImage", "img", "Img", "album_img", "pic",
+                    "cover", "image_url", "thumb", "icon", "album_image",
+                    "album_pic", "pic_url"] {
             if let raw = KugouClient.string(json[key]), !raw.isEmpty {
-                // 酷狗封面地址里有 {size} 占位
+                // 酷狗封面地址里有 {si} / {size} 占位符
                 let fixed = raw.replacingOccurrences(of: "{si}", with: "300")
                     .replacingOccurrences(of: "{size}", with: "300")
-                cover = URL(string: fixed)
-                if cover != nil { break }
+                    .replacingOccurrences(of: "{sizetype}", with: "4")
+                // 有些返回不带 http(s)，补一下
+                let finalURL: String
+                if fixed.hasPrefix("//") {
+                    finalURL = "https:" + fixed
+                } else if fixed.hasPrefix("http://") {
+                    finalURL = fixed.replacingOccurrences(of: "http://", with: "https://")
+                } else {
+                    finalURL = fixed
+                }
+                if let u = URL(string: finalURL) {
+                    cover = u
+                    Log.debug("Catalog", "封面命中 key=\(key) url=\(finalURL.prefix(60))")
+                    break
+                }
             }
         }
 
