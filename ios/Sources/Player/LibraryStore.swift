@@ -24,6 +24,7 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var playlists: [UserPlaylist] = []
     @Published private(set) var history: [Song] = []
     @Published private(set) var albumFavorites: [Album] = []
+    @Published private(set) var artistFavorites: [Artist] = []
 
     private let defaults = UserDefaults.standard
     /// 「歌曲 ID → 歌曲」索引，歌单靠它还原曲目。
@@ -85,7 +86,7 @@ final class LibraryStore: ObservableObject {
         let guestKeys = ["aurora.library.favorites", "aurora.library.downloads",
                          "aurora.library.local", "aurora.library.playlists",
                          "aurora.library.history", "aurora.library.songTable",
-                         "aurora.library.albumFavorites"]
+                         "aurora.library.albumFavorites", "aurora.library.artistFavorites"]
         for guestKey in guestKeys {
             if let data = defaults.data(forKey: guestKey) {
                 defaults.set(data, forKey: prefix + guestKey)
@@ -102,6 +103,7 @@ final class LibraryStore: ObservableObject {
         history = Self.load([Song].self, key: key("history")) ?? []
         playlists = Self.load([UserPlaylist].self, key: key("playlists")) ?? []
         albumFavorites = Self.load([Album].self, key: key("albumFavorites")) ?? []
+        artistFavorites = Self.load([Artist].self, key: key("artistFavorites")) ?? []
         songCache = Self.load([String: Song].self, key: key("songTable")) ?? [:]
         indexAll()
     }
@@ -149,6 +151,24 @@ final class LibraryStore: ObservableObject {
         favorites.insert(song, at: 0)
         persist(favorites, key: key("favorites"))
         remember(song)
+        return true
+    }
+
+    // MARK: 收藏歌手
+
+    func isFavoriteArtist(_ artist: Artist) -> Bool {
+        artistFavorites.contains { $0.id == artist.id }
+    }
+
+    @discardableResult
+    func toggleArtistFavorite(_ artist: Artist) -> Bool {
+        if let index = artistFavorites.firstIndex(where: { $0.id == artist.id }) {
+            artistFavorites.remove(at: index)
+            persist(artistFavorites, key: key("artistFavorites"))
+            return false
+        }
+        artistFavorites.insert(artist, at: 0)
+        persist(artistFavorites, key: key("artistFavorites"))
         return true
     }
 

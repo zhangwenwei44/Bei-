@@ -9,6 +9,9 @@ struct DiscoverView: View {
     @State private var errorMessage: String?
     @State private var guessSongs: [Song] = []
     @State private var isLoadingGuess = false
+    @State private var dailySongs: [Song] = []
+    @State private var hotArtists: [Artist] = []
+    @State private var playingArtistID: String?
     @State private var recommendedPlaylists: [Playlist] = []
     @State private var squarePage = 1
     @State private var squareTotal = 0
@@ -45,7 +48,7 @@ struct DiscoverView: View {
             .padding(.bottom, 24)
         }
         .background(AppStyle.background)
-        .refreshable { await load() }
+        .refreshable { await load(force: true) }
         .task { if feed.isEmpty { await load() } }
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -132,7 +135,7 @@ struct DiscoverView: View {
         VStack(alignment: .leading, spacing: 0) {
             bigCardsGrid
             moodGreeting
-            songsSection(songs: guessSongs, showLimitTag: true)
+            artistsSection
             hotRanksSection
         }
     }
@@ -146,27 +149,26 @@ struct DiscoverView: View {
         let bigWidth = screenW * 0.38
         let bigHeight = bigWidth * 1.55
         let smallStackWidth = screenW - bigWidth * 2 - cardSpacing * 2
+        let smallCardHeight = (bigHeight - cardSpacing) / 2
 
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: cardSpacing) {
-                // 大卡 1：每日推荐 → 酷狗 TOP500 旗舰榜单（每天更新）
-                NavigationLink {
-                    if let p = top500Playlist {
-                        PlaylistDetailView(playlist: p)
-                    } else if !filteredLists.isEmpty {
-                        PlaylistDetailView(playlist: filteredLists[0])
-                    }
+                // 大卡 1：每日推荐 —— 显示 TOP500 第一首歌，点击直接播放
+                Button {
+                    playDailyAll()
                 } label: {
                     CoverFeatureCard(
                         width: bigWidth, height: bigHeight,
-                        coverURL: top500Playlist?.coverURL ?? filteredLists.first?.coverURL,
+                        coverURL: dailySongs.first?.artworkURL
+                            ?? top500Playlist?.coverURL
+                            ?? filteredLists.first?.coverURL,
                         title: "每日推荐",
-                        subtitle: "酷狗TOP500 · 每日更新"
+                        subtitle: dailySubtitle
                     )
                 }
                 .buttonStyle(.plain)
 
-                // 大卡 2：猜你喜欢
+                // 大卡 2：猜你喜欢 —— 第一首歌封面，点击直接播放
                 Button {
                     playGuessAll()
                 } label: {
@@ -178,55 +180,48 @@ struct DiscoverView: View {
                 }
                 .buttonStyle(.plain)
 
-                // 小卡堆：固定 frame = (smallStackWidth × bigHeight)，clipped 防撑开
-                ZStack(alignment: .top) {
-                    GeometryReader { geo in
-                        let cardSpacing: CGFloat = 10
-                        let w = geo.size.width
-                        let h = (geo.size.height - cardSpacing) / 2
-
-                        VStack(spacing: cardSpacing) {
-                            // 百万收藏
-                            NavigationLink {
-                                if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
-                                    PlaylistDetailView(playlist: favRank)
-                                } else if !filteredLists.isEmpty {
-                                    PlaylistDetailView(playlist: filteredLists[0])
-                                }
-                            } label: {
-                                IconFeatureCard(
-                                    width: w, height: h,
-                                    title: "百万收藏", systemIcon: "heart.fill",
-                                    gradientColors: [
-                                        Color(red: 1.0, green: 0.47, blue: 0.33),
-                                        Color(red: 0.94, green: 0.28, blue: 0.42)
-                                    ]
-                                )
-                            }
-                            .buttonStyle(.plain)
-
-                            // 新歌推荐
-                            NavigationLink {
-                                if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
-                                    PlaylistDetailView(playlist: newRank)
-                                } else if !filteredLists.isEmpty {
-                                    PlaylistDetailView(playlist: filteredLists[0])
-                                }
-                            } label: {
-                                IconFeatureCard(
-                                    width: w, height: h,
-                                    title: "新歌推荐", systemIcon: "music.note",
-                                    gradientColors: [
-                                        Color(red: 1.0, green: 0.72, blue: 0.35),
-                                        Color(red: 1.0, green: 0.45, blue: 0.30)
-                                    ]
-                                )
-                            }
-                            .buttonStyle(.plain)
+                // 小卡堆：直接用预算高度，不依赖 GeometryReader
+                VStack(spacing: cardSpacing) {
+                    // 百万收藏
+                    NavigationLink {
+                        if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
+                            PlaylistDetailView(playlist: favRank)
+                        } else if !filteredLists.isEmpty {
+                            PlaylistDetailView(playlist: filteredLists[0])
                         }
+                    } label: {
+                        IconFeatureCard(
+                            width: smallStackWidth, height: smallCardHeight,
+                            title: "百万收藏", systemIcon: "heart.fill",
+                            gradientColors: [
+                                Color(red: 1.0, green: 0.47, blue: 0.33),
+                                Color(red: 0.94, green: 0.28, blue: 0.42)
+                            ]
+                        )
                     }
+                    .buttonStyle(.plain)
+
+                    // 新歌推荐
+                    NavigationLink {
+                        if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
+                            PlaylistDetailView(playlist: newRank)
+                        } else if !filteredLists.isEmpty {
+                            PlaylistDetailView(playlist: filteredLists[0])
+                        }
+                    } label: {
+                        IconFeatureCard(
+                            width: smallStackWidth, height: smallCardHeight,
+                            title: "新歌推荐", systemIcon: "music.note",
+                            gradientColors: [
+                                Color(red: 1.0, green: 0.72, blue: 0.35),
+                                Color(red: 1.0, green: 0.45, blue: 0.30)
+                            ]
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
                 .frame(width: smallStackWidth, height: bigHeight)
+                .clipped()
             }
             .padding(.horizontal, sidePadding)
         }
@@ -239,22 +234,22 @@ struct DiscoverView: View {
     }
 
     private var guessSubtitle: String {
-        if !guessSongs.isEmpty {
-            return guessSongs.prefix(2).map { $0.artist }.joined(separator: "、")
+        if let first = guessSongs.first {
+            return "\(first.title) · \(first.artist)"
         }
         return personalizedHint
+    }
+
+    private var dailySubtitle: String {
+        if let first = dailySongs.first {
+            return "\(first.title) · \(first.artist)"
+        }
+        return "酷狗TOP500 · 每日更新"
     }
 
     private var personalizedHint: String {
         let picks = Self.guessPool.prefix(2)
         return picks.joined(separator: "、")
-    }
-
-    private var dateText: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "dd MMM"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        return formatter.string(from: Date())
     }
 
     // MARK: 心情问候
@@ -275,21 +270,24 @@ struct DiscoverView: View {
         "推荐你听"
     }
 
-    // MARK: 歌曲列表
+    // MARK: 热门歌手列表
 
-    private func songsSection(songs: [Song], showLimitTag: Bool = false) -> some View {
+    private var artistsSection: some View {
         Group {
-            if !songs.isEmpty {
+            if !hotArtists.isEmpty {
+                let shown = Array(hotArtists.prefix(8))
                 VStack(spacing: 0) {
-                    ForEach(songs.prefix(6)) { song in
+                    ForEach(Array(shown.enumerated()), id: \.element.id) { index, artist in
                         Button {
-                            playSong(song)
+                            playArtist(artist)
                         } label: {
-                            FeedSongRow(song: song, showLimitTag: showLimitTag)
+                            ArtistRow(artist: artist,
+                                      isPlaying: playingArtistID == artist.id)
                         }
                         .buttonStyle(.plain)
-                        .songMenu(song)
-                        Divider().padding(.leading, 68)
+                        if index < shown.count - 1 {
+                            Divider().padding(.leading, 68)
+                        }
                     }
                 }
                 .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -410,24 +408,28 @@ struct DiscoverView: View {
 
     // MARK: 行为
 
-    private func playGuess(_ song: Song) {
-        guard let index = guessSongs.firstIndex(where: { $0.id == song.id }) else { return }
-        store.play(guessSongs, startAt: index)
-        Haptics.soft()
-    }
-
     private func playGuessAll() {
         guard !guessSongs.isEmpty else { return }
         store.play(guessSongs, startAt: 0)
         Haptics.soft()
     }
 
-    private func playSong(_ song: Song) {
-        if guessSongs.contains(where: { $0.id == song.id }) {
-            playGuess(song)
-        } else {
-            store.playNow([song])
-            Haptics.soft()
+    private func playDailyAll() {
+        guard !dailySongs.isEmpty else { return }
+        store.play(dailySongs, startAt: 0)
+        Haptics.soft()
+    }
+
+    /// 点歌手行：搜索该歌手的歌并直接开始播放。
+    private func playArtist(_ artist: Artist) {
+        Haptics.soft()
+        Task {
+            if playingArtistID != nil { return }
+            await MainActor.run { playingArtistID = artist.id }
+            defer { Task { @MainActor in playingArtistID = nil } }
+            guard let songs = try? await KugouClient.shared.searchSongs(
+                keyword: artist.name, limit: 30), !songs.isEmpty else { return }
+            store.play(songs, startAt: 0)
         }
     }
 
@@ -442,9 +444,12 @@ struct DiscoverView: View {
 
     // MARK: 加载
 
-    private func load() async {
+    private func load(force: Bool = false) async {
         guard !isLoading else { return }
-        if !feed.topLists.isEmpty && !guessSongs.isEmpty && !recommendedPlaylists.isEmpty {
+        if !force,
+           !feed.topLists.isEmpty, !guessSongs.isEmpty,
+           !dailySongs.isEmpty, !hotArtists.isEmpty,
+           !recommendedPlaylists.isEmpty {
             return
         }
         isLoading = true
@@ -458,6 +463,10 @@ struct DiscoverView: View {
             return
         }
         if guessSongs.isEmpty { await loadGuess() }
+        if force || dailySongs.isEmpty { await loadDailySongs() }
+        if force || hotArtists.isEmpty {
+            hotArtists = await KugouClient.shared.hotArtists(count: 20)
+        }
         if recommendedPlaylists.isEmpty {
             let result = await KugouClient.shared.recommendedPlaylists(page: 1)
             recommendedPlaylists = result.playlists
@@ -467,6 +476,22 @@ struct DiscoverView: View {
         let whitelist = Self.whitelistRankIDs
         let whitelistedSlices = feed.topLists.filter { whitelist.contains($0.kugouRankID ?? "") }
         await loadTrackCounts(for: whitelistedSlices.prefix(5))
+    }
+
+    /// 每日推荐：酷狗 TOP500 前 30 首，补齐第一首封面。
+    private func loadDailySongs() async {
+        guard let songs = try? await KugouClient.shared.rankSongs(rankID: "8888", limit: 30),
+              !songs.isEmpty else {
+            Log.warn("发现页", "每日推荐 TOP500 0 首")
+            return
+        }
+        var enriched = songs
+        if enriched[0].artworkURL == nil, !enriched[0].albumID.isEmpty,
+           let cover = await KugouClient.shared.albumCover(albumID: enriched[0].albumID) {
+            enriched[0].artworkURL = cover
+        }
+        dailySongs = enriched
+        Log.info("发现页", "每日推荐 \(enriched.count) 首，第一首：\(enriched[0].title) - \(enriched[0].artist)")
     }
 
     private func loadGuess() async {
@@ -695,6 +720,59 @@ struct FeedSongRow: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - 歌手行
+
+private struct ArtistRow: View {
+    let artist: Artist
+    var isPlaying: Bool = false
+    @ObservedObject private var library = LibraryStore.shared
+
+    var body: some View {
+        HStack(spacing: 12) {
+            CoverImage(url: artist.coverURL,
+                       fallbackKeys: [artist.id],
+                       seed: artist.name,
+                       size: 46,
+                       corner: 23)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(artist.name)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(AppStyle.primaryText)
+                    .lineLimit(1)
+                Text(fansText)
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.tertiaryText)
+            }
+            Spacer()
+            if isPlaying {
+                ProgressView()
+            }
+            Button {
+                _ = library.toggleArtistFavorite(artist)
+                Haptics.light()
+            } label: {
+                Image(systemName: library.isFavoriteArtist(artist) ? "heart.fill" : "heart")
+                    .font(.system(size: 18))
+                    .foregroundStyle(library.isFavoriteArtist(artist) ? AppStyle.like : AppStyle.tertiaryText)
+                    .frame(width: 36, height: 36)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+    }
+
+    private var fansText: String {
+        if artist.fansCount >= 10_000 {
+            return String(format: "%.1f万粉丝", Double(artist.fansCount) / 10_000)
+        } else if artist.fansCount > 0 {
+            return "\(artist.fansCount) 粉丝"
+        }
+        return "热门歌手"
     }
 }
 

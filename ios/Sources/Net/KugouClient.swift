@@ -633,33 +633,138 @@ final class KugouClient {
 
     /// 普通歌单（specialid）里的歌曲。
     ///
-    /// 走 mobilecdn `/api/v3/special/song`（实测 http/https 都通），
-    /// 每页 30 首，翻到 total 为止。
+    /// 方案 1：mobilecdn `/api/v3/special/song`（JSON，翻页，PC 实测可用）
+    /// 方案 2：m.kugou.com 移动端歌单页（HTTPS，iPhone 实测域名可达），
+    ///         解析页面里的 dataobj 歌曲块（覆盖 96%+ 曲目）
     func specialSongs(specialID: String, limit: Int = 500) async throws -> [Song] {
         guard Int(specialID) != nil else { throw KugouError.badURL }
+
+        // 方案 1：special/song JSON 翻页
+        // mobiles.kugou.com 设备实测可达（搜索同主机）；mobilecdn 部分网络证书不匹配
+        let hosts = ["https://mobiles.kugou.com",
+                     "http://mobiles.kugou.com",
+                     "http://mobilecdn.kugou.com",
+                     "https://mobilecdn.kugou.com"]
+        for host in hosts {
+            if let songs = try? await specialSongsJSON(specialID: specialID,
+                                                       host: host, limit: limit),
+               !songs.isEmpty {
+                Log.info("歌单", "specialid=\(specialID) JSON \(host) 拿到 \(songs.count) 首")
+                return songs
+            }
+        }
+
+        // 方案 2：移动端歌单整页
+        Log.info("歌单", "specialid=\(specialID) JSON 全失败，改抓移动端整页")
+        for url in ["https://m.kugou.com/plist/list/\(specialID)-1.html",
+                    "https://m.kugou.com/plist/list/\(specialID).html"] {
+            guard let html = try? await getRaw(path: "",
+                                               host: url,
+                                               params: [:],
+                                               headers: [:]) else { continue }
+            let songs = Self.songs(fromSpecialMobileHTML: html)
+            if !songs.isEmpty {
+                Log.info("歌单", "specialid=\(specialID) 整页解析 \(songs.count) 首")
+                return Array(songs.prefix(limit))
+            }
+        }
+        return []
+    }
+
+    /// special/song JSON 翻页。
+    private func specialSongsJSON(specialID: String, host: String,
+                                  limit: Int) async throws -> [Song] {
         var all: [Song] = []
         var page = 1
         var total = Int.max
         while all.count < min(limit, total) && page <= 25 {
-            guard let json = try? await getJSON(path: "/api/v3/special/song",
-                                                host: "http://mobilecdn.kugou.com",
-                                                params: ["specialid": specialID,
-                                                         "page": String(page),
-                                                         "pagesize": "30"],
-                                                headers: [:]),
-                  let data = json["data"] as? [String: Any],
-                  let rows = data["info"] as? [[String: Any]] else {
-                Log.warn("歌单", "specialid=\(specialID) 第 \(page) 页拿不到数据")
-                break
+            do {
+                let json = try await getJSON(path: "/api/v3/special/song",
+                                             host: host,
+                                             params: ["specialid": specialID,
+                                                      "page": String(page),
+                                                      "pagesize": "30"],
+                                             headers: [:])
+                guard let data = json["data"] as? [String: Any],
+                      let rows = data["info"] as? [[String: Any]] else {
+                    Log.warn("歌单", "specialid=\(specialID) 第 \(page) 页结构不对")
+                    break
+                }
+                total = KugouClient.intValue(data["total"]) ?? total
+                all.append(contentsOf: rows.compactMap { Song(kugouJSON: $0) })
+                if rows.count < 30 { break }
+                page += 1
+            } catch {
+                Log.warn("歌单", "specialid=\(specialID) JSON \(host) 第 \(page) 页失败：\(error.localizedDescription)")
+                throw error
             }
-            total = KugouClient.intValue(data["total"]) ?? total
-            let parsed = rows.compactMap { Song(kugouJSON: $0) }
-            all.append(contentsOf: parsed)
-            Log.info("歌单", "specialid=\(specialID) 第 \(page) 页 \(parsed.count) 首（total=\(total)）")
-            if rows.count < 30 { break }
-            page += 1
         }
         return Array(all.prefix(limit))
+    }
+
+    // MARK: - 热门歌手
+
+    /// 热门歌手列表（按热度）。
+    ///
+    /// 方案 1：mobilecdn `/api/v3/singer/list?sort=1`（JSON，含粉丝数头像）
+    /// 方案 2：www.kugou.com 歌手索引页（HTTPS，设备可达）
+    func hotArtists(count: Int = 20) async -> [Artist] {
+        // 方案 1：singer/list JSON
+        for host in ["https://mobiles.kugou.com",
+                     "http://mobiles.kugou.com",
+                     "http://mobilecdn.kugou.com",
+                     "https://mobilecdn.kugou.com"] {
+            if let artists = try? await hotArtistsJSON(host: host, count: count),
+               !artists.isEmpty {
+                Log.info("歌手", "热门歌手 JSON \(host) \(artists.count) 位")
+                return artists
+            }
+        }
+        // 方案 2：www 歌手索引页
+        if let html = try? await getRaw(path: "/yy/singer/index/1-all-1.html",
+                                        host: "https://www.kugou.com",
+                                        params: [:],
+                                        headers: [:]) {
+            let artists = Self.artists(fromSingerIndexHTML: html)
+            Log.info("歌手", "热门歌手整页解析 \(artists.count) 位")
+            return artists
+        }
+        return []
+    }
+
+    private func hotArtistsJSON(host: String, count: Int) async throws -> [Artist] {
+        let pages = max(1, (count + 19) / 20)
+        var result: [Artist] = []
+        var seen = Set<String>()
+        for page in 1...pages {
+            let json = try await getJSON(path: "/api/v3/singer/list",
+                                         host: host,
+                                         params: ["clientver": "9108",
+                                                  "page": String(page),
+                                                  "pagesize": "20",
+                                                  "sort": "1",
+                                                  "category": "0"],
+                                         headers: [:])
+            guard let data = json["data"] as? [String: Any],
+                  let rows = data["info"] as? [[String: Any]] else { break }
+            for row in rows {
+                guard let id = KugouClient.string(row["singerid"]),
+                      let name = KugouClient.string(row["singername"]),
+                      !seen.contains(id) else { continue }
+                seen.insert(id)
+                var cover = KugouClient.string(row["imgurl"]) ?? ""
+                if cover.hasPrefix("http://") {
+                    cover = "https://" + cover.dropFirst("http://".count)
+                }
+                let fans = KugouClient.intValue(row["fanscount"]) ?? 0
+                result.append(Artist(id: id, name: name,
+                                     coverURL: URL(string: cover),
+                                     fansCount: fans))
+                if result.count >= count { return result }
+            }
+            if rows.count < 20 { break }
+        }
+        return result
     }
 
     /// 榜单的真实曲目总数。
@@ -763,7 +868,96 @@ final class KugouClient {
         return nil
     }
 
-    // MARK: - 请求
+    // MARK: 移动端页面解析（整页兜底方案）
+
+    /// 从 m.kugou.com 移动端歌单页解析歌曲。
+    ///
+    /// 页面里每首歌（以及每组播放块）以 `dataobj='[...]'` 属性内嵌 HTML 实体
+    /// 编码的 JSON。解码后括号配平扫描，去重输出。
+    static func songs(fromSpecialMobileHTML html: String) -> [Song] {
+        let decoded = html
+            .replacingOccurrences(of: "&#34;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+
+        var songs: [Song] = []
+        var seen = Set<String>()
+        let marker = "dataobj='"
+        var searchFrom = decoded.startIndex
+        while let blockRange = decoded.range(of: marker, range: searchFrom..<decoded.endIndex),
+              let arrayEnd = endOfJSONArray(in: decoded, from: blockRange.upperBound) {
+            let jsonText = String(decoded[blockRange.upperBound..<arrayEnd])
+            if let rows = try? JSONSerialization.jsonObject(with: Data(jsonText.utf8)) as? [[String: Any]] {
+                for row in rows {
+                    if let song = Song(kugouJSON: row), !seen.contains(song.id) {
+                        seen.insert(song.id)
+                        songs.append(song)
+                    }
+                }
+            }
+            searchFrom = arrayEnd
+        }
+        return songs
+    }
+
+    /// 从 `[` 开始（或之前）括号配平扫描，返回闭 `]` 的后一个位置。
+    /// 跳过双引号字符串与反斜杠转义。
+    private static func endOfJSONArray(in text: String, from start: String.Index) -> String.Index? {
+        guard let bracket = text.range(of: "[", range: start..<text.endIndex) else { return nil }
+        var depth = 0
+        var inString = false
+        var escaped = false
+        var index = bracket.lowerBound
+        while index < text.endIndex {
+            let ch = text[index]
+            if inString {
+                if escaped { escaped = false }
+                else if ch == "\\" { escaped = true }
+                else if ch == "\"" { inString = false }
+            } else {
+                if ch == "\"" { inString = true }
+                else if ch == "[" { depth += 1 }
+                else if ch == "]" {
+                    depth -= 1
+                    if depth == 0 { return text.index(after: index) }
+                }
+            }
+            index = text.index(after: index)
+        }
+        return nil
+    }
+
+    /// 从 www.kugou.com 歌手索引页解析热门歌手：
+    /// `<a title="周杰伦" class='pic' href=".../singer/info/<id>/"><img ... _src='<头像>' />`
+    static func artists(fromSingerIndexHTML html: String) -> [Artist] {
+        let pattern = #"(?s)<a\s+title="([^"]+)"\s+class='pic'[^>]*href="[^"]*singer/info/([^"/]+)/"[^>]*>.*?_src='([^']*)'"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(html.startIndex..., in: html)
+        var artists: [Artist] = []
+        var seen = Set<String>()
+        regex.enumerateMatches(in: html, range: range) { match, _, _ in
+            guard let match,
+                  match.numberOfRanges >= 3,
+                  let nameR = Range(match.range(at: 1), in: html),
+                  let idR = Range(match.range(at: 2), in: html) else { return }
+            let name = String(html[nameR])
+            let id = String(html[idR])
+            guard !seen.contains(id) else { return }
+            seen.insert(id)
+            var cover: URL?
+            if match.numberOfRanges >= 4, let imgR = Range(match.range(at: 3), in: html) {
+                var raw = String(html[imgR])
+                if raw.hasPrefix("http://") {
+                    raw = "https://" + raw.dropFirst("http://".count)
+                }
+                cover = URL(string: raw)
+            }
+            artists.append(Artist(id: id, name: name, coverURL: cover))
+        }
+        return artists
+    }
 
     private func getJSON(path: String,
                          host: String,
@@ -826,7 +1020,7 @@ final class KugouClient {
         for (key, value) in headers {
             request.setValue(value, forHTTPHeaderField: key)
         }
-        if host.contains("kugou.com") && !path.contains("rank") {
+        if host.contains("kugou.com") && !path.contains("rank") && !path.isEmpty {
             request.setValue("https://www.kugou.com/", forHTTPHeaderField: "Referer")
         }
 

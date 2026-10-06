@@ -27,17 +27,19 @@ struct Playlist: Identifiable, Hashable {
 }
 
 /// 歌手。酷狗的搜索结果里没有独立歌手实体，歌手页用搜索代替。
-struct Artist: Identifiable, Hashable {
+struct Artist: Identifiable, Hashable, Codable {
     var id: String
     var name: String
     var coverURL: URL?
     var source: SongSource = .kugou
+    var fansCount: Int = 0
 
-    init(id: String, name: String, coverURL: URL? = nil, source: SongSource = .kugou) {
+    init(id: String, name: String, coverURL: URL? = nil, source: SongSource = .kugou, fansCount: Int = 0) {
         self.id = id
         self.name = name
         self.coverURL = coverURL
         self.source = source
+        self.fansCount = fansCount
     }
 }
 

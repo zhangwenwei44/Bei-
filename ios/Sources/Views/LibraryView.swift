@@ -18,7 +18,7 @@ struct LibraryView: View {
     @State private var section: Section = .favorites
 
     private enum Section: Int, CaseIterable, Identifiable {
-        case favorites, albums, downloads, local, playlists
+        case favorites, albums, artists, downloads, local, playlists
 
         var id: Int { rawValue }
 
@@ -26,6 +26,7 @@ struct LibraryView: View {
             switch self {
             case .favorites: return "收藏"
             case .albums: return "专辑"
+            case .artists: return "歌手"
             case .downloads: return "下载"
             case .local: return "本地"
             case .playlists: return "歌单"
@@ -36,6 +37,7 @@ struct LibraryView: View {
             switch self {
             case .favorites: return "heart.fill"
             case .albums: return "square.stack.fill"
+            case .artists: return "person.crop.circle.fill"
             case .downloads: return "arrow.down.circle.fill"
             case .local: return "iphone"
             case .playlists: return "music.note.list"
@@ -46,6 +48,7 @@ struct LibraryView: View {
             switch self {
             case .favorites: return AppStyle.like
             case .albums: return .orange
+            case .artists: return .pink
             case .downloads: return AppStyle.accent
             case .local: return .purple
             case .playlists: return AppStyle.gold
@@ -58,7 +61,7 @@ struct LibraryView: View {
         case .favorites: return library.favorites
         case .downloads: return library.downloads
         case .local: return library.localSongs
-        case .playlists, .albums: return []
+        case .playlists, .albums, .artists: return []
         }
     }
 
@@ -66,6 +69,7 @@ struct LibraryView: View {
         switch item {
         case .favorites: return library.favorites.count
         case .albums: return library.albumFavorites.count
+        case .artists: return library.artistFavorites.count
         case .downloads: return library.downloads.count
         case .local: return library.localSongs.count
         case .playlists: return library.playlists.count
@@ -227,6 +231,7 @@ struct LibraryView: View {
         switch section {
         case .favorites: return "在歌曲上右键收藏"
         case .albums: return "搜索专辑时点爱心收藏"
+        case .artists: return "主页热门歌手点爱心收藏"
         case .downloads: return "下载后可离线播放"
         case .local: return "从「文件」导入的音频"
         case .playlists: return "自建歌单"
@@ -278,6 +283,8 @@ struct LibraryView: View {
             playlistsContent
         } else if section == .albums {
             albumsContent
+        } else if section == .artists {
+            artistsContent
         } else if songs.isEmpty {
             emptyState
         } else {
@@ -319,6 +326,52 @@ struct LibraryView: View {
                 }
             }
         }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 24)
+    }
+
+    private var artistsContent: some View {
+        VStack(spacing: 0) {
+            ForEach(library.artistFavorites) { artist in
+                Button {
+                    Haptics.soft()
+                    Task {
+                        guard let songs = try? await KugouClient.shared.searchSongs(
+                            keyword: artist.name, limit: 30), !songs.isEmpty else { return }
+                        store.play(songs)
+                    }
+                } label: {
+                    HStack(spacing: 12) {
+                        CoverImage(url: artist.coverURL,
+                                   fallbackKeys: [artist.id],
+                                   seed: artist.name,
+                                   size: 46,
+                                   corner: 23)
+                        Text(artist.name)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(AppStyle.primaryText)
+                            .lineLimit(1)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    Button(role: .destructive) {
+                        _ = library.toggleArtistFavorite(artist)
+                    } label: {
+                        Label("取消收藏", systemImage: "heart.slash")
+                    }
+                }
+                Divider().padding(.leading, 72)
+            }
+        }
+        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, 16)
         .padding(.bottom, 24)
     }
@@ -367,6 +420,10 @@ struct LibraryView: View {
                 EmptyStateView(icon: "square.stack",
                                title: "还没有收藏的专辑",
                                message: "搜索专辑后点爱心就能收藏")
+            case .artists:
+                EmptyStateView(icon: "person.crop.circle",
+                               title: "还没有收藏的歌手",
+                               message: "主页「推荐你听」里点爱心收藏")
             case .downloads:
                 EmptyStateView(icon: "arrow.down.circle",
                                title: "还没有下载",
