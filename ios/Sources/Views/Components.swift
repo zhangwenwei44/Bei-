@@ -252,7 +252,7 @@ enum CoverLoader {
                 return result
             }
         }
-        Log.warning("封面", "所有候选 URL 都失败：\(urls.map { $0.absoluteString }.joined(separator: " | "))")
+        Log.warn("封面", "所有候选 URL 都失败：\(urls.map { $0.absoluteString }.joined(separator: " | "))")
         return nil
     }
 
