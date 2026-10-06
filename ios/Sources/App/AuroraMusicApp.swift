@@ -35,18 +35,28 @@ struct AuroraMusicApp: App {
 
     var body: some Scene {
         WindowGroup {
-            Group {
-                if auth.isLoggedIn {
-                    RootView()
-                } else {
-                    LoginView()
-                }
+            if UserDefaults.standard.bool(forKey: "aurora.disclaimer.accepted") {
+                mainContent
+            } else {
+                DisclaimerView()
+                    .preferredColorScheme(ThemeSettings.mode.colorScheme)
             }
-            .environmentObject(store)
-            .environmentObject(auth)
-            .preferredColorScheme(ThemeSettings.mode.colorScheme)
-            .onAppear { store.bootstrap() }
         }
+    }
+
+    @ViewBuilder
+    private var mainContent: some View {
+        Group {
+            if auth.isLoggedIn {
+                RootView()
+            } else {
+                LoginView()
+            }
+        }
+        .environmentObject(store)
+        .environmentObject(auth)
+        .preferredColorScheme(ThemeSettings.mode.colorScheme)
+        .onAppear { store.bootstrap() }
     }
 }
 
