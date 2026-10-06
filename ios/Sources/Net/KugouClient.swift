@@ -753,6 +753,9 @@ final class KugouClient {
                       !seen.contains(id) else { continue }
                 seen.insert(id)
                 var cover = KugouClient.string(row["imgurl"]) ?? ""
+                // singer/list 的 imgurl 是模板：http://singerimg.kugou.com/uploadpic/softhead/{size}/xxx.jpg
+                // {size} 需要换成实际尺寸（200 足够手机上圆形头像用）
+                if cover.contains("{size}") { cover = cover.replacingOccurrences(of: "{size}", with: "200") }
                 if cover.hasPrefix("http://") {
                     cover = "https://" + cover.dropFirst("http://".count)
                 }

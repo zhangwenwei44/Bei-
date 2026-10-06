@@ -143,20 +143,24 @@ struct DiscoverView: View {
     // MARK: 两大两小横向滚动卡片（大在左，小在右）
 
     private var bigCardsGrid: some View {
-        let cardSpacing: CGFloat = 10
         let sidePadding: CGFloat = 16
         let screenW = UIScreen.main.bounds.width - sidePadding * 2
         let bigWidth = screenW * 0.38
         let bigHeight = bigWidth * 1.55
-        // 两张正方形小卡，边长 = (bigHeight - 间距) / 2
-        // 这样小卡堆总高度 = 2 * side + spacing = bigHeight，与大卡严格齐平
-        let smallSide = (bigHeight - cardSpacing) / 2
+        let bigSmallGap: CGFloat = 10
+
+        // 小卡堆：两张小卡整体高度 = bigHeight（严格齐平），但每张卡本身
+        // 比正方形更扁 —— 视觉上更小。卡高 = bigHeight * 0.42，两张加间距
+        // = bigHeight * 0.90，剩余空间均匀撑开。
+        let smallCardHeight = bigHeight * 0.42
+        let smallCardWidth = bigHeight * 0.42
+        let smallCardGap: CGFloat = bigHeight * 0.06
         let smallStackHeight = bigHeight
-        let smallStackWidth = smallSide
+        let smallStackWidth = smallCardWidth
 
         return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: cardSpacing) {
-                // 大卡 1：每日推荐 —— 显示 TOP500 第一首歌，点击直接播放
+            HStack(alignment: .top, spacing: bigSmallGap) {
+                // 大卡 1：每日推荐
                 Button {
                     playDailyAll()
                 } label: {
@@ -171,7 +175,7 @@ struct DiscoverView: View {
                 }
                 .buttonStyle(.plain)
 
-                // 大卡 2：猜你喜欢 —— 第一首歌封面，点击直接播放
+                // 大卡 2：猜你喜欢
                 Button {
                     playGuessAll()
                 } label: {
@@ -183,52 +187,49 @@ struct DiscoverView: View {
                 }
                 .buttonStyle(.plain)
 
-                // 小卡堆：两张正方形小卡，总高度锁定 = bigHeight，垂直居中
-                VStack(spacing: cardSpacing) {
+                // 小卡堆：外层 frame 锁高 = bigHeight，内部均匀撑
+                VStack(spacing: smallCardGap) {
                     Spacer(minLength: 0)
-                    VStack(spacing: cardSpacing) {
-                        // 百万收藏
-                        NavigationLink {
-                            if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
-                                PlaylistDetailView(playlist: favRank)
-                            } else if !filteredLists.isEmpty {
-                                PlaylistDetailView(playlist: filteredLists[0])
-                            }
-                        } label: {
-                            IconFeatureCard(
-                                width: smallSide, height: smallSide,
-                                title: "百万收藏", systemIcon: "heart.fill",
-                                gradientColors: [
-                                    Color(red: 1.0, green: 0.47, blue: 0.33),
-                                    Color(red: 0.94, green: 0.28, blue: 0.42)
-                                ]
-                            )
+                    // 百万收藏
+                    NavigationLink {
+                        if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
+                            PlaylistDetailView(playlist: favRank)
+                        } else if !filteredLists.isEmpty {
+                            PlaylistDetailView(playlist: filteredLists[0])
                         }
-                        .buttonStyle(.plain)
-
-                        // 新歌推荐
-                        NavigationLink {
-                            if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
-                                PlaylistDetailView(playlist: newRank)
-                            } else if !filteredLists.isEmpty {
-                                PlaylistDetailView(playlist: filteredLists[0])
-                            }
-                        } label: {
-                            IconFeatureCard(
-                                width: smallSide, height: smallSide,
-                                title: "新歌推荐", systemIcon: "music.note",
-                                gradientColors: [
-                                    Color(red: 1.0, green: 0.72, blue: 0.35),
-                                    Color(red: 1.0, green: 0.45, blue: 0.30)
-                                ]
-                            )
-                        }
-                        .buttonStyle(.plain)
+                    } label: {
+                        IconFeatureCard(
+                            width: smallCardWidth, height: smallCardHeight,
+                            title: "百万收藏", systemIcon: "heart.fill",
+                            gradientColors: [
+                                Color(red: 1.0, green: 0.47, blue: 0.33),
+                                Color(red: 0.94, green: 0.28, blue: 0.42)
+                            ]
+                        )
                     }
+                    .buttonStyle(.plain)
+
+                    // 新歌推荐
+                    NavigationLink {
+                        if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
+                            PlaylistDetailView(playlist: newRank)
+                        } else if !filteredLists.isEmpty {
+                            PlaylistDetailView(playlist: filteredLists[0])
+                        }
+                    } label: {
+                        IconFeatureCard(
+                            width: smallCardWidth, height: smallCardHeight,
+                            title: "新歌推荐", systemIcon: "music.note",
+                            gradientColors: [
+                                Color(red: 1.0, green: 0.72, blue: 0.35),
+                                Color(red: 1.0, green: 0.45, blue: 0.30)
+                            ]
+                        )
+                    }
+                    .buttonStyle(.plain)
                     Spacer(minLength: 0)
                 }
-                .frame(width: smallStackWidth, height: smallStackHeight, alignment: .center)
-                .clipped()
+                .frame(width: smallStackWidth, height: smallStackHeight)
             }
             .padding(.horizontal, sidePadding)
         }
