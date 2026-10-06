@@ -595,7 +595,7 @@ final class KugouClient {
             let creator = KugouClient.string(item["username"]) ?? "酷狗音乐"
             return Playlist(id: "kg-special:\(specialID)",
                             name: name,
-                            coverURL: cover.flatMap { URL(string: $0) },
+                            coverURL: URL(string: cover),
                             trackCount: count,
                             creatorName: creator,
                             source: .kugou,
