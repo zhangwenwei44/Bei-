@@ -186,14 +186,7 @@ enum CoverLoader {
     private static let inflight = InflightTasks()
 
     static func download(_ url: URL, maxPixelSize: CGFloat = 300) async -> UIImage? {
-        if url.scheme?.lowercased() == "http",
-           let secure = URL(string: url.absoluteString.replacingOccurrences(of: "http://", with: "https://")),
-           let image = await request(secure, maxPixelSize: maxPixelSize) {
-            // https 成功，顺手给原 http 地址也缓存同一张图
-            CoverCache.shared.store(image, for: url)
-            return image
-        }
-        return await request(url, maxPixelSize: maxPixelSize)
+        await request(url, maxPixelSize: maxPixelSize)
     }
 
     private static func request(_ target: URL, maxPixelSize: CGFloat) async -> UIImage? {
@@ -231,30 +224,36 @@ enum CoverLoader {
         }
     }
 
+    /// 对任何 URL，都同时生成 https 和 http 两个候选地址，按「非 http 优先」排列。
+    /// 这样无论 API 给的是 http:// 还是 https://，都有另一个 protocol 兜底。
+    private static func candidateURLs(for target: URL) -> [URL] {
+        let orig = target.absoluteString
+        var urls: [URL] = [target]
+        if orig.hasPrefix("http://") {
+            let secure = "https://" + orig.dropFirst("http://".count)
+            if let u = URL(string: secure) { urls.insert(u, at: 0) }
+        } else if orig.hasPrefix("https://") {
+            let insecure = "http://" + orig.dropFirst("https://".count)
+            if let u = URL(string: insecure) { urls.append(u) }
+        }
+        return urls
+    }
+
     private static func performRequest(_ target: URL, maxPixelSize: CGFloat) async -> UIImage? {
         // 排队期间可能已被别的任务下载好
         if let cached = CoverCache.shared.image(for: target) {
             return cached
         }
-        // 酷狗图床部分链接仍然是 http://，Info.plist 虽然开了 ATS 但在部分 iOS 版本
-        // 上会静默失败。这里先尝试 https://，不行再 fallback http://
         let urls = Self.candidateURLs(for: target)
         for url in urls {
             if let result = await downloadSingle(url, maxPixelSize: maxPixelSize) {
-                if url != target { CoverCache.shared.store(result, for: target) }
+                // 命中后给所有候选 URL 都存一份，下次任何 scheme 进来都能命中
+                for u in urls { CoverCache.shared.store(result, for: u) }
                 return result
             }
         }
+        Log.warning("封面", "所有候选 URL 都失败：\(urls.map { $0.absoluteString }.joined(separator: " | "))")
         return nil
-    }
-
-    /// 给一个 URL 生成请求候选顺序：https 优先、http 兜底，避免 http 静默失败时整页图片空掉。
-    private static func candidateURLs(for url: URL) -> [URL] {
-        var order: [URL] = [url]
-        if url.scheme == "http", let https = URL(string: "https://" + url.absoluteString.dropFirst("http://".count)) {
-            order.insert(https, at: 0) // https 优先
-        }
-        return order
     }
 
     /// 单 URL 下载：内部 request 逻辑抽取复用。
@@ -274,6 +273,7 @@ enum CoverLoader {
                 return nil
             }
             CoverCache.shared.store(loaded, for: target)
+            Log.info("封面", "✓ \(data.count)B \(target.scheme!)/\(target.host ?? "?")")
             return loaded
         } catch {
             if (error as? URLError)?.code == .cancelled || error is CancellationError {
