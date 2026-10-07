@@ -197,7 +197,7 @@ struct DiscoverView: View {
                                 width: smallCardHeight, height: smallCardHeight,
                                 coverURL: playlist.coverURL,
                                 title: playlist.name,
-                                subtitle: "\(playlist.songCount) 首",
+                                subtitle: "\(playlist.trackCount) 首",
                                 isPlaying: false
                             )
                         }
