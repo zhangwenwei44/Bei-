@@ -160,9 +160,8 @@ final class DownloadManager: NSObject, ObservableObject {
                   let artist = object["artist"] as? String else { return nil }
             // 给 Song 加 local URL 和 isLocal 标记
             let localURL = folder.appendingPathComponent(fileName)
-            var song = Song(id: songID, title: title, artist: artist,
+            let song = Song(id: songID, title: title, artist: artist,
                             url: localURL, isLocal: true, source: .local)
-            _ = song   // localFileName 存在 fileIndex 里，不用 Song 存
             return song
         }
         // LibraryStore 里可能也有持久化的下载列表（UserDefaults），取并集
