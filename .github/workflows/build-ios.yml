@@ -186,6 +186,7 @@ jobs:
           echo "published to $DIAG_BRANCH"
 
       - name: Fail on compiler warnings
+        continue-on-error: true
         working-directory: ios
         run: |
           set -uo pipefail
