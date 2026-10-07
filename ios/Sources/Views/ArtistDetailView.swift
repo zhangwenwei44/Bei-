@@ -208,7 +208,7 @@ private struct ArtistSongRow: View {
                         .font(.system(size: 14))
                         .foregroundStyle(AppStyle.primaryText)
                         .lineLimit(1)
-                    Text(song.album ?? "")
+                    Text(song.album)
                         .font(.system(size: 11))
                         .foregroundStyle(AppStyle.secondaryText)
                         .lineLimit(1)
