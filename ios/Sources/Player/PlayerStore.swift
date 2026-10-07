@@ -9,6 +9,7 @@ final class PlayerStore: ObservableObject {
 
     @Published private(set) var queue: [Song] = []
     @Published private(set) var currentIndex: Int = -1
+    @Published private(set) var queueID: String? = nil
     @Published var mode: PlaybackMode = .order
 
     // MARK: 播放状态

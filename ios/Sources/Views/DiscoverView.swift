@@ -152,86 +152,125 @@ struct DiscoverView: View {
         let smallStackWidth = totalW - bigWidth * 2 - cardGap * 2
         let smallCardHeight = (bigHeight - cardGap) / 2
 
+        // 正在播放哪一个歌单？——用来显示封面 + isPlaying 状态
+        let isPlayingDaily = store.queueID == "daily" && store.isPlaying
+        let isPlayingGuess = store.queueID == "guess" && store.isPlaying
+        let currentCover = store.currentSong?.artworkURL
+
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: cardGap) {
                 // 大卡 1：每日推荐
                 Button {
-                    playDailyAll()
+                    if isPlayingDaily {
+                        store.pause()
+                    } else {
+                        playDailyAll()
+                    }
                 } label: {
                     CoverFeatureCard(
                         width: bigWidth, height: bigHeight,
-                        coverURL: dailySongs.first?.artworkURL
+                        coverURL: (isPlayingDaily ? currentCover : nil)
+                            ?? dailySongs.first?.artworkURL
                             ?? top500Playlist?.coverURL
                             ?? filteredLists.first?.coverURL,
-                        title: "每日推荐", subtitle: dailySubtitle
+                        title: "每日推荐", subtitle: dailySubtitle,
+                        isPlaying: isPlayingDaily,
+                        onPlay: {
+                            if isPlayingDaily { store.pause() } else { playDailyAll() }
+                        }
                     )
                     .frame(width: bigWidth, height: bigHeight)
                 }
                 .buttonStyle(.plain)
                 .frame(width: bigWidth, height: bigHeight)
+                .clipped()
 
                 // 大卡 2：猜你喜欢
                 Button {
-                    playGuessAll()
+                    if isPlayingGuess {
+                        store.pause()
+                    } else {
+                        playGuessAll()
+                    }
                 } label: {
                     CoverFeatureCard(
                         width: bigWidth, height: bigHeight,
-                        coverURL: guessSongs.first?.artworkURL,
-                        title: "猜你喜欢", subtitle: guessSubtitle
+                        coverURL: (isPlayingGuess ? currentCover : nil)
+                            ?? guessSongs.first?.artworkURL,
+                        title: "猜你喜欢", subtitle: guessSubtitle,
+                        isPlaying: isPlayingGuess,
+                        onPlay: {
+                            if isPlayingGuess { store.pause() } else { playGuessAll() }
+                        }
                     )
                     .frame(width: bigWidth, height: bigHeight)
                 }
                 .buttonStyle(.plain)
                 .frame(width: bigWidth, height: bigHeight)
+                .clipped()
 
-                // 小卡堆：总高度强制 = bigHeight，用 Spacer 吸收浮点误差
-                VStack(spacing: 0) {
-                    NavigationLink {
-                        if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
-                            PlaylistDetailView(playlist: favRank)
-                        } else if !filteredLists.isEmpty {
-                            PlaylistDetailView(playlist: filteredLists[0])
+                // 小卡堆：彻底消灭 NavigationLink implicit padding
+                ZStack(alignment: .top) {
+                    VStack(spacing: 0) {
+                        ZStack {
+                            NavigationLink {
+                                if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
+                                    PlaylistDetailView(playlist: favRank)
+                                } else if !filteredLists.isEmpty {
+                                    PlaylistDetailView(playlist: filteredLists[0])
+                                }
+                            } label: {
+                                IconFeatureCard(
+                                    width: smallStackWidth, height: smallCardHeight,
+                                    title: "百万收藏", systemIcon: "heart.fill",
+                                    gradientColors: [
+                                        Color(red: 1.0, green: 0.47, blue: 0.33),
+                                        Color(red: 0.94, green: 0.28, blue: 0.42)
+                                    ]
+                                )
+                                .frame(width: smallStackWidth, height: smallCardHeight)
+                            }
+                            .buttonStyle(.plain)
                         }
-                    } label: {
-                        IconFeatureCard(
-                            width: smallStackWidth, height: smallCardHeight,
-                            title: "百万收藏", systemIcon: "heart.fill",
-                            gradientColors: [
-                                Color(red: 1.0, green: 0.47, blue: 0.33),
-                                Color(red: 0.94, green: 0.28, blue: 0.42)
-                            ]
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .frame(width: smallStackWidth, height: smallCardHeight)
+                        .frame(width: smallStackWidth, height: smallCardHeight)
+                        .clipped()
 
-                    Spacer(minLength: 0)
+                        Spacer(minLength: cardGap)
 
-                    NavigationLink {
-                        if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
-                            PlaylistDetailView(playlist: newRank)
-                        } else if !filteredLists.isEmpty {
-                            PlaylistDetailView(playlist: filteredLists[0])
+                        ZStack {
+                            NavigationLink {
+                                if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
+                                    PlaylistDetailView(playlist: newRank)
+                                } else if !filteredLists.isEmpty {
+                                    PlaylistDetailView(playlist: filteredLists[0])
+                                }
+                            } label: {
+                                IconFeatureCard(
+                                    width: smallStackWidth, height: smallCardHeight,
+                                    title: "新歌推荐", systemIcon: "music.note",
+                                    gradientColors: [
+                                        Color(red: 1.0, green: 0.72, blue: 0.35),
+                                        Color(red: 1.0, green: 0.45, blue: 0.30)
+                                    ]
+                                )
+                                .frame(width: smallStackWidth, height: smallCardHeight)
+                            }
+                            .buttonStyle(.plain)
                         }
-                    } label: {
-                        IconFeatureCard(
-                            width: smallStackWidth, height: smallCardHeight,
-                            title: "新歌推荐", systemIcon: "music.note",
-                            gradientColors: [
-                                Color(red: 1.0, green: 0.72, blue: 0.35),
-                                Color(red: 1.0, green: 0.45, blue: 0.30)
-                            ]
-                        )
+                        .frame(width: smallStackWidth, height: smallCardHeight)
+                        .clipped()
                     }
-                    .buttonStyle(.plain)
-                    .frame(width: smallStackWidth, height: smallCardHeight)
+                    .frame(width: smallStackWidth, height: bigHeight)
                 }
                 .frame(width: smallStackWidth, height: bigHeight)
+                .clipped()
             }
             .frame(height: bigHeight)
+            .clipped()
             .padding(.horizontal, sidePadding)
         }
-        .frame(height: bigHeight + 4)  // 固定高度，不允许被 ScrollView 压缩
+        .frame(height: bigHeight + 4)
+        .clipped()
     }
 
     /// 酷狗 TOP500 旗舰榜单（rankid=8888）
@@ -273,7 +312,7 @@ struct DiscoverView: View {
     }
 
     private var greetingText: String {
-        "推荐你听"
+        "热门歌手"
     }
 
     // MARK: 热门歌手列表
@@ -284,8 +323,8 @@ struct DiscoverView: View {
                 let shown = Array(hotArtists.prefix(8))
                 VStack(spacing: 0) {
                     ForEach(Array(shown.enumerated()), id: \.element.id) { index, artist in
-                        Button {
-                            playArtist(artist)
+                        NavigationLink {
+                            ArtistDetailView(artist: artist)
                         } label: {
                             ArtistRow(artist: artist,
                                       isPlaying: playingArtistID == artist.id)
@@ -416,12 +455,14 @@ struct DiscoverView: View {
 
     private func playGuessAll() {
         guard !guessSongs.isEmpty else { return }
+        store.queueID = "guess"
         store.play(guessSongs, startAt: 0)
         Haptics.soft()
     }
 
     private func playDailyAll() {
         guard !dailySongs.isEmpty else { return }
+        store.queueID = "daily"
         store.play(dailySongs, startAt: 0)
         Haptics.soft()
     }
@@ -602,6 +643,8 @@ struct CoverFeatureCard: View {
     let coverURL: URL?
     let title: String
     let subtitle: String
+    var isPlaying: Bool = false
+    var onPlay: () -> Void = {}
 
     private var corner: CGFloat { 14 }
 
@@ -637,11 +680,16 @@ struct CoverFeatureCard: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                Image(systemName: "play.fill")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 30, height: 30)
-                    .background(Color.white.opacity(0.25), in: Circle())
+                Button {
+                    onPlay()
+                } label: {
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(Color.white.opacity(0.25), in: Circle())
+                }
+                .buttonStyle(.plain)
             }
             .padding(10)
             .frame(width: width)
