@@ -149,10 +149,10 @@ struct DiscoverView: View {
         let gap: CGFloat = 10
         // 大卡：半屏宽度，正方形（酷我就是正方形大卡）
         let bigWidth = (screenW - sidePadding * 2 - gap) / 2
-        let bigHeight = bigWidth                                    // 正方形
-        // 小卡堆：每张小卡也是正方形，两小卡 + gap 精确 = bigHeight
+        let bigHeight = bigWidth * 1.5                              // 大卡保持竖长方形（不动）
+        // 小卡：真正正方形，两小 + gap 精确 = bigHeight
         let smallCardHeight = (bigHeight - gap) / 2                 // 正方形边长
-        let smallStackWidth = smallCardHeight                       // = 高度 → 真正方形
+        let smallStackWidth = smallCardHeight                       // 宽=高→真方形
 
         let isPlayingDaily = store.queueID == "daily" && store.isPlaying
         let isPlayingGuess = store.queueID == "guess" && store.isPlaying
