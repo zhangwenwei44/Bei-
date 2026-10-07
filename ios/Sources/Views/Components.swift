@@ -93,6 +93,9 @@ struct CoverImage: View {
     var seed: String = "-"
     var size: CGFloat = 48
     var corner: CGFloat = 8
+    /// 非正方形显示区域：传了就铺满，默认回退到 size×size
+    var displayWidth: CGFloat? = nil
+    var displayHeight: CGFloat? = nil
 
     @State private var image: UIImage?
     @State private var resolved: URL?
@@ -101,28 +104,28 @@ struct CoverImage: View {
         url ?? resolved ?? CoverResolver.shared.firstAvailable(fallbackKeys)
     }
 
+    private var w: CGFloat { displayWidth ?? size }
+    private var h: CGFloat { displayHeight ?? size }
+
     var body: some View {
         ZStack {
             LinearGradient(colors: ArtworkPaletteEngine.palette(for: nil, seed: seed).gradient,
                            startPoint: .topLeading,
                            endPoint: .bottomTrailing)
             if let image {
-                // 关键：给 Image 自身也钉住固定 frame + clipped。
-                // 只靠外层 ZStack 的 frame+clipShape 在 iOS 16 上不能保证 scaledToFill 的图片
-                // 在圆角裁剪后居中，会出现一边宽一边窄的视觉偏差。
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: size, height: size)
+                    .frame(width: w, height: h)
                     .clipped()
             } else {
                 Image(systemName: "music.note")
-                    .font(.system(size: size * 0.32, weight: .medium))
+                    .font(.system(size: min(w, h) * 0.32, weight: .medium))
                     .foregroundStyle(.white.opacity(0.5))
-                    .frame(width: size, height: size)
+                    .frame(width: w, height: h)
             }
         }
-        .frame(width: size, height: size)
+        .frame(width: w, height: h)
         .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
         .task(id: taskKey) { await load() }
     }

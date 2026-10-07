@@ -147,9 +147,10 @@ struct DiscoverView: View {
         let sidePadding: CGFloat = 16
         let screenW = UIScreen.main.bounds.width
         let gap: CGFloat = 10
-        // 大卡：半屏宽度，正方形（酷我就是正方形大卡）
-        let bigWidth = (screenW - sidePadding * 2 - gap) / 2
-        let bigHeight = bigWidth * 1.5                              // 大卡保持竖长方形（不动）
+        // 大卡：整屏三等分再乘 0.85 做小，保证横排能塞下还留空间
+        let rawWidth = (screenW - sidePadding * 2 - gap) / 2
+        let bigWidth = rawWidth * 0.85
+        let bigHeight = bigWidth * 1.5                              // 大卡保持竖长方形
         let topCardHeight = (bigHeight - gap) / 2                  // 上小卡
         let bottomCardHeight = bigHeight - topCardHeight - gap     // 下小卡（剩余高度，恒等式保证齐平）
 
@@ -275,7 +276,7 @@ struct DiscoverView: View {
                 .frame(maxHeight: bigHeight, alignment: .top)
                 .clipped()
 
-                // 额外大卡加 debug
+                // 额外大卡
                 navigable(
                     destination: {
                         Group {
@@ -286,22 +287,16 @@ struct DiscoverView: View {
                         }
                     },
                     label: {
-                        ZStack(alignment: .topLeading) {
-                            CoverFeatureCard(
-                                width: bigWidth, height: bigHeight,
-                                coverURL: filteredLists.prefix(3).last?.coverURL
-                                    ?? filteredLists.first?.coverURL,
-                                title: "DJ热歌榜",
-                                subtitle: filteredLists.prefix(3).last?.name ?? "",
-                                isPlaying: false,
-                                onPlay: { playDailyAll() }
-                            )
-                            .frame(width: bigWidth, height: bigHeight)
-                            Text("BIG=\(Int(bigHeight)) gap=\(gap)")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white.opacity(0.7))
-                                .padding(2)
-                        }
+                        CoverFeatureCard(
+                            width: bigWidth, height: bigHeight,
+                            coverURL: filteredLists.prefix(3).last?.coverURL
+                                ?? filteredLists.first?.coverURL,
+                            title: "DJ热歌榜",
+                            subtitle: filteredLists.prefix(3).last?.name ?? "",
+                            isPlaying: false,
+                            onPlay: { playDailyAll() }
+                        )
+                        .frame(width: bigWidth, height: bigHeight)
                     }
                 )
                 .frame(width: bigWidth, height: bigHeight, alignment: .topLeading)
@@ -690,13 +685,14 @@ struct CoverFeatureCard: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // 封面图
+            // 封面图（传完整宽高让 scaledToFill 铺满整个卡片）
             CoverImage(url: coverURL,
                        fallbackKeys: [],
                        seed: title,
                        size: min(width, height),
-                       corner: corner)
-                .frame(width: width, height: height)
+                       corner: corner,
+                       displayWidth: width,
+                       displayHeight: height)
 
             // 底部黑色半透明渐变遮罩
             VStack(alignment: .leading, spacing: 0) {
