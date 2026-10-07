@@ -150,7 +150,8 @@ struct DiscoverView: View {
         // 大卡：半屏宽度，正方形（酷我就是正方形大卡）
         let bigWidth = (screenW - sidePadding * 2 - gap) / 2
         let bigHeight = bigWidth * 1.5                              // 大卡保持竖长方形（不动）
-        let smallCardHeight = (bigHeight - gap) / 2                 // 正方形边长
+        let topCardHeight = (bigHeight - gap) / 2                  // 上小卡
+        let bottomCardHeight = bigHeight - topCardHeight - gap     // 下小卡（剩余高度，恒等式保证齐平）
 
         let isPlayingDaily = store.queueID == "daily" && store.isPlaying
         let isPlayingGuess = store.queueID == "guess" && store.isPlaying
@@ -218,7 +219,7 @@ struct DiscoverView: View {
                 )
                 .frame(width: bigWidth, height: bigHeight)
 
-                // ========== 两小正方形叠加 — VStack + 精确 frame + clipped ==========
+                // ========== 两小叠加 — 上小 topCardHeight，下小 bottomCardHeight ==========
                 VStack(spacing: 0) {
                     navigable(
                         destination: {
@@ -233,21 +234,21 @@ struct DiscoverView: View {
                         label: {
                             ZStack(alignment: .topLeading) {
                                 IconFeatureCard(
-                                    width: smallCardHeight, desiredHeight: smallCardHeight,
+                                    width: topCardHeight, desiredHeight: topCardHeight,
                                     title: "百万收藏", systemIcon: "heart.fill",
                                     gradientColors: [
                                         Color(red: 1.0, green: 0.47, blue: 0.33),
                                         Color(red: 0.94, green: 0.28, blue: 0.42)
                                     ]
                                 )
-                                Text("1: \(Int(smallCardHeight))")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(.white.opacity(0.6))
+                                Text("1:\(Int(topCardHeight))")
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(.white.opacity(0.5))
                                     .padding(2)
                             }
                         }
                     )
-                    .frame(width: smallCardHeight, height: smallCardHeight)
+                    .frame(width: topCardHeight, height: topCardHeight)
 
                     Spacer(minLength: 0).frame(height: gap)
 
@@ -264,23 +265,23 @@ struct DiscoverView: View {
                         label: {
                             ZStack(alignment: .topLeading) {
                                 IconFeatureCard(
-                                    width: smallCardHeight, desiredHeight: smallCardHeight,
+                                    width: bottomCardHeight, desiredHeight: bottomCardHeight,
                                     title: "新歌推荐", systemIcon: "music.note",
                                     gradientColors: [
                                         Color(red: 1.0, green: 0.72, blue: 0.35),
                                         Color(red: 1.0, green: 0.45, blue: 0.30)
                                     ]
                                 )
-                                Text("2: \(Int(smallCardHeight))")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(.white.opacity(0.6))
+                                Text("2:\(Int(bottomCardHeight))")
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(.white.opacity(0.5))
                                     .padding(2)
                             }
                         }
                     )
-                    .frame(width: smallCardHeight, height: smallCardHeight)
+                    .frame(width: bottomCardHeight, height: bottomCardHeight)
                 }
-                .frame(width: smallCardHeight, height: bigHeight)
+                .frame(width: topCardHeight, height: bigHeight)
                 .clipped()
 
                 // 额外大卡加 debug
