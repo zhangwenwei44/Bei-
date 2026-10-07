@@ -147,12 +147,7 @@ struct ProfileView: View {
                 }
 
                 HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Label("高刷新率", systemImage: "speedometer")
-                        Text("支持 ProMotion 的设备上动画跑到 120Hz")
-                            .font(.system(size: 10))
-                            .foregroundStyle(AppStyle.tertiaryText)
-                    }
+                    Label("高刷新率", systemImage: "speedometer")
                     Spacer()
                     Toggle("", isOn: Binding(
                         get: { HighRefreshController.shared.isEnabled },
@@ -211,10 +206,6 @@ struct ProfileView: View {
                 }
             } header: {
                 headerText("版本")
-            } footer: {
-                Text("检查 GitHub Releases 上的最新版本。越狱设备下载完成后会直接弹出「选取软件安装」。")
-                    .font(.system(size: 11))
-                    .foregroundStyle(AppStyle.tertiaryText)
             }
 
             Section {
@@ -337,17 +328,6 @@ struct AboutView: View {
                         }
                     }
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("接口模板占位符")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(AppStyle.primaryText)
-                        ForEach(placeholders, id: \.self) { line in
-                            Text(line)
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(AppStyle.secondaryText)
-                        }
-                    }
-
                     Text("本项目仅供个人学习与研究使用，请遵守各平台服务条款，不要用于商业分发。")
                         .font(.system(size: 12))
                         .foregroundStyle(AppStyle.tertiaryText)
@@ -391,15 +371,5 @@ struct AboutView: View {
         "接口模板填请求地址；返回播放地址的字段路径填在「地址字段」里，多个用 | 分隔，例如 data.url|url。",
         "如果地址里有 {apiKey}，在「请求头」里加一行 apiKey=xxx，多个用逗号分隔，程序会挨个尝试并记住能用的那个。",
         "保存后打开开关，回到播放页即可。歌曲优先走官方接口，解析不到才会用这里的音源。",
-    ]
-
-    private let placeholders: [String] = [
-        "{id}  歌曲 ID",
-        "{name}  歌名（已编码）",
-        "{artist}  歌手（已编码）",
-        "{keyword}  歌名 + 歌手",
-        "{source}  平台代码，酷狗是 kg",
-        "{quality}  音质，如 320k / flac",
-        "{apiKey}  请求密钥",
     ]
 }

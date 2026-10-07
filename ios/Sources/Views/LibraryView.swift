@@ -126,22 +126,38 @@ struct LibraryView: View {
         }
     }
 
-    // MARK: 顶部数据卡
+    // MARK: 顶部 section 切换
 
     private var statTiles: some View {
-        HStack(spacing: 10) {
-            ForEach(Section.allCases) { item in
-                StatTile(icon: item.icon,
-                         title: item.title,
-                         value: count(for: item),
-                         tint: item.tint,
-                         isSelected: section == item) {
-                    withAnimation(.easeInOut(duration: 0.18)) { section = item }
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(Section.allCases) { item in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) { section = item }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: item.icon)
+                                .font(.system(size: 12))
+                            Text(item.title)
+                                .font(.system(size: 13, weight: section == item ? .semibold : .regular))
+                        }
+                        .foregroundStyle(section == item ? .white : AppStyle.secondaryText)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(
+                            section == item
+                                ? AppStyle.accent
+                                : AppStyle.surface,
+                            in: Capsule()
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
             }
+            .padding(.horizontal, 16)
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 14)
+        .padding(.top, 4)
+        .padding(.bottom, 10)
     }
 
     // MARK: 最近播放

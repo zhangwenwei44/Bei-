@@ -18,13 +18,14 @@ struct DiscoverView: View {
     @State private var isLoadingMore = false
     @State private var selectedTab: DiscoverTab = .recommend
 
-    /// 保留的 5 个精选榜单 rankID。
+    /// 保留的 6 个精选榜单 rankID。
     static let whitelistRankIDs: Set<String> = [
         "82831",  // 网络热歌榜（百万收藏榜用这个）
         "6666",   // 飙升榜
         "52144",  // 短视频热歌榜
         "24971",  // DJ热歌榜
         "85432",  // 百万收藏榜
+        "18016",  // 新歌推荐榜
     ]
 
     /// 猜你喜欢的抽词池。
@@ -100,17 +101,17 @@ struct DiscoverView: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 14))
                     .foregroundStyle(AppStyle.secondaryText)
-                Text("月亮替我望故乡 最近很火")
-                    .font(.system(size: 14))
+                Text("搜索歌曲、歌手、专辑")
+                    .font(.system(size: 13))
                     .foregroundStyle(AppStyle.secondaryText)
                 Spacer()
                 Image(systemName: "mic")
-                    .font(.system(size: 14))
+                    .font(.system(size: 13))
                     .foregroundStyle(AppStyle.secondaryText.opacity(0.7))
             }
-            .padding(.horizontal, 14)
-            .frame(height: 40)
-            .background(AppStyle.surface, in: Capsule())
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 16)
@@ -186,7 +187,7 @@ struct DiscoverView: View {
             (ranks[i], i + 1 < ranks.count ? ranks[i + 1] : nil)
         }
 
-        // Playlist → 封面小卡（正方形 CoverFeatureCard）
+        // Playlist → 封面小卡（正方形 CoverFeatureCard，无播放按钮）
         func rankCard(_ playlist: Playlist?) -> some View {
             Group {
                 if let playlist {
@@ -198,7 +199,8 @@ struct DiscoverView: View {
                                 coverURL: playlist.coverURL,
                                 title: playlist.name,
                                 subtitle: "\(playlist.trackCount) 首",
-                                isPlaying: false
+                                isPlaying: false,
+                                showPlayButton: false
                             )
                         }
                     )
@@ -647,6 +649,7 @@ struct CoverFeatureCard: View {
     let title: String
     let subtitle: String
     var isPlaying: Bool = false
+    var showPlayButton: Bool = true
     var onPlay: () -> Void = {}
 
     private var corner: CGFloat { 14 }
@@ -675,25 +678,29 @@ struct CoverFeatureCard: View {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
-                        .font(.system(size: width * 0.11, weight: .bold))
+                        .font(.system(size: width * 0.13, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.5)
                     Text(subtitle)
-                        .font(.system(size: width * 0.065))
+                        .font(.system(size: width * 0.075))
                         .foregroundStyle(.white.opacity(0.85))
                         .lineLimit(1)
+                        .minimumScaleFactor(0.5)
                 }
-                Spacer()
-                Button {
-                    onPlay()
-                } label: {
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 30, height: 30)
-                        .background(Color.white.opacity(0.25), in: Circle())
+                if showPlayButton {
+                    Spacer()
+                    Button {
+                        onPlay()
+                    } label: {
+                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 30, height: 30)
+                            .background(Color.white.opacity(0.25), in: Circle())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
             .padding(10)
             .frame(width: width)
