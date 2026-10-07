@@ -312,8 +312,8 @@ struct ArtistDetailView: View {
         defer { isLoading = false }
         do {
             // 拉 3 页 = 60 首，limit 100 全部显示
-            async let p1 = try? await KugouClient.shared.searchSongs(keyword: artist.name, page: 1, pagesize: 30)
-            async let p2 = try? await KugouClient.shared.searchSongs(keyword: artist.name, page: 2, pagesize: 30)
+            async let p1 = try? await KugouClient.shared.searchSongs(keyword: artist.name, page: 1, limit: 30)
+            async let p2 = try? await KugouClient.shared.searchSongs(keyword: artist.name, page: 2, limit: 30)
             var found: [Song] = []
             found.append(contentsOf: await p1 ?? [])
             found.append(contentsOf: await p2 ?? [])

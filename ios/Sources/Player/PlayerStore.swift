@@ -523,8 +523,8 @@ final class PlayerStore: ObservableObject {
                 Log.info("播放", "AVAudioSession interruption 开始，暂停")
                 if self.isPlaying { self.pause() }
             case .ended:
-                let opts = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
-                let shouldResume = opts?.contains(AVAudioSession.InterruptionOptions.shouldResume.rawValue) ?? false
+                let opts = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+                let shouldResume = (opts & AVAudioSession.InterruptionOptions.shouldResume.rawValue) != 0
                 Log.info("播放", "AVAudioSession interruption 结束，shouldResume=\(shouldResume)")
                 if shouldResume, self.current != nil {
                     try? AVAudioSession.sharedInstance().setActive(true, options: [])
