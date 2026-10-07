@@ -150,7 +150,6 @@ struct DiscoverView: View {
         let bigWidth = (screenW - sidePadding * 2 - gap) / 2
         let bigHeight = bigWidth * 1.5
         let smallStackWidth = (bigWidth * 2 - gap) / 2
-        let smallCardHeight = (bigHeight - gap) / 2
 
         let isPlayingDaily = store.queueID == "daily" && store.isPlaying
         let isPlayingGuess = store.queueID == "guess" && store.isPlaying
