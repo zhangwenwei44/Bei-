@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 
 /// 发现页（新版）。Tab 栏 → 搜索框 → 2×2 宫格卡片 → 心情问候 + 歌曲列表 → 热门榜单。
 struct DiscoverView: View {
@@ -147,17 +147,18 @@ struct DiscoverView: View {
         let sidePadding: CGFloat = 16
         let screenW = UIScreen.main.bounds.width
         let gap: CGFloat = 10
+        // 大卡：半屏宽度，正方形（酷我就是正方形大卡）
         let bigWidth = (screenW - sidePadding * 2 - gap) / 2
-        let bigHeight = bigWidth * 1.5
-        let smallStackWidth = (bigWidth * 2 - gap) / 2
+        let bigHeight = bigWidth                                    // 正方形
+        // 小卡堆：每张小卡也是正方形，两小卡 + gap 精确 = bigHeight
+        let smallCardHeight = (bigHeight - gap) / 2                 // 正方形边长
+        let smallStackWidth = smallCardHeight                       // = 高度 → 真正方形
 
         let isPlayingDaily = store.queueID == "daily" && store.isPlaying
         let isPlayingGuess = store.queueID == "guess" && store.isPlaying
         let currentCover = store.current?.artworkURL
 
-        let smallCardHeight = (bigHeight - gap) / 2
-
-        // 辅助函数：NavigationLink 完全塞进 .overlay，零尺寸干扰
+        // NavigationLink 塞进 overlay，零尺寸干扰
         func navigable<Label: View>(destination: @escaping () -> some View, label: @escaping () -> Label) -> some View {
             label()
                 .overlay(alignment: .center) {
@@ -169,7 +170,7 @@ struct DiscoverView: View {
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: gap) {
 
-                // ========== 大卡 1 ==========
+                // ========== 大卡 1：每日推荐 ==========
                 navigable(
                     destination: {
                         Group {
@@ -195,7 +196,7 @@ struct DiscoverView: View {
                 )
                 .frame(width: bigWidth, height: bigHeight)
 
-                // ========== 大卡 2 ==========
+                // ========== 大卡 2：猜你喜欢 ==========
                 navigable(
                     destination: {
                         Group {
@@ -219,9 +220,8 @@ struct DiscoverView: View {
                 )
                 .frame(width: bigWidth, height: bigHeight)
 
-                // ========== 两小叠加 — ZStack + offset 绝对定位 ==========
+                // ========== 两小正方形叠加 ==========
                 ZStack(alignment: .topLeading) {
-                    // 小卡 1：百万收藏 — y=0 顶对齐
                     navigable(
                         destination: {
                             Group {
@@ -241,13 +241,12 @@ struct DiscoverView: View {
                                     Color(red: 0.94, green: 0.28, blue: 0.42)
                                 ]
                             )
-                            .frame(width: smallStackWidth, height: smallCardHeight)
+                            .frame(width: smallCardHeight, height: smallCardHeight)
                         }
                     )
-                    .frame(width: smallStackWidth, height: smallCardHeight)
+                    .frame(width: smallCardHeight, height: smallCardHeight)
                     .offset(y: 0)
 
-                    // 小卡 2：新歌推荐 — y = smallCardHeight + gap 精确放到下面
                     navigable(
                         destination: {
                             Group {
@@ -267,16 +266,16 @@ struct DiscoverView: View {
                                     Color(red: 1.0, green: 0.45, blue: 0.30)
                                 ]
                             )
-                            .frame(width: smallStackWidth, height: smallCardHeight)
+                            .frame(width: smallCardHeight, height: smallCardHeight)
                         }
                     )
-                    .frame(width: smallStackWidth, height: smallCardHeight)
+                    .frame(width: smallCardHeight, height: smallCardHeight)
                     .offset(y: smallCardHeight + gap)
                 }
                 .frame(width: smallStackWidth, height: bigHeight)
-                .clipped()   // 超出 bigHeight 的内容直接裁
+                .clipped()
 
-                // ========== 额外大卡让 ScrollView 可横滚 ==========
+                // ========== 额外大卡 ==========
                 navigable(
                     destination: {
                         Group {
