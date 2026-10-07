@@ -149,9 +149,9 @@ struct DiscoverView: View {
         let gap: CGFloat = 10
         // 大卡：半屏宽度，正方形（酷我就是正方形大卡）
         let bigWidth = (screenW - sidePadding * 2 - gap) / 2
-        let bigHeight = bigWidth * 1.5                              // 大卡保持竖长方形（不动）
-        let topCardHeight = (bigHeight - gap) / 2                  // 上小卡
-        let bottomCardHeight = bigHeight - topCardHeight - gap     // 下小卡（剩余高度，恒等式保证齐平）
+        let bigHeight = bigWidth * 1.5                              // 大卡保持竖长方形
+        // 小卡：比 bigHeight 半高小 5pt，底部留 Spacer 吸收剩余 → 绝不可能超高
+        let smallCardSize = max(80, (bigHeight - gap) / 2 - 5)
 
         let isPlayingDaily = store.queueID == "daily" && store.isPlaying
         let isPlayingGuess = store.queueID == "guess" && store.isPlaying
@@ -219,8 +219,8 @@ struct DiscoverView: View {
                 .frame(width: bigWidth, height: bigHeight, alignment: .topLeading)
                 .frame(maxHeight: bigHeight, alignment: .top)
 
-                // ========== 两小叠加 — 上小 topCardHeight，下小 bottomCardHeight ==========
-                VStack(spacing: 0) {
+                // ========== 两小正方形叠加 — 缩小 5pt + Spacer 吸收剩余 ==========
+                VStack(alignment: .leading, spacing: gap) {
                     navigable(
                         destination: {
                             Group {
@@ -233,19 +233,17 @@ struct DiscoverView: View {
                         },
                         label: {
                             IconFeatureCard(
-                                width: topCardHeight, desiredHeight: topCardHeight,
+                                width: smallCardSize, desiredHeight: smallCardSize,
                                 title: "百万收藏", systemIcon: "heart.fill",
                                 gradientColors: [
                                     Color(red: 1.0, green: 0.47, blue: 0.33),
                                     Color(red: 0.94, green: 0.28, blue: 0.42)
                                 ]
                             )
-                            .frame(width: topCardHeight, height: topCardHeight)
+                            .frame(width: smallCardSize, height: smallCardSize)
                         }
                     )
-                    .frame(width: topCardHeight, height: topCardHeight)
-
-                    Spacer(minLength: 0).frame(height: gap)
+                    .frame(width: smallCardSize, height: smallCardSize)
 
                     navigable(
                         destination: {
@@ -259,20 +257,21 @@ struct DiscoverView: View {
                         },
                         label: {
                             IconFeatureCard(
-                                width: bottomCardHeight, desiredHeight: bottomCardHeight,
+                                width: smallCardSize, desiredHeight: smallCardSize,
                                 title: "新歌推荐", systemIcon: "music.note",
                                 gradientColors: [
                                     Color(red: 1.0, green: 0.72, blue: 0.35),
                                     Color(red: 1.0, green: 0.45, blue: 0.30)
                                 ]
                             )
-                            .frame(width: bottomCardHeight, height: bottomCardHeight)
+                            .frame(width: smallCardSize, height: smallCardSize)
                         }
                     )
-                    .frame(width: bottomCardHeight, height: bottomCardHeight)
+                    .frame(width: smallCardSize, height: smallCardSize)
+
+                    Spacer(minLength: 0)   // 吸收所有剩余空间 → 绝不超高
                 }
-                .frame(width: topCardHeight, height: bigHeight, alignment: .top)
-                .frame(maxHeight: bigHeight, alignment: .top)
+                .frame(width: smallCardSize, height: bigHeight, alignment: .topLeading)
                 .clipped()
 
                 // 额外大卡加 debug

@@ -48,17 +48,11 @@ struct AuroraMusicApp: App {
 
     @ViewBuilder
     private var mainContent: some View {
-        Group {
-            if auth.isLoggedIn {
-                RootView()
-            } else {
-                LoginView()
-            }
-        }
-        .environmentObject(store)
-        .environmentObject(auth)
-        .preferredColorScheme(ThemeSettings.mode.colorScheme)
-        .onAppear { store.bootstrap() }
+        RootView()
+            .environmentObject(store)
+            .environmentObject(auth)
+            .preferredColorScheme(ThemeSettings.mode.colorScheme)
+            .onAppear { store.bootstrap() }
     }
 }
 
