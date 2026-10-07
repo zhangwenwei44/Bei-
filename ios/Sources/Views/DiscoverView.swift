@@ -276,17 +276,6 @@ struct DiscoverView: View {
         .frame(height: bigHeight + 4)
     }
 
-    /// 榜单 rankID → SF Symbol 图标
-    private func rankIcon(for rankID: String?) -> String {
-        switch rankID {
-        case "85432", "82831": return "heart.fill"       // 百万收藏 / 网络热歌榜
-        case "6666":           return "music.note"       // 飙升榜 / 新歌推荐
-        case "52144":          return "sparkles"         // 短视频热歌榜
-        case "24971":          return "music.disc"      // DJ热歌榜
-        default:               return "list.bullet.indent"
-        }
-    }
-
     /// 酷狗 TOP500 旗舰榜单（rankid=8888）
     private var top500Playlist: Playlist? {
         feed.topLists.first { $0.kugouRankID == "8888" }
