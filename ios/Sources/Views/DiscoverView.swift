@@ -169,90 +169,110 @@ struct DiscoverView: View {
             HStack(alignment: .top, spacing: gap) {
 
                 // ========== 大卡 1 ==========
-                navigable(destination: {
-                    let target = filteredLists.first(where: { $0.kugouRankID == "8888" })
-                                 ?? filteredLists.first
-                    Group { if let target { PlaylistDetailView(playlist: target) } else { EmptyView() } } }, label: {
-                    CoverFeatureCard(
-                        width: bigWidth, height: bigHeight,
-                        coverURL: (isPlayingDaily ? currentCover : nil)
-                            ?? dailySongs.first?.artworkURL
-                            ?? top500Playlist?.coverURL
-                            ?? filteredLists.first?.coverURL,
-                        title: "每日推荐", subtitle: dailySubtitle,
-                        isPlaying: isPlayingDaily,
-                        onPlay: {
-                            if isPlayingDaily { store.pause() } else { playDailyAll() }
+                navigable(
+                    destination: {
+                        Group {
+                            if let t = filteredLists.first(where: { $0.kugouRankID == "8888" })
+                                       ?? filteredLists.first {
+                                PlaylistDetailView(playlist: t)
+                            } else { EmptyView() }
                         }
-                    )
-                    .frame(width: bigWidth, height: bigHeight)
-                })
+                    },
+                    label: {
+                        CoverFeatureCard(
+                            width: bigWidth, height: bigHeight,
+                            coverURL: (isPlayingDaily ? currentCover : nil)
+                                ?? dailySongs.first?.artworkURL
+                                ?? top500Playlist?.coverURL
+                                ?? filteredLists.first?.coverURL,
+                            title: "每日推荐", subtitle: dailySubtitle,
+                            isPlaying: isPlayingDaily,
+                            onPlay: {
+                                if isPlayingDaily { store.pause() } else { playDailyAll() }
+                            }
+                        )
+                        .frame(width: bigWidth, height: bigHeight)
+                    }
+                )
                 .frame(width: bigWidth, height: bigHeight)
                 .clipped()
 
                 // ========== 大卡 2 ==========
-                navigable(destination: {
-                    let target = filteredLists.first(where: { $0.kugouRankID == "52144" })
-                                 ?? filteredLists.first
-                    Group { if let target { PlaylistDetailView(playlist: target) } else { EmptyView() } } }, label: {
-                    CoverFeatureCard(
-                        width: bigWidth, height: bigHeight,
-                        coverURL: (isPlayingGuess ? currentCover : nil)
-                            ?? guessSongs.first?.artworkURL,
-                        title: "猜你喜欢", subtitle: guessSubtitle,
-                        isPlaying: isPlayingGuess,
-                        onPlay: {
-                            if isPlayingGuess { store.pause() } else { playGuessAll() }
+                navigable(
+                    destination: {
+                        Group {
+                            if let t = filteredLists.first(where: { $0.kugouRankID == "52144" })
+                                       ?? filteredLists.first {
+                                PlaylistDetailView(playlist: t)
+                            } else { EmptyView() }
                         }
-                    )
-                    .frame(width: bigWidth, height: bigHeight)
-                })
+                    },
+                    label: {
+                        CoverFeatureCard(
+                            width: bigWidth, height: bigHeight,
+                            coverURL: (isPlayingGuess ? currentCover : nil)
+                                ?? guessSongs.first?.artworkURL,
+                            title: "猜你喜欢", subtitle: guessSubtitle,
+                            isPlaying: isPlayingGuess,
+                            onPlay: {
+                                if isPlayingGuess { store.pause() } else { playGuessAll() }
+                            }
+                        )
+                        .frame(width: bigWidth, height: bigHeight)
+                    }
+                )
                 .frame(width: bigWidth, height: bigHeight)
                 .clipped()
 
                 // ========== 两小叠加 ==========
                 VStack(spacing: gap) {
-                    navigable(destination: {
-                        if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
-                            PlaylistDetailView(playlist: favRank)
-                        } else if !filteredLists.isEmpty {
-                            PlaylistDetailView(playlist: filteredLists[0])
-                        } else {
-                            EmptyView()
+                    navigable(
+                        destination: {
+                            Group {
+                                if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
+                                    PlaylistDetailView(playlist: favRank)
+                                } else if !filteredLists.isEmpty {
+                                    PlaylistDetailView(playlist: filteredLists[0])
+                                } else { EmptyView() }
+                            }
+                        },
+                        label: {
+                            IconFeatureCard(
+                                width: smallStackWidth, desiredHeight: smallCardHeight,
+                                title: "百万收藏", systemIcon: "heart.fill",
+                                gradientColors: [
+                                    Color(red: 1.0, green: 0.47, blue: 0.33),
+                                    Color(red: 0.94, green: 0.28, blue: 0.42)
+                                ]
+                            )
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
-                    }, label: {
-                    IconFeatureCard(
-                            width: smallStackWidth, desiredHeight: smallCardHeight,
-                            title: "百万收藏", systemIcon: "heart.fill",
-                            gradientColors: [
-                                Color(red: 1.0, green: 0.47, blue: 0.33),
-                                Color(red: 0.94, green: 0.28, blue: 0.42)
-                            ]
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    })
+                    )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
 
-                    navigable(destination: {
-                        if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
-                            PlaylistDetailView(playlist: newRank)
-                        } else if !filteredLists.isEmpty {
-                            PlaylistDetailView(playlist: filteredLists[0])
-                        } else {
-                            EmptyView()
+                    navigable(
+                        destination: {
+                            Group {
+                                if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
+                                    PlaylistDetailView(playlist: newRank)
+                                } else if !filteredLists.isEmpty {
+                                    PlaylistDetailView(playlist: filteredLists[0])
+                                } else { EmptyView() }
+                            }
+                        },
+                        label: {
+                            IconFeatureCard(
+                                width: smallStackWidth, desiredHeight: smallCardHeight,
+                                title: "新歌推荐", systemIcon: "music.note",
+                                gradientColors: [
+                                    Color(red: 1.0, green: 0.72, blue: 0.35),
+                                    Color(red: 1.0, green: 0.45, blue: 0.30)
+                                ]
+                            )
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
-                    }, label: {
-                    IconFeatureCard(
-                            width: smallStackWidth, desiredHeight: smallCardHeight,
-                            title: "新歌推荐", systemIcon: "music.note",
-                            gradientColors: [
-                                Color(red: 1.0, green: 0.72, blue: 0.35),
-                                Color(red: 1.0, green: 0.45, blue: 0.30)
-                            ]
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    })
+                    )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
                 }
@@ -260,21 +280,28 @@ struct DiscoverView: View {
                 .clipped()
 
                 // ========== 额外大卡让 ScrollView 可横滚 ==========
-                navigable(destination: {
-                    let target = filteredLists.first(where: { $0.kugouRankID == "24971" })
-                                 ?? filteredLists.first
-                    Group { if let target { PlaylistDetailView(playlist: target) } else { EmptyView() } } }, label: {
-                    CoverFeatureCard(
-                        width: bigWidth, height: bigHeight,
-                        coverURL: filteredLists.prefix(3).last?.coverURL
-                            ?? filteredLists.first?.coverURL,
-                        title: "DJ热歌榜",
-                        subtitle: filteredLists.prefix(3).last?.name ?? "",
-                        isPlaying: false,
-                        onPlay: { playDailyAll() }
-                    )
-                    .frame(width: bigWidth, height: bigHeight)
-                })
+                navigable(
+                    destination: {
+                        Group {
+                            if let t = filteredLists.first(where: { $0.kugouRankID == "24971" })
+                                       ?? filteredLists.first {
+                                PlaylistDetailView(playlist: t)
+                            } else { EmptyView() }
+                        }
+                    },
+                    label: {
+                        CoverFeatureCard(
+                            width: bigWidth, height: bigHeight,
+                            coverURL: filteredLists.prefix(3).last?.coverURL
+                                ?? filteredLists.first?.coverURL,
+                            title: "DJ热歌榜",
+                            subtitle: filteredLists.prefix(3).last?.name ?? "",
+                            isPlaying: false,
+                            onPlay: { playDailyAll() }
+                        )
+                        .frame(width: bigWidth, height: bigHeight)
+                    }
+                )
                 .frame(width: bigWidth, height: bigHeight)
                 .clipped()
             }
