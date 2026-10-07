@@ -109,7 +109,8 @@ struct CoverImage: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(colors: ArtworkPaletteEngine.palette(for: nil, seed: seed).gradient,
+            // 兜底统一纯白背景
+            LinearGradient(colors: [Color(white: 0.97), Color(white: 0.93)],
                            startPoint: .topLeading,
                            endPoint: .bottomTrailing)
             if let image {

@@ -133,26 +133,24 @@ struct DiscoverView: View {
 
     private var recommendContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            hotRanksSection         // 热门榜单提到最上面
             bigCardsGrid
             moodGreeting
             artistsSection
         }
     }
 
-    // MARK: 两大卡 + 三小卡叠加 横向滚动
-    // 三张小卡堆总高度 = bigHeight，每张小卡 (bigHeight - 2*gap) / 3
+    // MARK: 大卡横排（每日推荐 + 猜你喜欢）+ 精选榜单每2张小卡叠加
 
     private var bigCardsGrid: some View {
         let sidePadding: CGFloat = 16
         let screenW = UIScreen.main.bounds.width
         let gap: CGFloat = 10
-        // 卡片整体缩小到 0.75
+        // 卡片整体缩小到 0.55
         let rawWidth = (screenW - sidePadding * 2 - gap) / 2
-        let bigWidth = rawWidth * 0.75
+        let bigWidth = rawWidth * 0.55
         let bigHeight = bigWidth * 1.5
-        // 三张小卡等高：(bigHeight - 2*gap) / 3，底部 Spacer 兜底
-        let smallCardHeight = (bigHeight - gap * 2) / 3
+        // 两小卡叠加：(bigHeight - gap) / 2
+        let smallCardHeight = (bigHeight - gap) / 2
 
         let isPlayingDaily = store.queueID == "daily" && store.isPlaying
         let isPlayingGuess = store.queueID == "guess" && store.isPlaying
@@ -167,10 +165,54 @@ struct DiscoverView: View {
                 }
         }
 
+        // 小卡叠加容器：VStack + 2张小卡 + 外层 clipped + 锁高度
+        func smallCardGroup<Top: View, Bottom: View>(
+            top: () -> Top, bottom: () -> Bottom
+        ) -> some View {
+            VStack(spacing: 0) {
+                top().frame(width: smallCardHeight, height: smallCardHeight)
+                Spacer(minLength: 0).frame(height: gap)
+                bottom().frame(width: smallCardHeight, height: smallCardHeight)
+            }
+            .frame(width: smallCardHeight, height: bigHeight, alignment: .top)
+            .frame(maxHeight: bigHeight, alignment: .top)
+            .clipped()
+        }
+
+        // 精选榜单 → 每2个一组做小卡叠加
+        let ranks = Array(filteredLists.prefix(5))
+        // 把 ranks 按 2 个一组打包
+        let groups: [(Playlist?, Playlist?)] = stride(from: 0, to: ranks.count, by: 2).map { i in
+            (ranks[i], i + 1 < ranks.count ? ranks[i + 1] : nil)
+        }
+
+        // Playlist → 封面小卡（正方形 CoverFeatureCard）
+        func rankCard(_ playlist: Playlist?) -> some View {
+            Group {
+                if let playlist {
+                    navigable(
+                        destination: { PlaylistDetailView(playlist: playlist) },
+                        label: {
+                            CoverFeatureCard(
+                                width: smallCardHeight, height: smallCardHeight,
+                                coverURL: playlist.coverURL,
+                                title: playlist.name,
+                                subtitle: "\(playlist.songCount) 首",
+                                isPlaying: false
+                            )
+                        }
+                    )
+                } else {
+                    Color.clear
+                        .frame(width: smallCardHeight, height: smallCardHeight)
+                }
+            }
+        }
+
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: gap) {
 
-                // ========== 大卡 1：每日推荐 ==========
+                // ========== 1. 每日推荐（大卡） ==========
                 navigable(
                     destination: {
                         Group {
@@ -196,7 +238,7 @@ struct DiscoverView: View {
                 .frame(width: bigWidth, height: bigHeight, alignment: .topLeading)
                 .frame(maxHeight: bigHeight, alignment: .top)
 
-                // ========== 大卡 2：猜你喜欢 ==========
+                // ========== 2. 猜你喜欢（大卡） ==========
                 navigable(
                     destination: {
                         Group {
@@ -220,92 +262,29 @@ struct DiscoverView: View {
                 .frame(width: bigWidth, height: bigHeight, alignment: .topLeading)
                 .frame(maxHeight: bigHeight, alignment: .top)
 
-                // ========== 三张小卡叠加 ==========
-                VStack(spacing: 0) {
-                    navigable(
-                        destination: {
-                            Group {
-                                if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
-                                    PlaylistDetailView(playlist: favRank)
-                                } else if !filteredLists.isEmpty {
-                                    PlaylistDetailView(playlist: filteredLists[0])
-                                } else { EmptyView() }
-                            }
-                        },
-                        label: {
-                            IconFeatureCard(
-                                width: smallCardHeight, desiredHeight: smallCardHeight,
-                                title: "百万收藏", systemIcon: "heart.fill",
-                                gradientColors: [
-                                    Color(red: 1.0, green: 0.47, blue: 0.33),
-                                    Color(red: 0.94, green: 0.28, blue: 0.42)
-                                ]
-                            )
-                            .frame(width: smallCardHeight, height: smallCardHeight)
-                        }
+                // ========== 精选榜单：每 2 个一组小卡叠加 ==========
+                ForEach(Array(groups.enumerated()), id: \.offset) { _, pair in
+                    smallCardGroup(
+                        top: { rankCard(pair.0) },
+                        bottom: { rankCard(pair.1) }
                     )
-                    .frame(width: smallCardHeight, height: smallCardHeight)
-
-                    Spacer(minLength: 0).frame(height: gap)
-
-                    navigable(
-                        destination: {
-                            Group {
-                                if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
-                                    PlaylistDetailView(playlist: newRank)
-                                } else if !filteredLists.isEmpty {
-                                    PlaylistDetailView(playlist: filteredLists[0])
-                                } else { EmptyView() }
-                            }
-                        },
-                        label: {
-                            IconFeatureCard(
-                                width: smallCardHeight, desiredHeight: smallCardHeight,
-                                title: "新歌推荐", systemIcon: "music.note",
-                                gradientColors: [
-                                    Color(red: 1.0, green: 0.72, blue: 0.35),
-                                    Color(red: 1.0, green: 0.45, blue: 0.30)
-                                ]
-                            )
-                            .frame(width: smallCardHeight, height: smallCardHeight)
-                        }
-                    )
-                    .frame(width: smallCardHeight, height: smallCardHeight)
-
-                    Spacer(minLength: 0).frame(height: gap)
-
-                    navigable(
-                        destination: {
-                            Group {
-                                if let djRank = filteredLists.first(where: { $0.kugouRankID == "24971" }) {
-                                    PlaylistDetailView(playlist: djRank)
-                                } else if !filteredLists.isEmpty {
-                                    PlaylistDetailView(playlist: filteredLists[0])
-                                } else { EmptyView() }
-                            }
-                        },
-                        label: {
-                            IconFeatureCard(
-                                width: smallCardHeight, desiredHeight: smallCardHeight,
-                                title: "DJ热歌榜", systemIcon: "music.disc",
-                                gradientColors: [
-                                    Color(red: 0.45, green: 0.35, blue: 0.85),
-                                    Color(red: 0.22, green: 0.60, blue: 0.92)
-                                ]
-                            )
-                            .frame(width: smallCardHeight, height: smallCardHeight)
-                        }
-                    )
-                    .frame(width: smallCardHeight, height: smallCardHeight)
                 }
-                .frame(width: smallCardHeight, height: bigHeight, alignment: .top)
-                .frame(maxHeight: bigHeight, alignment: .top)
-                .clipped()
             }
             .frame(height: bigHeight)
             .padding(.horizontal, sidePadding)
         }
         .frame(height: bigHeight + 4)
+    }
+
+    /// 榜单 rankID → SF Symbol 图标
+    private func rankIcon(for rankID: String?) -> String {
+        switch rankID {
+        case "85432", "82831": return "heart.fill"       // 百万收藏 / 网络热歌榜
+        case "6666":           return "music.note"       // 飙升榜 / 新歌推荐
+        case "52144":          return "sparkles"         // 短视频热歌榜
+        case "24971":          return "music.disc"      // DJ热歌榜
+        default:               return "list.bullet.indent"
+        }
     }
 
     /// 酷狗 TOP500 旗舰榜单（rankid=8888）
@@ -753,12 +732,12 @@ struct IconFeatureCard: View {
 
             Text(title)
                 .font(.system(size: width * 0.16, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Color(white: 0.15))
                 .padding(10)
 
             Image(systemName: systemIcon)
                 .font(.system(size: min(width, desiredHeight) * 0.55, weight: .light))
-                .foregroundStyle(.white.opacity(0.35))
+                .foregroundStyle(Color(white: 0.45))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 .padding(.trailing, width * 0.12)
                 .padding(.bottom, desiredHeight * 0.18)
