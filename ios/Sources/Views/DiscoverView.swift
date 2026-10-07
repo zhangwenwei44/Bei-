@@ -220,8 +220,8 @@ struct DiscoverView: View {
                 )
                 .frame(width: bigWidth, height: bigHeight)
 
-                // ========== 两小正方形叠加 ==========
-                ZStack(alignment: .topLeading) {
+                // ========== 两小正方形叠加 — VStack + 精确 frame + clipped ==========
+                VStack(spacing: 0) {
                     navigable(
                         destination: {
                             Group {
@@ -233,19 +233,25 @@ struct DiscoverView: View {
                             }
                         },
                         label: {
-                            IconFeatureCard(
-                                width: smallStackWidth, desiredHeight: smallCardHeight,
-                                title: "百万收藏", systemIcon: "heart.fill",
-                                gradientColors: [
-                                    Color(red: 1.0, green: 0.47, blue: 0.33),
-                                    Color(red: 0.94, green: 0.28, blue: 0.42)
-                                ]
-                            )
-                            .frame(width: smallCardHeight, height: smallCardHeight)
+                            ZStack(alignment: .topLeading) {
+                                IconFeatureCard(
+                                    width: smallCardHeight, desiredHeight: smallCardHeight,
+                                    title: "百万收藏", systemIcon: "heart.fill",
+                                    gradientColors: [
+                                        Color(red: 1.0, green: 0.47, blue: 0.33),
+                                        Color(red: 0.94, green: 0.28, blue: 0.42)
+                                    ]
+                                )
+                                Text("1: \(Int(smallCardHeight))")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.white.opacity(0.6))
+                                    .padding(2)
+                            }
                         }
                     )
                     .frame(width: smallCardHeight, height: smallCardHeight)
-                    .offset(y: 0)
+
+                    Spacer(minLength: 0).frame(height: gap)
 
                     navigable(
                         destination: {
@@ -258,24 +264,28 @@ struct DiscoverView: View {
                             }
                         },
                         label: {
-                            IconFeatureCard(
-                                width: smallStackWidth, desiredHeight: smallCardHeight,
-                                title: "新歌推荐", systemIcon: "music.note",
-                                gradientColors: [
-                                    Color(red: 1.0, green: 0.72, blue: 0.35),
-                                    Color(red: 1.0, green: 0.45, blue: 0.30)
-                                ]
-                            )
-                            .frame(width: smallCardHeight, height: smallCardHeight)
+                            ZStack(alignment: .topLeading) {
+                                IconFeatureCard(
+                                    width: smallCardHeight, desiredHeight: smallCardHeight,
+                                    title: "新歌推荐", systemIcon: "music.note",
+                                    gradientColors: [
+                                        Color(red: 1.0, green: 0.72, blue: 0.35),
+                                        Color(red: 1.0, green: 0.45, blue: 0.30)
+                                    ]
+                                )
+                                Text("2: \(Int(smallCardHeight))")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.white.opacity(0.6))
+                                    .padding(2)
+                            }
                         }
                     )
                     .frame(width: smallCardHeight, height: smallCardHeight)
-                    .offset(y: smallCardHeight + gap)
                 }
-                .frame(width: smallStackWidth, height: bigHeight)
+                .frame(width: smallCardHeight, height: bigHeight)
                 .clipped()
 
-                // ========== 额外大卡 ==========
+                // 额外大卡加 debug
                 navigable(
                     destination: {
                         Group {
@@ -286,16 +296,22 @@ struct DiscoverView: View {
                         }
                     },
                     label: {
-                        CoverFeatureCard(
-                            width: bigWidth, height: bigHeight,
-                            coverURL: filteredLists.prefix(3).last?.coverURL
-                                ?? filteredLists.first?.coverURL,
-                            title: "DJ热歌榜",
-                            subtitle: filteredLists.prefix(3).last?.name ?? "",
-                            isPlaying: false,
-                            onPlay: { playDailyAll() }
-                        )
-                        .frame(width: bigWidth, height: bigHeight)
+                        ZStack(alignment: .topLeading) {
+                            CoverFeatureCard(
+                                width: bigWidth, height: bigHeight,
+                                coverURL: filteredLists.prefix(3).last?.coverURL
+                                    ?? filteredLists.first?.coverURL,
+                                title: "DJ热歌榜",
+                                subtitle: filteredLists.prefix(3).last?.name ?? "",
+                                isPlaying: false,
+                                onPlay: { playDailyAll() }
+                            )
+                            .frame(width: bigWidth, height: bigHeight)
+                            Text("BIG=\(Int(bigHeight)) gap=\(gap)")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.white.opacity(0.7))
+                                .padding(2)
+                        }
                     }
                 )
                 .frame(width: bigWidth, height: bigHeight)
