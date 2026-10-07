@@ -155,7 +155,7 @@ struct DiscoverView: View {
         // 正在播放哪一个歌单？——用来显示封面 + isPlaying 状态
         let isPlayingDaily = store.queueID == "daily" && store.isPlaying
         let isPlayingGuess = store.queueID == "guess" && store.isPlaying
-        let currentCover = store.currentSong?.artworkURL
+        let currentCover = store.current?.artworkURL
 
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: cardGap) {

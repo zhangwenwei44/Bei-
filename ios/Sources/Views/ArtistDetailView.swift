@@ -71,7 +71,7 @@ struct ArtistDetailView: View {
                     .padding(.vertical, 10)
                     .background(
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(store.accentColor ?? AppStyle.accent)
+                            .fill(AppStyle.accent)
                     )
                 }
                 .buttonStyle(.plain)
