@@ -147,29 +147,33 @@ struct DiscoverView: View {
         let sidePadding: CGFloat = 16
         let screenW = UIScreen.main.bounds.width
         let gap: CGFloat = 10
-        let bigWidth = (screenW - sidePadding * 2 - gap) / 2      // 两大各半屏
+        let bigWidth = (screenW - sidePadding * 2 - gap) / 2
         let bigHeight = bigWidth * 1.5
-        let smallStackWidth = (bigWidth * 2 - gap) / 2            // 小卡堆宽度 ≈ 一个大卡
-        let smallCardHeight = (bigHeight - gap) / 2               // 两小 + gap = bigHeight
+        let smallStackWidth = (bigWidth * 2 - gap) / 2
+        let smallCardHeight = (bigHeight - gap) / 2
 
-        // 播放状态
         let isPlayingDaily = store.queueID == "daily" && store.isPlaying
         let isPlayingGuess = store.queueID == "guess" && store.isPlaying
         let currentCover = store.current?.artworkURL
 
+        // 辅助函数：把 NavigationLink 完全塞进 .overlay，彻底不参与布局
+        func navigable<Label: View>(destination: @escaping () -> some View, label: @escaping () -> Label) -> some View {
+            label()
+                .overlay(alignment: .center) {
+                    NavigationLink { destination() } label: { Color.clear }
+                        .buttonStyle(.plain)
+                }
+        }
+
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: gap) {
 
-                // ========== 大卡 1：每日推荐 ==========
-                ZStack {
-                    // 幽灵 link：Color.clear 无 intrinsic size，完全不干扰布局
-                    NavigationLink {
-                        let target = filteredLists.first(where: { $0.kugouRankID == "8888" })
-                                     ?? filteredLists.first
-                        if let target { PlaylistDetailView(playlist: target) }
-                    } label: { Color.clear }
-
-                    // 实际内容
+                // ========== 大卡 1 ==========
+                navigable(destination: {
+                    let target = filteredLists.first(where: { $0.kugouRankID == "8888" })
+                                 ?? filteredLists.first
+                    if let target { PlaylistDetailView(playlist: target) }
+                }, label: {
                     CoverFeatureCard(
                         width: bigWidth, height: bigHeight,
                         coverURL: (isPlayingDaily ? currentCover : nil)
@@ -182,18 +186,17 @@ struct DiscoverView: View {
                             if isPlayingDaily { store.pause() } else { playDailyAll() }
                         }
                     )
-                }
+                    .frame(width: bigWidth, height: bigHeight)
+                })
                 .frame(width: bigWidth, height: bigHeight)
                 .clipped()
 
-                // ========== 大卡 2：猜你喜欢 ==========
-                ZStack {
-                    NavigationLink {
-                        let target = filteredLists.first(where: { $0.kugouRankID == "52144" })
-                                     ?? filteredLists.first
-                        if let target { PlaylistDetailView(playlist: target) }
-                    } label: { Color.clear }
-
+                // ========== 大卡 2 ==========
+                navigable(destination: {
+                    let target = filteredLists.first(where: { $0.kugouRankID == "52144" })
+                                 ?? filteredLists.first
+                    if let target { PlaylistDetailView(playlist: target) }
+                }, label: {
                     CoverFeatureCard(
                         width: bigWidth, height: bigHeight,
                         coverURL: (isPlayingGuess ? currentCover : nil)
@@ -204,66 +207,62 @@ struct DiscoverView: View {
                             if isPlayingGuess { store.pause() } else { playGuessAll() }
                         }
                     )
-                }
+                    .frame(width: bigWidth, height: bigHeight)
+                })
                 .frame(width: bigWidth, height: bigHeight)
                 .clipped()
 
-                // ========== 小卡堆：两小叠加，总高 = bigHeight ==========
+                // ========== 两小叠加 ==========
                 VStack(spacing: gap) {
-                    // 小卡 1：百万收藏
-                    ZStack {
-                        NavigationLink {
-                            if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
-                                PlaylistDetailView(playlist: favRank)
-                            } else if !filteredLists.isEmpty {
-                                PlaylistDetailView(playlist: filteredLists[0])
-                            }
-                        } label: { Color.clear }
-
-                        IconFeatureCard(
-                            width: smallStackWidth, height: smallCardHeight,
+                    navigable(destination: {
+                        if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
+                            PlaylistDetailView(playlist: favRank)
+                        } else if !filteredLists.isEmpty {
+                            PlaylistDetailView(playlist: filteredLists[0])
+                        }
+                    }, label: {
+                    IconFeatureCard(
+                            width: smallStackWidth, desiredHeight: smallCardHeight,
                             title: "百万收藏", systemIcon: "heart.fill",
                             gradientColors: [
                                 Color(red: 1.0, green: 0.47, blue: 0.33),
                                 Color(red: 0.94, green: 0.28, blue: 0.42)
                             ]
                         )
-                    }
-                    .frame(width: smallStackWidth, height: smallCardHeight)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
 
-                    // 小卡 2：新歌推荐
-                    ZStack {
-                        NavigationLink {
-                            if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
-                                PlaylistDetailView(playlist: newRank)
-                            } else if !filteredLists.isEmpty {
-                                PlaylistDetailView(playlist: filteredLists[0])
-                            }
-                        } label: { Color.clear }
-
-                        IconFeatureCard(
-                            width: smallStackWidth, height: smallCardHeight,
+                    navigable(destination: {
+                        if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
+                            PlaylistDetailView(playlist: newRank)
+                        } else if !filteredLists.isEmpty {
+                            PlaylistDetailView(playlist: filteredLists[0])
+                        }
+                    }, label: {
+                    IconFeatureCard(
+                            width: smallStackWidth, desiredHeight: smallCardHeight,
                             title: "新歌推荐", systemIcon: "music.note",
                             gradientColors: [
                                 Color(red: 1.0, green: 0.72, blue: 0.35),
                                 Color(red: 1.0, green: 0.45, blue: 0.30)
                             ]
                         )
-                    }
-                    .frame(width: smallStackWidth, height: smallCardHeight)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
                 }
                 .frame(width: smallStackWidth, height: bigHeight)
+                .clipped()
 
-                // 右边再放一张额外的每日推荐（让 ScrollView 横向可滚）
-                ZStack {
-                    NavigationLink {
-                        let target = filteredLists.first(where: { $0.kugouRankID == "24971" })
-                                     ?? filteredLists.first
-                        if let target { PlaylistDetailView(playlist: target) }
-                    } label: { Color.clear }
-
+                // ========== 额外大卡让 ScrollView 可横滚 ==========
+                navigable(destination: {
+                    let target = filteredLists.first(where: { $0.kugouRankID == "24971" })
+                                 ?? filteredLists.first
+                    if let target { PlaylistDetailView(playlist: target) }
+                }, label: {
                     CoverFeatureCard(
                         width: bigWidth, height: bigHeight,
                         coverURL: filteredLists.prefix(3).last?.coverURL
@@ -273,7 +272,8 @@ struct DiscoverView: View {
                         isPlaying: false,
                         onPlay: { playDailyAll() }
                     )
-                }
+                    .frame(width: bigWidth, height: bigHeight)
+                })
                 .frame(width: bigWidth, height: bigHeight)
                 .clipped()
             }
@@ -714,7 +714,7 @@ struct CoverFeatureCard: View {
 /// 渐变背景 + 大图标 + 左上角标题。
 struct IconFeatureCard: View {
     let width: CGFloat
-    let height: CGFloat
+    let desiredHeight: CGFloat   // 仅用于内部计算字号/图标大小，不锁死 frame
     let title: String
     let systemIcon: String
     let gradientColors: [Color]
@@ -725,22 +725,19 @@ struct IconFeatureCard: View {
                            startPoint: .topLeading,
                            endPoint: .bottomTrailing)
 
-            // 标题（左上角）
             Text(title)
                 .font(.system(size: width * 0.16, weight: .bold))
                 .foregroundStyle(.white)
                 .padding(10)
 
-            // 大图标（右下偏中，用 frame+alignment 放在右下区域 ——
-            // 比 .position 好：不影响父容器尺寸计算，布局安全）
             Image(systemName: systemIcon)
-                .font(.system(size: min(width, height) * 0.55, weight: .light))
+                .font(.system(size: min(width, desiredHeight) * 0.55, weight: .light))
                 .foregroundStyle(.white.opacity(0.35))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 .padding(.trailing, width * 0.12)
-                .padding(.bottom, height * 0.18)
+                .padding(.bottom, desiredHeight * 0.18)
         }
-        .frame(width: width, height: height)
+        .frame(width: width)   // 只锁宽度，高度由外层 frame 决定
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
