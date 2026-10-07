@@ -140,18 +140,14 @@ struct DiscoverView: View {
         }
     }
 
-    // MARK: 两大两小横向滚动卡片（左两大 + 右两小叠加）
-    // 技术方案：NavigationLink 藏在 ZStack 底层做 Color.clear 幽灵，彻底消灭 padding 干扰
+    // MARK: 四大卡横向滚动（全部同高度 bigWidth × bigHeight，天然对齐）
 
     private var bigCardsGrid: some View {
         let sidePadding: CGFloat = 16
         let screenW = UIScreen.main.bounds.width
         let gap: CGFloat = 10
-        // 大卡：半屏宽度，正方形（酷我就是正方形大卡）
         let bigWidth = (screenW - sidePadding * 2 - gap) / 2
-        let bigHeight = bigWidth * 1.5                              // 大卡保持竖长方形
-        // 小卡：比 bigHeight 半高小 5pt，底部留 Spacer 吸收剩余 → 绝不可能超高
-        let smallCardSize = max(80, (bigHeight - gap) / 2 - 5)
+        let bigHeight = bigWidth * 1.5
 
         let isPlayingDaily = store.queueID == "daily" && store.isPlaying
         let isPlayingGuess = store.queueID == "guess" && store.isPlaying
@@ -166,10 +162,52 @@ struct DiscoverView: View {
                 }
         }
 
+        // 封面大卡（每日推荐 / 猜你喜欢 / DJ热歌榜 / 短视频热歌榜）
+        func coverCard(
+            title: String,
+            subtitle: String,
+            coverURL: URL?,
+            isPlaying: Bool = false,
+            onPlay: @escaping () -> Void = {}
+        ) -> some View {
+            CoverFeatureCard(
+                width: bigWidth, height: bigHeight,
+                coverURL: coverURL,
+                title: title, subtitle: subtitle,
+                isPlaying: isPlaying,
+                onPlay: onPlay
+            )
+            .frame(width: bigWidth, height: bigHeight)
+        }
+
+        // 纯功能大卡（渐变 + 大图标，用于百万收藏 / 新歌推荐）
+        func gradientCard(
+            title: String,
+            subtitle: String,
+            systemIcon: String,
+            colors: [Color],
+            destination: @escaping () -> some View
+        ) -> some View {
+            navigable(
+                destination: destination,
+                label: {
+                    CoverFeatureCard(
+                        width: bigWidth, height: bigHeight,
+                        coverURL: nil,
+                        gradientColors: colors,
+                        systemIcon: systemIcon,
+                        title: title, subtitle: subtitle
+                    )
+                    .frame(width: bigWidth, height: bigHeight)
+                }
+            )
+            .frame(width: bigWidth, height: bigHeight)
+        }
+
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: gap) {
 
-                // ========== 大卡 1：每日推荐 ==========
+                // ========== 大卡 1：每日推荐（封面） ==========
                 navigable(
                     destination: {
                         Group {
@@ -180,22 +218,21 @@ struct DiscoverView: View {
                         }
                     },
                     label: {
-                        CoverFeatureCard(
-                            width: bigWidth, height: bigHeight,
+                        coverCard(
+                            title: "每日推荐",
+                            subtitle: dailySubtitle,
                             coverURL: (isPlayingDaily ? currentCover : nil)
                                 ?? dailySongs.first?.artworkURL
                                 ?? top500Playlist?.coverURL
                                 ?? filteredLists.first?.coverURL,
-                            title: "每日推荐", subtitle: dailySubtitle,
                             isPlaying: isPlayingDaily,
                             onPlay: { if isPlayingDaily { store.pause() } else { playDailyAll() } }
                         )
                     }
                 )
-                .frame(width: bigWidth, height: bigHeight, alignment: .topLeading)
-                .frame(maxHeight: bigHeight, alignment: .top)
+                .frame(width: bigWidth, height: bigHeight)
 
-                // ========== 大卡 2：猜你喜欢 ==========
+                // ========== 大卡 2：猜你喜欢（封面） ==========
                 navigable(
                     destination: {
                         Group {
@@ -206,75 +243,81 @@ struct DiscoverView: View {
                         }
                     },
                     label: {
-                        CoverFeatureCard(
-                            width: bigWidth, height: bigHeight,
+                        coverCard(
+                            title: "猜你喜欢",
+                            subtitle: guessSubtitle,
                             coverURL: (isPlayingGuess ? currentCover : nil)
                                 ?? guessSongs.first?.artworkURL,
-                            title: "猜你喜欢", subtitle: guessSubtitle,
                             isPlaying: isPlayingGuess,
                             onPlay: { if isPlayingGuess { store.pause() } else { playGuessAll() } }
                         )
                     }
                 )
-                .frame(width: bigWidth, height: bigHeight, alignment: .topLeading)
-                .frame(maxHeight: bigHeight, alignment: .top)
+                .frame(width: bigWidth, height: bigHeight)
 
-                // ========== 两小正方形叠加 — 缩小 5pt + Spacer 吸收剩余 ==========
-                VStack(alignment: .leading, spacing: gap) {
-                    navigable(
-                        destination: {
-                            Group {
-                                if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
-                                    PlaylistDetailView(playlist: favRank)
-                                } else if !filteredLists.isEmpty {
-                                    PlaylistDetailView(playlist: filteredLists[0])
-                                } else { EmptyView() }
-                            }
-                        },
-                        label: {
-                            IconFeatureCard(
-                                width: smallCardSize, desiredHeight: smallCardSize,
-                                title: "百万收藏", systemIcon: "heart.fill",
-                                gradientColors: [
-                                    Color(red: 1.0, green: 0.47, blue: 0.33),
-                                    Color(red: 0.94, green: 0.28, blue: 0.42)
-                                ]
-                            )
-                            .frame(width: smallCardSize, height: smallCardSize)
+                // ========== 大卡 3：百万收藏（渐变） ==========
+                gradientCard(
+                    title: "百万收藏",
+                    subtitle: "抖音精选",
+                    systemIcon: "heart.fill",
+                    colors: [
+                        Color(red: 1.0, green: 0.47, blue: 0.33),
+                        Color(red: 0.94, green: 0.28, blue: 0.42)
+                    ],
+                    destination: {
+                        Group {
+                            if let favRank = filteredLists.first(where: { $0.kugouRankID == "85432" || $0.kugouRankID == "82831" }) {
+                                PlaylistDetailView(playlist: favRank)
+                            } else if !filteredLists.isEmpty {
+                                PlaylistDetailView(playlist: filteredLists[0])
+                            } else { EmptyView() }
                         }
-                    )
-                    .frame(width: smallCardSize, height: smallCardSize)
+                    }
+                )
 
-                    navigable(
-                        destination: {
-                            Group {
-                                if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
-                                    PlaylistDetailView(playlist: newRank)
-                                } else if !filteredLists.isEmpty {
-                                    PlaylistDetailView(playlist: filteredLists[0])
-                                } else { EmptyView() }
-                            }
-                        },
-                        label: {
-                            IconFeatureCard(
-                                width: smallCardSize, desiredHeight: smallCardSize,
-                                title: "新歌推荐", systemIcon: "music.note",
-                                gradientColors: [
-                                    Color(red: 1.0, green: 0.72, blue: 0.35),
-                                    Color(red: 1.0, green: 0.45, blue: 0.30)
-                                ]
-                            )
-                            .frame(width: smallCardSize, height: smallCardSize)
+                // ========== 大卡 4：新歌推荐（渐变） ==========
+                gradientCard(
+                    title: "新歌推荐",
+                    subtitle: "飙升榜",
+                    systemIcon: "music.note",
+                    colors: [
+                        Color(red: 1.0, green: 0.72, blue: 0.35),
+                        Color(red: 1.0, green: 0.45, blue: 0.30)
+                    ],
+                    destination: {
+                        Group {
+                            if let newRank = filteredLists.first(where: { $0.kugouRankID == "6666" }) {
+                                PlaylistDetailView(playlist: newRank)
+                            } else if !filteredLists.isEmpty {
+                                PlaylistDetailView(playlist: filteredLists[0])
+                            } else { EmptyView() }
                         }
-                    )
-                    .frame(width: smallCardSize, height: smallCardSize)
+                    }
+                )
 
-                    Spacer(minLength: 0)   // 吸收所有剩余空间 → 绝不超高
-                }
-                .frame(width: smallCardSize, height: bigHeight, alignment: .topLeading)
-                .clipped()
+                // ========== 大卡 5：短视频热歌榜（封面） ==========
+                navigable(
+                    destination: {
+                        Group {
+                            if let t = filteredLists.first(where: { $0.kugouRankID == "52144" })
+                                       ?? filteredLists.first {
+                                PlaylistDetailView(playlist: t)
+                            } else { EmptyView() }
+                        }
+                    },
+                    label: {
+                        coverCard(
+                            title: "短视频热歌榜",
+                            subtitle: filteredLists.first(where: { $0.kugouRankID == "52144" })?.name ?? "",
+                            coverURL: filteredLists.first(where: { $0.kugouRankID == "52144" })?.coverURL
+                                ?? filteredLists.first?.coverURL,
+                            onPlay: {}
+                        )
+                    }
+                )
+                .frame(width: bigWidth, height: bigHeight)
 
-                // 额外大卡加 debug
+                // ========== 大卡 6：DJ热歌榜（封面） ==========
                 navigable(
                     destination: {
                         Group {
@@ -285,26 +328,16 @@ struct DiscoverView: View {
                         }
                     },
                     label: {
-                        ZStack(alignment: .topLeading) {
-                            CoverFeatureCard(
-                                width: bigWidth, height: bigHeight,
-                                coverURL: filteredLists.prefix(3).last?.coverURL
-                                    ?? filteredLists.first?.coverURL,
-                                title: "DJ热歌榜",
-                                subtitle: filteredLists.prefix(3).last?.name ?? "",
-                                isPlaying: false,
-                                onPlay: { playDailyAll() }
-                            )
-                            .frame(width: bigWidth, height: bigHeight)
-                            Text("BIG=\(Int(bigHeight)) gap=\(gap)")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white.opacity(0.7))
-                                .padding(2)
-                        }
+                        coverCard(
+                            title: "DJ热歌榜",
+                            subtitle: filteredLists.first(where: { $0.kugouRankID == "24971" })?.name ?? "",
+                            coverURL: filteredLists.first(where: { $0.kugouRankID == "24971" })?.coverURL
+                                ?? filteredLists.first?.coverURL,
+                            onPlay: {}
+                        )
                     }
                 )
-                .frame(width: bigWidth, height: bigHeight, alignment: .topLeading)
-                .frame(maxHeight: bigHeight, alignment: .top)
+                .frame(width: bigWidth, height: bigHeight)
             }
             .frame(height: bigHeight)
             .padding(.horizontal, sidePadding)
@@ -673,13 +706,17 @@ enum DiscoverTab: String, CaseIterable, Hashable {
     }
 }
 
-// MARK: - 封面功能卡（每日推荐 / 猜你喜欢）
+// MARK: - 封面功能卡（每日推荐 / 猜你喜欢 / 百万收藏 / 新歌推荐）
 
-/// 大封面 + 标签叠加 + 底部标题副标题 + 播放按钮。
+/// 大封面（或纯色渐变） + 标签叠加 + 底部标题副标题 + 播放按钮。
 struct CoverFeatureCard: View {
     let width: CGFloat
     let height: CGFloat
     let coverURL: URL?
+    /// 纯功能卡用的渐变背景（传了就不用 coverURL）
+    var gradientColors: [Color]? = nil
+    /// 纯功能卡右下角大图标
+    var systemIcon: String? = nil
     let title: String
     let subtitle: String
     var isPlaying: Bool = false
@@ -689,22 +726,34 @@ struct CoverFeatureCard: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // 封面图
-            CoverImage(url: coverURL,
-                       fallbackKeys: [],
-                       seed: title,
-                       size: min(width, height),
-                       corner: corner)
-                .frame(width: width, height: height)
+            // 背景：要么封面图，要么渐变 + 大图标
+            if let gradientColors {
+                LinearGradient(colors: gradientColors,
+                               startPoint: .topLeading,
+                               endPoint: .bottomTrailing)
+                    .frame(width: width, height: height)
+                if let systemIcon {
+                    Image(systemName: systemIcon)
+                        .font(.system(size: min(width, height) * 0.45, weight: .light))
+                        .foregroundStyle(.white.opacity(0.35))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                               alignment: .bottomTrailing)
+                        .padding(.trailing, width * 0.12)
+                        .padding(.bottom, height * 0.18)
+                }
+            } else {
+                CoverImage(url: coverURL,
+                           fallbackKeys: [],
+                           seed: title,
+                           size: min(width, height),
+                           corner: corner)
+                    .frame(width: width, height: height)
 
-            // 底部黑色半透明渐变遮罩
-            VStack(alignment: .leading, spacing: 0) {
-                Spacer()
-                LinearGradient(colors: [.clear, Color.black.opacity(0.75)],
+                // 底部黑色半透明渐变遮罩（有封面才加）
+                LinearGradient(colors: [.clear, Color.black.opacity(0.55)],
                                startPoint: .top, endPoint: .bottom)
-                    .frame(height: height * 0.5)
+                    .frame(width: width, height: height)
             }
-            .frame(width: width, height: height)
 
             // 标题 + 副标题 + 播放按钮（底部）
             HStack(alignment: .bottom) {
