@@ -190,10 +190,10 @@ struct DiscoverView: View {
                             isPlaying: isPlayingDaily,
                             onPlay: { if isPlayingDaily { store.pause() } else { playDailyAll() } }
                         )
-                        .frame(width: bigWidth, height: bigHeight)
                     }
                 )
-                .frame(width: bigWidth, height: bigHeight)
+                .frame(width: bigWidth, height: bigHeight, alignment: .topLeading)
+                .frame(maxHeight: bigHeight, alignment: .top)
 
                 // ========== 大卡 2：猜你喜欢 ==========
                 navigable(
@@ -214,10 +214,10 @@ struct DiscoverView: View {
                             isPlaying: isPlayingGuess,
                             onPlay: { if isPlayingGuess { store.pause() } else { playGuessAll() } }
                         )
-                        .frame(width: bigWidth, height: bigHeight)
                     }
                 )
-                .frame(width: bigWidth, height: bigHeight)
+                .frame(width: bigWidth, height: bigHeight, alignment: .topLeading)
+                .frame(maxHeight: bigHeight, alignment: .top)
 
                 // ========== 两小叠加 — 上小 topCardHeight，下小 bottomCardHeight ==========
                 VStack(spacing: 0) {
@@ -232,20 +232,15 @@ struct DiscoverView: View {
                             }
                         },
                         label: {
-                            ZStack(alignment: .topLeading) {
-                                IconFeatureCard(
-                                    width: topCardHeight, desiredHeight: topCardHeight,
-                                    title: "百万收藏", systemIcon: "heart.fill",
-                                    gradientColors: [
-                                        Color(red: 1.0, green: 0.47, blue: 0.33),
-                                        Color(red: 0.94, green: 0.28, blue: 0.42)
-                                    ]
-                                )
-                                Text("1:\(Int(topCardHeight))")
-                                    .font(.system(size: 8))
-                                    .foregroundStyle(.white.opacity(0.5))
-                                    .padding(2)
-                            }
+                            IconFeatureCard(
+                                width: topCardHeight, desiredHeight: topCardHeight,
+                                title: "百万收藏", systemIcon: "heart.fill",
+                                gradientColors: [
+                                    Color(red: 1.0, green: 0.47, blue: 0.33),
+                                    Color(red: 0.94, green: 0.28, blue: 0.42)
+                                ]
+                            )
+                            .frame(width: topCardHeight, height: topCardHeight)
                         }
                     )
                     .frame(width: topCardHeight, height: topCardHeight)
@@ -263,25 +258,21 @@ struct DiscoverView: View {
                             }
                         },
                         label: {
-                            ZStack(alignment: .topLeading) {
-                                IconFeatureCard(
-                                    width: bottomCardHeight, desiredHeight: bottomCardHeight,
-                                    title: "新歌推荐", systemIcon: "music.note",
-                                    gradientColors: [
-                                        Color(red: 1.0, green: 0.72, blue: 0.35),
-                                        Color(red: 1.0, green: 0.45, blue: 0.30)
-                                    ]
-                                )
-                                Text("2:\(Int(bottomCardHeight))")
-                                    .font(.system(size: 8))
-                                    .foregroundStyle(.white.opacity(0.5))
-                                    .padding(2)
-                            }
+                            IconFeatureCard(
+                                width: bottomCardHeight, desiredHeight: bottomCardHeight,
+                                title: "新歌推荐", systemIcon: "music.note",
+                                gradientColors: [
+                                    Color(red: 1.0, green: 0.72, blue: 0.35),
+                                    Color(red: 1.0, green: 0.45, blue: 0.30)
+                                ]
+                            )
+                            .frame(width: bottomCardHeight, height: bottomCardHeight)
                         }
                     )
                     .frame(width: bottomCardHeight, height: bottomCardHeight)
                 }
-                .frame(width: topCardHeight, height: bigHeight)
+                .frame(width: topCardHeight, height: bigHeight, alignment: .top)
+                .frame(maxHeight: bigHeight, alignment: .top)
                 .clipped()
 
                 // 额外大卡加 debug
@@ -313,7 +304,8 @@ struct DiscoverView: View {
                         }
                     }
                 )
-                .frame(width: bigWidth, height: bigHeight)
+                .frame(width: bigWidth, height: bigHeight, alignment: .topLeading)
+                .frame(maxHeight: bigHeight, alignment: .top)
             }
             .frame(height: bigHeight)
             .padding(.horizontal, sidePadding)
