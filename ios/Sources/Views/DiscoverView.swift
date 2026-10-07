@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 
 /// 发现页（新版）。Tab 栏 → 搜索框 → 2×2 宫格卡片 → 心情问候 + 歌曲列表 → 热门榜单。
 struct DiscoverView: View {
@@ -172,8 +172,7 @@ struct DiscoverView: View {
                 navigable(destination: {
                     let target = filteredLists.first(where: { $0.kugouRankID == "8888" })
                                  ?? filteredLists.first
-                    if let target { PlaylistDetailView(playlist: target) }
-                }, label: {
+                    Group { if let target { PlaylistDetailView(playlist: target) } else { EmptyView() } } }, label: {
                     CoverFeatureCard(
                         width: bigWidth, height: bigHeight,
                         coverURL: (isPlayingDaily ? currentCover : nil)
@@ -195,8 +194,7 @@ struct DiscoverView: View {
                 navigable(destination: {
                     let target = filteredLists.first(where: { $0.kugouRankID == "52144" })
                                  ?? filteredLists.first
-                    if let target { PlaylistDetailView(playlist: target) }
-                }, label: {
+                    Group { if let target { PlaylistDetailView(playlist: target) } else { EmptyView() } } }, label: {
                     CoverFeatureCard(
                         width: bigWidth, height: bigHeight,
                         coverURL: (isPlayingGuess ? currentCover : nil)
@@ -219,6 +217,8 @@ struct DiscoverView: View {
                             PlaylistDetailView(playlist: favRank)
                         } else if !filteredLists.isEmpty {
                             PlaylistDetailView(playlist: filteredLists[0])
+                        } else {
+                            EmptyView()
                         }
                     }, label: {
                     IconFeatureCard(
@@ -239,6 +239,8 @@ struct DiscoverView: View {
                             PlaylistDetailView(playlist: newRank)
                         } else if !filteredLists.isEmpty {
                             PlaylistDetailView(playlist: filteredLists[0])
+                        } else {
+                            EmptyView()
                         }
                     }, label: {
                     IconFeatureCard(
@@ -261,8 +263,7 @@ struct DiscoverView: View {
                 navigable(destination: {
                     let target = filteredLists.first(where: { $0.kugouRankID == "24971" })
                                  ?? filteredLists.first
-                    if let target { PlaylistDetailView(playlist: target) }
-                }, label: {
+                    Group { if let target { PlaylistDetailView(playlist: target) } else { EmptyView() } } }, label: {
                     CoverFeatureCard(
                         width: bigWidth, height: bigHeight,
                         coverURL: filteredLists.prefix(3).last?.coverURL
