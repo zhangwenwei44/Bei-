@@ -79,11 +79,16 @@ struct PlaylistDetailView: View {
 
     @EnvironmentObject private var store: PlayerStore
     @ObservedObject private var library = LibraryStore.shared
+    @ObservedObject private var downloads = DownloadManager.shared
     @State private var songs: [Song] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var isCollected = false
     @State private var didLoadCollection = false
+
+    // 多选
+    @State private var isSelecting = false
+    @State private var selectedIDs: Set<String> = []
 
     private var displaySongs: [Song] {
         if let localPlaylist { return library.songs(in: localPlaylist) }
@@ -107,21 +112,39 @@ struct PlaylistDetailView: View {
                     actionBar
                     VStack(spacing: 0) {
                         ForEach(displaySongs) { song in
-                            SongRow(song: song,
-                                    isCurrent: store.current?.id == song.id,
-                                    isPlaying: store.isPlaying)
-                                .songMenu(song)
-                                .padding(.horizontal, 16)
-                                .onTapGesture { play(song) }
-                                .contextMenu {
-                                    if let localPlaylist {
-                                        Button(role: .destructive) {
-                                            library.remove(song, fromPlaylist: localPlaylist.id)
-                                        } label: {
-                                            Label("从歌单移除", systemImage: "minus.circle")
+                            let selected = selectedIDs.contains(song.id)
+                            HStack(spacing: 0) {
+                                if isSelecting {
+                                    Button {
+                                        if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
+                                    } label: {
+                                        Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                                            .font(.system(size: 24))
+                                            .foregroundStyle(selected ? AppStyle.accent : AppStyle.tertiaryText)
+                                            .frame(width: 44, height: 44)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                SongRow(song: song,
+                                        isCurrent: store.current?.id == song.id,
+                                        isPlaying: store.isPlaying)
+                                    .songMenu(song)
+                                    .padding(.horizontal, 16)
+                                    .onTapGesture {
+                                        if isSelecting {
+                                            if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
+                                        } else { play(song) }
+                                    }
+                                    .contextMenu {
+                                        if let localPlaylist {
+                                            Button(role: .destructive) {
+                                                library.remove(song, fromPlaylist: localPlaylist.id)
+                                            } label: {
+                                                Label("从歌单移除", systemImage: "minus.circle")
+                                            }
                                         }
                                     }
-                                }
+                            }
                         }
                     }
                 }
@@ -131,16 +154,72 @@ struct PlaylistDetailView: View {
         .background(AppStyle.background)
         .navigationTitle(playlist.name)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if localPlaylist == nil {
-                ToolbarItem(placement: .topBarTrailing) {
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting, !selectedIDs.isEmpty {
+                let selected = displaySongs.filter { selectedIDs.contains($0.id) }
+                HStack(spacing: 0) {
                     Button {
-                        isCollected.toggle()
-                        CollectionState.set(isCollected, for: playlist.id)
-                        Haptics.light()
+                        store.play(selected); Haptics.soft()
+                        isSelecting = false; selectedIDs.removeAll()
                     } label: {
-                        Image(systemName: isCollected ? "heart.fill" : "heart")
-                            .foregroundStyle(isCollected ? AppStyle.like : AppStyle.primaryText)
+                        VStack(spacing: 4) { Image(systemName: "play.fill").font(.system(size: 18)); Text("播放").font(.system(size: 11)) }
+                            .foregroundStyle(AppStyle.primaryText).frame(maxWidth: .infinity).padding(.vertical, 12)
+                    }.buttonStyle(.plain)
+                    Divider().frame(height: 24)
+                    Button {
+                        Task { for song in selected { if song.isRemote { _ = try? await downloads.download(song) } } }
+                        Haptics.soft(); isSelecting = false; selectedIDs.removeAll()
+                    } label: {
+                        VStack(spacing: 4) { Image(systemName: "arrow.down.circle").font(.system(size: 18)); Text("下载").font(.system(size: 11)) }
+                            .foregroundStyle(AppStyle.primaryText).frame(maxWidth: .infinity).padding(.vertical, 12)
+                    }.buttonStyle(.plain)
+                }
+                .background(AppStyle.surface)
+                .overlay(Rectangle().fill(AppStyle.stroke).frame(height: 0.5), alignment: .top)
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                if isSelecting {
+                    Text("已选 \(selectedIDs.count) 首")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                if isSelecting {
+                    Button {
+                        if selectedIDs.count == displaySongs.count { selectedIDs.removeAll() }
+                        else { selectedIDs = Set(displaySongs.map(\.id)) }
+                    } label: {
+                        Text(selectedIDs.count == displaySongs.count ? "取消全选" : "全选")
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                } else {
+                    HStack(spacing: 10) {
+                        if localPlaylist == nil {
+                            Button {
+                                isCollected.toggle()
+                                CollectionState.set(isCollected, for: playlist.id)
+                                Haptics.light()
+                            } label: {
+                                Image(systemName: isCollected ? "heart.fill" : "heart")
+                                    .foregroundStyle(isCollected ? AppStyle.like : AppStyle.primaryText)
+                            }
+                        }
+                        if !displaySongs.isEmpty {
+                            Button {
+                                isSelecting = true; selectedIDs.removeAll()
+                            } label: {
+                                Label("多选", systemImage: "checkmark.circle").font(.system(size: 13))
+                            }
+                        }
+                    }
+                }
+            }
+            ToolbarItem(placement: .topBarLeading) {
+                if isSelecting {
+                    Button { isSelecting = false; selectedIDs.removeAll() } label: {
+                        Text("完成").font(.system(size: 14, weight: .medium))
                     }
                 }
             }

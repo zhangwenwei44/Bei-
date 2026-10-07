@@ -511,6 +511,30 @@ final class PlayerStore: ObservableObject {
             self.pause()
         })
 
+        // 电话/Siri/闹钟打断 → 自动恢复
+        observers.append(center.addObserver(forName: AVAudioSession.interruptionNotification,
+                                            object: nil,
+                                            queue: .main) { [weak self] note in
+            guard let self,
+                  let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+            switch type {
+            case .began:
+                Log.info("播放", "AVAudioSession interruption 开始，暂停")
+                if self.isPlaying { self.pause() }
+            case .ended:
+                let opts = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
+                let shouldResume = opts?.contains(AVAudioSession.InterruptionOptions.shouldResume.rawValue) ?? false
+                Log.info("播放", "AVAudioSession interruption 结束，shouldResume=\(shouldResume)")
+                if shouldResume, self.current != nil {
+                    try? AVAudioSession.sharedInstance().setActive(true, options: [])
+                    self.player.play()
+                    self.objectWillChange.send()  // 触发 UI 更新 isPlaying
+                }
+            @unknown default: break
+            }
+        })
+
         observers.append(center.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime,
                                             object: nil,
                                             queue: .main) { [weak self] notification in

@@ -131,8 +131,8 @@ struct SearchView: View {
                 }
             }
             .padding(.horizontal, 12)
-            .frame(height: 36)
-            .background(AppStyle.surface, in: Capsule())
+            .frame(height: 34)
+            .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             if !submitted.isEmpty {
                 Button("取消") {

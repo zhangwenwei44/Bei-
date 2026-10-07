@@ -18,14 +18,15 @@ struct DiscoverView: View {
     @State private var isLoadingMore = false
     @State private var selectedTab: DiscoverTab = .recommend
 
-    /// 保留的 6 个精选榜单 rankID。
+    /// 保留的 7 个精选榜单 rankID。
     static let whitelistRankIDs: Set<String> = [
-        "82831",  // 网络热歌榜（百万收藏榜用这个）
+        "82831",  // 网络热歌榜
         "6666",   // 飙升榜
         "52144",  // 短视频热歌榜
         "24971",  // DJ热歌榜
         "85432",  // 百万收藏榜
         "18016",  // 新歌推荐榜
+        "21845",  // 华语金曲榜
     ]
 
     /// 猜你喜欢的抽词池。
@@ -187,7 +188,7 @@ struct DiscoverView: View {
             (ranks[i], i + 1 < ranks.count ? ranks[i + 1] : nil)
         }
 
-        // Playlist → 封面小卡（正方形 CoverFeatureCard，无播放按钮）
+        // Playlist → 封面小卡（正方形 CoverFeatureCard，无播放按钮无副标题）
         func rankCard(_ playlist: Playlist?) -> some View {
             Group {
                 if let playlist {
@@ -198,7 +199,7 @@ struct DiscoverView: View {
                                 width: smallCardHeight, height: smallCardHeight,
                                 coverURL: playlist.coverURL,
                                 title: playlist.name,
-                                subtitle: "\(playlist.trackCount) 首",
+                                subtitle: "",
                                 isPlaying: false,
                                 showPlayButton: false
                             )
@@ -682,11 +683,13 @@ struct CoverFeatureCard: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .minimumScaleFactor(0.5)
-                    Text(subtitle)
-                        .font(.system(size: width * 0.075))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.5)
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.system(size: width * 0.075))
+                            .foregroundStyle(.white.opacity(0.85))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.5)
+                    }
                 }
                 if showPlayButton {
                     Spacer()
