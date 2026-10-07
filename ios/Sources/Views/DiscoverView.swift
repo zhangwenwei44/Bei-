@@ -133,26 +133,26 @@ struct DiscoverView: View {
 
     private var recommendContent: some View {
         VStack(alignment: .leading, spacing: 0) {
+            hotRanksSection         // 热门榜单提到最上面
             bigCardsGrid
             moodGreeting
             artistsSection
-            hotRanksSection
         }
     }
 
-    // MARK: 两大两小横向滚动卡片（左两大 + 右两小叠加）
-    // 技术方案：NavigationLink 藏在 ZStack 底层做 Color.clear 幽灵，彻底消灭 padding 干扰
+    // MARK: 两大卡 + 三小卡叠加 横向滚动
+    // 三张小卡堆总高度 = bigHeight，每张小卡 (bigHeight - 2*gap) / 3
 
     private var bigCardsGrid: some View {
         let sidePadding: CGFloat = 16
         let screenW = UIScreen.main.bounds.width
         let gap: CGFloat = 10
-        // 大卡：整屏三等分再乘 0.85 做小，保证横排能塞下还留空间
+        // 卡片整体缩小到 0.75
         let rawWidth = (screenW - sidePadding * 2 - gap) / 2
-        let bigWidth = rawWidth * 0.85
-        let bigHeight = bigWidth * 1.5                              // 大卡保持竖长方形
-        let topCardHeight = (bigHeight - gap) / 2                  // 上小卡
-        let bottomCardHeight = bigHeight - topCardHeight - gap     // 下小卡（剩余高度，恒等式保证齐平）
+        let bigWidth = rawWidth * 0.75
+        let bigHeight = bigWidth * 1.5
+        // 三张小卡等高：(bigHeight - 2*gap) / 3，底部 Spacer 兜底
+        let smallCardHeight = (bigHeight - gap * 2) / 3
 
         let isPlayingDaily = store.queueID == "daily" && store.isPlaying
         let isPlayingGuess = store.queueID == "guess" && store.isPlaying
@@ -220,7 +220,7 @@ struct DiscoverView: View {
                 .frame(width: bigWidth, height: bigHeight, alignment: .topLeading)
                 .frame(maxHeight: bigHeight, alignment: .top)
 
-                // ========== 两小叠加 — 上小 topCardHeight，下小 bottomCardHeight ==========
+                // ========== 三张小卡叠加 ==========
                 VStack(spacing: 0) {
                     navigable(
                         destination: {
@@ -234,17 +234,17 @@ struct DiscoverView: View {
                         },
                         label: {
                             IconFeatureCard(
-                                width: topCardHeight, desiredHeight: topCardHeight,
+                                width: smallCardHeight, desiredHeight: smallCardHeight,
                                 title: "百万收藏", systemIcon: "heart.fill",
                                 gradientColors: [
                                     Color(red: 1.0, green: 0.47, blue: 0.33),
                                     Color(red: 0.94, green: 0.28, blue: 0.42)
                                 ]
                             )
-                            .frame(width: topCardHeight, height: topCardHeight)
+                            .frame(width: smallCardHeight, height: smallCardHeight)
                         }
                     )
-                    .frame(width: topCardHeight, height: topCardHeight)
+                    .frame(width: smallCardHeight, height: smallCardHeight)
 
                     Spacer(minLength: 0).frame(height: gap)
 
@@ -260,47 +260,47 @@ struct DiscoverView: View {
                         },
                         label: {
                             IconFeatureCard(
-                                width: bottomCardHeight, desiredHeight: bottomCardHeight,
+                                width: smallCardHeight, desiredHeight: smallCardHeight,
                                 title: "新歌推荐", systemIcon: "music.note",
                                 gradientColors: [
                                     Color(red: 1.0, green: 0.72, blue: 0.35),
                                     Color(red: 1.0, green: 0.45, blue: 0.30)
                                 ]
                             )
-                            .frame(width: bottomCardHeight, height: bottomCardHeight)
+                            .frame(width: smallCardHeight, height: smallCardHeight)
                         }
                     )
-                    .frame(width: bottomCardHeight, height: bottomCardHeight)
+                    .frame(width: smallCardHeight, height: smallCardHeight)
+
+                    Spacer(minLength: 0).frame(height: gap)
+
+                    navigable(
+                        destination: {
+                            Group {
+                                if let djRank = filteredLists.first(where: { $0.kugouRankID == "24971" }) {
+                                    PlaylistDetailView(playlist: djRank)
+                                } else if !filteredLists.isEmpty {
+                                    PlaylistDetailView(playlist: filteredLists[0])
+                                } else { EmptyView() }
+                            }
+                        },
+                        label: {
+                            IconFeatureCard(
+                                width: smallCardHeight, desiredHeight: smallCardHeight,
+                                title: "DJ热歌榜", systemIcon: "music.disc",
+                                gradientColors: [
+                                    Color(red: 0.45, green: 0.35, blue: 0.85),
+                                    Color(red: 0.22, green: 0.60, blue: 0.92)
+                                ]
+                            )
+                            .frame(width: smallCardHeight, height: smallCardHeight)
+                        }
+                    )
+                    .frame(width: smallCardHeight, height: smallCardHeight)
                 }
-                .frame(width: topCardHeight, height: bigHeight, alignment: .top)
+                .frame(width: smallCardHeight, height: bigHeight, alignment: .top)
                 .frame(maxHeight: bigHeight, alignment: .top)
                 .clipped()
-
-                // 额外大卡
-                navigable(
-                    destination: {
-                        Group {
-                            if let t = filteredLists.first(where: { $0.kugouRankID == "24971" })
-                                       ?? filteredLists.first {
-                                PlaylistDetailView(playlist: t)
-                            } else { EmptyView() }
-                        }
-                    },
-                    label: {
-                        CoverFeatureCard(
-                            width: bigWidth, height: bigHeight,
-                            coverURL: filteredLists.prefix(3).last?.coverURL
-                                ?? filteredLists.first?.coverURL,
-                            title: "DJ热歌榜",
-                            subtitle: filteredLists.prefix(3).last?.name ?? "",
-                            isPlaying: false,
-                            onPlay: { playDailyAll() }
-                        )
-                        .frame(width: bigWidth, height: bigHeight)
-                    }
-                )
-                .frame(width: bigWidth, height: bigHeight, alignment: .topLeading)
-                .frame(maxHeight: bigHeight, alignment: .top)
             }
             .frame(height: bigHeight)
             .padding(.horizontal, sidePadding)
@@ -510,7 +510,7 @@ struct DiscoverView: View {
             await MainActor.run { playingArtistID = artist.id }
             defer { Task { @MainActor in playingArtistID = nil } }
             guard let songs = try? await KugouClient.shared.searchSongs(
-                keyword: artist.name, limit: 30), !songs.isEmpty else { return }
+                keyword: artist.name, limit: 100), !songs.isEmpty else { return }
             store.play(songs, startAt: 0)
         }
     }
@@ -562,7 +562,7 @@ struct DiscoverView: View {
 
     /// 每日推荐：酷狗 TOP500 前 30 首，补齐第一首封面。
     private func loadDailySongs() async {
-        guard let songs = try? await KugouClient.shared.rankSongs(rankID: "8888", limit: 30),
+        guard let songs = try? await KugouClient.shared.rankSongs(rankID: "8888", limit: 100),
               !songs.isEmpty else {
             Log.warn("发现页", "每日推荐 TOP500 0 首")
             return

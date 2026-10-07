@@ -337,7 +337,7 @@ struct LibraryView: View {
                     Haptics.soft()
                     Task {
                         guard let songs = try? await KugouClient.shared.searchSongs(
-                            keyword: artist.name, limit: 30), !songs.isEmpty else { return }
+                            keyword: artist.name, limit: 100), !songs.isEmpty else { return }
                         store.play(songs)
                     }
                 } label: {

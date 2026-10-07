@@ -145,10 +145,36 @@ final class DownloadManager: NSObject, ObservableObject {
             .appendingPathComponent(DownloadManager.indexName(for: song.id)), options: .atomic)
     }
 
-    /// 启动时调用：重建下载列表，清掉磁盘上已不存在的记录。
+    /// 启动时调用：重建下载列表。
+    /// 优先从磁盘 .json 索引直接重建 Song 列表（绕过 LibraryStore 持久化可能不一致的问题），
+    /// 再与 LibraryStore.downloads 合并取并集，确保不会丢失。
     func bootstrap() {
         loadIndex()
-        let alive = LibraryStore.shared.downloads.filter { fileName(for: $0.id) != nil }
+        // 从磁盘索引文件直接重建 Song（兜底方案）
+        let fromDisk = fileIndex.compactMap { songID, fileName -> Song? in
+            let folder = DownloadManager.directory()
+            let indexFile = folder.appendingPathComponent(DownloadManager.indexName(for: songID))
+            guard let data = try? Data(contentsOf: indexFile),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let title = object["title"] as? String,
+                  let artist = object["artist"] as? String else { return nil }
+            // 给 Song 加 local URL 和 isLocal 标记
+            let localURL = folder.appendingPathComponent(fileName)
+            var song = Song(id: songID, title: title, artist: artist,
+                            url: localURL, isLocal: true, source: .local)
+            _ = song   // localFileName 存在 fileIndex 里，不用 Song 存
+            return song
+        }
+        // LibraryStore 里可能也有持久化的下载列表（UserDefaults），取并集
+        let fromLib = LibraryStore.shared.downloads
+        var merged: [Song] = []
+        var seen = Set<String>()
+        for s in fromLib + fromDisk where !seen.contains(s.id) {
+            seen.insert(s.id)
+            merged.append(s)
+        }
+        // 过滤：磁盘上文件还在的才算活的
+        let alive = merged.filter { fileName(for: $0.id) != nil }
         LibraryStore.shared.setDownloads(alive)
         var restored = alive.map { DownloadItem(song: $0, progress: 1, state: .done, fileName: fileName(for: $0.id)) }
         restored.append(contentsOf: items.filter { $0.state.isActive })
