@@ -1,4 +1,4 @@
-﻿﻿import SwiftUI
+﻿import SwiftUI
 
 /// 发现页（新版）。Tab 栏 → 搜索框 → 2×2 宫格卡片 → 心情问候 + 歌曲列表 → 热门榜单。
 struct DiscoverView: View {
