@@ -715,6 +715,7 @@ struct LyricsPageView: View {
 }
 
 /// 全屏歌词页专用大字歌词流。当前行 30pt 纯白垂直居中，其他行 20pt 浅灰，行间距拉大到 40pt。
+/// 性能关键：LazyVStack（只渲染可见行）+ index 直接比较（干掉 O(n²) firstIndex）+ 每行无 .animation（全局动画容器）。
 private struct BigLyricsView: View {
     let lyrics: [LyricLine]
     let currentIndex: Int?
@@ -723,30 +724,39 @@ private struct BigLyricsView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 40) {
+                // LazyVStack：只渲染屏幕可见的几行 —— 100 行歌词 ≈ 同时渲染 8-10 行，
+                // 对比 VStack 全量渲染 100 行，滚动时 body 重建量直接砍到 1/10。
+                LazyVStack(spacing: 40) {
                     if lyrics.isEmpty {
                         Text("纯音乐 · 暂无歌词")
                             .font(.system(size: 14))
                             .foregroundStyle(.white.opacity(0.45))
                     } else {
-                        ForEach(lyrics) { line in
+                        // enumerated() 让每行持有自己的 index —— isActive/isNearActive 直接比较 index，
+                        // 干掉原来的 firstIndex(where:) O(n) 扫描。ForEach × firstIndex = O(n²)。
+                        ForEach(Array(lyrics.enumerated()), id: \.element.id) { idx, line in
+                            let activeIdx = currentIndex
+                            let isActive = activeIdx == idx
+                            let isNear = activeIdx != nil && abs(idx - activeIdx!) <= 1
                             VStack(spacing: 7) {
                                 Text(line.text)
-                                    .font(.system(size: isActive(line) ? 30 : 20,
-                                                  weight: isActive(line) ? .bold : .medium))
-                                    .foregroundStyle(isActive(line) ? .white : .white.opacity(isNearActive(line) ? 0.45 : 0.28))
+                                    .font(.system(size: isActive ? 30 : 20,
+                                                  weight: isActive ? .bold : .medium))
+                                    .foregroundStyle(isActive ? .white : .white.opacity(isNear ? 0.45 : 0.28))
                                     .multilineTextAlignment(.center)
                                 if showsTranslation, let translation = line.translation, !translation.isEmpty {
                                     Text(translation)
-                                        .font(.system(size: isActive(line) ? 15 : 12))
-                                        .foregroundStyle(isActive(line) ? .white.opacity(0.78) : .white.opacity(0.3))
+                                        .font(.system(size: isActive ? 15 : 12))
+                                        .foregroundStyle(isActive ? .white.opacity(0.78) : .white.opacity(0.3))
                                         .multilineTextAlignment(.center)
                                 }
                             }
                             .lineSpacing(4)
                             .frame(maxWidth: .infinity)
                             .id(line.id)
-                            .animation(.easeInOut(duration: 0.3), value: isActive(line))
+                            // 关键：每行不单独加 .animation —— 以前每行都 .animation(.easeInOut(0.3), value: isActive)
+                            // 导致 currentIndex 一变 100 行全部做 transition 动画。
+                            // 只在容器级统一加一次 animation，SwiftUI 自动处理可见行的样式过渡。
                         }
                     }
                 }
@@ -763,18 +773,9 @@ private struct BigLyricsView: View {
             }
             .onChange(of: lyrics) { _ in proxy.scrollTo(lyrics.first?.id, anchor: .center) }
         }
-    }
-
-    private func isActive(_ line: LyricLine) -> Bool {
-        guard let index = currentIndex, lyrics.indices.contains(index) else { return false }
-        return line.id == lyrics[index].id
-    }
-
-    /// 当前行相邻的上下两行用稍深的浅灰（0.45），再远的更浅（0.28）。
-    private func isNearActive(_ line: LyricLine) -> Bool {
-        guard let index = currentIndex, lyrics.indices.contains(index) else { return false }
-        guard let lineIndex = lyrics.firstIndex(where: { $0.id == line.id }) else { return false }
-        return abs(lineIndex - index) <= 1
+        // 容器级统一动画 —— 只有一个 animation 作用在 LazyVStack 上，
+        // 可见行的 active 状态样式变化会自动过渡，不可见行不渲染就不参与。
+        .animation(.easeInOut(duration: 0.3), value: currentIndex)
     }
 
     private var activeId: UUID? {

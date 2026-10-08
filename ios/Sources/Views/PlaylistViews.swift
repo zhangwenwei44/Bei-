@@ -35,6 +35,7 @@ struct SongListView: View {
                             SongRow(song: song,
                                     isCurrent: store.current?.id == song.id,
                                     isPlaying: store.isPlaying)
+                                .equatable()
                                 .songMenu(song)
                                 .listRowBackground(Color.clear)
                                 .listRowSeparatorTint(AppStyle.stroke)
@@ -128,6 +129,7 @@ struct PlaylistDetailView: View {
                                 SongRow(song: song,
                                         isCurrent: store.current?.id == song.id,
                                         isPlaying: store.isPlaying)
+                                    .equatable()
                                     .songMenu(song)
                                     .padding(.horizontal, 16)
                                     .onTapGesture {
@@ -414,6 +416,7 @@ struct AlbumDetailView: View {
                             SongRow(song: song,
                                     isCurrent: store.current?.id == song.id,
                                     isPlaying: store.isPlaying)
+                                .equatable()
                                 .songMenu(song)
                                 .padding(.horizontal, 16)
                                 .onTapGesture { play(song) }

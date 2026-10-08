@@ -36,6 +36,7 @@ struct QueueView: View {
                                 SongRow(song: song,
                                         isCurrent: offset == store.currentIndex,
                                         isPlaying: store.isPlaying && offset == store.currentIndex)
+                                    .equatable()
                                     .songMenu(song)
                                     .listRowBackground(offset == store.currentIndex ? AppStyle.surface : Color.clear)
                                     .listRowSeparatorTint(AppStyle.stroke)

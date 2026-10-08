@@ -399,6 +399,7 @@ struct LibraryView: View {
                         isCurrent: store.current?.id == song.id,
                         isPlaying: store.isPlaying,
                         trailing: trailing(for: song))
+                    .equatable()
                     .songMenu(song)
                     .padding(.horizontal, 16)
                     .onTapGesture { play(song) }
