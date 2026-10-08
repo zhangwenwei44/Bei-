@@ -187,6 +187,7 @@ struct PlayerView: View {
     }
 
     private var qualityText: String {
+        if store.isBuffering { return "缓冲中" }
         if store.isLoading { return "解析中" }
         if store.playbackError != nil { return "无法播放" }
         return store.bitrateLabel.isEmpty ? SourceStore.shared.quality.title : store.bitrateLabel
@@ -529,7 +530,7 @@ private struct PlayButton: View {
                     .scaleEffect(pulse ? 1.16 : 1)
                     .opacity(pulse ? 0 : 0.55)
 
-                if store.isLoading {
+                if store.isLoading || store.isBuffering {
                     ProgressView()
                         .tint(.white)
                 } else {
@@ -548,11 +549,12 @@ private struct PlayButton: View {
 
 // MARK: - 全屏歌词页
 
-/// 酷狗那种整页大字滚动歌词。歌手写真做模糊背景 + 暗色遮罩，
-/// 既好看又不会像纯黑那么生硬，也不会透底下播放页的控件。
+/// 深色沉浸式全屏歌词，背景与播放页同款取色 + 专辑图模糊。
+/// 词曲/编曲/制作人等简介信息独立为顶部折叠模块，滚动区只保留正文歌词。
 struct LyricsPageView: View {
     @EnvironmentObject private var store: PlayerStore
     @Binding var isShown: Bool
+    @State private var isMetaExpanded = false
 
     private var safeTop: CGFloat {
         for scene in UIApplication.shared.connectedScenes {
@@ -566,22 +568,33 @@ struct LyricsPageView: View {
 
     var body: some View {
         ZStack {
-            // 沉浸式取色背景：和播放页沉浸式背景同款颜色，但更实色（0.95 不透明）
-            LinearGradient(colors: store.currentPalette.gradient,
-                           startPoint: .topLeading,
-                           endPoint: .bottomTrailing)
-                .opacity(0.95)
-                .ignoresSafeArea()
+            // 沉浸式取色背景（专辑图模糊 + 渐变）
+            ZStack {
+                LinearGradient(colors: store.currentPalette.gradient,
+                               startPoint: .topLeading,
+                               endPoint: .bottomTrailing)
+                    .opacity(0.96)
 
-            // 歌词文字用黑色背景蒙版保证可读
-            LinearGradient(colors: [.black.opacity(0.25),
-                                    .black.opacity(0.15),
-                                    .black.opacity(0.35),
-                                    .black.opacity(0.5)],
-                           startPoint: .top, endPoint: .bottom)
-                .ignoresSafeArea()
+                if let artwork = store.artwork {
+                    Image(uiImage: artwork)
+                        .resizable()
+                        .scaledToFill()
+                        .blur(radius: 72)
+                        .opacity(0.42)
+                        .scaleEffect(1.3)
+                        .clipped()
+                }
+
+                LinearGradient(colors: [.black.opacity(0.35),
+                                        .black.opacity(0.18),
+                                        .black.opacity(0.3),
+                                        .black.opacity(0.55)],
+                               startPoint: .top, endPoint: .bottom)
+            }
+            .ignoresSafeArea()
 
             VStack(spacing: 0) {
+                // 顶栏：降低存在感
                 HStack(spacing: 0) {
                     Button {
                         withAnimation(.easeInOut(duration: 0.3)) { isShown = false }
@@ -595,11 +608,11 @@ struct LyricsPageView: View {
 
                     VStack(spacing: 3) {
                         Text(store.current?.title ?? "")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold))
                             .lineLimit(1)
                         Text(store.current?.artist ?? "")
                             .font(.system(size: 10))
-                            .foregroundStyle(.white.opacity(0.6))
+                            .foregroundStyle(.white.opacity(0.55))
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity)
@@ -612,19 +625,27 @@ struct LyricsPageView: View {
                     } label: {
                         Image(systemName: "character.bubble")
                             .font(.system(size: 18, weight: .medium))
-                            .opacity(store.showTranslation ? 1 : 0.45)
+                            .opacity(store.showTranslation ? 1 : 0.4)
                             .frame(width: 44, height: 44)
                     }
                 }
                 .foregroundStyle(.white)
                 .padding(.top, safeTop)
+                .opacity(0.5)  // 顶栏低存在感
 
+                // 折叠简介模块（只在有 metadata 时显示）
+                metaSection
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
+                    .opacity(store.lyricMetadata.isEmpty ? 0 : 0.85)
+
+                // 纯正文歌词滚动区
                 BigLyricsView(lyrics: store.lyrics,
                               currentIndex: store.currentLyricIndex,
                               showsTranslation: store.showTranslation)
                     .frame(maxHeight: .infinity)
                     .padding(.horizontal, 26)
-                    .padding(.top, 16)
+                    .padding(.top, 12)
             }
         }
         .ignoresSafeArea()
@@ -636,10 +657,61 @@ struct LyricsPageView: View {
             }
         )
     }
+
+    // MARK: - 折叠简介
+
+    private var metaSection: some View {
+        let meta = store.lyricMetadata
+        let orderedKeys: [(String, String)] = [
+            ("词", "词"), ("曲", "曲"), ("作曲", "作曲"), ("编曲", "编曲"),
+            ("制作人", "制作人"), ("监制", "监制"), ("混音", "混音"),
+            ("录音", "录音"), ("和声", "和声"), ("发行", "发行")
+        ]
+        .filter { meta[$0.1] != nil }
+
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.25)) { isMetaExpanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 11))
+                    Text("词曲编曲")
+                        .font(.system(size: 11))
+                    Spacer()
+                    Image(systemName: isMetaExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .foregroundStyle(.white.opacity(0.5))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+            }
+            .buttonStyle(.plain)
+
+            if isMetaExpanded && !orderedKeys.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(orderedKeys, id: \.0) { pair in
+                        HStack(alignment: .top, spacing: 0) {
+                            Text(pair.1 + "：")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.white.opacity(0.45))
+                                .frame(width: 48, alignment: .leading)
+                            Text(meta[pair.1] ?? "")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white.opacity(0.8))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
 }
 
-/// 歌词页专用的大字歌词流。逻辑和小字 LyricsView 一致，只是字号更大、
-/// 当前行加粗放大得更明显。
+/// 全屏歌词页专用大字歌词流。当前行 30pt 纯白垂直居中，其他行 20pt 浅灰，行间距拉大到 40pt。
 private struct BigLyricsView: View {
     let lyrics: [LyricLine]
     let currentIndex: Int?
@@ -648,40 +720,41 @@ private struct BigLyricsView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 26) {
+                VStack(spacing: 40) {
                     if lyrics.isEmpty {
                         Text("纯音乐 · 暂无歌词")
                             .font(.system(size: 14))
-                            .foregroundStyle(.white.opacity(0.55))
+                            .foregroundStyle(.white.opacity(0.45))
                     } else {
                         ForEach(lyrics) { line in
-                            VStack(spacing: 6) {
+                            VStack(spacing: 7) {
                                 Text(line.text)
-                                    .font(.system(size: isActive(line) ? 24 : 18,
+                                    .font(.system(size: isActive(line) ? 30 : 20,
                                                   weight: isActive(line) ? .bold : .medium))
-                                    .foregroundStyle(isActive(line) ? .white : .white.opacity(0.42))
+                                    .foregroundStyle(isActive(line) ? .white : .white.opacity(isNearActive(line) ? 0.45 : 0.28))
                                     .multilineTextAlignment(.center)
                                 if showsTranslation, let translation = line.translation, !translation.isEmpty {
                                     Text(translation)
                                         .font(.system(size: isActive(line) ? 15 : 12))
-                                        .foregroundStyle(isActive(line) ? .white.opacity(0.8) : .white.opacity(0.35))
+                                        .foregroundStyle(isActive(line) ? .white.opacity(0.78) : .white.opacity(0.3))
                                         .multilineTextAlignment(.center)
                                 }
                             }
-                            .lineSpacing(3)
+                            .lineSpacing(4)
                             .frame(maxWidth: .infinity)
                             .id(line.id)
+                            .animation(.easeInOut(duration: 0.3), value: isActive(line))
                         }
                     }
                 }
-                .padding(.vertical, 80)
+                .padding(.vertical, 120)
             }
-            .mask(LinearGradient(colors: [.clear, .black.opacity(0.9), .black, .black.opacity(0.9), .clear],
+            .mask(LinearGradient(colors: [.clear, .black.opacity(0.85), .black, .black.opacity(0.85), .clear],
                                 startPoint: .top,
                                 endPoint: .bottom))
             .onChange(of: currentIndex) { _ in
                 guard let id = activeId else { return }
-                withAnimation(.easeInOut(duration: 0.45)) {
+                withAnimation(.easeInOut(duration: 0.5)) {
                     proxy.scrollTo(id, anchor: .center)
                 }
             }
@@ -692,6 +765,13 @@ private struct BigLyricsView: View {
     private func isActive(_ line: LyricLine) -> Bool {
         guard let index = currentIndex, lyrics.indices.contains(index) else { return false }
         return line.id == lyrics[index].id
+    }
+
+    /// 当前行相邻的上下两行用稍深的浅灰（0.45），再远的更浅（0.28）。
+    private func isNearActive(_ line: LyricLine) -> Bool {
+        guard let index = currentIndex, lyrics.indices.contains(index) else { return false }
+        guard let lineIndex = lyrics.firstIndex(where: { $0.id == line.id }) else { return false }
+        return abs(lineIndex - index) <= 1
     }
 
     private var activeId: UUID? {

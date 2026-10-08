@@ -1,5 +1,6 @@
 import AVFoundation
 import MediaPlayer
+import Network
 import SwiftUI
 import UIKit
 
@@ -16,6 +17,9 @@ final class PlayerStore: ObservableObject {
 
     @Published private(set) var isPlaying = false
     @Published private(set) var isLoading = false
+    /// 播放中缓冲等待（有 URL 但还没足够数据开始播/继续播）。
+    /// 和 isLoading 区别：isLoading = 解析 URL，isBuffering = AVPlayer 在等网络数据。
+    @Published private(set) var isBuffering = false
     @Published private(set) var playbackError: String?
     @Published private(set) var sourceName: String = ""
     @Published private(set) var currentTime: Double = 0
@@ -23,9 +27,20 @@ final class PlayerStore: ObservableObject {
     @Published private(set) var bufferedFraction: Double = 0
     @Published private(set) var bitrateLabel: String = ""
 
+    /// 网络状态：true=有网，false=断网。
+    @Published private(set) var isNetworkAvailable = true
+    /// true=弱网（cellular/expensive + high latency），UI 可以给个提示但不强制降级。
+    @Published private(set) var isWeakNetwork = false
+    /// true=WiFi 且非低数据模式 → 允许自动预缓存；蜂窝/低数据模式 → 关闭预缓存防偷流量。
+    @Published private(set) var isWiFiNetwork = true
+    /// 断网前是否在播放 —— 恢复时据此自动恢复播放。
+    private var wasPlayingBeforeNetworkLoss = false
+
     // MARK: 歌词与视觉
 
     @Published private(set) var lyrics: [LyricLine] = []
+    /// 从歌词剥离出来的词曲/编曲/制作人等元数据。
+    @Published private(set) var lyricMetadata: [String: String] = [:]
     @Published private(set) var currentLyricIndex: Int?
     @Published private(set) var artwork: UIImage?
     /// 当前歌手的写真，播放页背景用。拿不到时界面自己兜底。
@@ -43,12 +58,18 @@ final class PlayerStore: ObservableObject {
     private let player = AVPlayer()
     private var timeObserver: Any?
     private var observers: [NSObjectProtocol] = []
+    /// 每个 AVPlayerItem 的 KVO 观察 token（替换 item 时必须先 invalidate，不然会 crash）。
+    private var itemObservers: [NSKeyValueObservation] = []
     private var shuffleHistory: [Int] = []
     private var failedHosts = Set<String>()
     /// 换源重试限制：同一首歌最多自动重试 1 次，防止把音源打熔断
     private var recoverySongID: String?
     private var recoveryAttempts = 0
     private var preparingTask: Task<Void, Never>?
+    /// 下一首预加载（只创建 AVPlayerItem 让 AVAsset 建立连接，不 attach，不耗太多带宽）。
+    private var preloadedItem: AVPlayerItem?
+    private var preloadedForSongID: String?
+    private var lastPreloadTriggerTime: Double = 0
     /// 解析过的播放地址缓存（key = song.id, value = (url, thirdParty, timestamp)）。
     /// 同一首歌在短时间内被 prepare 多次（AVPlayer stall 重试、SwiftUI body 重新计算等）
     /// 时直接用缓存，不再重复走 SourceResolver。
@@ -73,17 +94,87 @@ final class PlayerStore: ObservableObject {
 
     init() {
         player.actionAtItemEnd = .pause
-        // 让 AVPlayer 在弱网下自行缓冲等待，避免直接 pause 死在那里。
-        // stall 恢复靠下面的 stall 监听 + 重 attach 兜底。
         player.automaticallyWaitsToMinimizeStalling = true
         installTimeObserver()
         installNotifications()
         installRemoteCommands()
+        installNetworkMonitor()
+        installQualityMonitor()
     }
 
     deinit {
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        itemObservers.forEach { $0.invalidate() }
+        pathMonitor.cancel()
+    }
+
+    // MARK: - 网络监听
+
+    private let pathMonitor = NWPathMonitor()
+
+    private func installNetworkMonitor() {
+        pathMonitor.start(queue: .global(qos: .utility))
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            let isAvailable = path.status == .satisfied
+            let isExpensive = path.isExpensive  // cellular/personal hotspot
+            // WiFi 门控：必须是 WiFi 接口 + 非低数据模式 → 才允许自动预缓存
+            let isWiFi = path.usesInterfaceType(.wifi) && !path.isConstrained
+            let isWeak = isExpensive || path.availableInterfaces.count <= 0
+
+            Task { @MainActor in
+                if isAvailable != self.isNetworkAvailable {
+                    if !isAvailable {
+                        // 断网 → 记住状态，暂停
+                        self.wasPlayingBeforeNetworkLoss = self.isPlaying
+                        if self.isPlaying { self.pause() }
+                        self.isBuffering = false
+                        Log.warn("网络", "网络中断，暂停播放")
+                    } else {
+                        // 恢复 → 如果断网前在播，自动恢复
+                        if self.wasPlayingBeforeNetworkLoss, let _ = self.player.currentItem {
+                            self.player.play()
+                            self.objectWillChange.send()
+                            Log.info("网络", "网络恢复，自动续播")
+                        }
+                        self.wasPlayingBeforeNetworkLoss = false
+                    }
+                }
+                self.isNetworkAvailable = isAvailable
+                self.isWeakNetwork = isAvailable && isWeak
+                self.isWiFiNetwork = isAvailable && isWiFi
+            }
+        }
+    }
+
+    // MARK: - 音质切换
+
+    /// 监听 SourceStore.quality 变化，正在播放就用新音质重新解析当前歌曲。
+    private func installQualityMonitor() {
+        Task { [weak self] @MainActor in
+            guard let self else { return }
+            for await _ in SourceStore.shared.$quality.values {
+                // 跳过初始化时的第一次（和当前值相同）
+                // prepare() 里已经读了最新 quality，所以每次 prepare 都会用新音质
+                // 这里只需要处理 mid-playback 切换 —— 重新解析 URL 并保留 seek 位置
+                if let current, self.player.currentItem != nil, !self.isLoading {
+                    Log.info("播放", "音质切换，重新解析当前歌曲 URL")
+                    let savedTime = self.currentTime
+                    self.prepare(autoplay: self.isPlaying)
+                    // prepare 完成后会把 currentTime 重置，这里用 seek 恢复
+                    Task { [weak self] @MainActor in
+                        guard let self else { return }
+                        // 等 URL 解析 + attach 完成
+                        try? await Task.sleep(nanoseconds: 1_200_000_000)
+                        if self.player.currentItem != nil, savedTime > 0, self.duration > 0 {
+                            self.player.seek(to: CMTime(seconds: savedTime, preferredTimescale: 600))
+                            self.currentTime = savedTime
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// App 启动时调用。
@@ -141,12 +232,17 @@ final class PlayerStore: ObservableObject {
 
     func stopAll() {
         preparingTask?.cancel()
+        preloadedItem = nil
+        preloadedForSongID = nil
+        itemObservers.forEach { $0.invalidate() }
+        itemObservers.removeAll()
         player.pause()
         player.replaceCurrentItem(with: nil)
         queue = []
         currentIndex = -1
         isPlaying = false
         isLoading = false
+        isBuffering = false
         currentTime = 0
         duration = 0
         lyrics = []
@@ -182,6 +278,7 @@ final class PlayerStore: ObservableObject {
         playbackError = nil
         isLiked = LibraryStore.shared.isFavorite(song)
         isLoading = true
+        isBuffering = false
         artistPhoto = nil
         refreshArtwork(for: song)
         loadLyrics(for: song)
@@ -278,11 +375,45 @@ final class PlayerStore: ObservableObject {
     }
 
     private func attach(url: URL, thirdParty: Bool, autoplay: Bool) {
-        let item = AVPlayerItem(url: url)
+        itemObservers.forEach { $0.invalidate() }
+        itemObservers.removeAll()
+
+        // 如果刚好有 preloaded item 对应当前歌曲（切到了被预加载的那首），直接用它 ——
+        // AVAsset 已经预建 CDN 连接，切歌更快；preloadedItem 还没 attach 给任何 player，可以安全复用。
+        let item: AVPlayerItem
+        if let preloadedItem, preloadedForSongID == current?.id {
+            item = preloadedItem
+            self.preloadedItem = nil
+            self.preloadedForSongID = nil
+            Log.info("预加载", "复用预加载好的 item，跳过新建")
+        } else {
+            item = AVPlayerItem(url: url)
+            // 前置缓冲 10 秒 —— 让 AVPlayer 攒够一段数据再开始播，弱网下首帧更快出来
+            item.preferredForwardBufferDuration = 10
+        }
+
         player.replaceCurrentItem(with: item)
         itemThirdParty = thirdParty
         // 这次能播，之前拉黑的节点就放回候选池
         failedHosts = []
+
+        // KVO: 缓冲状态
+        itemObservers.append(item.observe(\.isPlaybackBufferEmpty, options: [.new]) { [weak self] item, _ in
+            Task { @MainActor in
+                self?.isBuffering = item.isPlaybackBufferEmpty || !(item.isPlaybackLikelyToKeepUp)
+            }
+        })
+        itemObservers.append(item.observe(\.isPlaybackLikelyToKeepUp, options: [.new]) { [weak self] item, _ in
+            Task { @MainActor in
+                if item.isPlaybackLikelyToKeepUp { self?.isBuffering = false }
+            }
+        })
+        itemObservers.append(item.observe(\.status, options: [.new]) { [weak self] item, _ in
+            Task { @MainActor in
+                if item.status == .readyToPlay { self?.isBuffering = false }
+            }
+        })
+
         if autoplay {
             player.play()
             isPlaying = true
@@ -291,9 +422,74 @@ final class PlayerStore: ObservableObject {
             isPlaying = false
         }
         updateNowPlaying()
+        triggerNextSongPreload()
     }
 
     private var itemThirdParty = false
+
+    // MARK: - 下一首预加载（内存临时，退出清空；仅 WiFi 非低数据模式）
+
+    /// 自动预加载下一首音频到内存，不写磁盘 —— App 退出/杀后台自动清空。
+    /// 触发时机：当前歌曲剩余 <= 8 秒（二次校验点），如果还没预加载好就触发。
+    /// 门控条件：WiFi + 非低数据模式 —— 蜂窝网络/低数据模式跳过，防止偷流量。
+    /// 只预加载 1 首，控制内存。切歌时 attach() 会优先复用预加载好的 item 实现无缝。
+    private func triggerNextSongPreload() {
+        // WiFi 门控：蜂窝/低数据模式直接关，防偷流量
+        guard isWiFiNetwork else { return }
+        // 仅预加载 1 首（内存临时），如果已经在预加载同一首就跳过
+        guard queue.indices.contains(currentIndex + 1),
+              let next = queue[currentIndex + 1] as Song?,
+              !next.isLocal else { return }  // 本地歌曲不用预加载
+        if preloadedForSongID == next.id { return }  // 已经预加载好了
+
+        // 触发时机：剩余 <= 8 秒
+        let remaining = duration - currentTime
+        guard duration > 0, remaining <= 8, remaining >= 0 else { return }
+        // 防频繁触发：同一首下一首 3 秒内只触发一次
+        let now = currentTime
+        if now - lastPreloadTriggerTime < 3 { return }
+        lastPreloadTriggerTime = now
+
+        // 有 URL 缓存直接用（CDN 分时 token 15 分钟内有效）
+        if let cached = resolvedURLCache[next.id] {
+            preloadedItem = AVPlayerItem(url: cached.url)
+            preloadedItem?.preferredForwardBufferDuration = 10  // 跟 attach 里一致，让 AVAsset 预建足够连接
+            preloadedForSongID = next.id
+            Log.info("预加载", "命中缓存，下一首预热：\(next.title.prefix(20))")
+            return
+        }
+
+        // 没有缓存 → 异步解析（低优先级，不阻塞播放）
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return }
+            guard let audio = await SourceResolver.resolve(
+                song: next,
+                quality: SourceStore.shared.quality,
+                excludedHosts: self.failedHosts
+            ) else {
+                Log.warn("预加载", "下一首 URL 解析失败：\(next.title.prefix(20))")
+                return
+            }
+            let assetURL: URL?
+            if !audio.url.isFileURL, let upgraded = await Self.upgradeToHTTPS(audio.url) {
+                assetURL = upgraded
+            } else {
+                assetURL = audio.url
+            }
+            guard let assetURL else { return }
+            await MainActor.run {
+                // 切歌前预加载才有用 —— 如果已经切到下一首或更远就丢了
+                guard self.currentIndex + 1 < self.queue.count,
+                      self.queue[self.currentIndex + 1].id == next.id else { return }
+                self.preloadedItem = AVPlayerItem(url: assetURL)
+                self.preloadedItem?.preferredForwardBufferDuration = 10
+                self.preloadedForSongID = next.id
+                // 写入缓存方便下次 prepare/stall 恢复直接用
+                self.resolvedURLCache[next.id] = ResolvedEntry(url: assetURL, thirdParty: audio.isThirdParty, at: Date())
+                Log.info("预加载", "下一首预热完成：\(next.title.prefix(20))")
+            }
+        }
+    }
 
     func play() {
         guard player.currentItem != nil else {
@@ -385,11 +581,12 @@ final class PlayerStore: ObservableObject {
         Task { [weak self] in
             let lrc = await KugouClient.shared.lyric(hash: song.kugouHash, duration: song.duration)
             guard let lrc, !lrc.isEmpty else { return }
-            let parsed = LRCParser.parse(lrc)
-            guard !parsed.isEmpty else { return }
+            let result = LRCParser.parse(lrc)
+            guard !result.lines.isEmpty else { return }
             await MainActor.run { [weak self] in
                 guard let self, self.lyricTaskID == song.id else { return }
-                self.lyrics = parsed
+                self.lyrics = result.lines
+                self.lyricMetadata = result.metadata
                 self.refreshLyric()
             }
         }
@@ -486,6 +683,8 @@ final class PlayerStore: ObservableObject {
             if Int(self.currentTime) != self.lastNowPlayingSecond {
                 self.lastNowPlayingSecond = Int(self.currentTime)
                 self.updateNowPlaying()
+                // 顺便检查下一首预加载（每秒一次足够了）
+                self.triggerNextSongPreload()
             }
         }
     }
@@ -550,6 +749,7 @@ final class PlayerStore: ObservableObject {
             // 先立即尝试一次 play()（有时 stall 后 rate=0 但 play() 能把它拉回来），
             // 8 秒没恢复 → 用缓存 URL 重新 attach 一次（给 AVPlayer 重新拉流的信号）。
             Log.info("播放", "缓冲卡顿（\(self.assetHost(of: item) ?? "?")），先尝试 play()，8 秒没恢复就重 attach")
+            self.isBuffering = true
             if self.isPlaying { self.player.play() }
             self.stallRecoveryTimer?.invalidate()
             self.stalledSongID = self.current?.id
