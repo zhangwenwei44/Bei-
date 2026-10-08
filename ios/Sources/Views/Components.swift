@@ -421,6 +421,17 @@ struct SongRow: View {
     }
 }
 
+/// 让 SongRow 支持 .equatable() —— 列表滚动时只有 song.id / isCurrent / isPlaying / showsCover 变了才重建 Cell。
+/// trailing 是 AnyView 不走等式比较（trailing 频繁变化本身就是信号，说明 Cell 应该重建）。
+extension SongRow: Equatable {
+    static func == (lhs: SongRow, rhs: SongRow) -> Bool {
+        lhs.song.id == rhs.song.id
+        && lhs.isCurrent == rhs.isCurrent
+        && lhs.isPlaying == rhs.isPlaying
+        && lhs.showsCover == rhs.showsCover
+    }
+}
+
 // MARK: - 歌曲操作菜单
 
 /// 列表项通用的操作菜单（收藏 / 下载 / 下一首播放 / 加入歌单）。

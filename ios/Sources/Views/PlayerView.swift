@@ -87,6 +87,8 @@ struct PlayerView: View {
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 0.5), value: store.currentIndex)
         .animation(.easeInOut(duration: 0.5), value: store.currentPalette)
+        // GPU 一次性合成多层渐变 + blur —— 避免每层都离屏渲染
+        .drawingGroup()
     }
 
     // MARK: - 封面大图（确定性尺寸：宽-88 与可用高度 42% 取小，信息区永远完整）
@@ -116,9 +118,12 @@ struct PlayerView: View {
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
             .stroke(.white.opacity(0.14), lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.35), radius: 22, y: 10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity) // 在剩余空间里居中（横向已被固定屏宽锁死）
+        // 优化：用轻微 shadow 代替重阴影 —— 减少离屏渲染开销
+        .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.easeInOut(duration: 0.4), value: store.currentIndex)
+        // GPU 合成封面 + shadow + overlay
+        .drawingGroup()
     }
 
     // MARK: - 顶栏

@@ -8,6 +8,12 @@ struct ProfileView: View {
     @ObservedObject private var downloads = DownloadManager.shared
     @ObservedObject private var library = LibraryStore.shared
     @StateObject private var updater = AppUpdater.shared
+    /// 自动预缓存下一首 —— 用户手动开关，优先级高于网络判断（默认开启）。
+    @AppStorage("aurora.autoPrecache") private var autoPrecacheEnabled: Bool = true
+    private var autoPrecacheBinding: Binding<Bool> {
+        Binding(get: { autoPrecacheEnabled },
+                set: { autoPrecacheEnabled = $0 })
+    }
     /// 整个页面只挂一个 sheet。
     ///
     /// 之前这里是三个并列的 .sheet(isPresented:)。iOS 16 的 SwiftUI 里同一个
@@ -154,6 +160,21 @@ struct ProfileView: View {
                         set: { HighRefreshController.shared.setEnabled($0) }
                     ))
                     .labelsHidden()
+                    .tint(AppStyle.accent)
+                }
+
+                // 自动预缓存开关（优先级高于 WiFi/蜂窝网络判断）
+                Toggle(isOn: autoPrecacheBinding) {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("自动预缓存下一首")
+                            Text("仅 WiFi 时生效，蜂窝/低数据模式自动关闭")
+                                .font(.system(size: 11))
+                                .foregroundStyle(AppStyle.tertiaryText)
+                        }
+                    } icon: {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                    }
                     .tint(AppStyle.accent)
                 }
             } header: {

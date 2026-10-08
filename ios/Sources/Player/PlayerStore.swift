@@ -81,6 +81,8 @@ final class PlayerStore: ObservableObject {
     private var artistPhotoTaskID: String?
     private var lyricTaskID: String?
     private var lastNowPlayingSecond = -1
+    /// @Published currentTime 节流桶 —— 只在 0.5s 边界变化时 publish，减少 SwiftUI body 重建。
+    private var lastPublishedHalfSecond = -1
     /// stall 自动恢复定时器 — 15 秒内没恢复就重新 attach
     private var stallRecoveryTimer: Timer?
     private var stalledSongID: String?
@@ -431,10 +433,14 @@ final class PlayerStore: ObservableObject {
 
     /// 自动预加载下一首音频到内存，不写磁盘 —— App 退出/杀后台自动清空。
     /// 触发时机：当前歌曲剩余 <= 8 秒（二次校验点），如果还没预加载好就触发。
-    /// 门控条件：WiFi + 非低数据模式 —— 蜂窝网络/低数据模式跳过，防止偷流量。
+    /// 门控顺序：用户手动开关（@AppStorage）→ WiFi 非低数据模式 —— 关任何一个都跳过。
     /// 只预加载 1 首，控制内存。切歌时 attach() 会优先复用预加载好的 item 实现无缝。
     private func triggerNextSongPreload() {
-        // WiFi 门控：蜂窝/低数据模式直接关，防偷流量
+        // 0. 用户手动开关（优先级最高）
+        let defaults = UserDefaults.standard
+        let userEnabled = defaults.object(forKey: "aurora.autoPrecache") as? Bool ?? true
+        guard userEnabled else { return }
+        // 1. WiFi 门控：蜂窝/低数据模式直接关，防偷流量
         guard isWiFiNetwork else { return }
         // 仅预加载 1 首（内存临时），如果已经在预加载同一首就跳过
         guard queue.indices.contains(currentIndex + 1),
@@ -593,7 +599,13 @@ final class PlayerStore: ObservableObject {
     }
 
     private func refreshLyric() {
-        let found = LRCParser.index(at: currentTime, in: lyrics)
+        refreshLyric(at: currentTime)
+    }
+
+    /// 直接用传入的时间，不依赖 @Published currentTime —— 时间观察器里用这个保持精准对齐，
+    /// 因为 currentTime 被节流到 0.5s 一桶，内部的 0.05s 原始时间更准。
+    private func refreshLyric(at time: Double) {
+        let found = LRCParser.index(at: time, in: lyrics)
         if found != currentLyricIndex { currentLyricIndex = found }
     }
 
@@ -665,23 +677,33 @@ final class PlayerStore: ObservableObject {
         let interval = CMTime(seconds: 0.05, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self else { return }
-            self.currentTime = time.seconds.isFinite ? max(0, time.seconds) : 0
-            if let item = self.player.currentItem {
-                let total = item.duration.seconds
-                if total.isFinite, total > 0 { self.duration = total }
-                let range = item.loadedTimeRanges.first?.timeRangeValue
-                let buffer = range.map { Double($0.duration.seconds / total) } ?? 0
-                self.bufferedFraction = buffer.isFinite ? max(0, min(1, buffer)) : 0
+            let rawTime = time.seconds.isFinite ? max(0, time.seconds) : 0
+
+            // 节流 @Published 更新：0.5 秒刷一次（2 次/秒），避免 UI 高频重建
+            let halfSecondBucket = Int(rawTime * 2)
+            if halfSecondBucket != self.lastPublishedHalfSecond {
+                self.lastPublishedHalfSecond = halfSecondBucket
+                self.currentTime = rawTime
+                if let item = self.player.currentItem {
+                    let total = item.duration.seconds
+                    if total.isFinite, total > 0 { self.duration = total }
+                    let range = item.loadedTimeRanges.first?.timeRangeValue
+                    let buffer = range.map { Double($0.duration.seconds / total) } ?? 0
+                    self.bufferedFraction = buffer.isFinite ? max(0, min(1, buffer)) : 0
+                }
             }
-            self.refreshLyric()
+
+            // 歌词刷新继续用原始时间，保持精准对齐 —— 歌词不依赖 @Published，直接读 rawTime
+            self.refreshLyric(at: rawTime)
 
             if let end = self.sleepTimerEnd, Date() >= end {
                 self.sleepTimerEnd = nil
                 self.pause()
             }
             // 每秒刷新一次锁屏信息即可
-            if Int(self.currentTime) != self.lastNowPlayingSecond {
-                self.lastNowPlayingSecond = Int(self.currentTime)
+            let wholeSecond = Int(rawTime)
+            if wholeSecond != self.lastNowPlayingSecond {
+                self.lastNowPlayingSecond = wholeSecond
                 self.updateNowPlaying()
                 // 顺便检查下一首预加载（每秒一次足够了）
                 self.triggerNextSongPreload()
