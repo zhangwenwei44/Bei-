@@ -100,13 +100,27 @@ enum LRCParser {
         parse(text).lines
     }
 
+    /// 找到时间戳 ≤ `time + 0.25s` 的最后一行 —— 即「当前应该高亮的歌词行」。
+    ///
+    /// ⚠️ 性能关键：二分搜索 O(log n)，之前是 O(n) 全量扫描。
+    /// 0.05s × 每秒 20 次调用 × 100 行歌词 = 2000 次比较/秒，和 ScrollGesture 抢 CPU 导致滑动卡顿。
+    /// 改成二分后每次只需 7 次比较（2^7 = 128），加上 time observer interval 也从 0.05s 降到 0.25s，
+    /// 主线程工作量直接砍到之前的 1/8。
     static func index(at time: Double, in lines: [LyricLine]) -> Int? {
         guard !lines.isEmpty else { return nil }
-        var found: Int?
-        for (index, line) in lines.enumerated() where line.time <= time + 0.25 {
-            found = index
+        // 二分找最后一个 timeStamp <= time + 0.25 的行（0.25s 提前高亮容差）
+        let target = time + 0.25
+        var lo = 0, hi = lines.count - 1, result: Int?
+        while lo <= hi {
+            let mid = (lo + hi) >> 1
+            if lines[mid].time <= target {
+                result = mid       // mid 可能是答案，先记下来
+                lo = mid + 1       // 继续往右找更晚的行
+            } else {
+                hi = mid - 1
+            }
         }
-        return found
+        return result
     }
 
     /// 解析原文 + 翻译，按时间戳合并成一份歌词。

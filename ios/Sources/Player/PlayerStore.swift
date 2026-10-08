@@ -83,8 +83,8 @@ final class PlayerStore: ObservableObject {
     private var lastNowPlayingSecond = -1
     /// @Published currentTime 节流桶 —— 只在 0.5s 边界变化时 publish，减少 SwiftUI body 重建。
     private var lastPublishedHalfSecond = -1
-    /// bufferedFraction 独立节流桶 —— 0.25s，缓冲条比进度条快一倍更流畅。
-    private var lastPublishedQuarterSecond = -1
+    /// bufferedFraction 改由 AVPlayerItem KVO loadedTimeRanges 驱动（不再轮询），此变量已弃用。
+    // private var lastPublishedQuarterSecond = -1
     /// stall 自动恢复定时器 — 15 秒内没恢复就重新 attach
     private var stallRecoveryTimer: Timer?
     private var stalledSongID: String?
@@ -398,6 +398,19 @@ final class PlayerStore: ObservableObject {
 
         // KVO: 缓冲状态 — Swift 6 strict concurrency：KVO 闭包非隔离，[weak self] 捕获后不能在 Task 内直接用 self，
         // 必须先在闭包内 guard 解包再传给 Task。
+        // KVO: loadedTimeRanges —— 缓冲范围变化时才计算 bufferedFraction，
+        // 不再在 time observer 里每 0.25s 轮询 loadedTimeRanges（主线程开销）
+        itemObservers.append(item.observe(\.loadedTimeRanges, options: [.new]) { [weak self] item, _ in
+            guard let self else { return }
+            Task { @MainActor in
+                let total = item.duration.seconds
+                if total.isFinite, total > 0 {
+                    let range = item.loadedTimeRanges.first?.timeRangeValue
+                    let buffer = range.map { Double($0.duration.seconds / total) } ?? 0
+                    self.bufferedFraction = buffer.isFinite ? max(0, min(1, buffer)) : 0
+                }
+            }
+        })
         itemObservers.append(item.observe(\.isPlaybackBufferEmpty, options: [.new]) { [weak self] item, _ in
             guard let self else { return }
             Task { @MainActor in
@@ -683,7 +696,12 @@ final class PlayerStore: ObservableObject {
     // MARK: - 进度与通知
 
     private func installTimeObserver() {
-        let interval = CMTime(seconds: 0.05, preferredTimescale: 600)
+        // ⚠️ 从 0.05s → 0.25s（4fps）—— 歌词 4fps 视觉完全流畅，
+        // 但主线程工作量立刻砍掉 4×。之前 0.05s × 每秒 20 次回调里：
+        // refreshLyric 每次扫完 100 行歌词（O(n)）+ bufferedFraction 读 loadedTimeRanges
+        // + currentTime 节流桶比较 —— 叠加起来和 ScrollGesture 渲染抢 CPU 就卡顿。
+        // 0.25s 足够歌词精准对齐（每首歌每行歌词持续至少 0.5s）。
+        let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self else { return }
             let rawTime = time.seconds.isFinite ? max(0, time.seconds) : 0
@@ -701,33 +719,19 @@ final class PlayerStore: ObservableObject {
                 if total.isFinite, total > 0, total != self.duration { self.duration = total }
             }
 
-            // bufferedFraction：独立 0.25s 桶（比 currentTime 快一倍，缓冲条流畅又节流）
-            let quarterSecondBucket = Int(rawTime * 4)
-            if quarterSecondBucket != self.lastPublishedQuarterSecond {
-                self.lastPublishedQuarterSecond = quarterSecondBucket
-                if let item = self.player.currentItem {
-                    let total = item.duration.seconds
-                    if total.isFinite, total > 0 {
-                        let range = item.loadedTimeRanges.first?.timeRangeValue
-                        let buffer = range.map { Double($0.duration.seconds / total) } ?? 0
-                        self.bufferedFraction = buffer.isFinite ? max(0, min(1, buffer)) : 0
-                    }
-                }
-            }
-
-            // 歌词刷新继续用原始时间，保持精准对齐 —— 歌词不依赖 @Published，直接读 rawTime
+            // 歌词刷新继续用原始时间 —— LRCParser.index 现在是二分 O(log n)，
+            // 4fps 下每次只做 7 次比较（100 行歌词），完全不是瓶颈
             self.refreshLyric(at: rawTime)
 
             if let end = self.sleepTimerEnd, Date() >= end {
                 self.sleepTimerEnd = nil
                 self.pause()
             }
-            // 每秒刷新一次锁屏信息即可
+            // 每秒刷新一次锁屏信息 + 检查下一首预加载
             let wholeSecond = Int(rawTime)
             if wholeSecond != self.lastNowPlayingSecond {
                 self.lastNowPlayingSecond = wholeSecond
                 self.updateNowPlaying()
-                // 顺便检查下一首预加载（每秒一次足够了）
                 self.triggerNextSongPreload()
             }
         }
