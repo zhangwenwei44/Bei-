@@ -591,17 +591,22 @@ final class KugouClient {
         // 方案 2：移动端歌单整页
         Log.info("歌单", "specialid=\(specialID) JSON 全失败，改抓移动端整页")
         for url in ["https://m.kugou.com/plist/list/\(specialID)-1.html",
-                    "https://m.kugou.com/plist/list/\(specialID).html"] {
+                    "https://m.kugou.com/plist/list/\(specialID).html",
+                    "https://www.kugou.com/plist/list/\(specialID)-1.html",
+                    "https://www.kugou.com/plist/list/\(specialID).html"] {
             guard let html = try? await getRaw(path: "",
                                                host: url,
                                                params: [:],
                                                headers: [:]) else { continue }
             let songs = Self.songs(fromSpecialMobileHTML: html)
             if !songs.isEmpty {
-                Log.info("歌单", "specialid=\(specialID) 整页解析 \(songs.count) 首")
+                Log.info("歌单", "specialid=\(specialID) 整页解析 \(songs.count) 首 via \(url)")
                 return Array(songs.prefix(limit))
+            } else {
+                Log.info("歌单", "specialid=\(specialID) \(url) 页面解析为空")
             }
         }
+        Log.warn("歌单", "specialid=\(specialID) 所有来源全部失败（JSON + 整页）")
         return []
     }
 
@@ -649,24 +654,29 @@ final class KugouClient {
     func fetchPlaylistByCode(_ input: String) async throws -> (Playlist, [Song]) {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw KugouError.badURL }
+        Log.info("导入", "解析输入：\(trimmed)")
 
         // 先提取 specialid / rankID
-        let specialID: String?
-        let rankID: String?
-        let resolvedName: String?
+        var specialID: String? = nil
+        var rankID: String? = nil
 
         if let url = URL(string: trimmed), trimmed.contains("kugou.com") {
             // 完整 URL — 尝试从路径里抠 specialid 或 rankid
             let path = url.path
+            Log.info("导入", "URL 路径：\(path)")
             // /plist/list/{specialid}-1.html 或 /plist/list/{specialid}.html
             if let range = path.range(of: "/plist/list/") {
                 let rest = path[range.upperBound...]
                 if let dash = rest.firstIndex(of: "-"), let dot = rest.firstIndex(of: ".") {
                     let candidate = String(rest[..<min(dash, dot)])
-                    if Int(candidate) != nil { specialID = candidate; rankID = nil; resolvedName = nil }
-                    else { specialID = nil; rankID = nil; resolvedName = nil }
+                    if Int(candidate) != nil {
+                        specialID = candidate
+                        Log.info("导入", "识别为歌单 specialid=\(specialID!)")
+                    } else {
+                        Log.warn("导入", "plist/list 路径下抠不出数字 specialid：\(candidate)")
+                    }
                 } else {
-                    specialID = nil; rankID = nil; resolvedName = nil
+                    Log.warn("导入", "plist/list 路径格式异常：\(path)")
                 }
             } else if path.contains("/yy/rank/") || path.contains("/rank/") {
                 // 榜单链接 /yy/rank/home/1-{rankid}.html
@@ -674,34 +684,36 @@ final class KugouClient {
                 if let regex = try? NSRegularExpression(pattern: pattern),
                    let match = regex.firstMatch(in: path, range: NSRange(path.startIndex..., in: path)),
                    let r = Range(match.range(at: 1), in: path) {
-                    rankID = String(path[r]); specialID = nil; resolvedName = nil
+                    rankID = String(path[r])
+                    Log.info("导入", "识别为榜单 rankid=\(rankID!)")
                 } else {
-                    specialID = nil; rankID = nil; resolvedName = nil
+                    Log.warn("导入", "榜单路径正则没匹配上：\(path)")
                 }
             } else if trimmed.contains("t.kugou.com") {
-                // 短链 — HEAD 拿重定向
+                // 短链 — GET 让 URLSession 自动跟随重定向，读最终 response.url
                 let config = URLSessionConfiguration.default
                 config.httpMaximumConnectionsPerHost = 1
                 let session = URLSession(configuration: config)
                 var request = URLRequest(url: url)
-                request.httpMethod = "HEAD"
                 request.cachePolicy = .reloadIgnoringLocalCacheData
                 let (_, response) = try await session.data(for: request)
                 if let http = response as? HTTPURLResponse,
-                   let finalURL = http.url ?? (http.allHeaderFields["Location"] as? String).flatMap(URL.init) {
-                    Log.info("导入", "短链 \(trimmed) 重定向到 \(finalURL.absoluteString)")
+                   let finalURL = http.url {
+                    Log.info("导入", "短链 \(trimmed) GET 重定向到 \(finalURL.absoluteString)")
                     return try await fetchPlaylistByCode(finalURL.absoluteString) // 递归解析真实 URL
                 }
-                specialID = nil; rankID = nil; resolvedName = nil
+                Log.warn("导入", "短链 \(trimmed) GET 没拿到重定向 URL")
             } else {
-                specialID = nil; rankID = nil; resolvedName = nil
+                Log.warn("导入", "不认识的 kugou.com 路径：\(path)")
             }
         } else if Int(trimmed) != nil {
             // 纯数字 → specialid
-            specialID = trimmed; rankID = nil; resolvedName = nil
+            specialID = trimmed
+            Log.info("导入", "纯数字识别为 specialid=\(specialID!)")
         } else {
             // 纯字母数字 → 当短链 code 处理
             let guessed = "https://t.kugou.com/\(trimmed)"
+            Log.info("导入", "纯字母数字 → 尝试短链 \(guessed)")
             return try await fetchPlaylistByCode(guessed)
         }
 

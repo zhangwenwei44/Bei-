@@ -160,7 +160,12 @@ struct PlaylistDetailView: View {
         .background(AppStyle.background)
         .navigationTitle(playlist.name)
         .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: isSelecting) { newValue in store.isAnyMultiSelecting = newValue }
+        .onChange(of: isSelecting) { newValue in
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                store.isAnyMultiSelecting = newValue
+            }
+        }
+        .onDisappear { store.isAnyMultiSelecting = false }
         .safeAreaInset(edge: .bottom) {
             if isSelecting, !selectedIDs.isEmpty {
                 let selected = displaySongs.filter { selectedIDs.contains($0.id) }

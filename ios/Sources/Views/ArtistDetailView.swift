@@ -70,7 +70,12 @@ struct ArtistDetailView: View {
             }
         }
         .task { await loadSongs() }
-        .onChange(of: isSelecting) { newValue in store.isAnyMultiSelecting = newValue }
+        .onChange(of: isSelecting) { newValue in
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                store.isAnyMultiSelecting = newValue
+            }
+        }
+        .onDisappear { store.isAnyMultiSelecting = false }
     }
 
     // MARK: - 顶部沉浸式横幅

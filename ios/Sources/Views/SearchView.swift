@@ -273,7 +273,12 @@ struct SearchView: View {
                 selectedActionBar
             }
         }
-        .onChange(of: isSelecting) { newValue in store.isAnyMultiSelecting = newValue }
+        .onChange(of: isSelecting) { newValue in
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                store.isAnyMultiSelecting = newValue
+            }
+        }
+        .onDisappear { store.isAnyMultiSelecting = false }
     }
 
     /// 多选模式下的底部操作条。
