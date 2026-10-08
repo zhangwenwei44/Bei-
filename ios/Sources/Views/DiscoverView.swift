@@ -164,15 +164,45 @@ struct DiscoverView: View {
     private var recommendContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             bigCardsGrid
-            // 三个新推荐板块
-            songSection(title: "KTV必点曲", moreAction: {
-                let songs = ktvSongs; store.play(songs)
+            // 三个新推荐板块 —— 点"更多"push 进完整榜单页（复用已加载好的歌曲，省一次请求）
+            songSection(title: "KTV必点曲", moreDestination: {
+                NavigationLink {
+                    PlaylistDetailView(
+                        playlist: Playlist(id: "local-ktv", name: "KTV必点曲",
+                                           coverURL: nil, trackCount: ktvSongs.count,
+                                           creatorName: "Aurora 推荐", source: .kugou),
+                        initialSongs: ktvSongs)
+                } label: {
+                    HStack(spacing: 2) { Text("更多").font(.system(size: 12)); Image(systemName: "chevron.right").font(.system(size: 10)) }
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+                .buttonStyle(.plain)
             }, allSongs: ktvSongs)
-            songSection(title: "经典推荐", moreAction: {
-                let songs = classicSongs; store.play(songs)
+            songSection(title: "经典推荐", moreDestination: {
+                NavigationLink {
+                    PlaylistDetailView(
+                        playlist: Playlist(id: "local-classic", name: "经典推荐",
+                                           coverURL: nil, trackCount: classicSongs.count,
+                                           creatorName: "Aurora 推荐", source: .kugou),
+                        initialSongs: classicSongs)
+                } label: {
+                    HStack(spacing: 2) { Text("更多").font(.system(size: 12)); Image(systemName: "chevron.right").font(.system(size: 10)) }
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+                .buttonStyle(.plain)
             }, allSongs: classicSongs)
-            songSection(title: "新歌推荐", moreAction: {
-                let songs = newSongs; store.play(songs)
+            songSection(title: "新歌推荐", moreDestination: {
+                NavigationLink {
+                    PlaylistDetailView(
+                        playlist: Playlist(id: "local-new", name: "新歌推荐",
+                                           coverURL: nil, trackCount: newSongs.count,
+                                           creatorName: "Aurora 推荐", source: .kugou),
+                        initialSongs: newSongs)
+                } label: {
+                    HStack(spacing: 2) { Text("更多").font(.system(size: 12)); Image(systemName: "chevron.right").font(.system(size: 10)) }
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+                .buttonStyle(.plain)
             }, allSongs: newSongs)
             moodGreeting
             artistsSection
@@ -180,7 +210,7 @@ struct DiscoverView: View {
     }
 
     // 通用歌曲板块：标题 + 更多按钮 + 5首歌曲列表
-    private func songSection(title: String, moreAction: @escaping () -> Void, allSongs: [Song]) -> some View {
+    private func songSection(title: String, @ViewBuilder moreDestination: () -> some View, allSongs: [Song]) -> some View {
         let shown = Array(allSongs.prefix(5))
         return VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -188,13 +218,7 @@ struct DiscoverView: View {
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(AppStyle.primaryText)
                 Spacer()
-                Button(action: moreAction) {
-                    HStack(spacing: 2) {
-                        Text("更多").font(.system(size: 12))
-                        Image(systemName: "chevron.right").font(.system(size: 10))
-                    }
-                    .foregroundStyle(AppStyle.tertiaryText)
-                }
+                moreDestination()
             }
             .padding(.horizontal, 16)
             .padding(.top, 18)

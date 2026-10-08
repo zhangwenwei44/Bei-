@@ -77,6 +77,10 @@ struct SongListView: View {
 struct PlaylistDetailView: View {
     let playlist: Playlist
     var localPlaylist: LibraryStore.UserPlaylist?
+    /// 页面外部已经加载好的歌曲列表 —— 传了就跳过网络请求，直接用。
+    /// 场景：DiscoverView 的 KTV必点曲/经典推荐/新歌推荐 三个板块，
+    ///       歌曲已经搜索好了，点"更多"push 进来时直接复用，省一次网络请求。
+    var initialSongs: [Song]? = nil
 
     @EnvironmentObject private var store: PlayerStore
     @ObservedObject private var library = LibraryStore.shared
@@ -156,6 +160,7 @@ struct PlaylistDetailView: View {
         .background(AppStyle.background)
         .navigationTitle(playlist.name)
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: isSelecting) { newValue in store.isAnyMultiSelecting = newValue }
         .safeAreaInset(edge: .bottom) {
             if isSelecting, !selectedIDs.isEmpty {
                 let selected = displaySongs.filter { selectedIDs.contains($0.id) }
@@ -327,6 +332,10 @@ struct PlaylistDetailView: View {
 
     private func load() async {
         if localPlaylist != nil { return }
+        if let initialSongs, !initialSongs.isEmpty {
+            songs = initialSongs
+            return
+        }
         isLoading = true
         defer { isLoading = false }
         do {

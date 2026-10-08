@@ -37,7 +37,7 @@ struct RootView: View {
                 .tag(Tab.profile)
             }
 
-            if store.current != nil {
+            if store.current != nil && !store.isAnyMultiSelecting {
                 MiniPlayer(isExpanded: $isPlayerExpanded)
                     .padding(.horizontal, 10)
                     .padding(.bottom, 50)

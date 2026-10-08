@@ -217,6 +217,14 @@ final class LibraryStore: ObservableObject {
         return playlist
     }
 
+    /// 从酷狗分享链接批量导入 —— 先 createPlaylist 再 add 所有歌曲。
+    @discardableResult
+    func importPlaylist(name: String, songs: [Song]) -> UserPlaylist {
+        let playlist = createPlaylist(name: name)
+        for song in songs { add(song, toPlaylist: playlist.id) }
+        return playlist
+    }
+
     func deletePlaylist(id: String) {
         playlists.removeAll { $0.id == id }
         persist(playlists, key: key("playlists"))

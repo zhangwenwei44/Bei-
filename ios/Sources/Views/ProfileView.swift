@@ -20,11 +20,15 @@ struct ProfileView: View {
     /// view 挂多个 sheet 只有一个可靠生效，其余静默失败——实际表现就是
     /// 「检查更新」和「关于」点了完全没反应，只有排在最后的更新日志能弹出来。
     private enum Sheet: String, Identifiable {
-        case about, update, changelog
+        case about, update, changelog, kugouImport
         var id: String { rawValue }
     }
 
     @State private var sheet: Sheet?
+    /// 酷狗分享链接 / specialid 输入框。
+    @State private var kugouCodeInput = ""
+    @State private var kugouImporting = false
+    @State private var kugouImportError: String?
 
     var body: some View {
         List {
@@ -182,6 +186,16 @@ struct ProfileView: View {
             }
 
             Section {
+                Button {
+                    sheet = .kugouImport
+                } label: {
+                    Label("导入酷狗歌单", systemImage: "square.and.arrow.down.on.square")
+                }
+            } header: {
+                headerText("我的音乐")
+            }
+
+            Section {
                 HStack {
                     Label("已下载", systemImage: "internaldrive")
                     Spacer()
@@ -276,6 +290,7 @@ struct ProfileView: View {
             case .about: AboutView()
             case .update: UpdateView()
             case .changelog: ChangelogView()
+            case .kugouImport: kugouImportSheet
             }
         }
         .task {
@@ -308,6 +323,70 @@ struct ProfileView: View {
     private var sleepText: String {
         guard let remaining = store.sleepTimerRemaining, remaining > 0 else { return "关闭" }
         return "\(Int(ceil(remaining / 60))) 分钟后"
+    }
+
+    private var kugouImportSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("粘贴酷狗分享链接、specialid 数字，或短链 code")
+                    .font(.system(size: 13))
+                    .foregroundStyle(AppStyle.tertiaryText)
+
+                TextField("https://t.kugou.com/xxx 或 12345", text: $kugouCodeInput)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    .autocapitalization(.none)
+
+                HStack(spacing: 12) {
+                    Button("取消") {
+                        sheet = nil; kugouCodeInput = ""; kugouImportError = nil
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        Task { await doKugouImport() }
+                    } label: {
+                        HStack {
+                            if kugouImporting { ProgressView().controlSize(.small) }
+                            Text(kugouImporting ? "导入中..." : "导入")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(kugouImporting || kugouCodeInput.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+
+                if let err = kugouImportError {
+                    Text(err)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.red)
+                }
+
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("导入酷狗歌单")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func doKugouImport() async {
+        kugouImporting = true; kugouImportError = nil
+        defer { kugouImporting = false }
+        do {
+            let (playlist, songs) = try await KugouClient.shared.fetchPlaylistByCode(kugouCodeInput)
+            guard !songs.isEmpty else {
+                kugouImportError = "歌单里没有歌曲，可能是 specialid 失效或歌单已删除"
+                return
+            }
+            library.importPlaylist(name: playlist.name, songs: songs)
+            Haptics.soft()
+            kugouCodeInput = ""
+            sheet = nil
+        } catch {
+            kugouImportError = error.localizedDescription
+        }
     }
 
     private func headerText(_ text: String) -> some View {

@@ -48,6 +48,11 @@ final class PlayerStore: ObservableObject {
     @Published private(set) var currentPalette = ArtworkPaletteEngine.palette(for: nil, seed: "-")
     @Published var showTranslation = false
 
+    // MARK: - 多选共享状态
+
+    /// 任何页面进入多选模式时置 true —— RootView 据此隐藏浮动 MiniPlayer，避免遮挡底部操作栏。
+    @Published var isAnyMultiSelecting = false
+
     // MARK: 交互
 
     @Published private(set) var isLiked = false

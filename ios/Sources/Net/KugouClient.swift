@@ -636,7 +636,119 @@ final class KugouClient {
         return Array(all.prefix(limit))
     }
 
-    // MARK: - 热门歌手
+    // MARK: - 分享链接导入
+
+    /// 解析酷狗分享链接 / 短链 / specialid，返回歌单 + 歌曲列表。
+    ///
+    /// 酷狗分享链接几种格式：
+    ///   1. https://t.kugou.com/abc123 —— 短链，HEAD 重定向到真实歌单页
+    ///   2. https://www.kugou.com/plist/list/12345.html —— 普通歌单 specialid=12345
+    ///   3. https://www.kugou.com/yy/player/share/xxx.html —— 分享页
+    ///   4. 纯数字 "12345" —— 直接就是 specialid
+    ///   5. 纯字母数字 "abc123" —— 当短链 code 处理
+    func fetchPlaylistByCode(_ input: String) async throws -> (Playlist, [Song]) {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw KugouError.badURL }
+
+        // 先提取 specialid / rankID
+        let specialID: String?
+        let rankID: String?
+        let resolvedName: String?
+
+        if let url = URL(string: trimmed), trimmed.contains("kugou.com") {
+            // 完整 URL — 尝试从路径里抠 specialid 或 rankid
+            let path = url.path
+            // /plist/list/{specialid}-1.html 或 /plist/list/{specialid}.html
+            if let range = path.range(of: "/plist/list/") {
+                let rest = path[range.upperBound...]
+                if let dash = rest.firstIndex(of: "-"), let dot = rest.firstIndex(of: ".") {
+                    let candidate = String(rest[..<min(dash, dot)])
+                    if Int(candidate) != nil { specialID = candidate; rankID = nil; resolvedName = nil }
+                    else { specialID = nil; rankID = nil; resolvedName = nil }
+                } else {
+                    specialID = nil; rankID = nil; resolvedName = nil
+                }
+            } else if path.contains("/yy/rank/") || path.contains("/rank/") {
+                // 榜单链接 /yy/rank/home/1-{rankid}.html
+                let pattern = "/home/\\d+-(\\d+)"
+                if let regex = try? NSRegularExpression(pattern: pattern),
+                   let match = regex.firstMatch(in: path, range: NSRange(path.startIndex..., in: path)),
+                   let r = Range(match.range(at: 1), in: path) {
+                    rankID = String(path[r]); specialID = nil; resolvedName = nil
+                } else {
+                    specialID = nil; rankID = nil; resolvedName = nil
+                }
+            } else if trimmed.contains("t.kugou.com") {
+                // 短链 — HEAD 拿重定向
+                let config = URLSessionConfiguration.default
+                config.httpMaximumConnectionsPerHost = 1
+                let session = URLSession(configuration: config)
+                var request = URLRequest(url: url)
+                request.httpMethod = "HEAD"
+                request.cachePolicy = .reloadIgnoringLocalCacheData
+                let (_, response) = try await session.data(for: request)
+                if let http = response as? HTTPURLResponse,
+                   let finalURL = http.url ?? (http.allHeaderFields["Location"] as? String).flatMap(URL.init) {
+                    Log.info("导入", "短链 \(trimmed) 重定向到 \(finalURL.absoluteString)")
+                    return try await fetchPlaylistByCode(finalURL.absoluteString) // 递归解析真实 URL
+                }
+                specialID = nil; rankID = nil; resolvedName = nil
+            } else {
+                specialID = nil; rankID = nil; resolvedName = nil
+            }
+        } else if Int(trimmed) != nil {
+            // 纯数字 → specialid
+            specialID = trimmed; rankID = nil; resolvedName = nil
+        } else {
+            // 纯字母数字 → 当短链 code 处理
+            let guessed = "https://t.kugou.com/\(trimmed)"
+            return try await fetchPlaylistByCode(guessed)
+        }
+
+        // 根据 specialID / rankID 加载
+        if let specialID {
+            let songs = try await specialSongs(specialID: specialID)
+            var cover = ""
+            // 尝试从歌单 JSON 拿名字和封面
+            let name: String
+            if let json = try? await getJSON(path: "/api/v3/special/info",
+                                             host: "https://mobiles.kugou.com",
+                                             params: ["specialid": specialID],
+                                             headers: [:]),
+               let info = json["data"] as? [String: Any] {
+                name = KugouClient.string(info["specialname"]) ?? "导入歌单"
+                cover = KugouClient.string(info["imgurl"]) ?? ""
+            } else {
+                name = "导入歌单 #\(specialID)"
+            }
+            if cover.hasPrefix("http://") { cover = "https://" + cover.dropFirst("http://".count) }
+            let playlist = Playlist(id: "kg-special:\(specialID)",
+                                    name: name,
+                                    coverURL: URL(string: cover.isEmpty ? "" : cover),
+                                    trackCount: songs.count,
+                                    creatorName: "酷狗导入",
+                                    source: .kugou,
+                                    kugouRankID: nil,
+                                    updateFrequency: "")
+            Log.info("导入", "歌单 \(specialID) 导入成功：\(name) \(songs.count) 首")
+            return (playlist, songs)
+        } else if let rankID {
+            let songs = try await rankSongs(rankID: rankID, limit: 50)
+            let name = "酷狗榜单 #\(rankID)"
+            let playlist = Playlist(id: "kg-rank:\(rankID)",
+                                    name: name,
+                                    coverURL: nil,
+                                    trackCount: songs.count,
+                                    creatorName: "酷狗导入",
+                                    source: .kugou,
+                                    kugouRankID: rankID,
+                                    updateFrequency: "")
+            Log.info("导入", "榜单 \(rankID) 导入成功：\(songs.count) 首")
+            return (playlist, songs)
+        } else {
+            throw KugouError.badURL
+        }
+    }
 
     /// 热门歌手列表（按热度）。
     ///

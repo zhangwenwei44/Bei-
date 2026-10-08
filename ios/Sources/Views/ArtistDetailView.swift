@@ -70,6 +70,7 @@ struct ArtistDetailView: View {
             }
         }
         .task { await loadSongs() }
+        .onChange(of: isSelecting) { newValue in store.isAnyMultiSelecting = newValue }
     }
 
     // MARK: - 顶部沉浸式横幅
