@@ -160,7 +160,7 @@ final class PlayerStore: ObservableObject {
 
     /// 监听 SourceStore.quality 变化，正在播放就用新音质重新解析当前歌曲。
     private func installQualityMonitor() {
-        Task { [weak self] @MainActor in
+        Task { @MainActor [weak self] in
             guard let self else { return }
             for await _ in SourceStore.shared.$quality.values {
                 // 跳过初始化时的第一次（和当前值相同）
@@ -396,27 +396,30 @@ final class PlayerStore: ObservableObject {
         // 这次能播，之前拉黑的节点就放回候选池
         failedHosts = []
 
-        // KVO: 缓冲状态
+        // KVO: 缓冲状态 — Swift 6 strict concurrency：KVO 闭包非隔离，[weak self] 捕获后不能在 Task 内直接用 self，
+        // 必须先在闭包内 guard 解包再传给 Task。
         itemObservers.append(item.observe(\.isPlaybackBufferEmpty, options: [.new]) { [weak self] item, _ in
+            guard let self else { return }
             Task { @MainActor in
-                self?.isBuffering = item.isPlaybackBufferEmpty || !(item.isPlaybackLikelyToKeepUp)
+                self.isBuffering = item.isPlaybackBufferEmpty || !(item.isPlaybackLikelyToKeepUp)
             }
         })
         itemObservers.append(item.observe(\.isPlaybackLikelyToKeepUp, options: [.new]) { [weak self] item, _ in
+            guard let self else { return }
             Task { @MainActor in
-                if item.isPlaybackLikelyToKeepUp { self?.isBuffering = false }
+                if item.isPlaybackLikelyToKeepUp { self.isBuffering = false }
             }
         })
         itemObservers.append(item.observe(\.status, options: [.new]) { [weak self] item, _ in
+            guard let self else { return }
             Task { @MainActor in
                 if item.status == .readyToPlay {
-                    self?.isBuffering = false
+                    self.isBuffering = false
                     // 音质切换 mid-song 场景：attach 完成 + item ready → 恢复 seek 位置
-                    // 不用硬编码 sleep，等 AVPlayerItem 真正 ready 再 seek 才不会弱网失败
-                    if let pending = self?.pendingQualitySwitchSeek, pending > 0 {
-                        self?.player.seek(to: CMTime(seconds: pending, preferredTimescale: 600))
-                        self?.currentTime = pending
-                        self?.pendingQualitySwitchSeek = nil
+                    if let pending = self.pendingQualitySwitchSeek, pending > 0 {
+                        self.player.seek(to: CMTime(seconds: pending, preferredTimescale: 600))
+                        self.currentTime = pending
+                        self.pendingQualitySwitchSeek = nil
                         Log.info("播放", "音质切换 seek 恢复到 \(pending)s")
                     }
                 }
@@ -483,13 +486,12 @@ final class PlayerStore: ObservableObject {
                 Log.warn("预加载", "下一首 URL 解析失败：\(next.title.prefix(20))")
                 return
             }
-            let assetURL: URL?
-            if !audio.url.isFileURL, let upgraded = await Self.upgradeToHTTPS(audio.url) {
-                assetURL = upgraded
+            let assetURL: URL
+            if !audio.url.isFileURL {
+                assetURL = await Self.upgradeToHTTPS(audio.url)
             } else {
                 assetURL = audio.url
             }
-            guard let assetURL else { return }
             await MainActor.run {
                 // 切歌前预加载才有用 —— 如果已经切到下一首或更远就丢了
                 guard self.currentIndex + 1 < self.queue.count,
