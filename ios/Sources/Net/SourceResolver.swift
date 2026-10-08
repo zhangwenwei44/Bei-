@@ -39,34 +39,30 @@ enum SourceResolver {
             return nil
         }
 
-        // 脚本音源经常返回 http:// 明文地址 —— iOS ATS 会拒绝 http 直连音频流，
-        // 先探测 https 可用就升级，避免播放时卡顿/中断
-        if result.url.scheme == "http",
-           let upgraded = await Self.upgradeToHTTPS(result.url) {
-            result.url = upgraded
+        // 强制 http:// → https://（不再 HEAD 探测，直接换 scheme）
+        // 第三方音源脚本经常返回 http://bdycdn.cn/... 酷狗 CDN 地址，
+        // iOS ATS 会拦截 http 音频流导致播放卡顿（日志里 "黄昏"、"不潮不用花钱" 都出现过）。
+        // 绝大多数 CDN 同时支持 http 和 https，直接替换 scheme 即可。
+        // 如果 CDN 本身不支持 https（极少见），AVPlayer 会 stall 触发 stallRecoveryTimer 重试，
+        // 不会永久卡死。比保留 http 被 ATS 拒掉直接不能播要好得多。
+        if result.url.scheme?.lowercased() == "http",
+           var components = URLComponents(url: result.url, resolvingAgainstBaseURL: false) {
+            components.scheme = "https"
+            if let upgraded = components.url {
+                Log.info("音源解析", "http→https 强制升级：\(result.url.host ?? "") → \(upgraded.host ?? "")")
+                result.url = upgraded
+            }
         }
         return result
     }
 
-    /// 探测并升级 http:// → https:// —— 第三方音源脚本返回的 CDN 地址经常是明文 http，
-    /// iOS ATS 会导致音频流被拒，表现为播放卡顿/stall。
-    /// 只升级，不降级：如果 https 不可用（CDN 本身不支持），返回 nil 让调用方回退。
-    private static func upgradeToHTTPS(_ url: URL) async -> URL? {
-        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              components.scheme?.lowercased() == "http" else { return url }
-        components.scheme = "https"
-        guard let httpsURL = components.url else { return nil }
-        // 轻量 HEAD 请求探测 https 端点是否可达（只拿 header，不下载 body）
-        var request = URLRequest(url: httpsURL)
-        request.httpMethod = "HEAD"
-        request.timeoutInterval = 5
-        if let (_, response) = try? await URLSession.shared.data(for: request),
-           let http = response as? HTTPURLResponse,
-           (200...399).contains(http.statusCode) {
-            return httpsURL
-        }
-        return nil
-    }
+    // [已弃用] upgradeToHTTPS — 之前做 HEAD 探测 https 端点是否可达，
+    // 但 bdycdn.cn 等酷狗 CDN 对 HEAD 请求返回 405/超时，探测失败导致 http 地址原样保留被 ATS 拒。
+    // 现在直接强制替换 scheme（见 resolve() 里的处理），绝大多数 CDN 同时支持 http/https，
+    // 极个别不支持的 stallRecoveryTimer 会自动重试。
+    /*
+    private static func upgradeToHTTPS(_ url: URL) async -> URL? { ... }
+    */
 
     // MARK: - 官方
 
