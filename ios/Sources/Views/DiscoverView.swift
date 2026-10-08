@@ -18,7 +18,12 @@ struct DiscoverView: View {
     @State private var isLoadingMore = false
     @State private var selectedTab: DiscoverTab = .recommend
 
-    /// 保留的 7 个精选榜单 rankID。
+    // 三个新推荐板块
+    @State private var ktvSongs: [Song] = []
+    @State private var classicSongs: [Song] = []
+    @State private var newSongs: [Song] = []
+
+    /// 保留的 8 个精选榜单 rankID。
     static let whitelistRankIDs: Set<String> = [
         "82831",  // 网络热歌榜
         "6666",   // 飙升榜
@@ -27,6 +32,7 @@ struct DiscoverView: View {
         "85432",  // 百万收藏榜
         "18016",  // 新歌推荐榜
         "21845",  // 华语金曲榜
+        "96069",  // 会员热歌榜
     ]
 
     /// 猜你喜欢的抽词池。
@@ -128,7 +134,29 @@ struct DiscoverView: View {
         case .recommend: recommendContent
         case .ranks: ranksContent
         case .playlists: playlistsContent
+        case .audiobook: audiobookContent
         }
+    }
+
+    // MARK: 听书 Tab — 施工中
+
+    private var audiobookContent: some View {
+        VStack {
+            Spacer()
+            Image(systemName: "headphones")
+                .font(.system(size: 50))
+                .foregroundStyle(AppStyle.secondaryText)
+            Text("听书板块")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(AppStyle.primaryText)
+                .padding(.top, 16)
+            Text("正在施工中，敬请期待")
+                .font(.system(size: 14))
+                .foregroundStyle(AppStyle.tertiaryText)
+                .padding(.top, 4)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: 推荐 Tab — 完整 Feed 流
@@ -136,8 +164,67 @@ struct DiscoverView: View {
     private var recommendContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             bigCardsGrid
+            // 三个新推荐板块
+            songSection(title: "KTV必点曲", moreAction: {
+                let songs = ktvSongs; store.play(songs)
+            }, allSongs: ktvSongs)
+            songSection(title: "经典推荐", moreAction: {
+                let songs = classicSongs; store.play(songs)
+            }, allSongs: classicSongs)
+            songSection(title: "新歌推荐", moreAction: {
+                let songs = newSongs; store.play(songs)
+            }, allSongs: newSongs)
             moodGreeting
             artistsSection
+        }
+    }
+
+    // 通用歌曲板块：标题 + 更多按钮 + 5首歌曲列表
+    private func songSection(title: String, moreAction: @escaping () -> Void, allSongs: [Song]) -> some View {
+        let shown = Array(allSongs.prefix(5))
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(AppStyle.primaryText)
+                Spacer()
+                Button(action: moreAction) {
+                    HStack(spacing: 2) {
+                        Text("更多").font(.system(size: 12))
+                        Image(systemName: "chevron.right").font(.system(size: 10))
+                    }
+                    .foregroundStyle(AppStyle.tertiaryText)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 18)
+            .padding(.bottom, 8)
+
+            if shown.isEmpty {
+                HStack {
+                    ProgressView().controlSize(.small)
+                        .frame(maxWidth: .infinity).padding(.vertical, 20)
+                }.padding(.horizontal, 16)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(shown.enumerated()), id: \.element.id) { index, song in
+                        SongRow(song: song,
+                                isCurrent: store.current?.id == song.id,
+                                isPlaying: store.isPlaying)
+                            .songMenu(song)
+                            .padding(.horizontal, 16)
+                            .onTapGesture {
+                                guard let start = allSongs.firstIndex(where: { $0.id == song.id }) else { return }
+                                store.play(allSongs, startAt: start); Haptics.soft()
+                            }
+                        if index < shown.count - 1 {
+                            Divider().padding(.leading, 60)
+                        }
+                    }
+                }
+                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.horizontal, 16)
+            }
         }
     }
 
@@ -147,9 +234,9 @@ struct DiscoverView: View {
         let sidePadding: CGFloat = 16
         let screenW = UIScreen.main.bounds.width
         let gap: CGFloat = 10
-        // 卡片整体缩小到 0.55
+        // 卡片整体缩放 0.65
         let rawWidth = (screenW - sidePadding * 2 - gap) / 2
-        let bigWidth = rawWidth * 0.55
+        let bigWidth = rawWidth * 0.65
         let bigHeight = bigWidth * 1.5
         // 两小卡叠加：(bigHeight - gap) / 2
         let smallCardHeight = (bigHeight - gap) / 2
@@ -188,7 +275,7 @@ struct DiscoverView: View {
             (ranks[i], i + 1 < ranks.count ? ranks[i + 1] : nil)
         }
 
-        // Playlist → 封面小卡（正方形 CoverFeatureCard，无播放按钮无副标题）
+        // Playlist → 封面小卡（纯封面无文字无播放按钮）
         func rankCard(_ playlist: Playlist?) -> some View {
             Group {
                 if let playlist {
@@ -201,7 +288,8 @@ struct DiscoverView: View {
                                 title: playlist.name,
                                 subtitle: "",
                                 isPlaying: false,
-                                showPlayButton: false
+                                showPlayButton: false,
+                                showText: false
                             )
                         }
                     )
@@ -526,6 +614,10 @@ struct DiscoverView: View {
             squareTotal = result.total
             squarePage = 1
         }
+        // 三个新推荐板块
+        if ktvSongs.isEmpty { ktvSongs = (try? await KugouClient.shared.searchSongs(keyword: "KTV必点 经典", limit: 30)) ?? [] }
+        if classicSongs.isEmpty { classicSongs = (try? await KugouClient.shared.searchSongs(keyword: "华语经典 怀旧", limit: 30)) ?? [] }
+        if newSongs.isEmpty { newSongs = (try? await KugouClient.shared.searchSongs(keyword: "新歌榜", limit: 30)) ?? [] }
         let whitelist = Self.whitelistRankIDs
         let whitelistedSlices = feed.topLists.filter { whitelist.contains($0.kugouRankID ?? "") }
         await loadTrackCounts(for: whitelistedSlices.prefix(5))
@@ -630,12 +722,13 @@ struct DiscoverView: View {
 // MARK: - Tab 枚举
 
 enum DiscoverTab: String, CaseIterable, Hashable {
-    case recommend, ranks, playlists
+    case recommend, ranks, playlists, audiobook
     var title: String {
         switch self {
         case .recommend: return "推荐"
         case .ranks: return "榜单"
         case .playlists: return "歌单"
+        case .audiobook: return "听书"
         }
     }
 }
@@ -651,6 +744,7 @@ struct CoverFeatureCard: View {
     let subtitle: String
     var isPlaying: Bool = false
     var showPlayButton: Bool = true
+    var showText: Bool = true   // 小卡传 false 隐藏所有文字
     var onPlay: () -> Void = {}
 
     private var corner: CGFloat { 14 }
@@ -666,29 +760,33 @@ struct CoverFeatureCard: View {
                        displayWidth: width,
                        displayHeight: height)
 
-            // 底部黑色半透明渐变遮罩
-            VStack(alignment: .leading, spacing: 0) {
-                Spacer()
-                LinearGradient(colors: [.clear, Color.black.opacity(0.75)],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(height: height * 0.5)
+            // 底部黑色半透明渐变遮罩（有文字才需要）
+            if showText {
+                VStack(alignment: .leading, spacing: 0) {
+                    Spacer()
+                    LinearGradient(colors: [.clear, Color.black.opacity(0.75)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: height * 0.5)
+                }
+                .frame(width: width, height: height)
             }
-            .frame(width: width, height: height)
 
             // 标题 + 副标题 + 播放按钮（底部）
             HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.system(size: width * 0.13, weight: .bold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.5)
-                    if !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.system(size: width * 0.075))
-                            .foregroundStyle(.white.opacity(0.85))
+                if showText {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(title)
+                            .font(.system(size: width * 0.13, weight: .bold))
+                            .foregroundStyle(.white)
                             .lineLimit(1)
                             .minimumScaleFactor(0.5)
+                        if !subtitle.isEmpty {
+                            Text(subtitle)
+                                .font(.system(size: width * 0.075))
+                                .foregroundStyle(.white.opacity(0.85))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.5)
+                        }
                     }
                 }
                 if showPlayButton {
@@ -703,6 +801,8 @@ struct CoverFeatureCard: View {
                             .background(Color.white.opacity(0.25), in: Circle())
                     }
                     .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    .highPriorityGesture(TapGesture().onEnded { onPlay() })
                 }
             }
             .padding(10)

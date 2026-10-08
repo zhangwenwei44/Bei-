@@ -173,6 +173,19 @@ struct PlaylistDetailView: View {
                         VStack(spacing: 4) { Image(systemName: "arrow.down.circle").font(.system(size: 18)); Text("下载").font(.system(size: 11)) }
                             .foregroundStyle(AppStyle.primaryText).frame(maxWidth: .infinity).padding(.vertical, 12)
                     }.buttonStyle(.plain)
+                    Divider().frame(height: 24)
+                    Menu {
+                        if library.playlists.isEmpty { Text("还没有歌单") }
+                        ForEach(library.playlists) { pl in
+                            Button(pl.name) {
+                                for song in selected { library.add(song, toPlaylist: pl.id) }
+                                Haptics.soft(); isSelecting = false; selectedIDs.removeAll()
+                            }
+                        }
+                    } label: {
+                        VStack(spacing: 4) { Image(systemName: "text.badge.plus").font(.system(size: 18)); Text("加歌单").font(.system(size: 11)) }
+                            .foregroundStyle(AppStyle.primaryText).frame(maxWidth: .infinity).padding(.vertical, 12)
+                    }.buttonStyle(.plain)
                 }
                 .background(AppStyle.surface)
                 .overlay(Rectangle().fill(AppStyle.stroke).frame(height: 0.5), alignment: .top)
