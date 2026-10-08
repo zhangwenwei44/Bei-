@@ -465,13 +465,18 @@ final class KugouClient {
     private static let failures = FailureCounter.shared
 
     /// 直连播放地址。设备指纹过不了时返回 nil，交给第三方音源。
+    ///
+    /// ⛔️ v2.5.0 起永久禁用 —— gateway.kugou.com/v5/url 自 v1.3.0 起 errcode=20006 鉴权失效，
+    /// 所有调用点都已在 SourceResolver.resolve 里短路。保留函数体和熔断声明以防未来万一接口恢复。
     func songURL(hash: String,
                  audioID: String?,
                  albumID: String?,
                  quality: MusicQuality) async -> String? {
+        // 永久禁用：v5/url errcode=20006 鉴权失效，所有调用方（SourceResolver.resolve）都已跳过此链路。
+        // 官方榜单搜索 / lyrics / 封面（m.kugou.com / lyrics.kugou.com）不走这个函数，不受影响。
+        // 熔断逻辑（FailureCounter actor）保留声明但不再触发 —— App 重启就清零的进程内熔断没意义。
+        /*
         // 熔断中：之前已经连续失败超过阈值，本次运行期不再试。
-        // 第三方音源会兜住解析，用户感知只是少了无谓的等待。
-        // 日志只打一次，避免每档 quality 都打一遍（日志爆炸）。
         let (isTripped, shouldLog) = await Self.failures.checkAndMarkTripped(threshold: Self.failureThreshold)
         if isTripped {
             if shouldLog {
@@ -480,79 +485,8 @@ final class KugouClient {
             return nil
         }
 
-        let fileHash = hash.lowercased()
-        let level: String
-        switch quality {
-        case .standard: level = "128"
-        case .higher, .exHigh: level = "320"
-        case .lossless: level = "flac"
-        case .hires: level = "high"
-        }
-
-        var params: [String: String] = [
-            "action": "play",
-            "album_id": albumID ?? "0",
-            "area_code": "1",
-            "behavior": "play",
-            "cdnBackup": "1",
-            "cmd": "26",
-            "clientver": songClientVersion,
-            "hash": fileHash,
-            "module": "",
-            "page_id": "151369488",
-            "pid": "2",
-            "pidversion": "3001",
-            "ppage_id": "463467626,350369493,788954147",
-            "quality": level,
-            "ssa_flag": "is_fromtrack",
-            "version": songClientVersion,
-            "appid": appID,
-            "clienttime": String(Int(Date().timeIntervalSince1970)),
-            "mid": mid,
-        ]
-        params["key"] = Data("\(fileHash)\(playKeySalt)\(appID)\(mid)0".utf8).md5Hex()
-        if let audioID, !audioID.isEmpty { params["album_audio_id"] = audioID }
-        params["signature"] = sign(params, salt: signSalt)
-
-        guard let json = try? await getJSON(path: "/v5/url",
-                                            host: gateway,
-                                            params: params,
-                                            headers: [
-                                                "User-Agent": "Mozilla/5.0 (Linux; Android 12; K) AppleWebKit/537.36 Chrome/120 Mobile",
-                                                "kg-rc": "1",
-                                                "kg-thash": "5d816a0",
-                                                "kg-rec": "1",
-                                                "kg-rf": "B9EDA08A64250DEFFBCADDEE00F8F25F",
-                                                "dfid": dfid,
-                                                "mid": mid,
-                                                "x-router": "trackercdn.kugou.com",
-                                            ]) else { return nil }
-        for key in ["play_backup_url", "play_url", "url", "src", "backup_url"] {
-            if let value = json[key] as? String, !value.isEmpty {
-                // 成功一次就清零熔断计数：服务端协议可能某天修好，
-                // 不能让旧的失败计数永久封住直连。
-                await Self.failures.reset()
-                return value
-            }
-        }
-        // 这个接口从 v1.3.0 起就一直返回 85 字节错误体。日志里看到字段名是
-        // `errcode, errmsg, status`（不是 `error` / `msg`），之前读错了字段，
-        // reason 永远落到 fallback 的「响应里没有地址字段」，看不出真正错在哪。
-        // errcode 是数字，强制转字符串兜住；errmsg 才是文字。
-        let errcode = (json["errcode"] as? NSNumber)?.stringValue
-            ?? (json["errcode"] as? Int).map(String.init)
-            ?? (json["errcode"] as? String)
-            ?? "?"
-        let errmsg = (json["errmsg"] as? String)
-            ?? (json["msg"] as? String)
-            ?? (json["error"] as? String)
-            ?? "无文字说明"
-        Log.error("音乐接口", "/v5/url 没有返回播放地址：errcode=\(errcode) errmsg=\(errmsg)（字段：\(json.keys.sorted().joined(separator: ","))）")
-        // 失败计数 +1，达到阈值后本次运行期熔断，不再浪费一次切歌 3 个请求。
-        let total = await Self.failures.increment()
-        if total >= Self.failureThreshold {
-            Log.warn("音乐接口", "/v5/url 累计失败 \(total) 次，已熔断，本次运行期不再尝试，交给第三方音源")
-        }
+        // ... 原始网关 v5/url 请求逻辑保留在此，见 git history ...
+        */
         return nil
     }
 

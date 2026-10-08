@@ -18,6 +18,11 @@ struct ResolvedAudio: Equatable {
 /// 多个音源并发请求，谁先返回可用地址就用谁，避免慢源或失效源拖住播放。
 enum SourceResolver {
     /// 解析一首歌的播放地址。
+    ///
+    /// ⚠️ v2.5.0 起永久强制走第三方 JS 脚本音源。原因：酷狗 gateway.kugou.com/v5/url
+    /// 接口自 v1.3.0 起 errcode=20006，鉴权参数失效，直连每次切歌都白白发 3 次请求
+    /// 再失败，用户多等 1 秒。第三方 JS 音源（长青 SVIP 等）稳定可用，直接跳过 officialURL。
+    /// 酷狗榜单搜索 / lyrics / 封面下载（m.kugou.com / lyrics.kugou.com）保持原样不受影响。
     static func resolve(song: Song,
                         quality: MusicQuality,
                         excludedHosts: Set<String> = []) async -> ResolvedAudio? {
@@ -25,10 +30,42 @@ enum SourceResolver {
         if song.isLocal, let url = song.url {
             return ResolvedAudio(url: url, sourceName: "本地文件", quality: quality, isThirdParty: false)
         }
-        if let official = await officialURL(for: song, quality: quality) {
-            return official
+
+        // ⛔️ 永久禁用官方 gateway v5/url —— errcode=20006 鉴权失效，不再白费请求
+        // if let official = await officialURL(for: song, quality: quality) { return official }
+
+        // 直接走第三方 JS 脚本音源（长青 SVIP 等）
+        guard var result = await thirdPartyURL(for: song, quality: quality, excludedHosts: excludedHosts) else {
+            return nil
         }
-        return await thirdPartyURL(for: song, quality: quality, excludedHosts: excludedHosts)
+
+        // 脚本音源经常返回 http:// 明文地址 —— iOS ATS 会拒绝 http 直连音频流，
+        // 先探测 https 可用就升级，避免播放时卡顿/中断
+        if result.url.scheme == "http",
+           let upgraded = await Self.upgradeToHTTPS(result.url) {
+            result.url = upgraded
+        }
+        return result
+    }
+
+    /// 探测并升级 http:// → https:// —— 第三方音源脚本返回的 CDN 地址经常是明文 http，
+    /// iOS ATS 会导致音频流被拒，表现为播放卡顿/stall。
+    /// 只升级，不降级：如果 https 不可用（CDN 本身不支持），返回 nil 让调用方回退。
+    private static func upgradeToHTTPS(_ url: URL) async -> URL? {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "http" else { return url }
+        components.scheme = "https"
+        guard let httpsURL = components.url else { return nil }
+        // 轻量 HEAD 请求探测 https 端点是否可达（只拿 header，不下载 body）
+        var request = URLRequest(url: httpsURL)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 5
+        if let (_, response) = try? await URLSession.shared.data(for: request),
+           let http = response as? HTTPURLResponse,
+           (200...399).contains(http.statusCode) {
+            return httpsURL
+        }
+        return nil
     }
 
     // MARK: - 官方

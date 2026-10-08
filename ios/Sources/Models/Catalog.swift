@@ -166,12 +166,14 @@ extension Song {
                 }
             }
         }
-        // 如果还没命中，打印全部 key 帮助排查
+        // 如果还没命中，打印全部 key 帮助排查 —— 但 DEBUG 刷屏很厉害，
+        // 搜索/榜单接口经常不给标准 cover 字段（塞在 trans_param / album 里），
+        // 每次解析都打 2 条 DEBUG 日志 → 日志文件爆炸。留作注释，需要排查再打开。
         if cover == nil {
-            Log.debug("Catalog", "封面未命中! 全部keys: \(json.keys.sorted())")
+            // Log.debug("Catalog", "封面未命中! 全部keys: \(json.keys.sorted())")
             // 尝试 album 嵌套
             if let album = json["album"] as? [String: Any] {
-                Log.debug("Catalog", "album子keys: \(album.keys.sorted())")
+                // Log.debug("Catalog", "album子keys: \(album.keys.sorted())")
                 for key in coverKeys {
                     if let raw = KugouClient.string(album[key]), !raw.isEmpty {
                         let fixed = raw.replacingOccurrences(of: "{si}", with: "300")
