@@ -87,8 +87,8 @@ struct PlayerView: View {
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 0.5), value: store.currentIndex)
         .animation(.easeInOut(duration: 0.5), value: store.currentPalette)
-        // GPU 一次性合成多层渐变 + blur —— 避免每层都离屏渲染
-        .drawingGroup()
+        // 注意：不在 blur 外层加 .drawingGroup() —— SwiftUI blur 在 iOS 16+ 走 Metal vImage GPU 管线，
+        // 外层 .drawingGroup() 会强制分配一张 ~12MB 全屏 backing store 做二次光栅化，产生双倍显存峰值。
     }
 
     // MARK: - 封面大图（确定性尺寸：宽-88 与可用高度 42% 取小，信息区永远完整）
@@ -122,8 +122,6 @@ struct PlayerView: View {
         .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.easeInOut(duration: 0.4), value: store.currentIndex)
-        // GPU 合成封面 + shadow + overlay
-        .drawingGroup()
     }
 
     // MARK: - 顶栏

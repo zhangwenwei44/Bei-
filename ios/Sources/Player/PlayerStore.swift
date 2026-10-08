@@ -83,6 +83,8 @@ final class PlayerStore: ObservableObject {
     private var lastNowPlayingSecond = -1
     /// @Published currentTime 节流桶 —— 只在 0.5s 边界变化时 publish，减少 SwiftUI body 重建。
     private var lastPublishedHalfSecond = -1
+    /// bufferedFraction 独立节流桶 —— 0.25s，缓冲条比进度条快一倍更流畅。
+    private var lastPublishedQuarterSecond = -1
     /// stall 自动恢复定时器 — 15 秒内没恢复就重新 attach
     private var stallRecoveryTimer: Timer?
     private var stalledSongID: String?
@@ -152,6 +154,10 @@ final class PlayerStore: ObservableObject {
 
     // MARK: - 音质切换
 
+    /// 待恢复的 seek 位置（mid-song 音质切换时设置，attach 后 item readyToPlay 时消费）。
+    /// 不用硬编码 sleep —— AVPlayerItem 真正 ready 了才 seek，避免弱网下 seek 失败或覆盖用户手动操作。
+    private var pendingQualitySwitchSeek: Double?
+
     /// 监听 SourceStore.quality 变化，正在播放就用新音质重新解析当前歌曲。
     private func installQualityMonitor() {
         Task { [weak self] @MainActor in
@@ -162,18 +168,9 @@ final class PlayerStore: ObservableObject {
                 // 这里只需要处理 mid-playback 切换 —— 重新解析 URL 并保留 seek 位置
                 if let current, self.player.currentItem != nil, !self.isLoading {
                     Log.info("播放", "音质切换，重新解析当前歌曲 URL")
-                    let savedTime = self.currentTime
+                    self.pendingQualitySwitchSeek = self.currentTime
                     self.prepare(autoplay: self.isPlaying)
-                    // prepare 完成后会把 currentTime 重置，这里用 seek 恢复
-                    Task { [weak self] @MainActor in
-                        guard let self else { return }
-                        // 等 URL 解析 + attach 完成
-                        try? await Task.sleep(nanoseconds: 1_200_000_000)
-                        if self.player.currentItem != nil, savedTime > 0, self.duration > 0 {
-                            self.player.seek(to: CMTime(seconds: savedTime, preferredTimescale: 600))
-                            self.currentTime = savedTime
-                        }
-                    }
+                    // attach 完成后 item readyToPlay 时自动消费 pendingQualitySwitchSeek
                 }
             }
         }
@@ -412,7 +409,17 @@ final class PlayerStore: ObservableObject {
         })
         itemObservers.append(item.observe(\.status, options: [.new]) { [weak self] item, _ in
             Task { @MainActor in
-                if item.status == .readyToPlay { self?.isBuffering = false }
+                if item.status == .readyToPlay {
+                    self?.isBuffering = false
+                    // 音质切换 mid-song 场景：attach 完成 + item ready → 恢复 seek 位置
+                    // 不用硬编码 sleep，等 AVPlayerItem 真正 ready 再 seek 才不会弱网失败
+                    if let pending = self?.pendingQualitySwitchSeek, pending > 0 {
+                        self?.player.seek(to: CMTime(seconds: pending, preferredTimescale: 600))
+                        self?.currentTime = pending
+                        self?.pendingQualitySwitchSeek = nil
+                        Log.info("播放", "音质切换 seek 恢复到 \(pending)s")
+                    }
+                }
             }
         })
 
@@ -679,17 +686,30 @@ final class PlayerStore: ObservableObject {
             guard let self else { return }
             let rawTime = time.seconds.isFinite ? max(0, time.seconds) : 0
 
-            // 节流 @Published 更新：0.5 秒刷一次（2 次/秒），避免 UI 高频重建
+            // 节流 @Published currentTime：0.5 秒刷一次（2 次/秒），避免 UI 高频重建
             let halfSecondBucket = Int(rawTime * 2)
             if halfSecondBucket != self.lastPublishedHalfSecond {
                 self.lastPublishedHalfSecond = halfSecondBucket
                 self.currentTime = rawTime
+            }
+
+            // duration：AVPlayerItem ready 后才会有精准值，即时 publish（变化只在切歌时发生一次）
+            if let item = self.player.currentItem {
+                let total = item.duration.seconds
+                if total.isFinite, total > 0, total != self.duration { self.duration = total }
+            }
+
+            // bufferedFraction：独立 0.25s 桶（比 currentTime 快一倍，缓冲条流畅又节流）
+            let quarterSecondBucket = Int(rawTime * 4)
+            if quarterSecondBucket != self.lastPublishedQuarterSecond {
+                self.lastPublishedQuarterSecond = quarterSecondBucket
                 if let item = self.player.currentItem {
                     let total = item.duration.seconds
-                    if total.isFinite, total > 0 { self.duration = total }
-                    let range = item.loadedTimeRanges.first?.timeRangeValue
-                    let buffer = range.map { Double($0.duration.seconds / total) } ?? 0
-                    self.bufferedFraction = buffer.isFinite ? max(0, min(1, buffer)) : 0
+                    if total.isFinite, total > 0 {
+                        let range = item.loadedTimeRanges.first?.timeRangeValue
+                        let buffer = range.map { Double($0.duration.seconds / total) } ?? 0
+                        self.bufferedFraction = buffer.isFinite ? max(0, min(1, buffer)) : 0
+                    }
                 }
             }
 
