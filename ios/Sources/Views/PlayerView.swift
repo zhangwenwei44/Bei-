@@ -343,37 +343,36 @@ struct PlayerView: View {
     // MARK: - 信息区
 
     private func meta(width: CGFloat, safeBottom: CGFloat) -> some View {
+        // 统一对齐规则：meta 里每一行只加 padding(.horizontal, 18)
+        // 内部组件全部充满，不再自己 frame+padding —— 绝对对齐
         VStack(alignment: .leading, spacing: 0) {
             Text(store.current?.title ?? "")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
-                .frame(width: width - 36, alignment: .leading)
-                .padding(.horizontal, 18)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            tagRow(width: width)
+            tagRow
                 .padding(.top, 10)
 
             currentLyricPill
                 .padding(.top, 14)
-                .frame(width: width - 36, alignment: .leading)
-                .clipped()
-                .padding(.horizontal, 18)
 
-            actionRow(width: width)
+            actionRow
                 .padding(.top, 18)
 
-            progressSection(width: width)
+            progressSection
                 .padding(.top, 20)
 
-            controls(width: width, safeBottom: safeBottom)
+            controls(safeBottom: safeBottom)
                 .padding(.top, 10)
         }
         .frame(width: width, alignment: .leading)
-        .layoutPriority(1) // 信息区（歌名/按钮/进度）优先于封面占空间，任何机型都完整显示
+        .padding(.horizontal, 18)
+        .layoutPriority(1)
     }
 
-    private func tagRow(width: CGFloat) -> some View {
+    private func tagRow() -> some View {
         HStack(spacing: 8) {
             Button {
                 if let song = store.current {
@@ -402,8 +401,6 @@ struct PlayerView: View {
 
             Spacer(minLength: 0)
         }
-        .frame(width: width - 36)
-        .padding(.horizontal, 18)
     }
 
     /// 双行歌词（酷狗 PC 风格）：上一条左对齐 + 当前行右对齐
@@ -450,8 +447,7 @@ struct PlayerView: View {
         return text.isEmpty ? nil : text
     }
 
-    private func actionRow(width: CGFloat) -> some View {
-        // 四个按钮等距分布，容器 width-36 + padding 18 → 左右各 18pt 边距
+    private func actionRow() -> some View {
         HStack(spacing: 0) {
             actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
             Spacer(minLength: 0)
@@ -469,8 +465,6 @@ struct PlayerView: View {
                 withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
             }
         }
-        .frame(width: width - 36)
-        .padding(.horizontal, 18)
     }
 
     private var modeLabel: String {
@@ -518,84 +512,78 @@ struct PlayerView: View {
 
     // MARK: - 进度
 
-    private func progressSection(width: CGFloat) -> some View {
-        let trackWidth = width - 36
+    private func progressSection() -> some View {
         let progressFrac = max(0, min(1, store.progress))
         let bufferedFrac = max(0, min(1, store.bufferedFraction))
-        let progressX = progressFrac * trackWidth
 
         return VStack(spacing: 6) {
-            ZStack(alignment: .leading) {
-                // 底色轨道（暗）
-                Capsule()
-                    .fill(.white.opacity(0.22))
-                    .frame(height: 3)
+            GeometryReader { geo in
+                let trackWidth = geo.size.width
+                let progressX = progressFrac * trackWidth
 
-                // 缓冲进度
-                Capsule()
-                    .fill(.white.opacity(0.3))
-                    .frame(width: bufferedFrac * trackWidth, height: 3)
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(.white.opacity(0.22))
+                        .frame(height: 3)
 
-                // 播放进度：跟随专辑沉浸色
-                Capsule()
-                    .fill(LinearGradient(colors: [
-                        dominantColor,
-                        dominantColor.opacity(0.7)
-                    ], startPoint: .leading, endPoint: .trailing))
-                    .frame(width: progressX, height: 3)
-                    .animation(.easeInOut(duration: 0.3), value: dominantColor)
+                    Capsule()
+                        .fill(.white.opacity(0.3))
+                        .frame(width: bufferedFrac * trackWidth, height: 3)
 
-                // 光点：脉冲白光（小）
-                if store.isPlaying {
-                    GlowDot()
-                        .frame(width: 10, height: 10)
-                        .offset(x: progressX - 5)
-                        .animation(.linear(duration: 0.2), value: progressX)
-                }
+                    Capsule()
+                        .fill(LinearGradient(colors: [
+                            dominantColor,
+                            dominantColor.opacity(0.7)
+                        ], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: progressX, height: 3)
+                        .animation(.easeInOut(duration: 0.3), value: dominantColor)
 
-                // 拖拽手柄
-                Circle()
-                    .fill(dominantColor)
-                    .frame(width: 14, height: 14)
-                    .offset(x: progressX - 7)
-                    .opacity(isScrubbing ? 1 : 0)
-                    .shadow(color: dominantColor.opacity(0.6), radius: 8)
-                    .animation(.easeInOut(duration: 0.3), value: dominantColor)
-            }
-            .frame(width: trackWidth, height: 16, alignment: .leading)
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    guard store.duration > 0, trackWidth > 0 else { return }
-                    if !isScrubbing {
-                        isScrubbing = true
-                        scrubValue = store.currentTime
-                        Haptics.light()
+                    if store.isPlaying {
+                        GlowDot()
+                            .frame(width: 10, height: 10)
+                            .offset(x: progressX - 5)
+                            .animation(.linear(duration: 0.2), value: progressX)
                     }
-                    scrubValue = min(1, max(0, value.location.x / trackWidth)) * store.duration
+
+                    Circle()
+                        .fill(dominantColor)
+                        .frame(width: 14, height: 14)
+                        .offset(x: progressX - 7)
+                        .opacity(isScrubbing ? 1 : 0)
+                        .shadow(color: dominantColor.opacity(0.6), radius: 8)
+                        .animation(.easeInOut(duration: 0.3), value: dominantColor)
                 }
-                .onEnded { _ in
-                    store.seek(to: scrubValue)
-                    isScrubbing = false
-                })
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard store.duration > 0, trackWidth > 0 else { return }
+                        if !isScrubbing {
+                            isScrubbing = true
+                            scrubValue = store.currentTime
+                            Haptics.light()
+                        }
+                        scrubValue = min(1, max(0, value.location.x / trackWidth)) * store.duration
+                    }
+                    .onEnded { _ in
+                        store.seek(to: scrubValue)
+                        isScrubbing = false
+                    })
+            }
+            .frame(height: 16)
 
             HStack {
                 Text(displayTime.clockString)
                 Spacer()
                 Text(store.duration.clockString)
             }
-            .frame(width: trackWidth)
             .font(.system(size: 11, design: .monospaced))
             .foregroundStyle(.white.opacity(0.7))
         }
-        .frame(width: trackWidth)
-        .padding(.horizontal, 18)
     }
 
     // MARK: - 控制
 
-    private func controls(width: CGFloat, safeBottom: CGFloat) -> some View {
-        // 5 个元素等距分布，与上方 actionRow / progressSection 齐平
+    private func controls(safeBottom: CGFloat) -> some View {
         HStack(spacing: 0) {
             Button { store.cycleMode() } label: {
                 Image(systemName: store.mode.icon)
@@ -631,8 +619,6 @@ struct PlayerView: View {
                     .frame(width: 44, height: 56)
             }
         }
-        .frame(width: width - 36)
-        .padding(.horizontal, 18)
         .foregroundStyle(.white)
         .buttonStyle(.plain)
         .padding(.bottom, max(12, safeBottom + 6))
