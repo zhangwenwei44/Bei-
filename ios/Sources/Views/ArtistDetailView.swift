@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 
 /// 歌手主页：沉浸式横幅 + 歌曲列表 + 专辑板块 + 多选下载。
 struct ArtistDetailView: View {
@@ -459,6 +459,8 @@ private struct ArtistSongRow: View {
                                 weight: .regular,
                                 color: AppStyle.secondaryText)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(0)
 
                 Spacer()
             }

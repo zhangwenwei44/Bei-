@@ -391,7 +391,6 @@ struct SongRow: View {
                                 size: 15,
                                 weight: .medium,
                                 color: isCurrent ? AppStyle.accent : AppStyle.primaryText)
-                    .layoutPriority(1)
                     if song.source == .local {
                         Text("本地")
                             .font(.system(size: 9))
@@ -407,11 +406,12 @@ struct SongRow: View {
                                 size: 12,
                                 weight: .regular,
                                 color: AppStyle.secondaryText)
-                    .layoutPriority(1)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)  // ← 约束在封面和 trailing 之间
+            .layoutPriority(0)   // ← trailing 按钮优先保留空间
 
-            Spacer(minLength: 4)
+            Spacer(minLength: 0)
 
             if let trailing {
                 trailing
@@ -833,7 +833,6 @@ struct MarqueeText: View {
 
     var body: some View {
         GeometryReader { geo in
-            // 更新容器宽度（非主线程安全）
             let w = geo.size.width
             if w != containerWidth {
                 DispatchQueue.main.async { containerWidth = w }
@@ -851,9 +850,7 @@ struct MarqueeText: View {
                         }
                     )
                     .onPreferenceChange(_TextWidthKey.self) { tw in
-                        if tw != textWidth {
-                            textWidth = tw
-                        }
+                        if tw != textWidth { textWidth = tw }
                     }
                     .offset(x: shouldScroll ? offset : 0)
 
@@ -874,6 +871,7 @@ struct MarqueeText: View {
             }
         }
         .frame(height: lineHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)   // ← 关键：不超出父容器
     }
 
     private func startScroll() {
