@@ -13,30 +13,35 @@ struct PlayerView: View {
     @State private var vinylStart: Date = Date()
     @State private var dominantColor: Color = .white
 
+    // 从环境直接拿 safe area insets — 最可靠，不依赖 overlay 给的 frame
+    @Environment(\.safeAreaInsets) private var safeAreaInsets
+
     private var displayTime: Double { isScrubbing ? scrubValue : store.currentTime }
 
     var body: some View {
-        // PlayerView 是 RootView 的 .overlay —— overlay 给的空间已经是安全区！
-        // 所以：不用硬编码 frame，不用手动 safeTop/safeBottom，
-        // 让 SwiftUI 自然布局，只有背景单独 .ignoresSafeArea() 延伸出去
-        GeometryReader { geo in
-            ZStack {
-                // 背景：全屏沉浸式，延伸到状态栏和 home indicator
-                immersiveBackground
-                    .ignoresSafeArea()
+        let screen = UIScreen.main.bounds
+        let top = safeAreaInsets.top
+        let bottom = safeAreaInsets.bottom
+        let contentHeight = screen.height - top - bottom  // 扣除安全区的内容高度
 
-                // 内容 VStack：overlay 给的空间已经是 safe area，
-                // 直接从 y=0 布局到底，底部不会碰到 home indicator
-                VStack(spacing: 0) {
-                    topBar()
-                    artworkStage(in: geo.size)
-                    meta(width: geo.size.width)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        ZStack {
+            // 背景：全屏沉浸式，延伸到状态栏和 home indicator 下面
+            immersiveBackground
+                .ignoresSafeArea()
+
+            // 内容 VStack：绝对定位从 safeTop 开始，高度精确 = contentHeight
+            VStack(spacing: 0) {
+                topBar()
+                artworkStage(in: CGSize(width: screen.width, height: contentHeight))
+                meta(width: screen.width)
             }
-            .frame(width: geo.size.width, height: geo.size.height)
+            .frame(width: screen.width, height: contentHeight, alignment: .top)
+            .padding(.top, top)  // ← 从 safeTop 开始
+            // 不加水平 padding — topBar / meta 内部各自 frame(width: screen.width - 36) 居中
+            .clipped()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)  // 吃满 overlay 给的空间
+        .frame(width: screen.width, height: screen.height)
+        .ignoresSafeArea()  // 让 PlayerView 吃满整个物理屏（不管 overlay 给什么）
         .gesture(dragGesture)
         .overlay(alignment: .bottom) { toastLayer }
         .onAppear(perform: animateIn)
@@ -342,8 +347,8 @@ struct PlayerView: View {
     // MARK: - 信息区
 
     private func meta(width: CGFloat) -> some View {
-        // SwiftUI 已帮我们卡在 safeBottom 上面，这里只给常量 padding，
-        // 不再手动处理 safeBottom（双重计算 → 被挤到 home indicator 下面）
+        // VStack 外层 frame height = contentHeight（已扣 safeTop+safeBottom），
+        // 底部正好在 home indicator 顶部 → 这里只需要 16pt 间距，不要加 safeBottom
         VStack(alignment: .leading, spacing: 0) {
             currentLyricPill
                 .padding(.top, 14)
@@ -357,9 +362,8 @@ struct PlayerView: View {
             controls()
                 .padding(.top, 10)
         }
-        .frame(width: width, alignment: .leading)
-        .padding(.horizontal, 18)
-        .padding(.bottom, 16)   // 常量 16pt，和具体设备 safeBottom 无关
+        .frame(width: width - 36, alignment: .leading)
+        .padding(.bottom, 16)
         .layoutPriority(1)
     }
 
