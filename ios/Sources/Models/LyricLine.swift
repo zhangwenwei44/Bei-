@@ -60,12 +60,18 @@ enum LRCParser {
             }
 
             let contentStart = first.range.upperBound
-            let content = ns.substring(from: contentStart).trimmingCharacters(in: .whitespaces)
+            var content = ns.substring(from: contentStart).trimmingCharacters(in: .whitespaces)
+
+            // 清除酷狗/QQ音乐的 [d:$00000000] / [d:0] / [v:1] 等内嵌标签
+            // 这些标签跟时间戳同行，如 [00:01.23][d:$00000000]童话
+            content = stripEmbeddedTags(content)
 
             // 有时间戳但正文是 id00000000 / ar 许嵩这类也跳过
             let contentLower = content.lowercased()
             if contentLower.hasPrefix("id") && contentLower.dropFirst(2).allSatisfy({ $0.isNumber }) { continue }
             if lrcMetaKeys.contains(contentLower) { continue }
+            // 颜色标签清除后可能为空
+            if content.isEmpty { continue }
 
             let firstMin = Double(ns.substring(with: first.range(at: 1))) ?? 0
             let firstSec = Double(ns.substring(with: first.range(at: 2))) ?? 0
@@ -106,6 +112,25 @@ enum LRCParser {
         }
 
         return ParseResult(lines: result.sorted { $0.time < $1.time }, metadata: meta)
+    }
+
+    /// 清除酷狗/QQ音乐 LRC 内嵌标签：[d:$00000000] / [d:0] / [v:1] / [t:xxx]
+    /// 这些跟时间戳同行，如 [00:01.23][d:$00000000]童话 → 童话
+    static func stripEmbeddedTags(_ s: String) -> String {
+        // [字母开头 任意内容]  非贪婪匹配
+        // 酷狗颜色标签格式：[d:$AARRGGBB] 或 [d:$RRGGBB] 或 [d:0]
+        // QQ：[v:1] [t:xxx] [c:xxx]
+        guard let regex = try? NSRegularExpression(pattern: #"\[[a-zA-Z][^\]]*\]"#) else { return s }
+        let ns = s as NSString
+        let matches = regex.matches(in: s, range: NSRange(location: 0, length: ns.length))
+        if matches.isEmpty { return s }
+        var result = s
+        for m in matches.reversed() {
+            if let range = Range(m.range, in: result) {
+                result.removeSubrange(range)
+            }
+        }
+        return result.trimmingCharacters(in: .whitespaces)
     }
 
     /// 兼容旧调用方，只返回歌词行。
