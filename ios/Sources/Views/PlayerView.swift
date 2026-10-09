@@ -16,35 +16,27 @@ struct PlayerView: View {
     private var displayTime: Double { isScrubbing ? scrubValue : store.currentTime }
 
     var body: some View {
-        // 直接用窗口的真实物理尺寸。绝不能用 GeometryReader：
-        // 内部背景的 .ignoresSafeArea() 会反向把 GeometryReader 撑成超屏宽，
-        // 导致整页被居中后左右偏移。
-        let win = Self.windowInfo
-        // 安全区高度 = 屏高 - safeTop - safeBottom —— 这才是内容真正能放的空间
-        let safeHeight = win.size.height - win.safeTop - win.safeBottom
-        return ZStack {
-            // 背景：全屏沉浸式，忽略所有安全区
-            immersiveBackground
-                .ignoresSafeArea()
+        // PlayerView 是 RootView 的 .overlay —— overlay 给的空间已经是安全区！
+        // 所以：不用硬编码 frame，不用手动 safeTop/safeBottom，
+        // 让 SwiftUI 自然布局，只有背景单独 .ignoresSafeArea() 延伸出去
+        GeometryReader { geo in
+            ZStack {
+                // 背景：全屏沉浸式，延伸到状态栏和 home indicator
+                immersiveBackground
+                    .ignoresSafeArea()
 
-            // 内容 VStack：不忽略安全区 —— SwiftUI 自动帮我们偏移 safeTop、
-            // 也自动帮我们卡在 safeBottom 上面。这是唯一正确的方案。
-            VStack(spacing: 0) {
-                topBar()
-                    .frame(width: win.size.width - 36)
-                artworkStage(width: win.size.width, safeHeight: safeHeight)
-                meta(width: win.size.width)
+                // 内容 VStack：overlay 给的空间已经是 safe area，
+                // 直接从 y=0 布局到底，底部不会碰到 home indicator
+                VStack(spacing: 0) {
+                    topBar()
+                    artworkStage(in: geo.size)
+                    meta(width: geo.size.width)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
-            .frame(width: win.size.width, alignment: .center)
-            .clipped()
-
-            if isLyricsPage {
-                LyricsPageView(isShown: $isLyricsPage)
-                    .transition(.opacity)
-            }
+            .frame(width: geo.size.width, height: geo.size.height)
         }
-        .frame(width: win.size.width, height: win.size.height, alignment: .center)
-        .ignoresSafeArea()  // 根 ZStack 也全沉浸式（背景延伸到状态栏和 home indicator）
+        .frame(maxWidth: .infinity, maxHeight: .infinity)  // 吃满 overlay 给的空间
         .gesture(dragGesture)
         .overlay(alignment: .bottom) { toastLayer }
         .onAppear(perform: animateIn)
@@ -99,15 +91,15 @@ struct PlayerView: View {
 
     // MARK: - 封面（黑胶 or 普通圆角矩形，由 aurora.vinylMode 控制）
 
-    private func artworkStage(width: CGFloat, safeHeight: CGFloat) -> some View {
-        // safeHeight 是 SwiftUI 扣除 safeTop + safeBottom 后真正可用的内容高度
-        // 封面占可用高度的 44%，meta 占剩 56% — 和具体设备无关（XS/14 Pro/Pro Max 都对）
-        let targetHeight = safeHeight * 0.44
+    private func artworkStage(in size: CGSize) -> some View {
+        // size 是 overlay 给的安全区尺寸，height 已经扣除 safeTop+safeBottom
+        // 封面占可用高度的 44%，meta 占剩 56%
+        let targetHeight = size.height * 0.44
         return Group {
             if vinylMode {
-                vinylArtwork(width: width, height: targetHeight)
+                vinylArtwork(width: size.width, height: targetHeight)
             } else {
-                roundedArtwork(width: width, height: targetHeight)
+                roundedArtwork(width: size.width, height: targetHeight)
             }
         }
         .frame(maxWidth: .infinity, minHeight: targetHeight, idealHeight: targetHeight, maxHeight: targetHeight)
