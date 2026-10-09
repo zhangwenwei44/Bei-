@@ -270,23 +270,20 @@ struct PlayerView: View {
                     .frame(width: 44, height: 44)
             }
 
-            Spacer()
-
             VStack(spacing: 1) {
-                MarqueeText(text: store.current?.title ?? "未播放",
-                            size: 14,
-                            weight: .semibold,
-                            color: .white)
-                .frame(width: 220)
-                MarqueeText(text: store.current?.artist ?? "",
-                            size: 11,
-                            weight: .regular,
-                            color: .white.opacity(0.6))
-                .frame(width: 180)
+                Text(store.current?.title ?? "未播放")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(store.current?.artist ?? "")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
-            .frame(maxWidth: .infinity)
-
-            Spacer()
+            .frame(maxWidth: .infinity)   // ← 顶栏剩余空间全部给它
+            .padding(.horizontal, 8)     // ← 左右各留 8pt 缓冲
 
             HStack(spacing: 18) {
                 ShareLink(item: shareText) {
@@ -371,11 +368,12 @@ struct PlayerView: View {
                 }
             } label: {
                 HStack(spacing: 3) {
-                    MarqueeText(text: store.current?.artist ?? "",
-                                size: 13,
-                                weight: .regular,
-                                color: .white.opacity(0.75))
-                    .frame(width: 120)
+                    Text(store.current?.artist ?? "")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.75))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: 120, alignment: .leading)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.5))
