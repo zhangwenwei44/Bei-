@@ -14,14 +14,14 @@ struct PlayerView: View {
     @State private var dominantColor: Color = .white
 
     // 从环境直接拿 safe area insets — 最可靠，不依赖 overlay 给的 frame
-    @Environment(\.safeAreaInsets) private var safeAreaInsets
+    @Environment(\.safeAreaInsets) private var safeArea: EdgeInsets
 
     private var displayTime: Double { isScrubbing ? scrubValue : store.currentTime }
 
     var body: some View {
         let screen = UIScreen.main.bounds
-        let top = safeAreaInsets.top
-        let bottom = safeAreaInsets.bottom
+        let top = safeArea.top
+        let bottom = safeArea.bottom
         let contentHeight = screen.height - top - bottom  // 扣除安全区的内容高度
 
         ZStack {
