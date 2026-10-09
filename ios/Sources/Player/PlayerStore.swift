@@ -298,7 +298,10 @@ final class PlayerStore: ObservableObject {
         }
 
         let excluded = failedHosts
-        let task = Task { [weak self] in
+        // ⚠️ 用 detached + .high 优先级 —— 锁屏/后台时 iOS 可能降低默认 Task 优先级
+        // 导致网络请求被大幅延迟或完全 suspend，下一首就接不上。
+        // detached 不继承父 actor 的 executor，直接跑在全局 high-priority executor 上。
+        let task = Task.detached(priority: .high) { [weak self] in
             guard let self else { return }
             // 解析结果在这里算完并冻结成 let，再交给后面的闭包。
             // 之前是一组 var 局部变量被 MainActor.run 闭包捕获，
@@ -558,6 +561,8 @@ final class PlayerStore: ObservableObject {
 
     func step(_ direction: Int, automatic: Bool = false) {
         guard !queue.isEmpty else { return }
+        let dirName = direction > 0 ? "下一首" : "上一首"
+        Log.info("播放", "step(\(dirName), automatic=\(automatic)) 当前 index=\(currentIndex) queue.count=\(queue.count) mode=\(mode)")
         if automatic, mode == .single {
             seek(to: 0)
             play()
@@ -567,6 +572,7 @@ final class PlayerStore: ObservableObject {
             if automatic, let last = shuffleHistory.last {
                 shuffleHistory.removeLast()
                 currentIndex = last
+                Log.info("播放", "step 随机恢复历史 index=\(currentIndex)")
                 prepare(autoplay: true)
                 return
             }
@@ -574,11 +580,13 @@ final class PlayerStore: ObservableObject {
             var candidate = currentIndex
             while candidate == currentIndex { candidate = Int.random(in: 0..<queue.count) }
             currentIndex = candidate
+            Log.info("播放", "step 随机选 index=\(currentIndex)")
             prepare(autoplay: true)
             return
         }
         let count = queue.count
         currentIndex = (currentIndex + direction + count) % count
+        Log.info("播放", "step 顺序前进 index=\(currentIndex) song=\(queue[currentIndex].title)")
         prepare(autoplay: true)
     }
 
@@ -738,6 +746,18 @@ final class PlayerStore: ObservableObject {
                 self.lastNowPlayingSecond = wholeSecond
                 self.updateNowPlaying()
                 self.triggerNextSongPreload()
+
+                // 🛡️ 锁屏兜底：如果 player 意外停了（DidPlayToEndTime 可能被 iOS 吞掉），
+                // rate==0 + 队列还有下一首 + 不是主动 pause + 不在 buffering → 自动前进
+                if self.player.rate == 0,
+                   self.queue.count > 1,
+                   self.currentIndex < self.queue.count - 1,
+                   !self.isBuffering,
+                   self.duration > 0,
+                   rawTime > self.duration - 2 {
+                    Log.warn("播放", "锁屏兜底：检测到 player.rate==0 但还有下一首，自动 step(1)")
+                    self.step(1, automatic: true)
+                }
             }
         }
     }
@@ -749,6 +769,7 @@ final class PlayerStore: ObservableObject {
                                             object: nil,
                                             queue: .main) { [weak self] notification in
             guard let self, let item = notification.object as? AVPlayerItem, item === self.player.currentItem else { return }
+            Log.info("播放", "AVPlayerItemDidPlayToEndTime — 自动前进下一首")
             self.recordHistory()
             self.step(1, automatic: true)
         })
