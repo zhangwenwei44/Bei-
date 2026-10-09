@@ -429,7 +429,7 @@ private struct RowTrailingButtons: View {
     @ObservedObject private var downloads = DownloadManager.shared
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 4) {
             // 收藏
             Button {
                 _ = library.toggleFavorite(song)
