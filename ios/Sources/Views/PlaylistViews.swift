@@ -307,10 +307,9 @@ struct PlaylistDetailView: View {
             .buttonStyle(.plain)
 
             Button {
-                store.append(displaySongs)
-                Haptics.soft()
+                Task { await downloadAllSongs() }
             } label: {
-                Label("加入播放列表", systemImage: "text.badge.plus")
+                Label("下载全部", systemImage: "arrow.down.circle.dotted")
                     .font(.system(size: 13))
                     .foregroundStyle(AppStyle.primaryText)
             }
@@ -421,6 +420,7 @@ struct AlbumDetailView: View {
 
     @EnvironmentObject private var store: PlayerStore
     @ObservedObject private var library = LibraryStore.shared
+    @ObservedObject private var downloads = DownloadManager.shared
     @State private var songs: [Song] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -515,10 +515,9 @@ struct AlbumDetailView: View {
             .buttonStyle(.plain)
 
             Button {
-                store.append(songs)
-                Haptics.soft()
+                Task { await downloadAllAlbumSongs() }
             } label: {
-                Label("加入播放列表", systemImage: "text.badge.plus")
+                Label("下载全部", systemImage: "arrow.down.circle.dotted")
                     .font(.system(size: 13))
                     .foregroundStyle(AppStyle.primaryText)
             }
@@ -533,6 +532,13 @@ struct AlbumDetailView: View {
     private func play(_ song: Song) {
         guard let index = songs.firstIndex(where: { $0.id == song.id }) else { return }
         store.play(songs, startAt: index)
+        Haptics.soft()
+    }
+
+    private func downloadAllAlbumSongs() async {
+        let remote = songs.filter { $0.isRemote }
+        Log.info("下载", "专辑下载全部：\(remote.count) 首")
+        for s in remote { _ = try? await downloads.download(s) }
         Haptics.soft()
     }
 

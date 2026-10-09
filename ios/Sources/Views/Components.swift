@@ -429,16 +429,16 @@ private struct RowTrailingButtons: View {
     @ObservedObject private var downloads = DownloadManager.shared
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 10) {
             // 收藏
             Button {
                 _ = library.toggleFavorite(song)
                 Haptics.light()
             } label: {
                 Image(systemName: library.isFavorite(song) ? "heart.fill" : "heart")
-                    .font(.system(size: 14))
+                    .font(.system(size: 17))
                     .foregroundStyle(library.isFavorite(song) ? AppStyle.like : AppStyle.tertiaryText)
-                    .frame(width: 32, height: 32)
+                    .frame(width: 44, height: 44)
             }
             .buttonStyle(.plain)
 
@@ -450,9 +450,9 @@ private struct RowTrailingButtons: View {
                 }
             } label: {
                 Image(systemName: song.source == .local ? "arrow.down.circle.fill" : "arrow.down.circle")
-                    .font(.system(size: 14))
+                    .font(.system(size: 17))
                     .foregroundStyle(song.source == .local ? AppStyle.tertiaryText.opacity(0.4) : AppStyle.tertiaryText)
-                    .frame(width: 32, height: 32)
+                    .frame(width: 44, height: 44)
             }
             .buttonStyle(.plain)
             .disabled(song.source == .local)
@@ -466,9 +466,9 @@ private struct RowTrailingButtons: View {
                 }
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 14))
+                    .font(.system(size: 17))
                     .foregroundStyle(AppStyle.tertiaryText)
-                    .frame(width: 32, height: 32)
+                    .frame(width: 44, height: 44)
             }
             .buttonStyle(.plain)
         }

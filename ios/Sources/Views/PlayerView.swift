@@ -109,42 +109,42 @@ struct PlayerView: View {
         .animation(.easeInOut(duration: 0.3), value: vinylMode)
     }
 
-    /// 黑胶版：TimelineView(.animation) 每帧驱动旋转，绝对能转
+    /// 黑胶版：TimelineView(.animation) 每帧驱动旋转，黑胶盘+封面一起转
     private func vinylArtwork(width: CGFloat, height: CGFloat) -> some View {
         let vinylSide = max(200, min(width - 60, height * 0.38, 320))
         let coverSide = vinylSide * 0.56
 
-        return ZStack {
-            TimelineView(.animation(minimumInterval: 1/30)) { timeline in
-                let angle = isSpinning
-                    ? (Date().timeIntervalSince(vinylStart) / 20.0) * 360
-                    : 0
+        return TimelineView(.animation(minimumInterval: 1/30)) { timeline in
+            let angle = isSpinning
+                ? (Date().timeIntervalSince(vinylStart) / 20.0) * 360
+                : 0
+            ZStack {
                 vinylDisc(side: vinylSide)
-                    .rotationEffect(.degrees(angle))
-            }
 
-            Group {
-                if let artwork = store.artwork {
-                    Image(uiImage: artwork).resizable().scaledToFill()
-                } else {
-                    ZStack {
-                        LinearGradient(colors: [.gray.opacity(0.5), .gray.opacity(0.3)],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing)
-                        Image(systemName: "music.note")
-                            .font(.system(size: coverSide * 0.3, weight: .light))
-                            .foregroundStyle(.white.opacity(0.55))
+                Group {
+                    if let artwork = store.artwork {
+                        Image(uiImage: artwork).resizable().scaledToFill()
+                    } else {
+                        ZStack {
+                            LinearGradient(colors: [.gray.opacity(0.5), .gray.opacity(0.3)],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                            Image(systemName: "music.note")
+                                .font(.system(size: coverSide * 0.3, weight: .light))
+                                .foregroundStyle(.white.opacity(0.55))
+                        }
                     }
                 }
+                .frame(width: coverSide, height: coverSide)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1.5))
+                .overlay(alignment: .center) {
+                    Circle()
+                        .fill(.black.opacity(0.8))
+                        .frame(width: 10, height: 10)
+                        .overlay(Circle().stroke(.white.opacity(0.4), lineWidth: 0.5))
+                }
             }
-            .frame(width: coverSide, height: coverSide)
-            .clipShape(Circle())
-            .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1.5))
-            .overlay(alignment: .center) {
-                Circle()
-                    .fill(.black.opacity(0.8))
-                    .frame(width: 10, height: 10)
-                    .overlay(Circle().stroke(.white.opacity(0.4), lineWidth: 0.5))
-            }
+            .rotationEffect(.degrees(angle))
         }
         .frame(width: vinylSide, height: vinylSide)
         .shadow(color: .black.opacity(0.45), radius: 16, y: 8)
@@ -343,18 +343,8 @@ struct PlayerView: View {
     // MARK: - 信息区
 
     private func meta(width: CGFloat, safeBottom: CGFloat) -> some View {
-        // 统一对齐规则：meta 里每一行只加 padding(.horizontal, 18)
-        // 内部组件全部充满，不再自己 frame+padding —— 绝对对齐
+        // 顶栏已显示歌名+歌手，这里去掉重复的歌名和 tagRow
         VStack(alignment: .leading, spacing: 0) {
-            Text(store.current?.title ?? "")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            tagRow
-                .padding(.top, 10)
-
             currentLyricPill
                 .padding(.top, 14)
 
