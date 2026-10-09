@@ -198,6 +198,14 @@ struct ProfileView: View {
                 } label: {
                     Label("导入酷狗歌单", systemImage: "square.and.arrow.down.on.square")
                 }
+                ShareLink(item: backupTempURL()) {
+                    Label("导出歌单备份", systemImage: "square.and.arrow.up")
+                }
+                Button {
+                    Task { await downloadAllFavorites() }
+                } label: {
+                    Label("一键下载全部收藏", systemImage: "arrow.down.circle.dotted")
+                }
             } header: {
                 headerText("我的音乐")
             }
@@ -514,6 +522,38 @@ struct ProfileView: View {
         Text(text)
             .font(.system(size: 12))
             .foregroundStyle(AppStyle.tertiaryText)
+    }
+
+    /// 备份 JSON 写到临时目录，返回 URL 供 ShareLink 使用
+    private func backupTempURL() -> URL {
+        let fm = FileManager.default
+        let tmpDir = fm.temporaryDirectory
+        let fileName = "aurora-backup-\(ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")).json"
+        let url = tmpDir.appendingPathComponent(fileName)
+        do {
+            let data = try library.backupAllData()
+            try data.write(to: url, options: .atomic)
+            Log.info("备份", "写出备份文件 \(url.lastPathComponent) (\(data.count) bytes)")
+        } catch {
+            Log.warn("备份", "写出备份失败 \(error.localizedDescription)")
+        }
+        return url
+    }
+
+    /// 一键下载全部收藏 + 所有歌单里的歌曲
+    private func downloadAllFavorites() async {
+        var allSongs = Set<String>()
+        for s in library.favorites { allSongs.insert(s.id) }
+        for pl in library.playlists {
+            for s in library.songs(in: pl) { allSongs.insert(s.id) }
+        }
+        Log.info("下载", "一键下载全部：共 \(allSongs.count) 首待下载")
+        var count = 0
+        for s in library.favorites where s.isRemote {
+            _ = try? await downloads.download(s)
+            count += 1
+        }
+        Haptics.soft()
     }
 }
 

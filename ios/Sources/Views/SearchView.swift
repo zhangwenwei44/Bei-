@@ -16,6 +16,13 @@ struct SearchView: View {
     @State private var history: [String] = []
     @FocusState private var isFieldFocused: Bool
 
+    // 分页无限滚动
+    @State private var songPage = 1
+    @State private var albumPage = 1
+    @State private var hasMoreSongs = true
+    @State private var hasMoreAlbums = true
+    @State private var isLoadingMore = false
+
     // 多选模式
     @State private var isSelecting = false
     @State private var selectedIDs: Set<String> = []
@@ -183,21 +190,16 @@ struct SearchView: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 switch scope {
                 case .songs:
-                    ForEach(results.songs) { song in
+                    ForEach(Array(results.songs.enumerated()), id: \.element.id) { idx, song in
                         let selected = selectedIDs.contains(song.id)
-                        HStack(spacing: 0) {
+                        HStack(spacing: 12) {
                             if isSelecting {
                                 Button {
-                                    if selected {
-                                        selectedIDs.remove(song.id)
-                                    } else {
-                                        selectedIDs.insert(song.id)
-                                    }
+                                    if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
                                 } label: {
                                     Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                                        .font(.system(size: 24))
+                                        .font(.system(size: 22))
                                         .foregroundStyle(selected ? AppStyle.accent : AppStyle.tertiaryText)
-                                        .frame(width: 44, height: 44)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -206,37 +208,57 @@ struct SearchView: View {
                                     isPlaying: store.isPlaying)
                                 .equatable()
                                 .songMenu(song)
-                                .padding(.horizontal, 16)
                                 .onTapGesture {
                                     if isSelecting {
-                                        if selected {
-                                            selectedIDs.remove(song.id)
-                                        } else {
-                                            selectedIDs.insert(song.id)
-                                        }
-                                    } else {
-                                        play(song)
-                                    }
+                                        if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
+                                    } else { play(song) }
                                 }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(AppStyle.surface.opacity(0.5))
+                        .cornerRadius(10)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 2)
+                        .onAppear {
+                            // 滑到底部触发加载更多（倒数第 5 条时触发）
+                            if idx == results.songs.count - 5 {
+                                Task { await loadMoreSongs() }
+                            }
+                        }
+
+                        Divider()
+                            .padding(.leading, 60)
                     }
+                    // 底部加载指示器
+                    HStack {
+                        Spacer()
+                        if isLoadingMore {
+                            ProgressView().controlSize(.small)
+                            Text("加载中...").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
+                        } else if !hasMoreSongs {
+                            Text("— 到底了 —").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 16)
+
                 case .albums:
-                    LazyVStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 8) {
                         ForEach(results.albums) { album in
                             NavigationLink {
                                 AlbumDetailView(album: album)
                             } label: {
-                                HStack(spacing: 12) {
+                                HStack(spacing: 14) {
                                     CoverImage(url: album.coverURL,
                                                fallbackKeys: album.albumID.isEmpty ? [] : ["al:\(album.albumID)"],
-                                               seed: album.name,
-                                               size: 48,
-                                               corner: 8)
-                                    VStack(alignment: .leading, spacing: 3) {
+                                               seed: album.name, size: 56, corner: 10)
+                                    VStack(alignment: .leading, spacing: 4) {
                                         Text(album.name)
                                             .font(.system(size: 15, weight: .medium))
                                             .foregroundStyle(AppStyle.primaryText)
-                                            .lineLimit(1)
+                                            .lineLimit(2)
                                         Text(album.artist)
                                             .font(.system(size: 12))
                                             .foregroundStyle(AppStyle.secondaryText)
@@ -253,19 +275,21 @@ struct SearchView: View {
                                             .frame(width: 36, height: 36)
                                     }
                                     .buttonStyle(.plain)
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundStyle(AppStyle.tertiaryText)
                                 }
                                 .padding(.horizontal, 16)
-                                .padding(.vertical, 7)
-                                .contentShape(Rectangle())
+                                .padding(.vertical, 12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(AppStyle.surface.opacity(0.5))
+                                .cornerRadius(10)
                             }
                             .buttonStyle(.plain)
+                            .padding(.horizontal, 12)
                         }
                     }
+                    .padding(.vertical, 4)
                 }
             }
+            .padding(.top, 4)
             .padding(.bottom, 24)
         }
         .safeAreaInset(edge: .bottom) {
@@ -427,38 +451,48 @@ struct SearchView: View {
         errorMessage = nil
         defer { isLoading = false }
 
+        // 重置分页状态
+        songPage = 1; albumPage = 1
+        hasMoreSongs = true; hasMoreAlbums = true
+
         let client = KugouClient.shared
-        // 酷狗 mixedSearch song 分组每页固定 15 条，拉 4 页 = 最多 60 条
-        // async let 保持并行，但数组拼接拆开来写避免 Swift WMO 类型检查超时
-        async let p1 = try? client.searchSongs(keyword: text, page: 1)
-        async let p2 = try? client.searchSongs(keyword: text, page: 2)
-        async let p3 = try? client.searchSongs(keyword: text, page: 3)
-        async let p4 = try? client.searchSongs(keyword: text, page: 4)
-        async let topLists = client.topLists()
+        do {
+            let firstPage = try await client.searchSongs(keyword: text, page: 1)
+            var found = firstPage
+            // 去重
+            var seen = Set<String>()
+            found = found.filter { seen.insert($0.id).inserted }
 
-        var found: [Song] = []
-        found.append(contentsOf: await p1 ?? [])
-        found.append(contentsOf: await p2 ?? [])
-        found.append(contentsOf: await p3 ?? [])
-        found.append(contentsOf: await p4 ?? [])
-        // 按 id 去重
-        var seen = Set<String>()
-        found = found.filter { seen.insert($0.id).inserted }
-        let ranks = await topLists
-        let filteredRanks = ranks.filter { $0.name.localizedCaseInsensitiveContains(text) }
-        let artists = Self.artistHints(from: found)
-        let albums = Self.albumHints(from: found)
+            // 判断是否还有更多：酷狗每页 30 条，少于 30 说明到底了
+            hasMoreSongs = firstPage.count >= 30
 
-        Log.info("搜索", "keyword=\(text) 合并去重后 found=\(found.count) 首 submitted=\(submitted)")
-        guard submitted == text else {
-            Log.info("搜索", "丢弃结果：submitted=\(submitted) != text=\(text)")
-            return
+            // 生成专辑/歌手 hint
+            let artists = Self.artistHints(from: found)
+            let albums = Self.albumHints(from: found)
+            hasMoreAlbums = albums.count >= 20
+
+            Log.info("搜索", "keyword=\(text) page=1 found=\(found.count) hasMore=\(hasMoreSongs)")
+            guard submitted == text else { return }
+            results = SearchResults(songs: found, playlists: [], artists: artists, albums: albums)
+            if results.isEmpty { errorMessage = "换个关键词试试" }
+        } catch {
+            errorMessage = error.localizedDescription
         }
-        results = SearchResults(songs: found, playlists: filteredRanks, artists: artists, albums: albums)
-        Log.info("搜索", "results.songs 最终赋值 = \(results.songs.count) 首")
-        if results.isEmpty {
-            errorMessage = "换个关键词试试"
-        }
+    }
+
+    /// 无限滚动加载下一页歌曲
+    private func loadMoreSongs() async {
+        guard !isLoadingMore, hasMoreSongs, !submitted.isEmpty else { return }
+        isLoadingMore = true; defer { isLoadingMore = false }
+        let next = songPage + 1
+        let client = KugouClient.shared
+        guard let more = try? await client.searchSongs(keyword: submitted, page: next) else { return }
+        var seen = Set(results.songs.map(\.id))
+        let newItems = more.filter { seen.insert($0.id).inserted }
+        results.songs.append(contentsOf: newItems)
+        songPage = next
+        hasMoreSongs = more.count >= 30
+        Log.info("搜索", "loadMore page=\(next) added=\(newItems.count) total=\(results.songs.count)")
     }
 
     /// 酷狗结果里没有独立歌手节点，这里从歌曲的歌手名聚合出「热门歌手」入口。

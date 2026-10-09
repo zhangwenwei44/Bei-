@@ -326,4 +326,34 @@ final class LibraryStore: ObservableObject {
         persist(albumFavorites, key: key("albumFavorites"))
         return true
     }
+
+    // MARK: - 备份导出
+
+    /// 导出所有歌单+收藏为 JSON 数据，用于 iCloud Drive / 本地文件备份。
+    /// 包含 Song + Playlist 完整结构，可跨设备迁移。
+    func backupAllData() throws -> Data {
+        struct BackupPackage: Codable {
+            var version: Int = 1
+            var exportedAt: Date
+            var favorites: [Song]
+            var playlists: [UserPlaylist]
+            var playlistSongs: [String: [Song]] // playlistID -> songs
+            var albumFavorites: [Album]
+        }
+        var playlistSongMap: [String: [Song]] = [:]
+        for pl in playlists {
+            playlistSongMap[pl.id] = songs(in: pl)
+        }
+        let pkg = BackupPackage(
+            exportedAt: Date(),
+            favorites: favorites,
+            playlists: playlists,
+            playlistSongs: playlistSongMap,
+            albumFavorites: albumFavorites
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(pkg)
+    }
 }
