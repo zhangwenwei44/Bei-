@@ -738,8 +738,26 @@ final class KugouClient {
         // 根据 specialID / rankID 加载
         if let specialID {
             let songs = try await specialSongs(specialID: specialID)
+
+            // 关键：空结果时主动检测歌单是否真的存在
+            // 精选歌单（如 8393346）API 有数据 → 正常
+            // 用户歌单（如 40551393）→ API 返回 total:0
+            //   1) special/info 返回 data:null → 歌单不存在/已删
+            //   2) special/info 有 data → 歌单存在但是私有（需要登录）
+            if songs.isEmpty {
+                let infoJSON = try? await getJSON(path: "/api/v3/special/info",
+                                                  host: "https://mobiles.kugou.com",
+                                                  params: ["specialid": specialID],
+                                                  headers: [:])
+                let infoExists = infoJSON?["data"] as? [String: Any] != nil
+                if infoExists {
+                    throw KugouError.playlistEmpty(specialID)
+                } else {
+                    throw KugouError.playlistNotFound(specialID)
+                }
+            }
+
             var cover = ""
-            // 尝试从歌单 JSON 拿名字和封面
             let name: String
             if let json = try? await getJSON(path: "/api/v3/special/info",
                                              host: "https://mobiles.kugou.com",
@@ -1143,6 +1161,8 @@ enum KugouError: LocalizedError {
     case httpStatus(Int)
     case decoding
     case parse(String)
+    case playlistNotFound(String)
+    case playlistEmpty(String)
 
     var errorDescription: String? {
         switch self {
@@ -1150,6 +1170,8 @@ enum KugouError: LocalizedError {
         case .httpStatus(let code): return "酷狗接口返回 \(code)"
         case .decoding: return "酷狗返回的数据解析失败"
         case .parse(let detail): return detail
+        case .playlistNotFound(let id): return "歌单 \(id) 不存在或已被酷狗删除"
+        case .playlistEmpty(let id): return "歌单 \(id) 是空歌单或私有歌单（需要登录酷狗才能导入）"
         }
     }
 }
