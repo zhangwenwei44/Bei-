@@ -179,9 +179,9 @@ struct ArtistDetailView: View {
     @ViewBuilder
     private var albumSection: some View {
         if !albums.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 0) {
                 HStack {
-                    Text("专辑")
+                    Label("专辑", systemImage: "square.stack")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(AppStyle.primaryText)
                     Spacer()
@@ -190,9 +190,10 @@ struct ArtistDetailView: View {
                         .foregroundStyle(AppStyle.secondaryText)
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 14)
+                .padding(.top, 16)
+                .padding(.bottom, 8)
 
-                VStack(spacing: 6) {
+                VStack(spacing: 2) {
                     ForEach(albums) { album in
                         NavigationLink {
                             AlbumDetailView(album: album)
@@ -225,15 +226,17 @@ struct ArtistDetailView: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(AppStyle.surface.opacity(0.4))
-                            .cornerRadius(8)
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
             }
-            .padding(.bottom, 10)
+            .background(AppStyle.surface.opacity(0.45))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
         }
     }
 
@@ -242,7 +245,7 @@ struct ArtistDetailView: View {
     private var songListSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("歌曲")
+                Label("歌曲", systemImage: "music.note.list")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(AppStyle.primaryText)
                 Spacer()
@@ -253,11 +256,12 @@ struct ArtistDetailView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
 
             if isLoading {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: 60)
+                    .padding(.horizontal, 16)
             } else if let errorMessage {
                 Text(errorMessage)
                     .font(.system(size: 13)).foregroundStyle(.red)
@@ -296,7 +300,6 @@ struct ArtistDetailView: View {
                         }
                         Divider().padding(.leading, isSelecting ? 56 : 68)
                     }
-                    // 底部加载指示器
                     HStack {
                         Spacer()
                         if isLoadingMore {
@@ -309,10 +312,15 @@ struct ArtistDetailView: View {
                     }
                     .padding(.vertical, 14)
                 }
-                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 6)
             }
         }
+        .background(AppStyle.surface.opacity(0.45))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 20)
     }
 
     // MARK: - 多选底部操作条
