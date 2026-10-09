@@ -287,9 +287,8 @@ struct PlayerView: View {
 
             progressSection(width: width)
                 .padding(.top, 20)
-                .padding(.horizontal, 18)
 
-            controls(safeBottom: safeBottom)
+            controls(width: width, safeBottom: safeBottom)
                 .padding(.top, 10)
         }
         .frame(width: width, alignment: .leading)
@@ -380,23 +379,25 @@ struct PlayerView: View {
     }
 
     private func actionRow(width: CGFloat) -> some View {
-        // 四个按钮等分屏宽，与上方歌名/歌词胶囊/下方进度条齐平
+        // 四个按钮等距分布，容器 width-36 + padding 18 → 左右各 18pt 边距
         HStack(spacing: 0) {
             actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
+            Spacer(minLength: 0)
             actionButton(icon: store.isLiked ? "heart.fill" : "heart",
                          label: "收藏",
                          tint: store.isLiked ? AppStyle.like : .white) {
                 store.toggleFavorite()
             }
+            Spacer(minLength: 0)
             actionButton(icon: "character.bubble", label: "翻译") {
                 store.showTranslation.toggle()
             }
+            Spacer(minLength: 0)
             actionButton(icon: "text.quote", label: "歌词") {
                 withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
             }
         }
         .frame(width: width - 36)
-        .clipped()
         .padding(.horizontal, 18)
     }
 
@@ -514,49 +515,52 @@ struct PlayerView: View {
             .foregroundStyle(.white.opacity(0.7))
         }
         .frame(width: trackWidth)
-        .clipped()
+        .padding(.horizontal, 18)
     }
 
     // MARK: - 控制
 
-    private func controls(safeBottom: CGFloat) -> some View {
+    private func controls(width: CGFloat, safeBottom: CGFloat) -> some View {
+        // 5 个元素等距分布，与上方 actionRow / progressSection 齐平
         HStack(spacing: 0) {
-            // 左：顺序模式（紧贴上一首）
             Button { store.cycleMode() } label: {
                 Image(systemName: store.mode.icon)
                     .font(.system(size: 20))
                     .frame(width: 44, height: 56)
             }
 
-            Spacer().frame(width: 12)
+            Spacer(minLength: 0)
 
             Button { store.step(-1) } label: {
                 Image(systemName: "backward.end.fill")
                     .font(.system(size: 28))
-                    .frame(width: 60, height: 56)
+                    .frame(width: 56, height: 56)
             }
 
+            Spacer(minLength: 0)
+
             PlayButton()
+
+            Spacer(minLength: 0)
 
             Button { store.step(1) } label: {
                 Image(systemName: "forward.end.fill")
                     .font(.system(size: 28))
-                    .frame(width: 60, height: 56)
+                    .frame(width: 56, height: 56)
             }
 
-            Spacer().frame(width: 12)
+            Spacer(minLength: 0)
 
-            // 右：队列（紧贴下一首）
             Button { store.isQueuePresented = true } label: {
                 Image(systemName: "list.bullet")
                     .font(.system(size: 20))
                     .frame(width: 44, height: 56)
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(width: width - 36)
+        .padding(.horizontal, 18)
         .foregroundStyle(.white)
         .buttonStyle(.plain)
-        // 底部间距：safeAreaInsets.bottom 在 XS 上是 34（home indicator），再加 6pt
         .padding(.bottom, max(12, safeBottom + 6))
     }
 
