@@ -10,6 +10,7 @@ struct PlayerView: View {
     @State private var showToast: String?
     @State private var isLyricsPage = false
     @AppStorage("aurora.vinylMode") private var vinylMode: Bool = true
+    @State private var vinylAngle: Double = 0
 
     private var displayTime: Double { isScrubbing ? scrubValue : store.currentTime }
 
@@ -109,16 +110,21 @@ struct PlayerView: View {
 
     /// 黑胶版：外圆盘纹理 + 旋转 + 中心专辑封面
     private func vinylArtwork(width: CGFloat, height: CGFloat) -> some View {
-        let vinylSide = max(240, min(width - 40, height * 0.48, 400))
+        let vinylSide = max(200, min(width - 60, height * 0.38, 320))
         let coverSide = vinylSide * 0.56
 
         return ZStack {
             vinylDisc(side: vinylSide)
-                .rotationEffect(.degrees(isSpinning ? 360 : 0))
+                .rotationEffect(.degrees(vinylAngle))
                 .animation(isSpinning
-                           ? .linear(duration: 18).repeatForever(autoreverses: false)
+                           ? .linear(duration: 20).repeatForever(autoreverses: false)
                            : .easeOut(duration: 0.6),
-                           value: isSpinning)
+                           value: vinylAngle)
+                .onAppear {
+                    if isSpinning {
+                        vinylAngle = 360
+                    }
+                }
 
             Group {
                 if let artwork = store.artwork {
@@ -145,6 +151,16 @@ struct PlayerView: View {
         }
         .frame(width: vinylSide, height: vinylSide)
         .shadow(color: .black.opacity(0.45), radius: 16, y: 8)
+        .onChange(of: isSpinning) { playing in
+            if playing {
+                vinylAngle = 0
+                withAnimation(.linear(duration: 20).repeatForever(autoreverses: false)) {
+                    vinylAngle = 360
+                }
+            } else {
+                vinylAngle = 0
+            }
+        }
     }
 
     /// 普通版：圆角矩形封面（原始样式）
@@ -232,13 +248,14 @@ struct PlayerView: View {
             Spacer()
 
             VStack(spacing: 2) {
-                Text(store.sourceName.isEmpty ? "在线播放" : store.sourceName)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.7))
+                // 顶栏中间：显示专辑名（优先）或源名，替代之前的胶囊滑块
+                Text(albumDisplay)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.9))
                     .lineLimit(1)
-                Capsule()
-                    .fill(.white.opacity(0.85))
-                    .frame(width: 18, height: 5)
+                Text("正在播放")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.5))
             }
             .frame(maxWidth: .infinity)
 
@@ -260,6 +277,12 @@ struct PlayerView: View {
     private var shareText: String {
         let song = store.current
         return "\(song?.title ?? "") - \(song?.artist ?? "")"
+    }
+
+    /// 顶栏中间显示的专辑名（优先歌曲专辑，fallback 源名）
+    private var albumDisplay: String {
+        if let album = store.current?.album, !album.isEmpty { return album }
+        return store.sourceName.isEmpty ? "在线播放" : store.sourceName
     }
 
     /// 音质徽标：紧跟在歌手后面
@@ -327,65 +350,47 @@ struct PlayerView: View {
     private func tagRow(width: CGFloat) -> some View {
         HStack(spacing: 8) {
             Text(store.current?.artist ?? "")
-                .font(.system(size: 11))
-                .foregroundStyle(.white)
+                .font(.system(size: 13))
+                .foregroundStyle(.white.opacity(0.75))
                 .lineLimit(1)
 
-            qualityPill
-
             if let album = store.current?.album, !album.isEmpty {
+                Text("·")
+                    .foregroundStyle(.white.opacity(0.4))
                 Text(album)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.82))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(.white.opacity(0.06))
-                    .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .stroke(.white.opacity(0.3)))
             }
 
-            ForEach((store.current?.tags ?? []).prefix(2), id: \.self) { tag in
-                Text(tag)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.82))
-                    .lineLimit(1)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(.white.opacity(0.06))
-                    .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .stroke(.white.opacity(0.3)))
-            }
             Spacer(minLength: 0)
         }
         .frame(width: width - 36)
-        .clipped()
         .padding(.horizontal, 18)
     }
 
-    /// 双行歌词预览：上面一条（暗/小）+ 当前行（亮/大），点击进入全屏歌词页
+    /// 双行歌词预览：上一条（暗/小/左） + 当前行（亮/大/右对齐），点击进入全屏歌词页
     private var currentLyricPill: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
         } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                // 上一条歌词
+            VStack(alignment: .trailing, spacing: 3) {
+                // 上一条歌词（左对齐，暗/小）
                 if let prev = previousLyricText {
                     Text(prev)
                         .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.4))
+                        .foregroundStyle(.white.opacity(0.35))
                         .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                // 当前歌词
+                // 当前歌词（右对齐，亮/大）
                 Text(currentLyricText)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.85))
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.9))
                     .lineLimit(1)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.25), value: currentLyricText)
