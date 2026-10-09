@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 import UIKit
 
 struct PlayerView: View {
@@ -97,21 +97,26 @@ struct PlayerView: View {
     // MARK: - 封面（黑胶 or 普通圆角矩形，由 aurora.vinylMode 控制）
 
     private func artworkStage(width: CGFloat, height: CGFloat) -> some View {
-        Group {
+        // 封面固定占屏高的 ~45%，让 meta 自然占剩约 55%
+        // 之前用 .frame(maxHeight: .infinity) → 封面无限撑开，meta 被挤到 home indicator 下面
+        let targetHeight = height * 0.44
+        return Group {
             if vinylMode {
-                vinylArtwork(width: width, height: height)
+                vinylArtwork(width: width, height: targetHeight)
             } else {
-                roundedArtwork(width: width, height: height)
+                roundedArtwork(width: width, height: targetHeight)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, minHeight: targetHeight, idealHeight: targetHeight, maxHeight: targetHeight)
         .animation(.easeInOut(duration: 0.4), value: store.currentIndex)
         .animation(.easeInOut(duration: 0.3), value: vinylMode)
     }
 
     /// 黑胶版：TimelineView(.animation) 每帧驱动旋转，黑胶盘+封面一起转
     private func vinylArtwork(width: CGFloat, height: CGFloat) -> some View {
-        let vinylSide = max(200, min(width - 60, height * 0.38, 320))
+        // 封面尺寸：屏宽的 65%，最小 220 最大 300 — 和 stage 高度无关
+        // 之前用 height * 0.38（整屏高度的 38%）→ 封面太大，挤占 meta 空间
+        let vinylSide = max(220, min(width * 0.65, 300))
         let coverSide = vinylSide * 0.56
 
         return TimelineView(.animation(minimumInterval: 1/30)) { timeline in
@@ -190,7 +195,8 @@ struct PlayerView: View {
 
     /// 普通版：圆角矩形封面（原始样式）
     private func roundedArtwork(width: CGFloat, height: CGFloat) -> some View {
-        let side = max(140, min(width - 88, height * 0.42, 360))
+        // 和黑胶一致：屏宽的 65%，最小 180 最大 300
+        let side = max(180, min(width * 0.65, 300))
         return Group {
             if let artwork = store.artwork {
                 Image(uiImage: artwork).resizable().scaledToFill()
@@ -357,6 +363,7 @@ struct PlayerView: View {
         }
         .frame(width: width, alignment: .leading)
         .padding(.horizontal, 18)
+        .padding(.bottom, max(12, safeBottom + 4))   // ← 整体 meta 离 home indicator 留空间
         .layoutPriority(1)
     }
 
