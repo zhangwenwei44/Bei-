@@ -13,39 +13,35 @@ struct PlayerView: View {
     @State private var vinylStart: Date = Date()
     @State private var dominantColor: Color = .white
 
-    // 从环境直接拿 safe area insets — 最可靠，不依赖 overlay 给的 frame
-    @Environment(\.safeAreaInsets) private var safeArea: EdgeInsets
-
     private var displayTime: Double { isScrubbing ? scrubValue : store.currentTime }
 
     var body: some View {
+        // 直接从 UIKit window 读 — Swift 6 兼容，不依赖 SwiftUI Environment
+        let win = Self.windowInfo
         let screen = UIScreen.main.bounds
-        let top = safeArea.top
-        let bottom = safeArea.bottom
-        let contentHeight = screen.height - top - bottom  // 扣除安全区的内容高度
+        let contentHeight = screen.height - win.safeTop - win.safeBottom
 
         ZStack {
             // 背景：全屏沉浸式，延伸到状态栏和 home indicator 下面
             immersiveBackground
                 .ignoresSafeArea()
 
-            // 内容 VStack：绝对定位从 safeTop 开始，高度精确 = contentHeight
+            // 内容 VStack：从 safeTop 开始，高度精确 = contentHeight
             VStack(spacing: 0) {
                 topBar()
                 artworkStage(in: CGSize(width: screen.width, height: contentHeight))
                 meta(width: screen.width)
             }
             .frame(width: screen.width, height: contentHeight, alignment: .top)
-            .padding(.top, top)  // ← 从 safeTop 开始
+            .padding(.top, win.safeTop)  // ← 从 safeTop 开始
             .overlay(alignment: .bottom) {
-                // 🔴 DEBUG 底边红线 — 精确显示 VStack 底部到哪里
+                // 🔴 DEBUG 红线 — 精确显示 VStack 底部边界
                 Rectangle().fill(Color.red).frame(height: 2)
             }
-            // 不加水平 padding — topBar / meta 内部各自 frame(width: screen.width - 36) 居中
             .clipped()
         }
         .frame(width: screen.width, height: screen.height)
-        .ignoresSafeArea()  // 让 PlayerView 吃满整个物理屏（不管 overlay 给什么）
+        .ignoresSafeArea()  // 让 PlayerView 吃满整个物理屏
         .gesture(dragGesture)
         .overlay(alignment: .bottom) { toastLayer }
         .onAppear(perform: animateIn)
