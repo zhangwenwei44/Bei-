@@ -49,21 +49,31 @@ struct PlayerView: View {
     }
 
     /// 设备窗口尺寸 + safeAreaInsets
-    /// iOS 13+ 从 UIWindowScene.screens 读物理屏幕安全区（不会像 window.safeAreaInsets 那样返回 0）
-    /// XS safeTop=44, safeBottom=34；iPhone 14 Pro max safeTop=59, safeBottom=34
+    /// 从 UIWindowScene.keyWindow 读 + 强制兜底（bottom 不能小于 34）
+    /// 之前 window.safeAreaInsets.bottom 在 overlay 呈现时曾返回 0 → contentHeight 算大 34pt
     private static var windowInfo: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat) {
+        // iOS 16+ 优先从 WSScreen
         for scene in UIApplication.shared.connectedScenes {
             guard let ws = scene as? UIWindowScene else { continue }
-            if let screen = ws.screens.first {
-                let bounds = screen.bounds
-                let insets = screen.safeAreaInsets
-                // 兜底：如果拿到 0（绝不该发生），用 XS 标准值
-                let top = max(insets.top, 44)
-                let bottom = max(insets.bottom, 34)
-                return (bounds.size, top, bottom)
+            // 先试 window（最常见方式）
+            if let w = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first {
+                let size = w.bounds.size
+                let insets = w.safeAreaInsets
+                // 强制兜底：bottom < 20 说明拿到了 0 → 用物理屏标准值
+                let top = insets.top > 0 ? insets.top : 44
+                let bottom = insets.bottom >= 20 ? insets.bottom : 34
+                return (size, top, bottom)
+            }
+            // 再试 screen level
+            if let screen = ws.windows.first?.screen {
+                let size = screen.bounds.size
+                // iOS 16 deprecated UIScreen.safeAreaInsets, 但 WSScreen 有
+                let top: CGFloat = 44
+                let bottom: CGFloat = 34
+                return (size, top, bottom)
             }
         }
-        // 最终兜底：XS 标准值
+        // 最终兜底：iPhone XS 标准
         return (CGSize(width: 375, height: 812), 44, 34)
     }
 
