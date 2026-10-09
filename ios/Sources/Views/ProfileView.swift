@@ -32,6 +32,7 @@ struct ProfileView: View {
     @State private var kugouImportError: String? = nil
     @State private var recommendedLoading = false
     @State private var recommendedPlaylists: [Playlist] = []
+    @State private var isBackupImporterPresented = false
 
     var body: some View {
         List {
@@ -202,9 +203,9 @@ struct ProfileView: View {
                     Label("导出歌单备份", systemImage: "square.and.arrow.up")
                 }
                 Button {
-                    Task { await downloadAllFavorites() }
+                    isBackupImporterPresented = true
                 } label: {
-                    Label("一键下载全部收藏", systemImage: "arrow.down.circle.dotted")
+                    Label("恢复歌单备份", systemImage: "arrow.uturn.backward.circle")
                 }
             } header: {
                 headerText("我的音乐")
@@ -306,6 +307,16 @@ struct ProfileView: View {
             case .update: UpdateView()
             case .changelog: ChangelogView()
             case .kugouImport: kugouImportSheet
+            }
+        }
+        .fileImporter(isPresented: $isBackupImporterPresented,
+                      allowedContentTypes: [.json],
+                      allowsMultipleSelection: false) { result in
+            switch result {
+            case .success(let urls):
+                if let url = urls.first { Task { await importBackup(from: url) } }
+            case .failure(let err):
+                Log.warn("备份", "恢复失败 \(err.localizedDescription)")
             }
         }
         .task {
@@ -540,21 +551,22 @@ struct ProfileView: View {
         return url
     }
 
-    /// 一键下载全部收藏 + 所有歌单里的歌曲
-    private func downloadAllFavorites() async {
-        var allSongs = Set<String>()
-        for s in library.favorites { allSongs.insert(s.id) }
-        for pl in library.playlists {
-            for s in library.songs(in: pl) { allSongs.insert(s.id) }
+    /// 从备份文件恢复
+    private func importBackup(from url: URL) async {
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let data = try Data(contentsOf: url)
+            try library.restoreFromBackup(data: data, merge: true)
+            Haptics.soft()
+            showToast = "备份恢复成功"
+        } catch {
+            Log.warn("备份", "恢复失败 \(error.localizedDescription)")
+            showToast = "恢复失败：\(error.localizedDescription)"
         }
-        Log.info("下载", "一键下载全部：共 \(allSongs.count) 首待下载")
-        var count = 0
-        for s in library.favorites where s.isRemote {
-            _ = try? await downloads.download(s)
-            count += 1
-        }
-        Haptics.soft()
     }
+
+    @State private var showToast: String?
 }
 
 struct AboutView: View {

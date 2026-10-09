@@ -10,7 +10,8 @@ struct PlayerView: View {
     @State private var showToast: String?
     @State private var isLyricsPage = false
     @AppStorage("aurora.vinylMode") private var vinylMode: Bool = true
-    @State private var vinylAngle: Double = 0
+    @State private var vinylStart: Date = Date()
+    @State private var dominantColor: Color = .white
 
     private var displayTime: Double { isScrubbing ? scrubValue : store.currentTime }
 
@@ -108,23 +109,19 @@ struct PlayerView: View {
         .animation(.easeInOut(duration: 0.3), value: vinylMode)
     }
 
-    /// 黑胶版：外圆盘纹理 + 旋转 + 中心专辑封面
+    /// 黑胶版：TimelineView(.animation) 每帧驱动旋转，绝对能转
     private func vinylArtwork(width: CGFloat, height: CGFloat) -> some View {
         let vinylSide = max(200, min(width - 60, height * 0.38, 320))
         let coverSide = vinylSide * 0.56
 
         return ZStack {
-            vinylDisc(side: vinylSide)
-                .rotationEffect(.degrees(vinylAngle))
-                .animation(isSpinning
-                           ? .linear(duration: 20).repeatForever(autoreverses: false)
-                           : .easeOut(duration: 0.6),
-                           value: vinylAngle)
-                .onAppear {
-                    if isSpinning {
-                        vinylAngle = 360
-                    }
-                }
+            TimelineView(.animation(minimumInterval: 1/30)) { timeline in
+                let angle = isSpinning
+                    ? (Date().timeIntervalSince(vinylStart) / 20.0) * 360
+                    : 0
+                vinylDisc(side: vinylSide)
+                    .rotationEffect(.degrees(angle))
+            }
 
             Group {
                 if let artwork = store.artwork {
@@ -151,15 +148,43 @@ struct PlayerView: View {
         }
         .frame(width: vinylSide, height: vinylSide)
         .shadow(color: .black.opacity(0.45), radius: 16, y: 8)
-        .onChange(of: isSpinning) { playing in
-            if playing {
-                vinylAngle = 0
-                withAnimation(.linear(duration: 20).repeatForever(autoreverses: false)) {
-                    vinylAngle = 360
-                }
-            } else {
-                vinylAngle = 0
-            }
+        .onChange(of: store.isPlaying) { playing in
+            if playing { vinylStart = Date() }
+        }
+        .onChange(of: store.currentIndex) { _ in
+            vinylStart = Date()
+            extractDominantColor()
+        }
+        .onAppear { extractDominantColor() }
+    }
+
+    /// 从专辑封面提取主色调（CIAreaAverage 滤镜）
+    private func extractDominantColor() {
+        guard let image = store.artwork else { dominantColor = .white; return }
+        DispatchQueue.global(qos: .utility).async {
+            guard let cg = image.cgImage,
+                  let filter = CIFilter(name: "CIAreaAverage") else { return }
+            let ci = CIImage(cgImage: cg)
+            let extent = CGRect(x: 0, y: 0, width: ci.extent.width, height: ci.extent.height)
+            filter.setValue(ci, forKey: kCIInputImageKey)
+            filter.setValue(CIVector(cgRect: extent), forKey: kCIInputExtentKey)
+            guard let out = filter.outputImage else { return }
+            let ctx = CIContext(options: nil)
+            guard let cgOut = ctx.createCGImage(out, from: out.extent) else { return }
+            // 读 1x1 像素
+            let width = 1, height = 1, bpp = 4
+            var pixel = [UInt8](repeating: 0, count: width * height * bpp)
+            guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return }
+            guard let ctx2 = CGContext(data: &pixel, width: width, height: height,
+                                       bitsPerComponent: 8, bytesPerRow: bpp,
+                                       space: colorSpace,
+                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+            ctx2.draw(cgOut, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            let r = Double(pixel[0]) / 255
+            let g = Double(pixel[1]) / 255
+            let b = Double(pixel[2]) / 255
+            let color = Color(red: r, green: g, blue: b).opacity(0.92)
+            DispatchQueue.main.async { dominantColor = color }
         }
     }
 
@@ -247,15 +272,16 @@ struct PlayerView: View {
 
             Spacer()
 
-            VStack(spacing: 2) {
-                // 顶栏中间：显示专辑名（优先）或源名，替代之前的胶囊滑块
-                Text(albumDisplay)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.9))
+            VStack(spacing: 1) {
+                // 顶栏中间：歌名（主）+ 歌手（副），替代之前的专辑名+正在播放
+                Text(store.current?.title ?? "未播放")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
                     .lineLimit(1)
-                Text("正在播放")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.5))
+                Text(store.current?.artist ?? "")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
 
@@ -500,7 +526,7 @@ struct PlayerView: View {
 
         return VStack(spacing: 6) {
             ZStack(alignment: .leading) {
-                // 底色轨道
+                // 底色轨道（暗）
                 Capsule()
                     .fill(.white.opacity(0.22))
                     .frame(height: 3)
@@ -510,15 +536,16 @@ struct PlayerView: View {
                     .fill(.white.opacity(0.3))
                     .frame(width: bufferedFrac * trackWidth, height: 3)
 
-                // 播放进度（更亮 + 带微妙渐变）
+                // 播放进度：跟随专辑沉浸色
                 Capsule()
                     .fill(LinearGradient(colors: [
-                        .white.opacity(0.95),
-                        .white.opacity(0.8)
+                        dominantColor,
+                        dominantColor.opacity(0.7)
                     ], startPoint: .leading, endPoint: .trailing))
                     .frame(width: progressX, height: 3)
+                    .animation(.easeInOut(duration: 0.3), value: dominantColor)
 
-                // 光点：跟着进度移动的脉冲白光
+                // 光点：脉冲白光（小）
                 if store.isPlaying {
                     GlowDot()
                         .frame(width: 10, height: 10)
@@ -526,13 +553,14 @@ struct PlayerView: View {
                         .animation(.linear(duration: 0.2), value: progressX)
                 }
 
-                // 拖拽时的大圆点手柄
+                // 拖拽手柄
                 Circle()
-                    .fill(.white)
+                    .fill(dominantColor)
                     .frame(width: 14, height: 14)
                     .offset(x: progressX - 7)
                     .opacity(isScrubbing ? 1 : 0)
-                    .shadow(color: .white.opacity(0.5), radius: 6)
+                    .shadow(color: dominantColor.opacity(0.6), radius: 8)
+                    .animation(.easeInOut(duration: 0.3), value: dominantColor)
             }
             .frame(width: trackWidth, height: 16, alignment: .leading)
             .contentShape(Rectangle())

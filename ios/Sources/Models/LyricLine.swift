@@ -35,6 +35,11 @@ enum LRCParser {
         var result: [LyricLine] = []
         var meta: [String: String] = [:]
 
+        // LRC 元数据头关键词（必须全字母，如 id, ar, ti, al, by, offset, length, ve）
+        let lrcMetaKeys: Set<String> = ["id", "ar", "ti", "al", "au", "by", "offset",
+                                         "length", "ve", "tool", "version", "editor",
+                                         "pye", "tlyric", "lyric"]
+
         for rawLine in text.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { continue }
@@ -42,10 +47,13 @@ enum LRCParser {
             let ns = line as NSString
             let stamps = pattern.matches(in: line, range: NSRange(location: 0, length: ns.length))
             guard let first = stamps.first else {
-                if line.hasPrefix("["), line.hasSuffix("]"),
-                   let key = line.dropFirst().dropLast().split(separator: ":", maxSplits: 1).first,
-                   !key.isEmpty, key.allSatisfy({ $0.isLetter }) {
-                    continue
+                // 无时间戳行：过滤 [id:xxx] / [ar:xxx] 等元数据行
+                if line.hasPrefix("["), line.hasSuffix("]") {
+                    let inside = String(line.dropFirst().dropLast())
+                    let key = inside.split(separator: ":", maxSplits: 1).first.map(String.init) ?? inside
+                    if lrcMetaKeys.contains(key.lowercased()) { continue }
+                    // 如果 key 全字母但不在已知集合里，也跳过（保险）
+                    if !key.isEmpty, key.allSatisfy({ $0.isLetter }) { continue }
                 }
                 result.append(LyricLine(time: 0, text: line))
                 continue
@@ -53,6 +61,11 @@ enum LRCParser {
 
             let contentStart = first.range.upperBound
             let content = ns.substring(from: contentStart).trimmingCharacters(in: .whitespaces)
+
+            // 有时间戳但正文是 id00000000 / ar 许嵩这类也跳过
+            let contentLower = content.lowercased()
+            if contentLower.hasPrefix("id") && contentLower.dropFirst(2).allSatisfy({ $0.isNumber }) { continue }
+            if lrcMetaKeys.contains(contentLower) { continue }
 
             let firstMin = Double(ns.substring(with: first.range(at: 1))) ?? 0
             let firstSec = Double(ns.substring(with: first.range(at: 2))) ?? 0

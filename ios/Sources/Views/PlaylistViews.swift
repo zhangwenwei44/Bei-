@@ -233,6 +233,11 @@ struct PlaylistDetailView: View {
                         }
                         if !displaySongs.isEmpty {
                             Button {
+                                Task { await downloadAllSongs() }
+                            } label: {
+                                Label("下载全部", systemImage: "arrow.down.circle.dotted").font(.system(size: 13))
+                            }
+                            Button {
                                 isSelecting = true; selectedIDs.removeAll()
                             } label: {
                                 Label("多选", systemImage: "checkmark.circle").font(.system(size: 13))
@@ -332,6 +337,16 @@ struct PlaylistDetailView: View {
     private func play(_ song: Song) {
         guard let index = displaySongs.firstIndex(where: { $0.id == song.id }) else { return }
         store.play(displaySongs, startAt: index)
+        Haptics.soft()
+    }
+
+    /// 一键下载歌单全部歌曲（队列走 DownloadManager）
+    private func downloadAllSongs() async {
+        let remote = displaySongs.filter { $0.isRemote }
+        Log.info("下载", "歌单下载全部：\(remote.count) 首")
+        for s in remote {
+            _ = try? await downloads.download(s)
+        }
         Haptics.soft()
     }
 

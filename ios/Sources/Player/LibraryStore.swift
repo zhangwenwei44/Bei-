@@ -356,4 +356,45 @@ final class LibraryStore: ObservableObject {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try encoder.encode(pkg)
     }
+
+    /// 从备份文件恢复。merge=true 保留现有数据；merge=false 覆盖。
+    func restoreFromBackup(data: Data, merge: Bool = true) throws {
+        struct BackupPackage: Codable {
+            var version: Int = 1
+            var exportedAt: Date
+            var favorites: [Song]
+            var playlists: [UserPlaylist]
+            var playlistSongs: [String: [Song]]
+            var albumFavorites: [Album]
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let pkg = try decoder.decode(BackupPackage.self, from: data)
+
+        // 先把所有歌曲注入 songCache
+        var newCache = merge ? songCache : [:]
+        for song in pkg.favorites { newCache[song.id] = song }
+        for songs in pkg.playlistSongs.values { for s in songs { newCache[s.id] = s } }
+        songCache = newCache
+        persist(songCache, key: key("songTable"))
+
+        if merge {
+            let existing = Set(favorites.map(\.id))
+            favorites.append(contentsOf: pkg.favorites.filter { !existing.contains($0.id) })
+            let existingAlbums = Set(albumFavorites.map(\.id))
+            albumFavorites.append(contentsOf: pkg.albumFavorites.filter { !existingAlbums.contains($0.id) })
+            let existingPlIDs = Set(playlists.map(\.id))
+            for pl in pkg.playlists where !existingPlIDs.contains(pl.id) {
+                playlists.insert(pl, at: 0)
+            }
+        } else {
+            favorites = pkg.favorites
+            albumFavorites = pkg.albumFavorites
+            playlists = pkg.playlists
+        }
+        persist(favorites, key: key("favorites"))
+        persist(albumFavorites, key: key("albumFavorites"))
+        persist(playlists, key: key("playlists"))
+        Log.info("备份", "恢复完成 favorites=\(favorites.count) playlists=\(playlists.count) songCache=\(songCache.count)")
+    }
 }

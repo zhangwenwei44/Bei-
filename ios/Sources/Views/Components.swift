@@ -414,8 +414,7 @@ struct SongRow: View {
             if let trailing {
                 trailing
             } else {
-                // 替换纯时间文本 → 更多按钮（行尾统一菜单）
-                RowMoreButton(song: song)
+                RowTrailingButtons(song: song)
             }
         }
         .padding(.vertical, 7)
@@ -423,38 +422,56 @@ struct SongRow: View {
     }
 }
 
-/// 行尾更多按钮（菜单：歌手主页 / 收藏 / 下载 / 分享）
-private struct RowMoreButton: View {
+/// 行尾：收藏 + 下载 + 更多（三按钮并列，不再藏菜单）
+private struct RowTrailingButtons: View {
     let song: Song
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var downloads = DownloadManager.shared
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
-        Menu {
-            Button {
-                NotificationCenter.default.post(name: .navigateToArtist, object: song)
-            } label: {
-                Label("查看歌手", systemImage: "person")
-            }
+        HStack(spacing: 0) {
+            // 收藏
             Button {
                 _ = library.toggleFavorite(song)
+                Haptics.light()
             } label: {
-                Label(library.isFavorite(song) ? "取消收藏" : "收藏",
-                      systemImage: library.isFavorite(song) ? "heart.fill" : "heart")
+                Image(systemName: library.isFavorite(song) ? "heart.fill" : "heart")
+                    .font(.system(size: 14))
+                    .foregroundStyle(library.isFavorite(song) ? AppStyle.like : AppStyle.tertiaryText)
+                    .frame(width: 32, height: 32)
             }
+            .buttonStyle(.plain)
+
+            // 下载（本地歌变灰禁用）
             Button {
-                if song.isRemote { Task { _ = try? await downloads.download(song) } }
+                if song.isRemote {
+                    Haptics.light()
+                    Task { _ = try? await downloads.download(song) }
+                }
             } label: {
-                Label("下载", systemImage: "arrow.down.circle")
+                Image(systemName: song.source == .local ? "arrow.down.circle.fill" : "arrow.down.circle")
+                    .font(.system(size: 14))
+                    .foregroundStyle(song.source == .local ? AppStyle.tertiaryText.opacity(0.4) : AppStyle.tertiaryText)
+                    .frame(width: 32, height: 32)
             }
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 14))
-                .foregroundStyle(AppStyle.tertiaryText)
-                .frame(width: 32, height: 32)
+            .buttonStyle(.plain)
+            .disabled(song.source == .local)
+
+            // 更多菜单（歌手主页 + 分享）
+            Menu {
+                Button {
+                    NotificationCenter.default.post(name: .navigateToArtist, object: song)
+                } label: {
+                    Label("查看歌手", systemImage: "person")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 14))
+                    .foregroundStyle(AppStyle.tertiaryText)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
 }
 
