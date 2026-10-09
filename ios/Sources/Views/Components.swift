@@ -797,95 +797,107 @@ extension Notification.Name {
 
 // MARK: - MarqueeText 跑马灯（歌名太长时横向滚动，短则正常显示）
 
-/// 用法：MarqueeText(text: "歌名", size: 15, weight: .medium, color: .primary)
-/// - 文本宽度 ≤ 容器宽度 → 正常静态显示
-/// - 文本宽度 > 容器宽度 → 自动无限循环横向滚动
+/// 简单可靠的跑马灯：
+/// - 外层 GeometryReader 读容器宽度（只有 1 个，不会嵌套出 0）
+/// - 内部 Text + fixedSize 自然撑开，不压缩
+/// - 用 UIFont.boundingRect 提前算文本宽度（比 PreferenceKey 可靠）
+/// - 只有 scroll 状态时才注入第二份文本循环
 struct MarqueeText: View {
     let text: String
     var size: CGFloat = 15
     var weight: Font.Weight = .medium
     var color: Color = AppStyle.primaryText
 
-    // 测量状态
-    @State private var containerWidth: CGFloat = 0
-    @State private var textWidth: CGFloat = 0
+    @State private var containerW: CGFloat = 0
     @State private var offset: CGFloat = 0
 
     private let spacing: CGFloat = 40
 
-    private var font: Font { .system(size: size, weight: weight) }
-    private var uiFont: UIFont { .systemFont(ofSize: size, weight: uiWeight) }
-    private var uiWeight: UIFont.Weight {
-        switch weight {
-        case .bold: return .bold
-        case .semibold: return .semibold
-        case .medium: return .medium
-        case .regular: return .regular
-        case .light: return .light
-        default: return .regular
-        }
-    }
-    private var lineHeight: CGFloat { uiFont.lineHeight }
-    private var shouldScroll: Bool { textWidth > containerWidth + 1 }
-    private var scrollDuration: Double {
-        min(max(Double(textWidth) / 40, 4), 12)
+    private var uiFont: UIFont {
+        UIFont.systemFont(ofSize: size, weight: {
+            switch weight {
+            case .bold: return .bold
+            case .semibold: return .semibold
+            case .medium: return .medium
+            case .light: return .light
+            default: return .regular
+            }
+        }())
     }
 
+    private var font: Font { .system(size: size, weight: weight) }
+
+    /// 用 UIFont.boundingRect 算文本自然宽度，不依赖 SwiftUI layout
+    private var textW: CGFloat {
+        let attributes: [NSAttributedString.Key: Any] = [.font: uiFont]
+        let s = text as NSString
+        return max(10, s.boundingRect(with: CGSize(width: .greatestFiniteMagnitude, height: uiFont.lineHeight),
+                                       options: .usesLineFragmentOrigin,
+                                       attributes: attributes).width.rounded(.up))
+    }
+
+    private var needScroll: Bool { textW > containerW + 1 }
+    private var duration: Double { min(max(Double(textW) / 40, 4), 12) }
+
     var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            if w != containerWidth {
-                DispatchQueue.main.async { containerWidth = w }
+        GeometryReader { proxy in
+            // 容器宽度更新
+            let w = proxy.size.width
+            if w != containerW {
+                // 必须异步，不能在 body 里直接改 state
+                DispatchQueue.main.async {
+                    containerW = w
+                    // 容器变了 → 重启滚动
+                    offset = 0
+                    if textW > w + 1 {
+                        withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) {
+                            offset = -(textW + spacing)
+                        }
+                    }
+                }
             }
+
             return ZStack(alignment: .leading) {
+                // 第一份文本
                 Text(text)
                     .font(font)
                     .foregroundStyle(color)
                     .lineLimit(1)
-                    .fixedSize()
-                    .background(
-                        GeometryReader { textGeo in
-                            Color.clear.preference(key: _TextWidthKey.self,
-                                                   value: textGeo.size.width)
-                        }
-                    )
-                    .onPreferenceChange(_TextWidthKey.self) { tw in
-                        if tw != textWidth { textWidth = tw }
-                    }
-                    .offset(x: shouldScroll ? offset : 0)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .offset(x: needScroll ? offset : 0)
 
-                if shouldScroll {
+                // 第二份（循环用）
+                if needScroll {
                     Text(text)
                         .font(font)
                         .foregroundStyle(color)
                         .lineLimit(1)
-                        .fixedSize()
-                        .offset(x: textWidth + spacing + offset)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .offset(x: textW + spacing + offset)
                 }
             }
             .clipped()
-            .onAppear { startScroll() }
-            .onChange(of: text) { _ in startScroll() }
-            .onChange(of: shouldScroll) { scroll in
-                if scroll { startScroll() } else { offset = 0 }
+        }
+        .frame(height: uiFont.lineHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)   // ← GeometryReader 从父容器拿宽度
+        .onAppear {
+            // 等一帧让 GeometryReader 先拿到宽度
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                if containerW > 0 && textW > containerW + 1 {
+                    offset = 0
+                    withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) {
+                        offset = -(textW + spacing)
+                    }
+                }
             }
         }
-        .frame(height: lineHeight)
-        .frame(maxWidth: .infinity, alignment: .leading)   // ← 关键：不超出父容器
-    }
-
-    private func startScroll() {
-        guard shouldScroll else { offset = 0; return }
-        offset = 0
-        withAnimation(.linear(duration: scrollDuration).repeatForever(autoreverses: false)) {
-            offset = -(textWidth + spacing)
+        .onChange(of: text) { _ in
+            offset = 0
+            if containerW > 0 && textW > containerW + 1 {
+                withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) {
+                    offset = -(textW + spacing)
+                }
+            }
         }
-    }
-}
-
-private struct _TextWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
     }
 }
