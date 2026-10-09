@@ -14,6 +14,11 @@ struct ArtistDetailView: View {
     @State private var isSelecting = false
     @State private var selectedIDs: Set<String> = []
 
+    // 歌曲分页
+    @State private var songPage = 1
+    @State private var hasMoreSongs = true
+    @State private var isLoadingMore = false
+
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
@@ -24,6 +29,8 @@ struct ArtistDetailView: View {
         }
         .background(AppStyle.background)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 if isSelecting {
@@ -185,42 +192,48 @@ struct ArtistDetailView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 14)
 
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(albums) { album in
-                            NavigationLink {
-                                AlbumDetailView(album: album)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    CoverImage(
-                                        url: album.coverURL,
-                                        fallbackKeys: album.albumID.isEmpty ? [] : ["al:\(album.albumID)"],
-                                        seed: album.name,
-                                        size: 140,
-                                        corner: 10
-                                    )
-                                    .frame(width: 140, height: 140)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                VStack(spacing: 6) {
+                    ForEach(albums) { album in
+                        NavigationLink {
+                            AlbumDetailView(album: album)
+                        } label: {
+                            HStack(spacing: 14) {
+                                CoverImage(
+                                    url: album.coverURL,
+                                    fallbackKeys: album.albumID.isEmpty ? [] : ["al:\(album.albumID)"],
+                                    seed: album.name,
+                                    size: 52,
+                                    corner: 8
+                                )
+                                .frame(width: 52, height: 52)
 
+                                VStack(alignment: .leading, spacing: 4) {
                                     Text(album.name)
-                                        .font(.system(size: 12, weight: .medium))
+                                        .font(.system(size: 14, weight: .medium))
                                         .foregroundStyle(AppStyle.primaryText)
-                                        .lineLimit(1)
-                                        .frame(width: 140, alignment: .leading)
+                                        .lineLimit(2)
                                     Text(album.artist)
                                         .font(.system(size: 11))
                                         .foregroundStyle(AppStyle.secondaryText)
                                         .lineLimit(1)
-                                        .frame(width: 140, alignment: .leading)
                                 }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(AppStyle.tertiaryText)
                             }
-                            .buttonStyle(.plain)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(AppStyle.surface.opacity(0.4))
+                            .cornerRadius(8)
                         }
+                        .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, 16)
                 }
-                .padding(.bottom, 10)
+                .padding(.horizontal, 12)
             }
+            .padding(.bottom, 10)
         }
     }
 
@@ -276,8 +289,25 @@ struct ArtistDetailView: View {
                             }
                             .padding(.leading, isSelecting ? 0 : 12)
                         }
+                        .onAppear {
+                            if index == songs.count - 5 {
+                                Task { await loadMoreSongs() }
+                            }
+                        }
                         Divider().padding(.leading, isSelecting ? 56 : 68)
                     }
+                    // 底部加载指示器
+                    HStack {
+                        Spacer()
+                        if isLoadingMore {
+                            ProgressView().controlSize(.small)
+                            Text("加载中...").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
+                        } else if !hasMoreSongs && songs.count > 0 {
+                            Text("— 到底了 —").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 14)
                 }
                 .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .padding(.horizontal, 16)
@@ -329,38 +359,54 @@ struct ArtistDetailView: View {
     private func loadSongs() async {
         isLoading = true
         defer { isLoading = false }
+        songPage = 1; hasMoreSongs = true
+        await fetchSongPage(1)
+    }
+
+    private func loadMoreSongs() async {
+        guard !isLoadingMore, hasMoreSongs else { return }
+        isLoadingMore = true; defer { isLoadingMore = false }
+        await fetchSongPage(songPage + 1, append: true)
+    }
+
+    private func fetchSongPage(_ page: Int, append: Bool = false) async {
         do {
-            // 拉 3 页 = 60 首，limit 100 全部显示
-            async let p1 = try? await KugouClient.shared.searchSongs(keyword: artist.name, page: 1, limit: 30)
-            async let p2 = try? await KugouClient.shared.searchSongs(keyword: artist.name, page: 2, limit: 30)
-            var found: [Song] = []
-            found.append(contentsOf: await p1 ?? [])
-            found.append(contentsOf: await p2 ?? [])
-            // 过滤放松：artist 名包含（多歌手用"、"分隔也能匹配）
+            let client = KugouClient.shared
             let cleaned = artist.name.trimmingCharacters(in: .whitespaces)
-            songs = found.filter { song in
+            let pageSongs = try await client.searchSongs(keyword: cleaned, page: page, limit: 30)
+
+            // 过滤：artist 名包含匹配
+            var filtered = pageSongs.filter { song in
                 let a = song.artist.trimmingCharacters(in: .whitespaces)
                 return a == cleaned || a.contains(cleaned) || cleaned.contains(a)
             }
-            // 从歌曲里聚合专辑（去重）
-            var seen = Set<String>()
-            albums = found
-                .filter { !$0.album.isEmpty && $0.album != $0.title }
-                .compactMap { song -> Album? in
-                    let aid = song.kugouAlbumID
-                    let key = aid.isEmpty ? "\(song.album)|\(song.artist)" : aid
-                    guard !seen.contains(key) else { return nil }
-                    seen.insert(key)
-                    return Album(id: "al:\(key)",
-                                 name: song.album,
-                                 artist: song.artist,
-                                 coverURL: song.artworkURL,
-                                 albumID: aid)
-                }
-                .prefix(12)
-                .map { $0 }
+
+            // 去重
+            let existingIDs = Set(songs.map(\.id))
+            filtered.removeAll { existingIDs.contains($0.id) }
+
+            if append {
+                songs.append(contentsOf: filtered)
+            } else {
+                songs = filtered
+                // 首次加载顺便聚合专辑
+                var seen = Set<String>()
+                albums = pageSongs
+                    .filter { !$0.album.isEmpty && $0.album != $0.title }
+                    .compactMap { song -> Album? in
+                        let aid = song.kugouAlbumID
+                        let key = aid.isEmpty ? "\(song.album)|\(song.artist)" : aid
+                        guard !seen.contains(key) else { return nil }
+                        seen.insert(key)
+                        return Album(id: "al:\(key)", name: song.album, artist: song.artist,
+                                     coverURL: song.artworkURL, albumID: aid)
+                    }
+            }
+            songPage = page
+            hasMoreSongs = pageSongs.count >= 30
+            Log.info("歌手", "加载 page=\(page) filtered=\(filtered.count) total=\(songs.count) hasMore=\(hasMoreSongs)")
         } catch {
-            errorMessage = "加载失败：\(error.localizedDescription)"
+            if !append { errorMessage = "加载失败：\(error.localizedDescription)" }
         }
     }
 

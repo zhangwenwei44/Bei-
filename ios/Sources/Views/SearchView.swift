@@ -498,11 +498,20 @@ struct SearchView: View {
     /// 酷狗结果里没有独立歌手节点，这里从歌曲的歌手名聚合出「热门歌手」入口。
     private static func artistHints(from songs: [Song]) -> [Artist] {
         var seen = Set<String>()
+        var coverMap: [String: URL?] = [:] // artist name -> first artwork
+        for song in songs {
+            for name in song.artist.components(separatedBy: "、").map({ $0.trimmingCharacters(in: .whitespaces) }) {
+                guard !name.isEmpty, seen.insert(name).inserted else { continue }
+                coverMap[name] = song.artworkURL
+            }
+        }
+        seen.removeAll()
         var result: [Artist] = []
         for song in songs {
             for name in song.artist.components(separatedBy: "、").map({ $0.trimmingCharacters(in: .whitespaces) }) {
                 guard !name.isEmpty, seen.insert(name).inserted else { continue }
-                result.append(Artist(id: "kw:\(name)", name: name, coverURL: nil))
+                let cover = coverMap[name] ?? song.artworkURL
+                result.append(Artist(id: "kw:\(name)", name: name, coverURL: cover))
             }
         }
         return Array(result.prefix(20))
