@@ -348,10 +348,10 @@ struct PlayerView: View {
             currentLyricPill
                 .padding(.top, 14)
 
-            actionRow
+            actionRow()
                 .padding(.top, 18)
 
-            progressSection
+            progressSection()
                 .padding(.top, 20)
 
             controls(safeBottom: safeBottom)
