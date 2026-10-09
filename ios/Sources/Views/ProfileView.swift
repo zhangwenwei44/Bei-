@@ -15,10 +15,6 @@ struct ProfileView: View {
         Binding(get: { autoPrecacheEnabled },
                 set: { autoPrecacheEnabled = $0 })
     }
-    /// 整个页面只挂一个 sheet。
-    ///
-    /// 之前这里是三个并列的 .sheet(isPresented:)。iOS 16 的 SwiftUI 里同一个
-    /// view 挂多个 sheet 只有一个可靠生效，其余静默失败——实际表现就是
     /// 「检查更新」和「关于」点了完全没反应，只有排在最后的更新日志能弹出来。
     private enum Sheet: String, Identifiable {
         case about, update, changelog, kugouImport
@@ -32,7 +28,6 @@ struct ProfileView: View {
     @State private var kugouImportError: String? = nil
     @State private var recommendedLoading = false
     @State private var recommendedPlaylists: [Playlist] = []
-    @State private var isBackupImporterPresented = false
 
     var body: some View {
         List {
@@ -203,7 +198,15 @@ struct ProfileView: View {
                     Label("导出歌单备份", systemImage: "square.and.arrow.up")
                 }
                 Button {
-                    isBackupImporterPresented = true
+                    // 用 FilePicker 而非 SwiftUI .fileImporter：
+                    // 1. .fileImporter 在 iOS 16 上和 .sheet 共用呈现通道，回调被静默吞掉
+                    // 2. allowedContentTypes: [.json] 太严格，某些 .json 文件的 UTI 被标记为 .data
+                    // FilePicker 绕开 SwiftUI 呈现体系，直接 present UIDocumentPickerViewController
+                    FilePicker.pick(types: [.json, .data, .item], multiple: false) { urls in
+                        if let url = urls.first {
+                            Task { await importBackup(from: url) }
+                        }
+                    }
                 } label: {
                     Label("恢复歌单备份", systemImage: "arrow.uturn.backward.circle")
                 }
@@ -307,16 +310,6 @@ struct ProfileView: View {
             case .update: UpdateView()
             case .changelog: ChangelogView()
             case .kugouImport: kugouImportSheet
-            }
-        }
-        .fileImporter(isPresented: $isBackupImporterPresented,
-                      allowedContentTypes: [.json],
-                      allowsMultipleSelection: false) { result in
-            switch result {
-            case .success(let urls):
-                if let url = urls.first { Task { await importBackup(from: url) } }
-            case .failure(let err):
-                Log.warn("备份", "恢复失败 \(err.localizedDescription)")
             }
         }
         .task {
