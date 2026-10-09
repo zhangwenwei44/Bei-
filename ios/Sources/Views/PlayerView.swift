@@ -20,28 +20,31 @@ struct PlayerView: View {
         // 内部背景的 .ignoresSafeArea() 会反向把 GeometryReader 撑成超屏宽，
         // 导致整页被居中后左右偏移。
         let win = Self.windowInfo
+        // 安全区高度 = 屏高 - safeTop - safeBottom —— 这才是内容真正能放的空间
+        let safeHeight = win.size.height - win.safeTop - win.safeBottom
         return ZStack {
+            // 背景：全屏沉浸式，忽略所有安全区
             immersiveBackground
+                .ignoresSafeArea()
+
+            // 内容 VStack：不忽略安全区 —— SwiftUI 自动帮我们偏移 safeTop、
+            // 也自动帮我们卡在 safeBottom 上面。这是唯一正确的方案。
             VStack(spacing: 0) {
-                topBar(safeTop: win.safeTop)
+                topBar()
                     .frame(width: win.size.width - 36)
-                artworkStage(width: win.size.width, height: win.size.height)
-                meta(width: win.size.width, safeBottom: win.safeBottom)
+                artworkStage(width: win.size.width, safeHeight: safeHeight)
+                meta(width: win.size.width)
             }
-            // 关键：VStack 钉住屏宽 + 居中对齐。
-            // immersiveBackground 里有 .ignoresSafeArea() 把 ZStack 隐式宽度撑成超屏宽，
-            // VStack 只有屏宽，SwiftUI 默认把它在宽 ZStack 里居中 → 视觉右移。
-            // 加 alignment: .center 是保险，关键是 VStack 自己要对齐到中心。
             .frame(width: win.size.width, alignment: .center)
             .clipped()
+
             if isLyricsPage {
                 LyricsPageView(isShown: $isLyricsPage)
                     .transition(.opacity)
             }
         }
-        // 根 ZStack 也钉住屏宽，否则背景的 ignoresSafeArea 会把整页撑宽
         .frame(width: win.size.width, height: win.size.height, alignment: .center)
-        .ignoresSafeArea(edges: .bottom)
+        .ignoresSafeArea()  // 根 ZStack 也全沉浸式（背景延伸到状态栏和 home indicator）
         .gesture(dragGesture)
         .overlay(alignment: .bottom) { toastLayer }
         .onAppear(perform: animateIn)
@@ -96,10 +99,10 @@ struct PlayerView: View {
 
     // MARK: - 封面（黑胶 or 普通圆角矩形，由 aurora.vinylMode 控制）
 
-    private func artworkStage(width: CGFloat, height: CGFloat) -> some View {
-        // 封面固定占屏高的 ~45%，让 meta 自然占剩约 55%
-        // 之前用 .frame(maxHeight: .infinity) → 封面无限撑开，meta 被挤到 home indicator 下面
-        let targetHeight = height * 0.44
+    private func artworkStage(width: CGFloat, safeHeight: CGFloat) -> some View {
+        // safeHeight 是 SwiftUI 扣除 safeTop + safeBottom 后真正可用的内容高度
+        // 封面占可用高度的 44%，meta 占剩 56% — 和具体设备无关（XS/14 Pro/Pro Max 都对）
+        let targetHeight = safeHeight * 0.44
         return Group {
             if vinylMode {
                 vinylArtwork(width: width, height: targetHeight)
@@ -268,7 +271,7 @@ struct PlayerView: View {
 
     // MARK: - 顶栏
 
-    private func topBar(safeTop: CGFloat) -> some View {
+    private func topBar() -> some View {
         HStack(spacing: 0) {
             Button { animateOut() } label: {
                 Image(systemName: "chevron.down")
@@ -288,8 +291,8 @@ struct PlayerView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
-            .frame(maxWidth: .infinity)   // ← 顶栏剩余空间全部给它
-            .padding(.horizontal, 8)     // ← 左右各留 8pt 缓冲
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 8)
 
             HStack(spacing: 18) {
                 ShareLink(item: shareText) {
@@ -300,8 +303,8 @@ struct PlayerView: View {
             }
         }
         .foregroundStyle(.white)
-        // safeAreaInsets.top 在 XS 上是 44，刘海已经占了，再加 8pt 让按键完全不贴刘海
-        .padding(.top, max(12, safeTop + 4))
+        // VStack 已被 SwiftUI 自动偏移 safeTop，这里只给 8pt 小间距让按钮不贴状态栏
+        .padding(.top, 8)
     }
 
     private var shareText: String {
@@ -346,8 +349,9 @@ struct PlayerView: View {
 
     // MARK: - 信息区
 
-    private func meta(width: CGFloat, safeBottom: CGFloat) -> some View {
-        // 顶栏已显示歌名+歌手，这里去掉重复的歌名和 tagRow
+    private func meta(width: CGFloat) -> some View {
+        // SwiftUI 已帮我们卡在 safeBottom 上面，这里只给常量 padding，
+        // 不再手动处理 safeBottom（双重计算 → 被挤到 home indicator 下面）
         VStack(alignment: .leading, spacing: 0) {
             currentLyricPill
                 .padding(.top, 14)
@@ -358,12 +362,12 @@ struct PlayerView: View {
             progressSection()
                 .padding(.top, 20)
 
-            controls(safeBottom: safeBottom)
+            controls()
                 .padding(.top, 10)
         }
         .frame(width: width, alignment: .leading)
         .padding(.horizontal, 18)
-        .padding(.bottom, max(12, safeBottom + 4))   // ← 整体 meta 离 home indicator 留空间
+        .padding(.bottom, 16)   // 常量 16pt，和具体设备 safeBottom 无关
         .layoutPriority(1)
     }
 
@@ -581,7 +585,7 @@ struct PlayerView: View {
 
     // MARK: - 控制
 
-    private func controls(safeBottom: CGFloat) -> some View {
+    private func controls() -> some View {
         HStack(spacing: 0) {
             Button { store.cycleMode() } label: {
                 Image(systemName: store.mode.icon)
@@ -619,7 +623,8 @@ struct PlayerView: View {
         }
         .foregroundStyle(.white)
         .buttonStyle(.plain)
-        .padding(.bottom, max(12, safeBottom + 6))
+        // controls 在 meta VStack 里，meta 已有 16pt bottom padding
+        // 不需要再加 safeBottom，SwiftUI 自动处理
     }
 
     // MARK: - 反馈
