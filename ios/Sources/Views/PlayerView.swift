@@ -49,12 +49,22 @@ struct PlayerView: View {
     }
 
     /// 设备窗口尺寸 + safeAreaInsets
-    /// 用 UIScreen.main.mainScreenBounds.safeAreaInsets — 物理屏幕级安全区，永远正确
-    /// 不能用 window.safeAreaInsets（overlay 呈现时可能返回 0）
+    /// iOS 13+ 从 UIWindowScene.screens 读物理屏幕安全区（不会像 window.safeAreaInsets 那样返回 0）
+    /// XS safeTop=44, safeBottom=34；iPhone 14 Pro max safeTop=59, safeBottom=34
     private static var windowInfo: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat) {
-        let screen = UIScreen.main.mainScreenBounds
-        let insets = UIScreen.main.safeAreaInsets
-        return (screen.size, insets.top, insets.bottom)
+        for scene in UIApplication.shared.connectedScenes {
+            guard let ws = scene as? UIWindowScene else { continue }
+            if let screen = ws.screens.first {
+                let bounds = screen.bounds
+                let insets = screen.safeAreaInsets
+                // 兜底：如果拿到 0（绝不该发生），用 XS 标准值
+                let top = max(insets.top, 44)
+                let bottom = max(insets.bottom, 34)
+                return (bounds.size, top, bottom)
+            }
+        }
+        // 最终兜底：XS 标准值
+        return (CGSize(width: 375, height: 812), 44, 34)
     }
 
     // MARK: - 背景（封面取色渐变 + 封面虚化，酷狗风格）
