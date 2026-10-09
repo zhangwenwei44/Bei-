@@ -37,6 +37,10 @@ struct PlayerView: View {
             }
             .frame(width: screen.width, height: contentHeight, alignment: .top)
             .padding(.top, top)  // ← 从 safeTop 开始
+            .overlay(alignment: .bottom) {
+                // 🔴 DEBUG 底边红线 — 精确显示 VStack 底部到哪里
+                Rectangle().fill(Color.red).frame(height: 2)
+            }
             // 不加水平 padding — topBar / meta 内部各自 frame(width: screen.width - 36) 居中
             .clipped()
         }
