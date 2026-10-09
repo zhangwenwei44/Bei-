@@ -450,14 +450,14 @@ private struct ArtistSongRow: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(song.title)
-                        .font(.system(size: 14))
-                        .foregroundStyle(AppStyle.primaryText)
-                        .lineLimit(1)
-                    Text(song.album)
-                        .font(.system(size: 11))
-                        .foregroundStyle(AppStyle.secondaryText)
-                        .lineLimit(1)
+                    MarqueeText(song.title,
+                                size: 14,
+                                weight: .regular,
+                                color: AppStyle.primaryText)
+                    MarqueeText(song.album,
+                                size: 11,
+                                weight: .regular,
+                                color: AppStyle.secondaryText)
                 }
 
                 Spacer()

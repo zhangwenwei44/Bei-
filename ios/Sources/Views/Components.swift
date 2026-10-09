@@ -387,10 +387,11 @@ struct SongRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(song.title)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(isCurrent ? AppStyle.accent : AppStyle.primaryText)
-                        .lineLimit(1)
+                    MarqueeText(song.title,
+                                size: 15,
+                                weight: .medium,
+                                color: isCurrent ? AppStyle.accent : AppStyle.primaryText)
+                    .layoutPriority(1)
                     if song.source == .local {
                         Text("本地")
                             .font(.system(size: 9))
@@ -398,14 +399,15 @@ struct SongRow: View {
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
                             .background(AppStyle.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 3))
+                            .fixedSize()
                     }
                 }
-                // 歌手名：带箭头提示可点（但点击事件交给外层 NavigationLink）
                 HStack(spacing: 4) {
-                    Text(song.artist)
-                        .font(.system(size: 12))
-                        .foregroundStyle(AppStyle.secondaryText)
-                        .lineLimit(1)
+                    MarqueeText(song.artist,
+                                size: 12,
+                                weight: .regular,
+                                color: AppStyle.secondaryText)
+                    .layoutPriority(1)
                 }
             }
 
@@ -791,4 +793,101 @@ struct FlowLayout: Layout {
 extension Notification.Name {
     /// 外部请求导航到歌手详情页，object = Song
     static let navigateToArtist = Notification.Name("aurora.navigateToArtist")
+}
+
+// MARK: - MarqueeText 跑马灯（歌名太长时横向滚动，短则正常显示）
+
+/// 用法：MarqueeText("歌名", size: 15, weight: .medium, color: .primary)
+/// - 文本宽度 ≤ 容器宽度 → 正常静态显示
+/// - 文本宽度 > 容器宽度 → 自动无限循环横向滚动
+struct MarqueeText: View {
+    let text: String
+    var size: CGFloat = 15
+    var weight: Font.Weight = .medium
+    var color: Color = AppStyle.primaryText
+
+    // 测量状态
+    @State private var containerWidth: CGFloat = 0
+    @State private var textWidth: CGFloat = 0
+    @State private var offset: CGFloat = 0
+
+    private let spacing: CGFloat = 40
+
+    private var font: Font { .system(size: size, weight: weight) }
+    private var uiFont: UIFont { .systemFont(ofSize: size, weight: uiWeight) }
+    private var uiWeight: UIFont.Weight {
+        switch weight {
+        case .bold: return .bold
+        case .semibold: return .semibold
+        case .medium: return .medium
+        case .regular: return .regular
+        case .light: return .light
+        default: return .regular
+        }
+    }
+    private var lineHeight: CGFloat { uiFont.lineHeight }
+    private var shouldScroll: Bool { textWidth > containerWidth + 1 }
+    private var scrollDuration: Double {
+        min(max(Double(textWidth) / 40, 4), 12)
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            // 更新容器宽度（非主线程安全）
+            let w = geo.size.width
+            if w != containerWidth {
+                DispatchQueue.main.async { containerWidth = w }
+            }
+            return ZStack(alignment: .leading) {
+                Text(text)
+                    .font(font)
+                    .foregroundStyle(color)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .background(
+                        GeometryReader { textGeo in
+                            Color.clear.preference(key: _TextWidthKey.self,
+                                                   value: textGeo.size.width)
+                        }
+                    )
+                    .onPreferenceChange(_TextWidthKey.self) { tw in
+                        if tw != textWidth {
+                            textWidth = tw
+                        }
+                    }
+                    .offset(x: shouldScroll ? offset : 0)
+
+                if shouldScroll {
+                    Text(text)
+                        .font(font)
+                        .foregroundStyle(color)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .offset(x: textWidth + spacing + offset)
+                }
+            }
+            .clipped()
+            .onAppear { startScroll() }
+            .onChange(of: text) { _ in startScroll() }
+            .onChange(of: shouldScroll) { scroll in
+                if scroll { startScroll() } else { offset = 0 }
+            }
+        }
+        .frame(height: lineHeight)
+    }
+
+    private func startScroll() {
+        guard shouldScroll else { offset = 0; return }
+        offset = 0
+        withAnimation(.linear(duration: scrollDuration).repeatForever(autoreverses: false)) {
+            offset = -(textWidth + spacing)
+        }
+    }
+}
+
+private struct _TextWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
 }

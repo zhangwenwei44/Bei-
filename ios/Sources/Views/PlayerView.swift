@@ -273,15 +273,16 @@ struct PlayerView: View {
             Spacer()
 
             VStack(spacing: 1) {
-                // 顶栏中间：歌名（主）+ 歌手（副），替代之前的专辑名+正在播放
-                Text(store.current?.title ?? "未播放")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Text(store.current?.artist ?? "")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .lineLimit(1)
+                MarqueeText(store.current?.title ?? "未播放",
+                            size: 14,
+                            weight: .semibold,
+                            color: .white)
+                .frame(width: 220)
+                MarqueeText(store.current?.artist ?? "",
+                            size: 11,
+                            weight: .regular,
+                            color: .white.opacity(0.6))
+                .frame(width: 180)
             }
             .frame(maxWidth: .infinity)
 
@@ -370,9 +371,11 @@ struct PlayerView: View {
                 }
             } label: {
                 HStack(spacing: 3) {
-                    Text(store.current?.artist ?? "")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.white.opacity(0.75))
+                    MarqueeText(store.current?.artist ?? "",
+                                size: 13,
+                                weight: .regular,
+                                color: .white.opacity(0.75))
+                    .frame(width: 120)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.5))
