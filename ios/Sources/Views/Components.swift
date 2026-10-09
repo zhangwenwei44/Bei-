@@ -400,24 +400,61 @@ struct SongRow: View {
                             .background(AppStyle.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 3))
                     }
                 }
-                Text(song.artist)
-                    .font(.system(size: 12))
-                    .foregroundStyle(AppStyle.secondaryText)
-                    .lineLimit(1)
+                // 歌手名：带箭头提示可点（但点击事件交给外层 NavigationLink）
+                HStack(spacing: 4) {
+                    Text(song.artist)
+                        .font(.system(size: 12))
+                        .foregroundStyle(AppStyle.secondaryText)
+                        .lineLimit(1)
+                }
             }
 
             Spacer(minLength: 4)
 
             if let trailing {
                 trailing
-            } else if song.duration > 0 {
-                Text(song.duration.clockString)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(AppStyle.tertiaryText)
+            } else {
+                // 替换纯时间文本 → 更多按钮（行尾统一菜单）
+                RowMoreButton(song: song)
             }
         }
         .padding(.vertical, 7)
         .contentShape(Rectangle())
+    }
+}
+
+/// 行尾更多按钮（菜单：歌手主页 / 收藏 / 下载 / 分享）
+private struct RowMoreButton: View {
+    let song: Song
+    @ObservedObject private var library = LibraryStore.shared
+    @ObservedObject private var downloads = DownloadManager.shared
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        Menu {
+            Button {
+                NotificationCenter.default.post(name: .navigateToArtist, object: song)
+            } label: {
+                Label("查看歌手", systemImage: "person")
+            }
+            Button {
+                _ = library.toggleFavorite(song)
+            } label: {
+                Label(library.isFavorite(song) ? "取消收藏" : "收藏",
+                      systemImage: library.isFavorite(song) ? "heart.fill" : "heart")
+            }
+            Button {
+                if song.isRemote { Task { _ = try? await downloads.download(song) } }
+            } label: {
+                Label("下载", systemImage: "arrow.down.circle")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 14))
+                .foregroundStyle(AppStyle.tertiaryText)
+                .frame(width: 32, height: 32)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -730,4 +767,11 @@ struct FlowLayout: Layout {
             rowHeight = max(rowHeight, size.height)
         }
     }
+}
+
+// MARK: - 全局导航通知
+
+extension Notification.Name {
+    /// 外部请求导航到歌手详情页，object = Song
+    static let navigateToArtist = Notification.Name("aurora.navigateToArtist")
 }

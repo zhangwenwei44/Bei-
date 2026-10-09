@@ -349,10 +349,21 @@ struct PlayerView: View {
 
     private func tagRow(width: CGFloat) -> some View {
         HStack(spacing: 8) {
-            Text(store.current?.artist ?? "")
-                .font(.system(size: 13))
-                .foregroundStyle(.white.opacity(0.75))
-                .lineLimit(1)
+            Button {
+                if let song = store.current {
+                    NotificationCenter.default.post(name: .navigateToArtist, object: song)
+                }
+            } label: {
+                HStack(spacing: 3) {
+                    Text(store.current?.artist ?? "")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.75))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+            }
+            .buttonStyle(.plain)
 
             if let album = store.current?.album, !album.isEmpty {
                 Text("·")

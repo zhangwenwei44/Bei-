@@ -17,6 +17,7 @@ struct DiscoverView: View {
     @State private var squareTotal = 0
     @State private var isLoadingMore = false
     @State private var selectedTab: DiscoverTab = .recommend
+    @State private var pendingArtist: Artist?
 
     // 三个新推荐板块
     @State private var ktvSongs: [Song] = []
@@ -67,6 +68,23 @@ struct DiscoverView: View {
             Color.clear.frame(height: store.current == nil ? 0 : 62)
                 .accessibilityHidden(true)
         }
+        // 监听全局歌手导航通知
+        .onReceive(NotificationCenter.default.publisher(for: .navigateToArtist)) { note in
+            guard let song = note.object as? Song else { return }
+            pendingArtist = Artist(id: "kw:\(song.artist)",
+                                   name: song.artist.trimmingCharacters(in: .whitespaces),
+                                   coverURL: song.artworkURL)
+        }
+        .background(
+            NavigationLink(isActive: Binding(
+                get: { pendingArtist != nil },
+                set: { if !$0 { pendingArtist = nil } }
+            )) {
+                if let artist = pendingArtist {
+                    ArtistDetailView(artist: artist)
+                }
+            } label: { EmptyView() }
+        )
     }
 
     // MARK: Tab 栏
