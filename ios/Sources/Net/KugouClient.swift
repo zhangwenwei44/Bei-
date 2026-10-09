@@ -651,16 +651,34 @@ final class KugouClient {
     ///   3. https://www.kugou.com/yy/player/share/xxx.html —— 分享页
     ///   4. 纯数字 "12345" —— 直接就是 specialid
     ///   5. 纯字母数字 "abc123" —— 当短链 code 处理
+    ///   6. 粘贴文本里有多个东西（比如 App 分享带描述）—— 抠出第一个 URL
+    func extractFirstURL(from text: String) -> String? {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return nil }
+        let matches = detector.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        for m in matches {
+            if let range = Range(m.range, in: text) {
+                let candidate = String(text[range])
+                // 只返回 kugou.com 开头的 URL，避免把纯文字链接误识别
+                if candidate.lowercased().contains("kugou.com") || candidate.lowercased().hasPrefix("http") {
+                    return candidate
+                }
+            }
+        }
+        return nil
+    }
+
     func fetchPlaylistByCode(_ input: String) async throws -> (Playlist, [Song]) {
+        // 从粘贴文本里抠第一个 URL（酷狗 App 分享出来的链接经常裹在一段文字里）
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw KugouError.badURL }
-        Log.info("导入", "解析输入：\(trimmed)")
+        let extractedURL = extractFirstURL(from: trimmed) ?? trimmed
+        Log.info("导入", "解析输入：\(trimmed) → 提取后：\(extractedURL)")
 
         // 先提取 specialid / rankID
         var specialID: String? = nil
         var rankID: String? = nil
 
-        if let url = URL(string: trimmed), trimmed.contains("kugou.com") {
+        if let url = URL(string: extractedURL), extractedURL.contains("kugou.com") {
             // 完整 URL — 尝试从路径里抠 specialid 或 rankid
             let path = url.path
             Log.info("导入", "URL 路径：\(path)")
@@ -689,7 +707,7 @@ final class KugouClient {
                 } else {
                     Log.warn("导入", "榜单路径正则没匹配上：\(path)")
                 }
-            } else if trimmed.contains("t.kugou.com") {
+            } else if extractedURL.contains("t.kugou.com") {
                 // 短链 — GET 让 URLSession 自动跟随重定向，读最终 response.url
                 let config = URLSessionConfiguration.default
                 config.httpMaximumConnectionsPerHost = 1
@@ -699,20 +717,20 @@ final class KugouClient {
                 let (_, response) = try await session.data(for: request)
                 if let http = response as? HTTPURLResponse,
                    let finalURL = http.url {
-                    Log.info("导入", "短链 \(trimmed) GET 重定向到 \(finalURL.absoluteString)")
+                    Log.info("导入", "短链 GET 重定向到 \(finalURL.absoluteString)")
                     return try await fetchPlaylistByCode(finalURL.absoluteString) // 递归解析真实 URL
                 }
-                Log.warn("导入", "短链 \(trimmed) GET 没拿到重定向 URL")
+                Log.warn("导入", "短链 GET 没拿到重定向 URL")
             } else {
                 Log.warn("导入", "不认识的 kugou.com 路径：\(path)")
             }
-        } else if Int(trimmed) != nil {
+        } else if Int(extractedURL) != nil {
             // 纯数字 → specialid
-            specialID = trimmed
+            specialID = extractedURL
             Log.info("导入", "纯数字识别为 specialid=\(specialID!)")
         } else {
             // 纯字母数字 → 当短链 code 处理
-            let guessed = "https://t.kugou.com/\(trimmed)"
+            let guessed = "https://t.kugou.com/\(extractedURL)"
             Log.info("导入", "纯字母数字 → 尝试短链 \(guessed)")
             return try await fetchPlaylistByCode(guessed)
         }

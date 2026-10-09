@@ -28,7 +28,9 @@ struct ProfileView: View {
     /// 酷狗分享链接 / specialid 输入框。
     @State private var kugouCodeInput = ""
     @State private var kugouImporting = false
-    @State private var kugouImportError: String?
+    @State private var kugouImportError: String? = nil
+    @State private var recommendedLoading = false
+    @State private var recommendedPlaylists: [Playlist] = []
 
     var body: some View {
         List {
@@ -327,48 +329,157 @@ struct ProfileView: View {
 
     private var kugouImportSheet: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("粘贴酷狗分享链接、specialid 数字，或短链 code")
-                    .font(.system(size: 13))
-                    .foregroundStyle(AppStyle.tertiaryText)
-
-                TextField("https://t.kugou.com/xxx 或 12345", text: $kugouCodeInput)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-                    .autocapitalization(.none)
-
-                HStack(spacing: 12) {
-                    Button("取消") {
-                        sheet = nil; kugouCodeInput = ""; kugouImportError = nil
+            VStack(alignment: .leading, spacing: 0) {
+                // 精选歌单快捷入口
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("🔥 精选歌单（点一下直接导入）")
+                            .font(.system(size: 14, weight: .semibold))
+                        Spacer()
+                        if recommendedLoading { ProgressView().controlSize(.small) }
                     }
-                    .buttonStyle(.bordered)
 
-                    Button {
-                        Task { await doKugouImport() }
-                    } label: {
-                        HStack {
-                            if kugouImporting { ProgressView().controlSize(.small) }
-                            Text(kugouImporting ? "导入中..." : "导入")
+                    if recommendedPlaylists.isEmpty, !recommendedLoading {
+                        Button("加载精选歌单") {
+                            Task { await loadRecommended() }
                         }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(kugouImporting || kugouCodeInput.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
+                        .buttonStyle(.bordered)
+                    } else {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                ForEach(recommendedPlaylists.prefix(15)) { pl in
+                                    Button {
+                                        Task { await importRecommended(pl) }
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            AsyncImage(url: pl.coverURL) { phase in
+                                                switch phase {
+                                                case .success(let img):
+                                                    img.resizable().scaledToFill()
+                                                default:
+                                                    Color.gray.opacity(0.3)
+                                                }
+                                            }
+                                            .frame(width: 100, height: 100)
+                                            .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                if let err = kugouImportError {
-                    Text(err)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.red)
+                                            Text(pl.name)
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(AppStyle.primaryText)
+                                                .lineLimit(2)
+                                                .frame(width: 100, alignment: .leading)
+
+                                            Text("\(pl.trackCount) 首")
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(AppStyle.tertiaryText)
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(kugouImporting)
+                                }
+                            }
+                        }
+                    }
                 }
+                .padding(.horizontal)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
+
+                Divider()
+
+                // 手动输入区
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("手动粘贴歌单链接")
+                        .font(.system(size: 14, weight: .semibold))
+
+                    Text("从酷狗 App 点歌单 → 右上角分享 → 复制链接，粘贴到这里")
+                        .font(.system(size: 12))
+                        .foregroundStyle(AppStyle.tertiaryText)
+
+                    TextField("https://t.kugou.com/xxx 或 12345", text: $kugouCodeInput)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                        .autocapitalization(.none)
+
+                    HStack(spacing: 12) {
+                        Button("取消") {
+                            sheet = nil; kugouCodeInput = ""; kugouImportError = nil
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button {
+                            Task { await doKugouImport() }
+                        } label: {
+                            HStack {
+                                if kugouImporting { ProgressView().controlSize(.small) }
+                                Text(kugouImporting ? "导入中..." : "导入")
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(kugouImporting || kugouCodeInput.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+
+                    if let err = kugouImportError {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(err)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.red)
+                            if err.contains("失效") || err.contains("没有歌曲") {
+                                Text("💡 试试上方精选歌单，或从酷狗 App 重新分享一个有效歌单")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(AppStyle.tertiaryText)
+                            }
+                        }
+                    }
+
+                    if kugouImporting {
+                        ProgressView("正在解析并下载歌曲列表...")
+                            .font(.system(size: 12))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                    }
+                }
+                .padding()
 
                 Spacer()
             }
-            .padding()
             .navigationTitle("导入酷狗歌单")
             .navigationBarTitleDisplayMode(.inline)
+            .task {
+                if recommendedPlaylists.isEmpty {
+                    await loadRecommended()
+                }
+            }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private func loadRecommended() async {
+        recommendedLoading = true
+        defer { recommendedLoading = false }
+        let (pls, _) = await KugouClient.shared.recommendedPlaylists(page: 1)
+        recommendedPlaylists = pls
+    }
+
+    private func importRecommended(_ playlist: Playlist) async {
+        kugouImporting = true; kugouImportError = nil
+        defer { kugouImporting = false }
+        guard let specialID = playlist.id.split(separator: ":").last else {
+            kugouImportError = "无法识别歌单 ID"; return
+        }
+        do {
+            let songs = try await KugouClient.shared.specialSongs(specialID: String(specialID))
+            guard !songs.isEmpty else {
+                kugouImportError = "歌单加载失败，可能已失效"
+                return
+            }
+            library.importPlaylist(name: playlist.name, songs: songs)
+            Haptics.soft()
+            kugouCodeInput = ""
+            sheet = nil
+        } catch {
+            kugouImportError = "导入失败：\(error.localizedDescription)"
+        }
     }
 
     private func doKugouImport() async {
@@ -377,7 +488,7 @@ struct ProfileView: View {
         do {
             let (playlist, songs) = try await KugouClient.shared.fetchPlaylistByCode(kugouCodeInput)
             guard !songs.isEmpty else {
-                kugouImportError = "歌单里没有歌曲，可能是 specialid 失效或歌单已删除"
+                kugouImportError = "歌单里没有歌曲 — 可能已过期或被删除"
                 return
             }
             library.importPlaylist(name: playlist.name, songs: songs)
@@ -385,7 +496,12 @@ struct ProfileView: View {
             kugouCodeInput = ""
             sheet = nil
         } catch {
-            kugouImportError = error.localizedDescription
+            let msg = error.localizedDescription
+            if msg.contains("URL") || msg.contains("URLSession") || msg.contains("find") {
+                kugouImportError = "链接解析失败 — 试试从酷狗 App 重新分享一个有效的歌单链接"
+            } else {
+                kugouImportError = "导入失败：\(msg)"
+            }
         }
     }
 
