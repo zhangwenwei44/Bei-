@@ -91,38 +91,104 @@ struct PlayerView: View {
         // 外层 .drawingGroup() 会强制分配一张 ~12MB 全屏 backing store 做二次光栅化，产生双倍显存峰值。
     }
 
-    // MARK: - 封面大图（确定性尺寸：宽-88 与可用高度 42% 取小，信息区永远完整）
+    // MARK: - 黑胶唱片封面（圆 + 旋转 + 纹理 + 中心专辑图）
 
     private func artworkStage(width: CGFloat, height: CGFloat) -> some View {
-        let side = max(140, min(width - 88, height * 0.42, 360))
-        return Group {
-            if let artwork = store.artwork {
-                // 和 CoverImage 同理：Image 自身也要 frame+clipped，
-                // 只靠外层 Group 的 clipShape 在 iOS 16 上不能保证 scaledToFill 居中。
-                Image(uiImage: artwork)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: side, height: side)
-                    .clipped()
-            } else {
-                ZStack {
-                    Rectangle().fill(.white.opacity(0.08))
-                    Image(systemName: "music.note")
-                        .font(.system(size: 54, weight: .light))
-                        .foregroundStyle(.white.opacity(0.55))
+        // 唱片整体尺寸（黑胶盘）
+        let vinylSide = max(240, min(width - 40, height * 0.48, 400))
+        // 中心专辑封面（比唱片小一圈）
+        let coverSide = vinylSide * 0.56
+
+        return ZStack {
+            // 1. 黑胶盘本体（旋转）
+            vinylDisc(side: vinylSide)
+                .rotationEffect(.degrees(isSpinning ? 360 : 0))
+                .animation(isSpinning
+                           ? .linear(duration: 18).repeatForever(autoreverses: false)
+                           : .easeOut(duration: 0.6),
+                           value: isSpinning)
+
+            // 2. 中心专辑封面
+            Group {
+                if let artwork = store.artwork {
+                    Image(uiImage: artwork)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    ZStack {
+                        LinearGradient(colors: [.gray.opacity(0.5), .gray.opacity(0.3)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+                        Image(systemName: "music.note")
+                            .font(.system(size: coverSide * 0.3, weight: .light))
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
                 }
-                .frame(width: side, height: side)
+            }
+            .frame(width: coverSide, height: coverSide)
+            .clipShape(Circle())
+            .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1.5))
+            // 中心小黑点（模拟唱片孔）
+            .overlay(alignment: .center) {
+                Circle()
+                    .fill(.black.opacity(0.8))
+                    .frame(width: 10, height: 10)
+                    .overlay(Circle().stroke(.white.opacity(0.4), lineWidth: 0.5))
             }
         }
-        .frame(width: side, height: side)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .stroke(.white.opacity(0.14), lineWidth: 0.5))
-        // 优化：用轻微 shadow 代替重阴影 —— 减少离屏渲染开销
-        .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+        .frame(width: vinylSide, height: vinylSide)
+        .shadow(color: .black.opacity(0.45), radius: 16, y: 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.easeInOut(duration: 0.4), value: store.currentIndex)
     }
+
+    /// 黑胶盘纹理：多层同心圆环 + 高光
+    private func vinylDisc(side: CGFloat) -> some View {
+        ZStack {
+            // 底盘：深黑色
+            Circle()
+                .fill(LinearGradient(colors: [.black, .black.opacity(0.85)],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+
+            // 唱针高光（顶部弧形反光）
+            Circle()
+                .fill(AngularGradient(colors: [
+                    .clear,
+                    .white.opacity(0.06),
+                    .clear,
+                    .white.opacity(0.04),
+                    .clear
+                ], center: .center))
+
+            // 唱片纹理环（用 stroke 画多层同心圆）
+            ForEach(0..<8, id: \.self) { i in
+                Circle()
+                    .stroke(.white.opacity(0.04), lineWidth: 1)
+                    .frame(width: side - CGFloat(i) * (side / 14),
+                           height: side - CGFloat(i) * (side / 14))
+            }
+
+            // 外圈金属质感边框
+            Circle()
+                .stroke(LinearGradient(colors: [
+                    .white.opacity(0.3),
+                    .white.opacity(0.05),
+                    .white.opacity(0.25),
+                    .white.opacity(0.05)
+                ], startPoint: .top, endPoint: .bottom),
+                        lineWidth: 2)
+                .frame(width: side - 2, height: side - 2)
+
+            // 中心挖空（放专辑封面）
+            Circle()
+                .fill(.clear)
+                .frame(width: side * 0.56, height: side * 0.56)
+                .blendMode(.destinationOut)
+        }
+        .compositingGroup()
+        .frame(width: side, height: side)
+    }
+
+    private var isSpinning: Bool { store.isPlaying && !store.isLoading && !store.isBuffering }
 
     // MARK: - 顶栏
 
@@ -380,27 +446,48 @@ struct PlayerView: View {
     // MARK: - 进度
 
     private func progressSection(width: CGFloat) -> some View {
-        // 直接用外层传入的确定宽度，不再用 preference 回传 @State
-        // （旧方案形成「胶囊宽度→测量→state→更宽」的反馈环，会把进度条撑到屏外）。
         let trackWidth = width - 36
-        return VStack(spacing: 4) {
+        let progressFrac = max(0, min(1, store.progress))
+        let bufferedFrac = max(0, min(1, store.bufferedFraction))
+        let progressX = progressFrac * trackWidth
+
+        return VStack(spacing: 6) {
             ZStack(alignment: .leading) {
+                // 底色轨道
                 Capsule()
-                    .fill(.white.opacity(0.28))
-                    .frame(height: 2)
+                    .fill(.white.opacity(0.22))
+                    .frame(height: 3)
+
+                // 缓冲进度
                 Capsule()
-                    .fill(.white.opacity(0.35))
-                    .frame(width: max(0, min(1, store.bufferedFraction)) * trackWidth, height: 2)
+                    .fill(.white.opacity(0.3))
+                    .frame(width: bufferedFrac * trackWidth, height: 3)
+
+                // 播放进度（更亮 + 带微妙渐变）
                 Capsule()
-                    .fill(.white)
-                    .frame(width: max(0, min(1, store.progress)) * trackWidth, height: 2)
+                    .fill(LinearGradient(colors: [
+                        .white.opacity(0.95),
+                        .white.opacity(0.8)
+                    ], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: progressX, height: 3)
+
+                // 光点：跟着进度移动的脉冲白光
+                if store.isPlaying {
+                    GlowDot()
+                        .frame(width: 10, height: 10)
+                        .offset(x: progressX - 5)
+                        .animation(.linear(duration: 0.2), value: progressX)
+                }
+
+                // 拖拽时的大圆点手柄
                 Circle()
                     .fill(.white)
-                    .frame(width: 10, height: 10)
-                    .offset(x: max(0, min(1, store.progress)) * trackWidth - 5)
+                    .frame(width: 14, height: 14)
+                    .offset(x: progressX - 7)
                     .opacity(isScrubbing ? 1 : 0)
+                    .shadow(color: .white.opacity(0.5), radius: 6)
             }
-            .frame(width: trackWidth, height: 12, alignment: .leading)
+            .frame(width: trackWidth, height: 16, alignment: .leading)
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { value in
@@ -526,6 +613,38 @@ struct PlayerView: View {
                 await MainActor.run { show("下载完成") }
             } catch {
                 await MainActor.run { show(error.localizedDescription) }
+            }
+        }
+    }
+}
+
+/// 进度条光点：跟着进度跑的脉冲白色光点 + 发光光晕
+private struct GlowDot: View {
+    @State private var pulse = false
+
+    var body: some View {
+        ZStack {
+            // 外层光晕（脉冲放大淡出）
+            Circle()
+                .fill(.white.opacity(0.35))
+                .frame(width: 20, height: 20)
+                .scaleEffect(pulse ? 1.4 : 0.7)
+                .opacity(pulse ? 0 : 0.8)
+
+            // 中层发光
+            Circle()
+                .fill(.white.opacity(0.6))
+                .frame(width: 14, height: 14)
+                .blur(radius: 3)
+
+            // 核心白点
+            Circle()
+                .fill(.white)
+                .frame(width: 8, height: 8)
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 1.2).repeatForever(autoreverses: false)) {
+                pulse = true
             }
         }
     }
