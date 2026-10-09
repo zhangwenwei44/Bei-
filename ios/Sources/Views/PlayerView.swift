@@ -9,6 +9,7 @@ struct PlayerView: View {
 
     @State private var showToast: String?
     @State private var isLyricsPage = false
+    @AppStorage("aurora.vinylMode") private var vinylMode: Bool = true
 
     private var displayTime: Double { isScrubbing ? scrubValue : store.currentTime }
 
@@ -91,16 +92,27 @@ struct PlayerView: View {
         // 外层 .drawingGroup() 会强制分配一张 ~12MB 全屏 backing store 做二次光栅化，产生双倍显存峰值。
     }
 
-    // MARK: - 黑胶唱片封面（圆 + 旋转 + 纹理 + 中心专辑图）
+    // MARK: - 封面（黑胶 or 普通圆角矩形，由 aurora.vinylMode 控制）
 
     private func artworkStage(width: CGFloat, height: CGFloat) -> some View {
-        // 唱片整体尺寸（黑胶盘）
+        Group {
+            if vinylMode {
+                vinylArtwork(width: width, height: height)
+            } else {
+                roundedArtwork(width: width, height: height)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeInOut(duration: 0.4), value: store.currentIndex)
+        .animation(.easeInOut(duration: 0.3), value: vinylMode)
+    }
+
+    /// 黑胶版：外圆盘纹理 + 旋转 + 中心专辑封面
+    private func vinylArtwork(width: CGFloat, height: CGFloat) -> some View {
         let vinylSide = max(240, min(width - 40, height * 0.48, 400))
-        // 中心专辑封面（比唱片小一圈）
         let coverSide = vinylSide * 0.56
 
         return ZStack {
-            // 1. 黑胶盘本体（旋转）
             vinylDisc(side: vinylSide)
                 .rotationEffect(.degrees(isSpinning ? 360 : 0))
                 .animation(isSpinning
@@ -108,12 +120,9 @@ struct PlayerView: View {
                            : .easeOut(duration: 0.6),
                            value: isSpinning)
 
-            // 2. 中心专辑封面
             Group {
                 if let artwork = store.artwork {
-                    Image(uiImage: artwork)
-                        .resizable()
-                        .scaledToFill()
+                    Image(uiImage: artwork).resizable().scaledToFill()
                 } else {
                     ZStack {
                         LinearGradient(colors: [.gray.opacity(0.5), .gray.opacity(0.3)],
@@ -127,7 +136,6 @@ struct PlayerView: View {
             .frame(width: coverSide, height: coverSide)
             .clipShape(Circle())
             .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1.5))
-            // 中心小黑点（模拟唱片孔）
             .overlay(alignment: .center) {
                 Circle()
                     .fill(.black.opacity(0.8))
@@ -137,8 +145,29 @@ struct PlayerView: View {
         }
         .frame(width: vinylSide, height: vinylSide)
         .shadow(color: .black.opacity(0.45), radius: 16, y: 8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.easeInOut(duration: 0.4), value: store.currentIndex)
+    }
+
+    /// 普通版：圆角矩形封面（原始样式）
+    private func roundedArtwork(width: CGFloat, height: CGFloat) -> some View {
+        let side = max(140, min(width - 88, height * 0.42, 360))
+        return Group {
+            if let artwork = store.artwork {
+                Image(uiImage: artwork).resizable().scaledToFill()
+                    .frame(width: side, height: side).clipped()
+            } else {
+                ZStack {
+                    Rectangle().fill(.white.opacity(0.08))
+                    Image(systemName: "music.note")
+                        .font(.system(size: 54, weight: .light))
+                        .foregroundStyle(.white.opacity(0.55))
+                }.frame(width: side, height: side)
+            }
+        }
+        .frame(width: side, height: side)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .stroke(.white.opacity(0.14), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
     }
 
     /// 黑胶盘纹理：多层同心圆环 + 高光
