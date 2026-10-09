@@ -269,25 +269,33 @@ struct PlayerView: View {
         .padding(.horizontal, 18)
     }
 
-    /// 当前行歌词胶囊（酷狗式单行），点击进入全屏歌词页
+    /// 双行歌词预览：上面一条（暗/小）+ 当前行（亮/大），点击进入全屏歌词页
     private var currentLyricPill: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
         } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "text.quote")
-                    .font(.system(size: 10, weight: .semibold))
+            VStack(alignment: .leading, spacing: 4) {
+                // 上一条歌词
+                if let prev = previousLyricText {
+                    Text(prev)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.4))
+                        .lineLimit(1)
+                }
+                // 当前歌词
                 Text(currentLyricText)
-                    .font(.system(size: 12))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
             }
-            .foregroundStyle(.white.opacity(0.8))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(.white.opacity(0.1), in: Capsule())
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.25), value: currentLyricText)
+        .animation(.easeInOut(duration: 0.25), value: previousLyricText)
     }
 
     private var currentLyricText: String {
@@ -298,8 +306,15 @@ struct PlayerView: View {
         return store.lyrics.isEmpty ? "纯音乐 · 暂无歌词" : "点击查看完整歌词"
     }
 
+    private var previousLyricText: String? {
+        guard let index = store.currentLyricIndex, index > 0,
+              store.lyrics.indices.contains(index - 1) else { return nil }
+        let text = store.lyrics[index - 1].text
+        return text.isEmpty ? nil : text
+    }
+
     private func actionRow(width: CGFloat) -> some View {
-        // 四个按钮等分【显式指定的屏宽-28】，任何机型都一屏显示
+        // 四个按钮等分屏宽，与上方歌名/歌词胶囊/下方进度条齐平
         HStack(spacing: 0) {
             actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
             actionButton(icon: store.isLiked ? "heart.fill" : "heart",
@@ -314,9 +329,9 @@ struct PlayerView: View {
                 withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
             }
         }
-        .frame(width: width - 28)
+        .frame(width: width - 36)
         .clipped()
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 18)
     }
 
     private var modeLabel: String {
