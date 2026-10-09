@@ -380,13 +380,13 @@ struct PlayerView: View {
         .padding(.horizontal, 18)
     }
 
-    /// 双行歌词预览：上一条（暗/小/左） + 当前行（亮/大/右对齐），点击进入全屏歌词页
+    /// 双行歌词（酷狗 PC 风格）：上一条左对齐 + 当前行右对齐
     private var currentLyricPill: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
         } label: {
-            VStack(alignment: .trailing, spacing: 3) {
-                // 上一条歌词（左对齐，暗/小）
+            VStack(spacing: 4) {
+                // 第一行：上一条歌词 —— 左对齐、暗、小
                 if let prev = previousLyricText {
                     Text(prev)
                         .font(.system(size: 11))
@@ -394,11 +394,12 @@ struct PlayerView: View {
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                // 当前歌词（右对齐，亮/大）
+                // 第二行：当前歌词 —— 右对齐、亮、大
                 Text(currentLyricText)
                     .font(.system(size: 13, weight: .medium, design: .rounded))
                     .foregroundStyle(.white.opacity(0.9))
                     .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity)
