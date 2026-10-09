@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 import UIKit
 
 /// 全局配色。以酷狗音乐的蓝为主色，浅色下蓝白相间。
@@ -387,7 +387,7 @@ struct SongRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    MarqueeText(song.title,
+                    MarqueeText(text: song.title,
                                 size: 15,
                                 weight: .medium,
                                 color: isCurrent ? AppStyle.accent : AppStyle.primaryText)
@@ -403,7 +403,7 @@ struct SongRow: View {
                     }
                 }
                 HStack(spacing: 4) {
-                    MarqueeText(song.artist,
+                    MarqueeText(text: song.artist,
                                 size: 12,
                                 weight: .regular,
                                 color: AppStyle.secondaryText)
@@ -797,7 +797,7 @@ extension Notification.Name {
 
 // MARK: - MarqueeText 跑马灯（歌名太长时横向滚动，短则正常显示）
 
-/// 用法：MarqueeText("歌名", size: 15, weight: .medium, color: .primary)
+/// 用法：MarqueeText(text: "歌名", size: 15, weight: .medium, color: .primary)
 /// - 文本宽度 ≤ 容器宽度 → 正常静态显示
 /// - 文本宽度 > 容器宽度 → 自动无限循环横向滚动
 struct MarqueeText: View {

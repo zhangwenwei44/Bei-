@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 import UIKit
 
 struct PlayerView: View {
@@ -273,12 +273,12 @@ struct PlayerView: View {
             Spacer()
 
             VStack(spacing: 1) {
-                MarqueeText(store.current?.title ?? "未播放",
+                MarqueeText(text: store.current?.title ?? "未播放",
                             size: 14,
                             weight: .semibold,
                             color: .white)
                 .frame(width: 220)
-                MarqueeText(store.current?.artist ?? "",
+                MarqueeText(text: store.current?.artist ?? "",
                             size: 11,
                             weight: .regular,
                             color: .white.opacity(0.6))
@@ -371,7 +371,7 @@ struct PlayerView: View {
                 }
             } label: {
                 HStack(spacing: 3) {
-                    MarqueeText(store.current?.artist ?? "",
+                    MarqueeText(text: store.current?.artist ?? "",
                                 size: 13,
                                 weight: .regular,
                                 color: .white.opacity(0.75))

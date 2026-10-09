@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 
 /// 歌手主页：沉浸式横幅 + 歌曲列表 + 专辑板块 + 多选下载。
 struct ArtistDetailView: View {
@@ -450,11 +450,11 @@ private struct ArtistSongRow: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    MarqueeText(song.title,
+                    MarqueeText(text: song.title,
                                 size: 14,
                                 weight: .regular,
                                 color: AppStyle.primaryText)
-                    MarqueeText(song.album,
+                    MarqueeText(text: song.album,
                                 size: 11,
                                 weight: .regular,
                                 color: AppStyle.secondaryText)
