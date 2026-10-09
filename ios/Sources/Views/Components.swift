@@ -831,9 +831,13 @@ struct MarqueeText: View {
     private var textW: CGFloat {
         let attributes: [NSAttributedString.Key: Any] = [.font: uiFont]
         let s = text as NSString
-        return max(10, s.boundingRect(with: CGSize(width: .greatestFiniteMagnitude, height: uiFont.lineHeight),
-                                       options: .usesLineFragmentOrigin,
-                                       attributes: attributes).width.rounded(.up))
+        let rect = s.boundingRect(
+            with: CGSize(width: .greatestFiniteMagnitude, height: uiFont.lineHeight),
+            options: [.usesLineFragmentOrigin],
+            attributes: attributes,
+            context: nil
+        )
+        return max(10, ceil(rect.width))
     }
 
     private var needScroll: Bool { textW > containerW + 1 }
