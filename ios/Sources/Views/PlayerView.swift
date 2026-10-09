@@ -48,19 +48,13 @@ struct PlayerView: View {
         .onDisappear(perform: animateOut)
     }
 
-    /// 设备窗口尺寸 + safeAreaInsets（keyWindow），取不到时给 XS 兜底。
+    /// 设备窗口尺寸 + safeAreaInsets
+    /// 用 UIScreen.main.mainScreenBounds.safeAreaInsets — 物理屏幕级安全区，永远正确
+    /// 不能用 window.safeAreaInsets（overlay 呈现时可能返回 0）
     private static var windowInfo: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat) {
-        for scene in UIApplication.shared.connectedScenes {
-            guard let ws = scene as? UIWindowScene else { continue }
-            if let window = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first,
-               window.bounds.width > 0 {
-                return (window.bounds.size, window.safeAreaInsets.top, window.safeAreaInsets.bottom)
-            }
-            if ws.screen.bounds.width > 0 {
-                return (ws.screen.bounds.size, 0, 0)
-            }
-        }
-        return (CGSize(width: 375, height: 812), 44, 34)
+        let screen = UIScreen.main.mainScreenBounds
+        let insets = UIScreen.main.safeAreaInsets
+        return (screen.size, insets.top, insets.bottom)
     }
 
     // MARK: - 背景（封面取色渐变 + 封面虚化，酷狗风格）
