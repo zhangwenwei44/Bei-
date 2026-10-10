@@ -34,10 +34,6 @@ struct PlayerView: View {
             }
             .frame(width: screen.width, height: contentHeight, alignment: .top)
             .padding(.top, win.safeTop)  // ← 从 safeTop 开始
-            .overlay(alignment: .bottom) {
-                // 🔴 DEBUG 红线 — 精确显示 VStack 底部边界
-                Rectangle().fill(Color.red).frame(height: 2)
-            }
             .clipped()
         }
         .frame(width: screen.width, height: screen.height)
@@ -362,7 +358,8 @@ struct PlayerView: View {
 
     private func meta(width: CGFloat) -> some View {
         // VStack 外层 frame height = contentHeight（已扣 safeTop+safeBottom），
-        // 底部正好在 home indicator 顶部 → 这里只需要 16pt 间距，不要加 safeBottom
+        // 底部正好在 home indicator 顶部。用 Spacer 把 controls 推到底部，
+        // 确保无论屏幕多小，控制栏都紧贴 safe area 上方。
         VStack(alignment: .leading, spacing: 0) {
             currentLyricPill
                 .padding(.top, 14)
@@ -372,6 +369,8 @@ struct PlayerView: View {
 
             progressSection()
                 .padding(.top, 20)
+
+            Spacer(minLength: 0)
 
             controls()
                 .padding(.top, 10)
