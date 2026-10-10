@@ -62,6 +62,8 @@ struct PlayerView: View {
     @State private var classicCoverPausedAngle: Double = 0
     @State private var classicCoverOffset: CGSize = .zero
     @State private var classicSwipeOffset: CGFloat = 0
+    /// 流光进度条：游动光点相位（0→1 往返，仅播放时动画）
+    @State private var classicFlowPhase: CGFloat = 0
 
     // MARK: classicBody — Header + Cover + Track + Lyrics + Progress + Controls
     // 三段式 VStack：header 固定顶 / body 紧凑封面区 / deck 固定底
@@ -330,38 +332,61 @@ struct PlayerView: View {
         .padding(.bottom, max(10, bottomInset))
     }
 
-    /// 流光进度条：accent=dominantColor 渐变 + 顶部高光 + 发光滑块 + 拖动时间气泡
+    /// 流光进度条（Beans SeekBar default case 完整搬：accent 渐变 + ultraThinMaterial 轨道 + 顶部高光 + 游动光点 + 发光滑块）
     private var classicProgressBlock: some View {
         let progressFrac = max(0, min(1, store.progress))
-        let width: CGFloat = UIScreen.main.bounds.width - 56 // -28*2 horizontal padding
 
         return GeometryReader { geo in
             let gWidth = geo.size.width
             let thumbX = min(max(progressFrac * gWidth, 10), max(gWidth - 10, 10))
+            let trackH: CGFloat = 5
 
             ZStack(alignment: .leading) {
-                // 轨道（清透）
+                // 清透轨道 + 玻璃材质覆盖 + 细边描边（Beans 流光）
                 Capsule()
-                    .fill(.white.opacity(0.20))
-                    .frame(height: 5)
+                    .fill(.white.opacity(0.55))
+                    .frame(height: trackH)
+                Capsule()
+                    .fill(.ultraThinMaterial)
+                    .frame(height: trackH)
+                    .overlay { Capsule().strokeBorder(.white.opacity(0.2), lineWidth: 0.5) }
 
-                // 已播放段：accent 渐变 + shadow 发光
+                // 已播放段：accent 渐变 + shadow 发光 + 顶部高光
                 Capsule()
                     .fill(
                         LinearGradient(
-                            colors: [dominantColor, dominantColor.opacity(0.7), .white.opacity(0.85)],
+                            colors: [dominantColor, dominantColor.opacity(0.6), .white.opacity(0.85)],
                             startPoint: .leading, endPoint: .trailing
                         )
                     )
-                    .frame(width: thumbX, height: 5)
-                    .shadow(color: dominantColor.opacity(0.50), radius: 4, y: 1)
+                    .frame(width: thumbX, height: trackH)
+                    .shadow(color: dominantColor.opacity(0.45), radius: 4, y: 1)
                     .overlay(alignment: .top) {
                         LinearGradient(colors: [.white.opacity(0.55), .clear],
                                        startPoint: .top, endPoint: .bottom)
-                            .frame(height: 2.5).clipShape(Capsule())
+                            .frame(height: trackH / 2).clipShape(Capsule())
                     }
 
-                // 发光滑块（白底 + accent shadow）
+                // 游动光点（仅播放时往返游动，Beans 流光的灵魂）
+                if store.isPlaying {
+                    ZStack {
+                        // 外层柔光晕
+                        Circle()
+                            .fill(.white.opacity(0.35))
+                            .blur(radius: 4)
+                            .frame(width: 14, height: 14)
+                        // 内层实白点
+                        Circle()
+                            .fill(.white.opacity(0.95))
+                            .frame(width: 5, height: 5)
+                            .shadow(color: .white.opacity(0.7), radius: 2)
+                    }
+                    .offset(x: max(2, thumbX - 5) * classicFlowPhase)
+                    .animation(.linear(duration: 2.4).repeatForever(autoreverses: true),
+                               value: classicFlowPhase)
+                }
+
+                // 发光滑块（白底 + stroke + accent shadow）
                 Circle()
                     .fill(.white)
                     .frame(width: isScrubbing ? 22 : 14, height: isScrubbing ? 22 : 14)
@@ -376,17 +401,12 @@ struct PlayerView: View {
             .highPriorityGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        if !isScrubbing {
-                            scrubValue = store.currentTime
-                            Haptics.soft()
-                        }
+                        if !isScrubbing { scrubValue = store.currentTime; Haptics.soft() }
                         isScrubbing = true
                         scrubValue = min(max(value.location.x / max(gWidth, 1), 0), 1) * store.duration
                     }
                     .onEnded { _ in
-                        store.seek(to: scrubValue)
-                        isScrubbing = false
-                        Haptics.light()
+                        store.seek(to: scrubValue); isScrubbing = false; Haptics.light()
                     }
             )
             .overlay(alignment: .topLeading) {
@@ -403,6 +423,12 @@ struct PlayerView: View {
                         .offset(x: min(max(thumbX - 31, 0), max(gWidth - 62, 0)), y: -25)
                         .transition(.scale(scale: 0.92).combined(with: .opacity))
                 }
+            }
+            .onAppear {
+                if store.isPlaying, classicFlowPhase == 0 { classicFlowPhase = 1 }
+            }
+            .onChange(of: store.isPlaying) { playing in
+                classicFlowPhase = playing ? 1 : 0
             }
 
             HStack(spacing: 6) {
