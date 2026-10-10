@@ -70,7 +70,7 @@ struct PlayerView: View {
     private func classicBody(in contentHeight: CGFloat,
                              win: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat),
                              screen: CGRect) -> some View {
-        let headerH: CGFloat = 60  // 56 + top padding 4
+        let headerH: CGFloat = 56
         let deckH: CGFloat = 150   // 进度条 + 控件行
         let bodyH = max(200, contentHeight - headerH - deckH)
 
@@ -114,7 +114,6 @@ struct PlayerView: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.top, 4) // 顶栏按钮往上移
     }
 
     // MARK: 封面区：圆形封面 + 光晕 + 歌名 + 歌手 + 歌词预览（紧凑，高度固定 bodyH）
@@ -193,26 +192,6 @@ struct PlayerView: View {
             )
             .offset(x: classicSwipeOffset)
             .opacity(CGFloat(1) - min(abs(classicSwipeOffset) / 260, 0.35))
-
-            // 歌名 + 歌手
-            Text(store.current?.title ?? "未在播放")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .padding(.top, 28) // 歌名往下移
-
-            if let artist = store.current?.artist, !artist.isEmpty {
-                Text(artist)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.68))
-                    .lineLimit(1)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        NotificationCenter.default.post(name: .navigateToArtist, object: store.current)
-                    }
-                    .padding(.top, 2)
-            }
 
             // 7 行歌词预览（固定高度，黑色字体，过滤元数据）
             classicLyricPreviewBox
