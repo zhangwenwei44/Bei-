@@ -454,19 +454,20 @@ struct PlayerView: View {
     }
 
     private var classicModeButton: some View {
-        Button {
+        let modeIcon = { () -> String in
+            switch store.mode {
+            case .shuffle: return "shuffle"
+            case .single:  return "repeat.1"
+            case .order:   return "arrow.right"
+            }
+        }()
+        let modeActive = store.mode == .shuffle || store.mode == .single
+        return Button {
             store.cycleMode(); Haptics.light()
         } label: {
-            let icon: String
-            let active: Bool
-            switch store.mode {
-            case .shuffle: icon = "shuffle"; active = true
-            case .single:  icon = "repeat.1"; active = true
-            case .order:   icon = "arrow.right"; active = false
-            }
-            Image(systemName: icon)
+            Image(systemName: modeIcon)
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(active ? dominantColor : .white.opacity(0.78))
+                .foregroundStyle(modeActive ? dominantColor : .white.opacity(0.78))
                 .frame(width: 44, height: 44)
         }
         .buttonStyle(.plain)
