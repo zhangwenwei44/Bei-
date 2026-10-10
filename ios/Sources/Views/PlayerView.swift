@@ -279,7 +279,7 @@ struct PlayerView: View {
                         .onChanged { value in
                             if !isScrubbing {
                                 scrubValue = store.currentTime
-                                Haptics.medium()
+                                Haptics.soft()
                             }
                             isScrubbing = true
                             scrubValue = min(max(value.location.x / max(width, 1), 0), 1) * store.duration
@@ -287,7 +287,7 @@ struct PlayerView: View {
                         .onEnded { _ in
                             store.seek(to: scrubValue)
                             isScrubbing = false
-                            Haptics.tap()
+                            Haptics.light()
                         }
                 )
                 .overlay(alignment: .topLeading) {
