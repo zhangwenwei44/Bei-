@@ -10,7 +10,7 @@ struct ProfileView: View {
     @StateObject private var updater = AppUpdater.shared
     /// 自动预缓存下一首 —— 用户手动开关，优先级高于网络判断（默认开启）。
     @AppStorage("aurora.autoPrecache") private var autoPrecacheEnabled: Bool = true
-    @AppStorage("aurora.vinylMode") private var vinylMode: Bool = true
+    @AppStorage("aurora.playerTheme") private var playerTheme: String = "vinyl"
     private var autoPrecacheBinding: Binding<Bool> {
         Binding(get: { autoPrecacheEnabled },
                 set: { autoPrecacheEnabled = $0 })
@@ -127,8 +127,11 @@ struct ProfileView: View {
                     Label("播放音质", systemImage: "waveform")
                 }
 
-                Toggle(isOn: $vinylMode) {
-                    Label("黑胶唱片主题", systemImage: "opticaldisc")
+                Picker(selection: $playerTheme) {
+                    Text("酷狗黑胶").tag("vinyl")
+                    Text("经典封面").tag("classic")
+                } label: {
+                    Label("播放器主题", systemImage: "opticaldisc")
                 }
 
                 HStack {

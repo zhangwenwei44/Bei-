@@ -9,39 +9,363 @@ struct PlayerView: View {
 
     @State private var showToast: String?
     @State private var isLyricsPage = false
-    @AppStorage("aurora.vinylMode") private var vinylMode: Bool = true
+    @AppStorage("aurora.playerTheme") private var playerTheme: String = "vinyl"
     @State private var vinylStart: Date = Date()
     @State private var dominantColor: Color = .white
+
+    private enum Theme: String {
+        case vinyl, classic
+    }
+    private var currentTheme: Theme { Theme(rawValue: playerTheme) ?? .vinyl }
 
     private var displayTime: Double { isScrubbing ? scrubValue : store.currentTime }
 
     var body: some View {
-        // 直接从 UIKit window 读 — Swift 6 兼容，不依赖 SwiftUI Environment
         let win = Self.windowInfo
         let screen = UIScreen.main.bounds
         let contentHeight = screen.height - win.safeTop - win.safeBottom
 
         ZStack {
-            // 背景：全屏沉浸式，延伸到状态栏和 home indicator 下面
-            immersiveBackground
-                .ignoresSafeArea()
+            immersiveBackground.ignoresSafeArea()
 
-            // 内容 VStack：从 safeTop 开始，高度精确 = contentHeight
-            VStack(spacing: 0) {
-                topBar()
-                artworkStage(in: CGSize(width: screen.width, height: contentHeight))
-                meta(width: screen.width)
+            switch currentTheme {
+            case .classic: classicBody(in: contentHeight, win: win, screen: screen)
+            case .vinyl:    vinylBody(in: contentHeight, win: win, screen: screen)
             }
-            .frame(width: screen.width, height: contentHeight, alignment: .top)
-            .padding(.top, win.safeTop)  // ← 从 safeTop 开始
-            .clipped()
         }
         .frame(width: screen.width, height: screen.height)
-        .ignoresSafeArea()  // 让 PlayerView 吃满整个物理屏
+        .ignoresSafeArea()
         .gesture(dragGesture)
         .overlay(alignment: .bottom) { toastLayer }
         .onAppear(perform: animateIn)
         .onDisappear(perform: animateOut)
+    }
+
+    /// 酷狗黑胶（当前默认）：黑胶封面 + 信息堆叠 + Spacer 推控制到底
+    private func vinylBody(in contentHeight: CGFloat,
+                           win: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat),
+                           screen: CGRect) -> some View {
+        VStack(spacing: 0) {
+            topBar()
+            artworkStage(in: CGSize(width: screen.width, height: contentHeight))
+            meta(width: screen.width)
+        }
+        .frame(width: screen.width, height: contentHeight, alignment: .top)
+        .padding(.top, win.safeTop)
+        .clipped()
+    }
+
+    /// 经典封面（Apple Music 风格）：大圆角封面在上，dock 控制在下
+    private func classicBody(in contentHeight: CGFloat,
+                             win: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat),
+                             screen: CGRect) -> some View {
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                // 顶部：返回 + 标题 + 分享
+                classicHeader
+
+                Spacer(minLength: 8)
+
+                // 封面 + 歌名 + 预览歌词 + actionRow
+                classicCoverArea(width: geo.size.width)
+
+                Spacer(minLength: 0)
+
+                // 底部 dock：预览歌词（上一条 + 当前）+ 进度条 + 控制
+                classicDock(bottomInset: win.safeBottom)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .padding(.top, win.safeTop)
+        }
+    }
+
+    // MARK: - 经典封面 · 顶栏
+
+    private var classicHeader: some View {
+        HStack(spacing: 0) {
+            Button { animateOut() } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 20, weight: .semibold))
+                    .frame(width: 44, height: 44)
+            }
+            .foregroundStyle(.white)
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 18) {
+                ShareLink(item: shareText) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 19, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                }
+            }
+        }
+        .padding(.horizontal, 8)
+    }
+
+    // MARK: - 经典封面 · 封面区
+
+    private func classicCoverArea(width: CGFloat) -> some View {
+        let contentWidth = max(width - 64, 0)
+        let coverSize = min(contentWidth, min(width * 0.50, 390))
+
+        return VStack(spacing: 0) {
+            // 大圆角封面 + 投影 + 播放时微放大
+            classicCoverImage(size: coverSize)
+                .scaleEffect(store.isPlaying ? 1 : 0.965)
+                .animation(.spring(response: 0.36, dampingFraction: 0.84), value: store.isPlaying)
+
+            // 歌名 + 歌手
+            classicTrackHeader
+                .padding(.top, 22)
+
+            // actionRow（经典封面版 4 按钮）
+            classicActionRow
+                .padding(.top, 18)
+        }
+        .frame(maxWidth: 420)
+    }
+
+    private func classicCoverImage(size: CGFloat) -> some View {
+        Group {
+            if let artwork = store.artwork {
+                Image(uiImage: artwork)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ZStack {
+                    LinearGradient(colors: [.gray.opacity(0.5), .gray.opacity(0.3)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    Image(systemName: "music.note")
+                        .font(.system(size: size * 0.3, weight: .light))
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .stroke(.white.opacity(0.14), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.46), radius: 36, y: 18)
+    }
+
+    private var classicTrackHeader: some View {
+        VStack(spacing: 4) {
+            Text(store.current?.title ?? "未在播放")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(store.current?.artist ?? "")
+                .font(.system(size: 13.5, weight: .medium))
+                .foregroundStyle(.white.opacity(0.58))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .frame(maxWidth: 420)
+    }
+
+    private var classicActionRow: some View {
+        HStack(spacing: 0) {
+            classicActionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
+            Spacer(minLength: 0)
+            classicActionButton(icon: store.isLiked ? "heart.fill" : "heart",
+                                label: "收藏",
+                                tint: store.isLiked ? Color(red: 1.0, green: 0.28, blue: 0.36) : .white) {
+                store.toggleFavorite()
+            }
+            Spacer(minLength: 0)
+            classicActionButton(icon: "character.bubble", label: "翻译") {
+                store.showTranslation.toggle()
+            }
+            Spacer(minLength: 0)
+            classicActionButton(icon: "text.quote", label: "歌词") {
+                withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+            }
+        }
+    }
+
+    private func classicActionButton(icon: String,
+                                     label: String,
+                                     tint: Color = .white,
+                                     action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            Haptics.light()
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .medium))
+                    .frame(width: 34, height: 30)
+                if !label.isEmpty {
+                    Text(label)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.75))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+            }
+            .foregroundStyle(tint)
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - 经典封面 · 底部 Dock
+
+    private func classicDock(bottomInset: CGFloat) -> some View {
+        VStack(spacing: 12) {
+            // 进度条
+            classicProgressSection
+
+            // 大控制行
+            HStack(spacing: 28) {
+                classicModeButton
+
+                Button { store.step(-1) } label: {
+                    Image(systemName: "backward.fill")
+                        .font(.system(size: 25, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 42, height: 42)
+                }
+                .buttonStyle(.plain)
+
+                classicPlayPauseButton
+
+                Button { store.step(1) } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.system(size: 25, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 42, height: 42)
+                }
+                .buttonStyle(.plain)
+
+                classicQueueButton
+            }
+            .frame(maxWidth: 320)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 10)
+        .padding(.bottom, max(14, bottomInset + 4))
+    }
+
+    private var classicProgressSection: some View {
+        let progressFrac = max(0, min(1, store.progress))
+        let bufferedFrac = max(0, min(1, store.bufferedFraction))
+
+        return VStack(spacing: 4) {
+            GeometryReader { geo in
+                let width = geo.size.width
+                let progressX = progressFrac * width
+
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.18)).frame(height: 4)
+                    Capsule().fill(.white.opacity(0.3)).frame(width: bufferedFrac * width, height: 4)
+                    Capsule().fill(.white.opacity(0.88)).frame(width: progressX, height: 4)
+                    Circle()
+                        .fill(.white)
+                        .frame(width: isScrubbing ? 18 : 12, height: isScrubbing ? 18 : 12)
+                        .shadow(color: .white.opacity(isScrubbing ? 0.55 : 0.28),
+                                radius: isScrubbing ? 10 : 3)
+                        .offset(x: max(0, min(width - (isScrubbing ? 18 : 12),
+                                              progressX - (isScrubbing ? 9 : 6))))
+                }
+                .frame(height: 30)
+                .contentShape(Rectangle())
+                .highPriorityGesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            if !isScrubbing {
+                                scrubValue = store.currentTime
+                                Haptics.medium()
+                            }
+                            isScrubbing = true
+                            scrubValue = min(max(value.location.x / max(width, 1), 0), 1) * store.duration
+                        }
+                        .onEnded { _ in
+                            store.seek(to: scrubValue)
+                            isScrubbing = false
+                            Haptics.tap()
+                        }
+                )
+                .overlay(alignment: .topLeading) {
+                    if isScrubbing {
+                        Text(displayTime.clockString)
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(.black.opacity(0.44), in: Capsule())
+                            .offset(x: max(0, min(width - 62, progressX - 31)), y: -28)
+                            .transition(.scale(scale: 0.92).combined(with: .opacity))
+                    }
+                }
+            }
+            .frame(height: 30)
+            .animation(.spring(response: 0.24, dampingFraction: 0.82), value: isScrubbing)
+
+            HStack {
+                Text(displayTime.clockString)
+                Spacer()
+                Text(store.duration.clockString)
+            }
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.52))
+        }
+        .frame(maxWidth: 420)
+    }
+
+    private var classicModeButton: some View {
+        Button { store.cycleMode() } label: {
+            let icon: String = {
+                switch store.mode {
+                case .order: return "arrow.right"
+                case .single: return "repeat.1"
+                case .shuffle: return "shuffle"
+                }
+            }()
+            Image(systemName: icon)
+                .font(.system(size: 25, weight: .semibold))
+                .foregroundStyle(.white.opacity(store.mode == .shuffle || store.mode == .single ? 1 : 0.58))
+                .frame(width: 42, height: 42)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var classicPlayPauseButton: some View {
+        Button {
+            store.toggle()
+            Haptics.soft()
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(.white.opacity(0.16))
+                    .frame(width: 66, height: 66)
+                    .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 1))
+
+                if store.isLoading || store.isBuffering {
+                    ProgressView().tint(.white)
+                } else {
+                    Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundStyle(.white)
+                        .offset(x: store.isPlaying ? 0 : 2)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var classicQueueButton: some View {
+        Button { store.isQueuePresented.toggle() } label: {
+            Image(systemName: "list.bullet")
+                .font(.system(size: 25, weight: .semibold))
+                .foregroundStyle(.white.opacity(store.isQueuePresented ? 1 : 0.58))
+                .frame(width: 42, height: 42)
+        }
+        .buttonStyle(.plain)
     }
 
     /// 设备窗口尺寸 + safeAreaInsets
@@ -104,14 +428,12 @@ struct PlayerView: View {
         // 外层 .drawingGroup() 会强制分配一张 ~12MB 全屏 backing store 做二次光栅化，产生双倍显存峰值。
     }
 
-    // MARK: - 封面（黑胶 or 普通圆角矩形，由 aurora.vinylMode 控制）
+    // MARK: - 封面（黑胶 or 普通圆角矩形，由 playerTheme 控制）
 
     private func artworkStage(in size: CGSize) -> some View {
-        // size 是 overlay 给的安全区尺寸，height 已经扣除 safeTop+safeBottom
-        // 封面占可用高度的 44%，meta 占剩 56%
         let targetHeight = size.height * 0.44
         return Group {
-            if vinylMode {
+            if currentTheme == .vinyl {
                 vinylArtwork(width: size.width, height: targetHeight)
             } else {
                 roundedArtwork(width: size.width, height: targetHeight)
@@ -119,7 +441,7 @@ struct PlayerView: View {
         }
         .frame(maxWidth: .infinity, minHeight: targetHeight, idealHeight: targetHeight, maxHeight: targetHeight)
         .animation(.easeInOut(duration: 0.4), value: store.currentIndex)
-        .animation(.easeInOut(duration: 0.3), value: vinylMode)
+        .animation(.easeInOut(duration: 0.3), value: playerTheme)
     }
 
     /// 黑胶版：TimelineView(.animation) 每帧驱动旋转，黑胶盘+封面一起转
