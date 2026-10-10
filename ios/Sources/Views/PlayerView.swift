@@ -318,81 +318,92 @@ struct PlayerView: View {
         }
     }
 
-    // MARK: 播放控件（带底栏光晕发光）
+    // MARK: 播放控件（Beans 直接搬：accent=dominantColor 渐变 + 发光 + 玻璃描边）
 
     private func classicDeck(bottomInset: CGFloat) -> some View {
-        ZStack {
-            // 底栏光晕——从 dominantColor 来的发光，仿 Beans
-            Circle()
-                .fill(dominantColor.opacity(0.18))
-                .frame(width: UIScreen.main.bounds.width * 0.9, height: 180)
-                .blur(radius: 60)
-                .offset(y: 40)
-
-            VStack(spacing: 8) {
-                classicProgressBlock
-                classicDeckControls
-            }
-            .padding(.horizontal, 28)
-            .padding(.top, 8)
-            .padding(.bottom, max(10, bottomInset))
+        VStack(spacing: 6) {
+            classicProgressBlock
+            classicDeckControls
         }
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 28)
+        .padding(.top, 8)
+        .padding(.bottom, max(10, bottomInset))
     }
 
+    /// 流光进度条：accent=dominantColor 渐变 + 顶部高光 + 发光滑块 + 拖动时间气泡
     private var classicProgressBlock: some View {
         let progressFrac = max(0, min(1, store.progress))
-        let bufferedFrac = max(0, min(1, store.bufferedFraction))
+        let width: CGFloat = UIScreen.main.bounds.width - 56 // -28*2 horizontal padding
 
-        return VStack(spacing: 1) {
-            GeometryReader { geo in
-                let width = geo.size.width
-                let progressX = progressFrac * width
+        return GeometryReader { geo in
+            let gWidth = geo.size.width
+            let thumbX = min(max(progressFrac * gWidth, 10), max(gWidth - 10, 10))
 
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.22)).frame(height: 4)
-                    Capsule().fill(.white.opacity(0.32)).frame(width: bufferedFrac * width, height: 4)
-                    Capsule().fill(dominantColor).frame(width: progressX, height: 4)
-                        .shadow(color: dominantColor.opacity(0.55), radius: 6, y: 0)
-                    Circle()
-                        .fill(.white)
-                        .frame(width: isScrubbing ? 16 : 10, height: isScrubbing ? 16 : 10)
-                        .shadow(color: .white.opacity(isScrubbing ? 0.5 : 0.25),
-                                radius: isScrubbing ? 8 : 3)
-                        .offset(x: max(0, min(width - (isScrubbing ? 16 : 10),
-                                              progressX - (isScrubbing ? 8 : 5))))
-                }
-                .frame(height: 28)
-                .contentShape(Rectangle())
-                .highPriorityGesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            if !isScrubbing {
-                                scrubValue = store.currentTime
-                                Haptics.soft()
-                            }
-                            isScrubbing = true
-                            scrubValue = min(max(value.location.x / max(width, 1), 0), 1) * store.duration
-                        }
-                        .onEnded { _ in
-                            store.seek(to: scrubValue)
-                            isScrubbing = false
-                            Haptics.light()
-                        }
-                )
-                .overlay(alignment: .topLeading) {
-                    if isScrubbing {
-                        Text(displayTime.clockString)
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 9).padding(.vertical, 5)
-                            .background(.black.opacity(0.44), in: Capsule())
-                            .offset(x: max(0, min(width - 62, progressX - 31)), y: -26)
+            ZStack(alignment: .leading) {
+                // 轨道（清透）
+                Capsule()
+                    .fill(.white.opacity(0.20))
+                    .frame(height: 5)
+
+                // 已播放段：accent 渐变 + shadow 发光
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [dominantColor, dominantColor.opacity(0.7), .white.opacity(0.85)],
+                            startPoint: .leading, endPoint: .trailing
+                        )
+                    )
+                    .frame(width: thumbX, height: 5)
+                    .shadow(color: dominantColor.opacity(0.50), radius: 4, y: 1)
+                    .overlay(alignment: .top) {
+                        LinearGradient(colors: [.white.opacity(0.55), .clear],
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: 2.5).clipShape(Capsule())
                     }
+
+                // 发光滑块（白底 + accent shadow）
+                Circle()
+                    .fill(.white)
+                    .frame(width: isScrubbing ? 22 : 14, height: isScrubbing ? 22 : 14)
+                    .overlay { Circle().strokeBorder(.white.opacity(0.95), lineWidth: 0.8) }
+                    .shadow(color: dominantColor.opacity(0.7),
+                            radius: isScrubbing ? 10 : 3.5, y: isScrubbing ? 3 : 1)
+                    .offset(x: thumbX - (isScrubbing ? 11 : 7))
+                    .animation(.spring(response: 0.24, dampingFraction: 0.76), value: isScrubbing)
+            }
+            .frame(width: gWidth, height: 34)
+            .contentShape(Rectangle())
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        if !isScrubbing {
+                            scrubValue = store.currentTime
+                            Haptics.soft()
+                        }
+                        isScrubbing = true
+                        scrubValue = min(max(value.location.x / max(gWidth, 1), 0), 1) * store.duration
+                    }
+                    .onEnded { _ in
+                        store.seek(to: scrubValue)
+                        isScrubbing = false
+                        Haptics.light()
+                    }
+            )
+            .overlay(alignment: .topLeading) {
+                if isScrubbing {
+                    Text(displayTime.clockString)
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 9).padding(.vertical, 5)
+                        .background {
+                            Capsule().fill(.black.opacity(0.48))
+                                .overlay { Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 0.7) }
+                        }
+                        .shadow(color: dominantColor.opacity(0.35), radius: 10, y: 4)
+                        .offset(x: min(max(thumbX - 31, 0), max(gWidth - 62, 0)), y: -25)
+                        .transition(.scale(scale: 0.92).combined(with: .opacity))
                 }
             }
-            .frame(height: 28)
-            .animation(.spring(response: 0.24, dampingFraction: 0.82), value: isScrubbing)
 
             HStack(spacing: 6) {
                 seekPillButton("gobackward.15") { store.seek(to: max(0, store.currentTime - 15)) }
@@ -407,7 +418,10 @@ struct PlayerView: View {
                     .frame(minWidth: 34, alignment: .trailing)
                 seekPillButton("goforward.15") { store.seek(to: max(0, min(store.duration, store.currentTime + 15))) }
             }
+            .offset(y: 26)
         }
+        .frame(height: 60)
+        .animation(.spring(response: 0.24, dampingFraction: 0.82), value: isScrubbing)
     }
 
     private func seekPillButton(_ icon: String, action: @escaping () -> Void) -> some View {
@@ -420,6 +434,8 @@ struct PlayerView: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: 控件行：循环 ← 上一曲/播放/下一曲 → 队列（Beans deckRow 复刻）
+
     private var classicDeckControls: some View {
         ZStack {
             // 两侧：循环 / 队列
@@ -430,27 +446,16 @@ struct PlayerView: View {
             }
 
             // 中间三个：上一曲 / 播放暂停 / 下一曲
-            HStack(spacing: 20) {
-                Button { store.step(-1); Haptics.light() } label: {
-                    Image(systemName: "backward.fill")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 56)
-                }.buttonStyle(.plain)
-
+            HStack(spacing: 18) {
+                classicPrevNextButton(icon: "backward.fill") { store.step(-1) }
                 classicPlayPauseButton
-
-                Button { store.step(1); Haptics.light() } label: {
-                    Image(systemName: "forward.fill")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 56)
-                }.buttonStyle(.plain)
+                classicPrevNextButton(icon: "forward.fill") { store.step(1) }
             }
         }
         .frame(maxWidth: .infinity, minHeight: 56)
     }
 
+    /// 模式按钮（玻璃圆底，激活=dominantColor）
     private var classicModeButton: some View {
         let icon: String
         let active: Bool
@@ -461,43 +466,84 @@ struct PlayerView: View {
         }
         return Button { store.cycleMode(); Haptics.light() } label: {
             Image(systemName: icon)
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(active ? dominantColor : .white.opacity(0.75))
-                .frame(width: 44, height: 44)
+                .frame(width: 36, height: 36)
+                .background { classicButtonSurface(size: 36, active: active) }
         }
         .buttonStyle(.plain)
     }
 
+    /// 队列按钮（玻璃圆底）
     private var classicQueueButton: some View {
         Button { store.isQueuePresented.toggle(); Haptics.light() } label: {
             Image(systemName: "list.bullet")
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(store.isQueuePresented ? dominantColor : .white.opacity(0.75))
-                .frame(width: 44, height: 44)
+                .frame(width: 36, height: 36)
+                .background { classicButtonSurface(size: 36, active: store.isQueuePresented) }
         }
         .buttonStyle(.plain)
     }
 
+    /// 上一曲/下一曲：玻璃圆底 + dominantColor icon
+    private func classicPrevNextButton(icon: String, action: @escaping () -> Void) -> some View {
+        Button { action(); Haptics.light() } label: {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background { classicButtonSurface(size: 44) }
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 播放暂停：渐变填充圆 + 玻璃描边 + 播放时 dominantColor 发光 shadow
     private var classicPlayPauseButton: some View {
         Button { store.toggle(); Haptics.soft() } label: {
             ZStack {
+                // 渐变填充圆
                 Circle()
-                    .fill(.white.opacity(0.14))
-                    .frame(width: 64, height: 64)
-                    .shadow(color: dominantColor.opacity(store.isPlaying ? 0.35 : 0),
-                            radius: store.isPlaying ? 20 : 0, y: 0)
+                    .fill(
+                        LinearGradient(
+                            colors: [dominantColor.opacity(0.82),
+                                     dominantColor.opacity(0.52)],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 60, height: 60)
+                    .overlay {
+                        Circle().strokeBorder(.white.opacity(0.28), lineWidth: 1)
+                    }
+                    .shadow(color: dominantColor.opacity(0.55),
+                            radius: store.isPlaying ? 22 : 12, y: 0)
 
                 if store.isLoading || store.isBuffering {
                     ProgressView().tint(.white)
                 } else {
                     Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 30, weight: .bold))
+                        .font(.system(size: 26, weight: .bold))
                         .foregroundStyle(.white)
                         .offset(x: store.isPlaying ? 0 : 2)
                 }
             }
+            .frame(width: 62, height: 62)
         }
         .buttonStyle(.plain)
+    }
+
+    /// 玻璃按钮底：半透明圆 + active 时 dominantColor 描边
+    private func classicButtonSurface(size: CGFloat, active: Bool = false) -> some View {
+        ZStack {
+            Circle()
+                .fill(.white.opacity(0.08))
+            Circle()
+                .strokeBorder(
+                    active ? dominantColor.opacity(0.52) : .white.opacity(0.18),
+                    lineWidth: 0.8
+                )
+        }
+        .frame(width: size, height: size)
     }
 
     /// 设备窗口尺寸 + safeAreaInsets
