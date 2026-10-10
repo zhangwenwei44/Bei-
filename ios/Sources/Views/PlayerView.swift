@@ -9,14 +9,14 @@ struct PlayerView: View {
 
     @State private var showToast: String?
     @State private var isLyricsPage = false
-    @AppStorage("aurora.playerTheme") private var playerTheme: String = "vinyl"
+    @AppStorage("aurora.playerTheme") private var playerTheme: String = "classic"
     @State private var vinylStart: Date = Date()
     @State private var dominantColor: Color = .white
 
     private enum Theme: String {
         case vinyl, classic
     }
-    private var currentTheme: Theme { Theme(rawValue: playerTheme) ?? .vinyl }
+    private var currentTheme: Theme { Theme(rawValue: playerTheme) ?? .classic }
 
     private var displayTime: Double { isScrubbing ? scrubValue : store.currentTime }
 
@@ -70,8 +70,8 @@ struct PlayerView: View {
     private func classicBody(in contentHeight: CGFloat,
                              win: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat),
                              screen: CGRect) -> some View {
-        let headerH: CGFloat = 56
-        let deckH: CGFloat = 170  // progress + controls 固定高度
+        let headerH: CGFloat = 60  // 56 + top padding 4
+        let deckH: CGFloat = 150   // 进度条 + 控件行
         let bodyH = max(200, contentHeight - headerH - deckH)
 
         return VStack(spacing: 0) {
@@ -97,32 +97,24 @@ struct PlayerView: View {
                     .frame(width: 44, height: 44)
             }
 
-            Spacer(minLength: 0)
+            // 中间：正在播放 - 歌名 横向滑动（Marquee）
+            MarqueeText(
+                text: "\(store.isPlaying ? "正在播放" : "已暂停") · \(store.current?.title ?? "未在播放")",
+                size: 14,
+                weight: .semibold,
+                color: .white
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(store.isPlaying ? "正在播放" : "已暂停")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.white.opacity(0.62))
-
-            Spacer(minLength: 0)
-
-            HStack(spacing: 4) {
-                Button { store.toggleFavorite(); Haptics.light() } label: {
-                    Image(systemName: store.isLiked ? "heart.fill" : "heart")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(store.isLiked ? Color(red: 1, green: 0.28, blue: 0.36) : .white.opacity(0.78))
-                        .frame(width: 36, height: 36)
-                }
-                .buttonStyle(.plain)
-
-                ShareLink(item: shareText) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.78))
-                        .frame(width: 36, height: 36)
-                }
+            ShareLink(item: shareText) {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .frame(width: 44, height: 44)
             }
         }
         .padding(.horizontal, 10)
+        .padding(.top, 4) // 顶栏按钮往上移
     }
 
     // MARK: 封面区：圆形封面 + 光晕 + 歌名 + 歌手 + 歌词预览（紧凑，高度固定 bodyH）
@@ -208,7 +200,7 @@ struct PlayerView: View {
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .padding(.top, 18)
+                .padding(.top, 28) // 歌名往下移
 
             if let artist = store.current?.artist, !artist.isEmpty {
                 Text(artist)
@@ -222,9 +214,9 @@ struct PlayerView: View {
                     .padding(.top, 2)
             }
 
-            // 4 行歌词预览（固定高度，过滤元数据）
+            // 7 行歌词预览（固定高度，黑色字体，过滤元数据）
             classicLyricPreviewBox
-                .padding(.top, 12)
+                .padding(.top, 14)
 
             Spacer(minLength: 0)
         }
@@ -276,11 +268,11 @@ struct PlayerView: View {
         }
         guard !filtered.isEmpty else { return [] }
 
-        // 在过滤后的数组里找 current 位置
+        // 在过滤后的数组里找 current 位置，展示 current 前后共 7 行
         let currentIdxInFiltered = filtered.firstIndex { $0.idx == current } ?? 0
-        let start = max(0, currentIdxInFiltered - 1)
+        let start = max(0, currentIdxInFiltered - 3)
         var rows: [ClassicLyricPreviewRow] = []
-        for j in start..<min(filtered.count, start + 4) {
+        for j in start..<min(filtered.count, start + 7) {
             let item = filtered[j]
             rows.append(ClassicLyricPreviewRow(text: item.text,
                                                isCurrent: item.idx == current))
@@ -290,11 +282,11 @@ struct PlayerView: View {
 
     private var classicLyricPreviewBox: some View {
         let rows = classicLyricPreviewRows
-        return VStack(spacing: 2) {
+        return VStack(spacing: 3) {
             if rows.isEmpty {
                 Text("暂无歌词，点击封面查看完整歌词")
                     .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.42))
+                    .foregroundStyle(.black.opacity(0.38))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity)
             } else {
@@ -302,10 +294,10 @@ struct PlayerView: View {
                     HStack(spacing: 6) {
                         Text(item.isCurrent ? "●" : "·")
                             .font(.system(size: 8))
-                            .foregroundStyle(item.isCurrent ? dominantColor : .white.opacity(0.30))
+                            .foregroundStyle(item.isCurrent ? dominantColor : .black.opacity(0.22))
                         Text(item.text)
                             .font(.system(size: 12, weight: item.isCurrent ? .semibold : .regular))
-                            .foregroundStyle(item.isCurrent ? .white : .white.opacity(0.46))
+                            .foregroundStyle(item.isCurrent ? .black : .black.opacity(0.55))
                             .lineLimit(1)
                             .minimumScaleFactor(0.65)
                     }
@@ -313,7 +305,7 @@ struct PlayerView: View {
                 }
             }
         }
-        .frame(height: 4 * 16 + 3 * 2) // 固定 70pt
+        .frame(height: 7 * 16 + 6 * 3) // 固定 130pt（7 行 16pt + 6 gap ×3pt）
         .padding(.horizontal, 32)
         .contentShape(Rectangle())
         .onTapGesture {
