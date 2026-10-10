@@ -94,7 +94,7 @@ struct PlayerView: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 44, height: 44, alignment: .top)
             }
 
             // 中间：正在播放 - 歌名 横向滑动（Marquee）
@@ -110,9 +110,10 @@ struct PlayerView: View {
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.78))
-                    .frame(width: 44, height: 44)
+                    .frame(width: 44, height: 44, alignment: .top)
             }
         }
+        .frame(maxHeight: .infinity, alignment: .top)
         .padding(.horizontal, 10)
     }
 
