@@ -7,6 +7,7 @@ struct ProfileView: View {
     @ObservedObject private var sourceStore = SourceStore.shared
     @ObservedObject private var downloads = DownloadManager.shared
     @ObservedObject private var library = LibraryStore.shared
+    @ObservedObject private var kugouAuth = KugouAuth.shared
     @StateObject private var updater = AppUpdater.shared
     /// 自动预缓存下一首 —— 用户手动开关，优先级高于网络判断（默认开启）。
     @AppStorage("aurora.autoPrecache") private var autoPrecacheEnabled: Bool = true
@@ -17,7 +18,7 @@ struct ProfileView: View {
     }
     /// 「检查更新」和「关于」点了完全没反应，只有排在最后的更新日志能弹出来。
     private enum Sheet: String, Identifiable {
-        case about, update, changelog, kugouImport
+        case about, update, changelog, kugouImport, kugouLogin
         var id: String { rawValue }
     }
 
@@ -75,6 +76,65 @@ struct ProfileView: View {
                 headerText("账号")
             } footer: {
                 Text("登录后收藏、歌单、下载记录会按账号独立保存。当前版本为本地账号，多设备同步即将推出。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.tertiaryText)
+            }
+
+            // MARK: 酷狗音乐（扫码登录）
+            Section {
+                if kugouAuth.isLoggedIn {
+                    HStack {
+                        Image(systemName: "music.mic.circle.fill")
+                            .font(.system(size: 44))
+                            .foregroundStyle(.green)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(kugouAuth.nickname.isEmpty ? "酷狗用户 \(kugouAuth.userId)" : kugouAuth.nickname)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(AppStyle.primaryText)
+                            HStack(spacing: 6) {
+                                Text("已连接酷狗")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(AppStyle.tertiaryText)
+                                if kugouAuth.isVip {
+                                    Text("VIP")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 5).padding(.vertical, 1)
+                                        .background(.yellow, in: Capsule())
+                                }
+                            }
+                        }
+                        Spacer()
+                        Button { kugouAuth.logout() } label: {
+                            Text("断开").font(.system(size: 13))
+                        }
+                    }
+                } else {
+                    Button { sheet = .kugouLogin } label: {
+                        HStack {
+                            Image(systemName: "music.mic.circle")
+                                .font(.system(size: 44))
+                                .foregroundStyle(.green)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("酷狗音乐")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(AppStyle.primaryText)
+                                Text("扫码登录，同步云端歌单")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(AppStyle.tertiaryText)
+                            }
+                            Spacer()
+                            Image(systemName: "qrcode.viewfinder")
+                                .font(.system(size: 20))
+                                .foregroundStyle(AppStyle.tertiaryText)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            } header: {
+                headerText("酷狗音乐")
+            } footer: {
+                Text("登录后可同步酷狗云端歌单，把 Aurora 里的歌曲保存到酷狗账号。")
                     .font(.system(size: 11))
                     .foregroundStyle(AppStyle.tertiaryText)
             }
@@ -313,6 +373,7 @@ struct ProfileView: View {
             case .update: UpdateView()
             case .changelog: ChangelogView()
             case .kugouImport: kugouImportSheet
+            case .kugouLogin: KugouLoginSheet()
             }
         }
         .task {

@@ -1154,6 +1154,216 @@ final class KugouClient {
         if let text = raw as? String { return Int(text) }
         return nil
     }
+
+    // MARK: - 酷狗扫码登录 API
+
+    private let loginBase = "https://login-user.kugou.com"
+    private let loginAppID = "1005"
+    private let loginSrcAppID = "20308"
+
+    struct QRLogin: Equatable {
+        let key: String
+        let url: String
+    }
+
+    enum QRState: Equatable {
+        case waiting       // 等待扫码
+        case scanned       // 已扫码等确认
+        case expired       // 二维码过期
+        case success(String) // 成功，参数=昵称
+        case error(String)  // 错误信息
+    }
+
+    /// 生成登录二维码的 key 和扫码 URL
+    func qrKey() async throws -> QRLogin {
+        let params = [
+            "appid": loginAppID,
+            "type": "1",
+            "plat": "4",
+            "qrcode_txt": "https://h5.kugou.com/apps/loginQRCode/html/index.html?appid=\(loginAppID)",
+            "srcappid": loginSrcAppID,
+        ]
+        let raw = try await getRaw(path: "/v2/qrcode",
+                                    host: loginBase,
+                                    params: params,
+                                    headers: [
+                                        "x-router": "login-user.kugou.com",
+                                    ])
+        let json = Self.extractJSONP(raw) ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any]) ?? [:]
+        // key 在 qrcode.key 或 data.qrcode.key
+        let key = Self.deepString(json, path: ["qrcode", "key"]) ?? Self.deepString(json, path: ["data", "qrcode", "key"]) ?? ""
+        guard !key.isEmpty else {
+            Log.error("酷狗登录", "qrKey 响应: \(String(raw.prefix(300)))")
+            throw KugouError.parse("二维码生成失败")
+        }
+        let url = "https://h5.kugou.com/apps/loginQRCode/html/index.html?qrcode=\(Self.urlEncode(key))"
+        Log.info("酷狗登录", "QR key=\(key.prefix(12))...")
+        return QRLogin(key: key, url: url)
+    }
+
+    /// 轮询二维码扫描状态
+    func pollQR(key: String) async throws -> QRState {
+        let params = [
+            "plat": "4",
+            "appid": loginAppID,
+            "srcappid": loginSrcAppID,
+            "qrcode": key,
+        ]
+        let raw = try await getRaw(path: "/v2/get_userinfo_qrcode",
+                                    host: loginBase,
+                                    params: params,
+                                    headers: ["x-router": "login-user.kugou.com"])
+        let json = Self.extractJSONP(raw) ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any]) ?? [:]
+
+        let status = Self.deepInt(json, path: ["status"]) ?? Self.deepInt(json, path: ["data", "status"]) ?? 0
+        let token = Self.deepString(json, path: ["token"]) ?? Self.deepString(json, path: ["user_token"]) ?? Self.deepString(json, path: ["data", "token"]) ?? ""
+        let userId = Self.deepString(json, path: ["userid"]) ?? Self.deepString(json, path: ["data", "userid"]) ?? ""
+
+        // 状态：1=等待, 2=已扫码, 3=过期
+        guard !token.isEmpty, !userId.isEmpty else {
+            switch status {
+            case 2: return .scanned
+            case 3: return .expired
+            default: return .waiting
+            }
+        }
+
+        let nick = Self.deepString(json, path: ["nickname"]) ?? Self.deepString(json, path: ["data", "nickname"]) ?? ""
+        let avatar = Self.deepString(json, path: ["avatar"]) ?? Self.deepString(json, path: ["data", "avatar"]) ?? ""
+        let vip = Self.deepInt(json, path: ["vip_type"]) ?? Self.deepInt(json, path: ["data", "vip_type"]) ?? 0
+
+        KugouAuth.shared.saveLogin(userId: userId, token: token, nickname: nick, avatar: avatar, vipType: vip)
+        let displayName = nick.isEmpty ? "酷狗音乐用户 \(userId)" : nick
+        Log.info("酷狗登录", "成功 user=\(displayName)")
+        return .success(displayName)
+    }
+
+    // MARK: - 酷狗歌单同步
+
+    struct KugouPlaylist: Identifiable {
+        let id: String          // listid
+        let name: String
+        var songs: [Song]       // 歌单里的歌曲
+    }
+
+    /// 拉取当前登录用户的所有歌单
+    func userPlaylists() async throws -> [KugouPlaylist] {
+        guard KugouAuth.shared.isLoggedIn else { return [] }
+        let userId = KugouAuth.shared.userId
+        let token = KugouAuth.shared.token
+
+        let allItems: [[String: Any]] = try await fetchAllPages(
+            basePath: "/v7/get_all_list",
+            host: "https://gateway.kugou.com",
+            pageSize: 200,
+            extractItems: { json in
+                Self.deepArray(json, path: ["lists"]) ?? Self.deepArray(json, path: ["data", "lists"]) ?? []
+            }
+        ) { page in
+            [
+                "total_ver": "979",
+                "type": "2",
+                "page": "\(page)",
+                "pagesize": "200",
+                "userid": userId,
+                "token": token,
+            ]
+        }
+
+        var playlists: [KugouPlaylist] = []
+        for item in allItems {
+            guard let listid = Self.string(item["listid"]) ?? Self.string(item["list_id"]) ?? Self.string(item["id"]) else { continue }
+            let name = Self.string(item["listname"]) ?? Self.string(item["name"]) ?? "未命名歌单"
+            playlists.append(KugouPlaylist(id: listid, name: name, songs: []))
+        }
+        Log.info("酷狗", "拉到 \(playlists.count) 个云端歌单")
+        return playlists
+    }
+
+    /// 把当前歌曲保存到指定酷狗歌单
+    func addCurrentSongToPlaylist(_ listid: String, song: Song) async throws {
+        guard KugouAuth.shared.isLoggedIn else { throw KugouError.parse("请先登录酷狗") }
+        let userId = KugouAuth.shared.userId
+        let token = KugouAuth.shared.token
+
+        let params = [
+            "listid": listid,
+            "userid": userId,
+            "token": token,
+            "resource_id": song.kugouHash,
+            "source": "1",
+        ]
+        let _ = try await getRaw(path: "/v5/add_song_to_list",
+                                  host: "https://gateway.kugou.com",
+                                  params: params,
+                                  headers: ["x-router": "cloudlist.service.kugou.com"])
+        Log.info("酷狗", "歌曲已保存到歌单 \(listid)")
+    }
+
+    // MARK: - 深值提取工具（简化版，支持 a.b.c 路径链式取值）
+
+    static func deepString(_ json: [String: Any], path: [String]) -> String? {
+        var current: Any? = json
+        for key in path {
+            if let dict = current as? [String: Any] {
+                current = dict[key]
+            } else {
+                return nil
+            }
+        }
+        if let s = current as? String, !s.isEmpty { return s }
+        if let n = current as? NSNumber { return n.stringValue }
+        return nil
+    }
+
+    static func deepInt(_ json: [String: Any], path: [String]) -> Int? {
+        var current: Any? = json
+        for key in path {
+            if let dict = current as? [String: Any] {
+                current = dict[key]
+            } else {
+                return nil
+            }
+        }
+        if let i = current as? Int { return i }
+        if let n = current as? NSNumber { return n.intValue }
+        if let s = current as? String { return Int(s) }
+        return nil
+    }
+
+    static func deepArray(_ json: [String: Any], path: [String]) -> [[String: Any]]? {
+        var current: Any? = json
+        for key in path {
+            if let dict = current as? [String: Any] {
+                current = dict[key]
+            } else {
+                return nil
+            }
+        }
+        return current as? [[String: Any]]
+    }
+
+    private static func urlEncode(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
+    }
+
+    /// 通用分页拉取工具 —— 直到返回数组少于 pageSize
+    private func fetchAllPages(basePath: String,
+                                host: String,
+                                pageSize: Int,
+                                extractItems: @escaping ([String: Any]) -> [[String: Any]],
+                                paramsForPage: @escaping (Int) -> [String: String]) async throws -> [[String: Any]] {
+        var all: [[String: Any]] = []
+        for page in 1...50 {
+            let params = paramsForPage(page)
+            let raw = try await getRaw(path: basePath, host: host, params: params, headers: [])
+            let json = Self.extractJSONP(raw) ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any]) ?? [:]
+            let items = extractItems(json)
+            all.append(contentsOf: items)
+            if items.count < pageSize { break }
+        }
+        return all
+    }
 }
 
 enum KugouError: LocalizedError {
