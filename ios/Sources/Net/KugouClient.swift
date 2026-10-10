@@ -1356,8 +1356,8 @@ final class KugouClient {
         var all: [[String: Any]] = []
         for page in 1...50 {
             let params = paramsForPage(page)
-            let raw = try await getRaw(path: basePath, host: host, params: params, headers: [])
-            let json = Self.extractJSONP(raw) ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any]) ?? [:]
+            let raw = try await getRaw(path: basePath, host: host, params: params, headers: [:] as [String: String])
+            let json = Self.extractJSONP(raw) ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any]) ?? [:] as [String: Any]
             let items = extractItems(json)
             all.append(contentsOf: items)
             if items.count < pageSize { break }
