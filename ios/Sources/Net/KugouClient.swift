@@ -1158,8 +1158,9 @@ final class KugouClient {
     // MARK: - 酷狗扫码登录 API
 
     private let loginBase = "https://login-user.kugou.com"
-    private let loginAppID = "1005"
-    private let loginSrcAppID = "20308"
+    // 🔴 必须用 Beans 的 appid，1005/20308 拉不到二维码
+    private let qrAppid = "1001"
+    private let qrSrcAppid = "2919"
 
     struct QRLogin: Equatable {
         let key: String
@@ -1176,25 +1177,29 @@ final class KugouClient {
 
     /// 生成登录二维码的 key 和扫码 URL
     func qrKey() async throws -> QRLogin {
+        let qrcodeText = "https://h5.kugou.com/apps/loginQRCode/html/index.html?appid=\(qrAppid)"
         let params = [
-            "appid": loginAppID,
+            "appid": qrAppid,
             "type": "1",
             "plat": "4",
-            "qrcode_txt": "https://h5.kugou.com/apps/loginQRCode/html/index.html?appid=\(loginAppID)",
-            "srcappid": loginSrcAppID,
+            "qrcode_txt": qrcodeText,
+            "srcappid": qrSrcAppid,
         ]
+        Log.info("酷狗登录", "qrKey 请求 appid=\(qrAppid) srcappid=\(qrSrcAppid)")
         let raw = try await getRaw(path: "/v2/qrcode",
                                     host: loginBase,
                                     params: params,
                                     headers: [
                                         "x-router": "login-user.kugou.com",
+                                        "User-Agent": browserUA,
                                     ])
         let json = Self.extractJSONP(raw) ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any]) ?? [:]
+        Log.info("酷狗登录", "qrKey 响应 raw=\(String(raw.prefix(400)))")
         // key 在 qrcode.key 或 data.qrcode.key
         let key = Self.deepString(json, path: ["qrcode", "key"]) ?? Self.deepString(json, path: ["data", "qrcode", "key"]) ?? ""
         guard !key.isEmpty else {
-            Log.error("酷狗登录", "qrKey 响应: \(String(raw.prefix(300)))")
-            throw KugouError.parse("二维码生成失败")
+            Log.error("酷狗登录", "qrKey 解析失败 json=\(json)")
+            throw KugouError.parse("二维码生成失败（key 为空）")
         }
         let url = "https://h5.kugou.com/apps/loginQRCode/html/index.html?qrcode=\(Self.urlEncode(key))"
         Log.info("酷狗登录", "QR key=\(key.prefix(12))...")
@@ -1205,27 +1210,31 @@ final class KugouClient {
     func pollQR(key: String) async throws -> QRState {
         let params = [
             "plat": "4",
-            "appid": loginAppID,
-            "srcappid": loginSrcAppID,
+            "appid": qrAppid,
+            "srcappid": qrSrcAppid,
             "qrcode": key,
         ]
         let raw = try await getRaw(path: "/v2/get_userinfo_qrcode",
                                     host: loginBase,
                                     params: params,
-                                    headers: ["x-router": "login-user.kugou.com"])
+                                    headers: [
+                                        "x-router": "login-user.kugou.com",
+                                        "User-Agent": browserUA,
+                                    ])
         let json = Self.extractJSONP(raw) ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any]) ?? [:]
+        Log.info("酷狗登录", "pollQR 响应 raw=\(String(raw.prefix(300)))")
 
         let status = Self.deepInt(json, path: ["status"]) ?? Self.deepInt(json, path: ["data", "status"]) ?? 0
         let token = Self.deepString(json, path: ["token"]) ?? Self.deepString(json, path: ["user_token"]) ?? Self.deepString(json, path: ["data", "token"]) ?? ""
         let userId = Self.deepString(json, path: ["userid"]) ?? Self.deepString(json, path: ["data", "userid"]) ?? ""
 
-        // 状态：1=等待, 2=已扫码, 3=过期
+        switch status {
+        case 3: return .expired
+        case 2: return .scanned
+        default: break
+        }
         guard !token.isEmpty, !userId.isEmpty else {
-            switch status {
-            case 2: return .scanned
-            case 3: return .expired
-            default: return .waiting
-            }
+            return .waiting
         }
 
         let nick = Self.deepString(json, path: ["nickname"]) ?? Self.deepString(json, path: ["data", "nickname"]) ?? ""

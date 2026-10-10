@@ -89,7 +89,7 @@ struct PlayerView: View {
     }
 
     private var classicHeaderBar: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Button { animateOut() } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 20, weight: .semibold))
@@ -104,7 +104,7 @@ struct PlayerView: View {
                 weight: .semibold,
                 color: .white
             )
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, height: 44, alignment: .topLeading)
 
             ShareLink(item: shareText) {
                 Image(systemName: "square.and.arrow.up")
@@ -113,92 +113,55 @@ struct PlayerView: View {
                     .frame(width: 44, height: 44, alignment: .top)
             }
         }
-        .frame(maxHeight: .infinity, alignment: .top)
+        .frame(height: 44)
         .padding(.horizontal, 10)
     }
 
     // MARK: 封面区：圆形封面 + 光晕 + 歌名 + 歌手 + 歌词预览（紧凑，高度固定 bodyH）
 
     private func classicCoverArea(height: CGFloat) -> some View {
-        // 黑胶封面：和黑胶版完全一致的尺寸
         let vinylSide = max(200, min(height * 0.42, UIScreen.main.bounds.width * 0.65))
         let coverSide = vinylSide * 0.56
 
         return VStack(spacing: 0) {
-            // 黑胶唱片（TimelineView 驱动旋转 + 3D tilt + 滑动切歌）
-            TimelineView(.animation(minimumInterval: 1/30)) { timeline in
+            // 🔴 TimelineView 只负责每帧更新旋转 angle（最低 20fps，省 CPU）
+            // 其他所有手势/动画都在 TimelineView 外面，避免每帧重建
+            TimelineView(.animation(minimumInterval: 1/20)) { timeline in
                 let playing = store.isPlaying && !store.isLoading && !store.isBuffering
                 let angle = playing
                     ? (Date().timeIntervalSince(classicCoverStart) / 24.0) * 360
                     : classicCoverAngle
 
-                return Button {
-                    withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
-                } label: {
-                    ZStack {
-                        vinylDisc(side: vinylSide)
-
-                        Group {
-                            if let artwork = store.artwork {
-                                Image(uiImage: artwork).resizable().scaledToFill()
-                            } else {
-                                ZStack {
-                                    LinearGradient(colors: [.gray.opacity(0.5), .gray.opacity(0.3)],
-                                                   startPoint: .topLeading, endPoint: .bottomTrailing)
-                                    Image(systemName: "music.note")
-                                        .font(.system(size: coverSide * 0.3, weight: .light))
-                                        .foregroundStyle(.white.opacity(0.55))
-                                }
-                            }
-                        }
-                        .frame(width: coverSide, height: coverSide)
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1.5))
-                        .overlay(alignment: .center) {
-                            Circle()
-                                .fill(.black.opacity(0.8))
-                                .frame(width: 10, height: 10)
-                                .overlay(Circle().stroke(.white.opacity(0.4), lineWidth: 0.5))
+                classicVinylButton(side: vinylSide, coverSide: coverSide, angle: angle)
+            }
+            .compositingGroup()
+            .offset(x: classicSwipeOffset)
+            .opacity(CGFloat(1) - min(abs(classicSwipeOffset) / 260, 0.35))
+            .animation(.spring(response: 0.34, dampingFraction: 0.86), value: classicSwipeOffset)
+            .gesture(
+                DragGesture(minimumDistance: 15)
+                    .onChanged { value in
+                        classicCoverOffset = value.translation
+                        if abs(value.translation.width) > abs(value.translation.height) {
+                            classicSwipeOffset = value.translation.width
                         }
                     }
-                    .frame(width: vinylSide, height: vinylSide)
-                    .shadow(color: .black.opacity(0.45), radius: 16, y: 8)
-                    .rotationEffect(.degrees(angle))
-                    .rotation3DEffect(.degrees(Double(classicCoverOffset.height / -18)),
-                                      axis: (x: 1, y: 0, z: 0), perspective: 0.55)
-                    .rotation3DEffect(.degrees(Double(classicCoverOffset.width / 18)),
-                                      axis: (x: 0, y: 1, z: 0), perspective: 0.55)
-                    .offset(x: classicCoverOffset.width * 0.05, y: classicCoverOffset.height * 0.05)
-                    .animation(.spring(response: 0.34, dampingFraction: 0.86), value: classicCoverOffset)
-                }
-                .buttonStyle(.plain)
-                .gesture(
-                    DragGesture(minimumDistance: 15)
-                        .onChanged { value in
-                            classicCoverOffset = value.translation
-                            if abs(value.translation.width) > abs(value.translation.height) {
-                                classicSwipeOffset = value.translation.width
-                            }
+                    .onEnded { value in
+                        classicCoverOffset = .zero
+                        if abs(value.translation.width) > 120
+                            && abs(value.translation.width) > abs(value.translation.height) {
+                            Haptics.soft()
+                            if value.translation.width < 0 { store.step(1) } else { store.step(-1) }
                         }
-                        .onEnded { value in
-                            classicCoverOffset = .zero
-                            if abs(value.translation.width) > 120
-                                && abs(value.translation.width) > abs(value.translation.height) {
-                                Haptics.soft()
-                                if value.translation.width < 0 { store.step(1) } else { store.step(-1) }
-                            }
-                            classicSwipeOffset = 0
-                        }
-                )
-                .offset(x: classicSwipeOffset)
-                .opacity(CGFloat(1) - min(abs(classicSwipeOffset) / 260, 0.35))
-            }
+                        classicSwipeOffset = 0
+                    }
+            )
 
-            // 7 行歌词预览（黑色字体，往下移）
+            // 7 行歌词预览
             classicLyricPreviewBox
                 .padding(.top, 20)
 
-            // 功能按钮：下载 / 收藏 / 翻译 / 歌词（紧挨歌词，不要空隙）
+            // 功能按钮
             classicActionRow
                 .padding(.top, 14)
 
@@ -209,6 +172,46 @@ struct PlayerView: View {
         .onChange(of: store.currentIndex) { _ in classicUpdateCoverSpin(); extractDominantColor() }
         .onAppear { classicUpdateCoverSpin(); extractDominantColor() }
         .onChange(of: store.artwork) { _ in extractDominantColor() }
+    }
+
+    /// 纯函数：黑胶封面按钮（不跑动画/手势）
+    private func classicVinylButton(side vinylSide: CGFloat, coverSide: CGFloat, angle: Double) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+        } label: {
+            ZStack {
+                vinylDisc(side: vinylSide)
+                Group {
+                    if let artwork = store.artwork {
+                        Image(uiImage: artwork).resizable().scaledToFill()
+                    } else {
+                        ZStack {
+                            LinearGradient(colors: [.gray.opacity(0.5), .gray.opacity(0.3)],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                            Image(systemName: "music.note")
+                                .font(.system(size: coverSide * 0.3, weight: .light))
+                                .foregroundStyle(.white.opacity(0.55))
+                        }
+                    }
+                }
+                .frame(width: coverSide, height: coverSide)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1.5))
+                .overlay(alignment: .center) {
+                    Circle().fill(.black.opacity(0.8))
+                        .frame(width: 10, height: 10)
+                        .overlay(Circle().stroke(.white.opacity(0.4), lineWidth: 0.5))
+                }
+            }
+            .frame(width: vinylSide, height: vinylSide)
+            .rotationEffect(.degrees(angle))
+            .rotation3DEffect(.degrees(Double(classicCoverOffset.height / -18)),
+                              axis: (x: 1, y: 0, z: 0), perspective: 0.55)
+            .rotation3DEffect(.degrees(Double(classicCoverOffset.width / 18)),
+                              axis: (x: 0, y: 1, z: 0), perspective: 0.55)
+            .offset(x: classicCoverOffset.width * 0.05, y: classicCoverOffset.height * 0.05)
+        }
+        .buttonStyle(.plain)
     }
 
     /// 经典封面功能按钮行：下载 | 收藏 | 翻译 | 歌词
