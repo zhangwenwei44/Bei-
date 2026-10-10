@@ -104,7 +104,8 @@ struct PlayerView: View {
                 weight: .semibold,
                 color: .white
             )
-            .frame(maxWidth: .infinity, height: 44, alignment: .topLeading)
+            .frame(maxWidth: .infinity)
+            .frame(height: 44, alignment: .topLeading)
 
             ShareLink(item: shareText) {
                 Image(systemName: "square.and.arrow.up")
