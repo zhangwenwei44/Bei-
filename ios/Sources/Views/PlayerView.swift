@@ -55,34 +55,39 @@ struct PlayerView: View {
         .clipped()
     }
 
-    // MARK: - 经典封面（搬 Beans ReferencePlaybackView + classicAlbumPanel）
+    // MARK: - 经典封面（参考 Beans ReferencePlaybackView · 紧凑版）
 
     @State private var classicCoverStart: Date = Date()
     @State private var classicCoverAngle: Double = 0
     @State private var classicCoverPausedAngle: Double = 0
     @State private var classicCoverOffset: CGSize = .zero
     @State private var classicSwipeOffset: CGFloat = 0
-    @State private var classicSwipeOpacity: CGFloat = 1
 
+    // MARK: classicBody — Header + Cover + Track + Lyrics + Progress + Controls
+    // 三段式 VStack：header 固定顶 / body 紧凑封面区 / deck 固定底
     private func classicBody(in contentHeight: CGFloat,
                              win: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat),
                              screen: CGRect) -> some View {
-        GeometryReader { geo in
-            VStack(spacing: 0) {
-                classicHeaderBar
+        let headerH: CGFloat = 56
+        let deckH: CGFloat = 170  // progress + controls 固定高度
+        let bodyH = max(200, contentHeight - headerH - deckH)
 
-                classicAlbumPanel(in: geo)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        return VStack(spacing: 0) {
+            classicHeaderBar
+                .frame(height: headerH)
 
-                classicControlDeck(bottomInset: win.safeBottom)
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .padding(.top, win.safeTop)
+            classicCoverArea(height: bodyH)
+                .frame(height: bodyH)
+
+            classicDeck(bottomInset: win.safeBottom)
+                .frame(height: deckH)
         }
+        .frame(width: screen.width, height: contentHeight)
+        .padding(.top, win.safeTop)
     }
 
     private var classicHeaderBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             Button { animateOut() } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 19, weight: .semibold))
@@ -92,63 +97,60 @@ struct PlayerView: View {
 
             Spacer(minLength: 0)
 
-            Button {
-                Haptics.light()
-                store.toggleFavorite()
-            } label: {
-                Image(systemName: store.isLiked ? "heart.fill" : "heart")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(store.isLiked ? Color(red: 1, green: 0.28, blue: 0.36) : .white.opacity(0.78))
-                    .frame(width: 38, height: 38)
-            }
-            .buttonStyle(.plain)
+            Text(store.isPlaying ? "正在播放" : "已暂停")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white.opacity(0.62))
 
-            ShareLink(item: shareText) {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.78))
-                    .frame(width: 38, height: 38)
+            Spacer(minLength: 0)
+
+            HStack(spacing: 4) {
+                Button { store.toggleFavorite(); Haptics.light() } label: {
+                    Image(systemName: store.isLiked ? "heart.fill" : "heart")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(store.isLiked ? Color(red: 1, green: 0.28, blue: 0.36) : .white.opacity(0.78))
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+
+                ShareLink(item: shareText) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .frame(width: 36, height: 36)
+                }
             }
         }
         .padding(.horizontal, 10)
     }
 
-    // MARK: - 经典封面 · 专辑面板（圆形封面+光晕+歌词预览）
+    // MARK: 封面区：圆形封面 + 光晕 + 歌名 + 歌手 + 歌词预览（紧凑，高度固定 bodyH）
 
-    private func classicCoverSize(in geo: GeometryProxy) -> CGFloat {
-        // XS 宽 375pt 时约 225pt，高度不超屏幕 40%
-        let byWidth = geo.size.width * 0.60
-        let byHeight = geo.size.height * 0.36
-        return min(240, min(byWidth, byHeight))
-    }
-
-    private func classicAlbumPanel(in geo: GeometryProxy) -> some View {
-        let size = classicCoverSize(in: geo)
+    private func classicCoverArea(height: CGFloat) -> some View {
+        // 封面：宽度占屏 53%，高度限制 48% of body
+        let size = min(height * 0.48, UIScreen.main.bounds.width * 0.53)
 
         return VStack(spacing: 0) {
-            // 圆形封面 + 光晕 + 玻璃托盘
+            // 圆形封面 + 光晕
             Button {
                 withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
             } label: {
                 ZStack {
                     // 主色光晕
                     Circle()
-                        .fill(dominantColor.opacity(0.22))
-                        .frame(width: size * 1.20, height: size * 1.20)
-                        .blur(radius: 28)
+                        .fill(dominantColor.opacity(0.20))
+                        .frame(width: size * 1.12, height: size * 1.12)
+                        .blur(radius: 24)
 
                     // 玻璃托盘
                     Circle()
-                        .fill(.white.opacity(0.07))
-                        .frame(width: size * 1.06, height: size * 1.06)
-                        .shadow(color: .black.opacity(0.22), radius: 18, y: 8)
+                        .fill(.white.opacity(0.06))
+                        .frame(width: size * 1.04, height: size * 1.04)
+                        .shadow(color: .black.opacity(0.20), radius: 14, y: 6)
 
-                    // 封面本体（圆形 + 旋转 + 3D 拖拽 + 反光）
+                    // 封面本体
                     Group {
                         if let artwork = store.artwork {
-                            Image(uiImage: artwork)
-                                .resizable()
-                                .scaledToFill()
+                            Image(uiImage: artwork).resizable().scaledToFill()
                         } else {
                             LinearGradient(colors: [.gray.opacity(0.5), .gray.opacity(0.3)],
                                            startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -156,20 +158,16 @@ struct PlayerView: View {
                     }
                     .frame(width: size, height: size)
                     .clipShape(Circle())
+                    .overlay { Circle().strokeBorder(.white.opacity(0.20), lineWidth: 1) }
                     .overlay {
-                        Circle().strokeBorder(.white.opacity(0.22), lineWidth: 1)
-                    }
-                    .overlay {
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [.white.opacity(0.25), .white.opacity(0.02), .clear],
-                                    startPoint: .top, endPoint: .center
-                                )
+                        Circle().fill(
+                            LinearGradient(
+                                colors: [.white.opacity(0.22), .white.opacity(0.02), .clear],
+                                startPoint: .top, endPoint: .center
                             )
-                            .clipShape(Circle())
+                        ).clipShape(Circle())
                     }
-                    .shadow(color: .black.opacity(0.32), radius: 18, y: 8)
+                    .shadow(color: .black.opacity(0.30), radius: 14, y: 6)
                     .rotationEffect(.degrees(classicCoverAngle))
                     .rotation3DEffect(.degrees(Double(classicCoverOffset.height / -18)),
                                       axis: (x: 1, y: 0, z: 0), perspective: 0.55)
@@ -178,16 +176,15 @@ struct PlayerView: View {
                     .offset(x: classicCoverOffset.width * 0.05, y: classicCoverOffset.height * 0.05)
                     .animation(.spring(response: 0.34, dampingFraction: 0.86), value: classicCoverOffset)
                 }
-                .frame(width: size * 1.06, height: size * 1.06)
+                .frame(width: size * 1.04, height: size * 1.04)
             }
             .buttonStyle(.plain)
             .gesture(
                 DragGesture(minimumDistance: 15)
                     .onChanged { value in
                         classicCoverOffset = value.translation
-                        let x = value.translation.width
-                        if abs(x) > abs(value.translation.height) {
-                            classicSwipeOffset = x
+                        if abs(value.translation.width) > abs(value.translation.height) {
+                            classicSwipeOffset = value.translation.width
                         }
                     }
                     .onEnded { value in
@@ -204,32 +201,30 @@ struct PlayerView: View {
             .opacity(CGFloat(1) - min(abs(classicSwipeOffset) / 260, 0.35))
 
             // 歌名 + 歌手
-            VStack(spacing: 4) {
-                Text(store.current?.title ?? "未在播放")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.5)
-                    .multilineTextAlignment(.center)
+            Text(store.current?.title ?? "未在播放")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .padding(.top, 18)
 
-                if let artist = store.current?.artist, !artist.isEmpty {
-                    Text(artist)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.70))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            NotificationCenter.default.post(name: .navigateToArtist, object: store.current)
-                        }
-                }
+            if let artist = store.current?.artist, !artist.isEmpty {
+                Text(artist)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.68))
+                    .lineLimit(1)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        NotificationCenter.default.post(name: .navigateToArtist, object: store.current)
+                    }
+                    .padding(.top, 2)
             }
-            .padding(.top, 16)
-            .padding(.horizontal, 32)
 
-            // 5 行歌词预览（固定高度，点击打开完整歌词）
+            // 4 行歌词预览（固定高度，过滤元数据）
             classicLyricPreviewBox
-                .padding(.top, 8)
+                .padding(.top, 12)
+
+            Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: store.isPlaying) { _ in classicUpdateCoverSpin() }
@@ -237,7 +232,7 @@ struct PlayerView: View {
         .onAppear { classicUpdateCoverSpin() }
     }
 
-    // MARK: - CoverSpin（仿 Beans）
+    // MARK: CoverSpin
 
     private func classicUpdateCoverSpin() {
         if store.isPlaying {
@@ -246,41 +241,57 @@ struct PlayerView: View {
                 classicCoverAngle = classicCoverPausedAngle + 360
             }
         } else {
-            // 暂停：停下来，保留当前角度
-            let now = Date()
-            let elapsed = now.timeIntervalSince(classicCoverStart)
-            let degreesPerSecond = 15.0
-            classicCoverPausedAngle = classicCoverAngle + elapsed * degreesPerSecond
+            let elapsed = Date().timeIntervalSince(classicCoverStart)
+            classicCoverPausedAngle = classicCoverAngle + elapsed * 15.0
             classicCoverAngle = classicCoverPausedAngle
         }
     }
 
-    // MARK: - 歌词预览（仿 Beans lyricPreviewBox）
+    // MARK: 歌词预览（4 行 + 过滤元数据）
 
-    private struct ClassicLyricPreviewRow {
-        let text: String
-        let isCurrent: Bool
-    }
+    private struct ClassicLyricPreviewRow { let text: String; let isCurrent: Bool }
+
+    /// 过滤：元数据关键词 + 过短 + 全标点
+    private static let classicLyricMetaKeywords: Set<String> = [
+        "词", "曲", "作曲", "编曲", "制作", "制作人", "监制", "录音", "混音",
+        "发行", "出品", "和声", "配唱", "演奏", "吉他", "钢琴", "贝斯", "鼓",
+        "弦乐", "母带", "改编", "cover", "Cover"
+    ]
 
     private var classicLyricPreviewRows: [ClassicLyricPreviewRow] {
         guard !store.lyrics.isEmpty else { return [] }
         let current = store.currentLyricIndex ?? 0
-        let start = max(0, current - 2)
+
+        // 先过滤掉元数据行
+        let filtered: [(idx: Int, text: String)] = store.lyrics.enumerated().compactMap { i, line in
+            let t = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty else { return nil }
+            let hasKw = Self.classicLyricMetaKeywords.contains { kw in
+                t.hasPrefix(kw + "：") || t.hasPrefix(kw + ":") || t == kw
+            }
+            return hasKw ? nil : (i, t)
+        }
+        guard !filtered.isEmpty else { return [] }
+
+        // 在过滤后的数组里找 current 位置
+        let currentIdxInFiltered = filtered.firstIndex { $0.idx == current } ?? 0
+        let start = max(0, currentIdxInFiltered - 1)
         var rows: [ClassicLyricPreviewRow] = []
-        for i in start..<min(store.lyrics.count, start + 5) {
-            let text = store.lyrics[i].text.isEmpty ? " " : store.lyrics[i].text
-            rows.append(ClassicLyricPreviewRow(text: text, isCurrent: i == current))
+        for j in start..<min(filtered.count, start + 4) {
+            let item = filtered[j]
+            rows.append(ClassicLyricPreviewRow(text: item.text,
+                                               isCurrent: item.idx == current))
         }
         return rows
     }
 
     private var classicLyricPreviewBox: some View {
         let rows = classicLyricPreviewRows
-        return VStack(spacing: 3) {
+        return VStack(spacing: 2) {
             if rows.isEmpty {
                 Text("暂无歌词，点击封面查看完整歌词")
                     .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.46))
+                    .foregroundStyle(.white.opacity(0.42))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity)
             } else {
@@ -288,37 +299,45 @@ struct PlayerView: View {
                     HStack(spacing: 6) {
                         Text(item.isCurrent ? "●" : "·")
                             .font(.system(size: 8))
-                            .foregroundStyle(item.isCurrent ? .white : .white.opacity(0.30))
+                            .foregroundStyle(item.isCurrent ? dominantColor : .white.opacity(0.30))
                         Text(item.text)
                             .font(.system(size: 12, weight: item.isCurrent ? .semibold : .regular))
                             .foregroundStyle(item.isCurrent ? .white : .white.opacity(0.46))
                             .lineLimit(1)
-                            .minimumScaleFactor(0.7)
+                            .minimumScaleFactor(0.65)
                     }
                     .frame(maxWidth: .infinity)
                 }
             }
         }
-        .frame(height: 5 * 18 + 4 * 3) // 固定高度，歌词加载前后布局不跳
-        .padding(.horizontal, 40)
+        .frame(height: 4 * 16 + 3 * 2) // 固定 70pt
+        .padding(.horizontal, 32)
         .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
         }
     }
 
-    // MARK: - 经典封面 · 播放控件（仿 Beans controlDeck + legacyDeckRow）
+    // MARK: 播放控件（带底栏光晕发光）
 
-    private func classicControlDeck(bottomInset: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            classicProgressBlock
+    private func classicDeck(bottomInset: CGFloat) -> some View {
+        ZStack {
+            // 底栏光晕——从 dominantColor 来的发光，仿 Beans
+            Circle()
+                .fill(dominantColor.opacity(0.18))
+                .frame(width: UIScreen.main.bounds.width * 0.9, height: 180)
+                .blur(radius: 60)
+                .offset(y: 40)
 
-            classicDeckRow
-                .padding(.top, 6)
+            VStack(spacing: 8) {
+                classicProgressBlock
+                classicDeckControls
+            }
+            .padding(.horizontal, 28)
+            .padding(.top, 8)
+            .padding(.bottom, max(10, bottomInset))
         }
-        .padding(.horizontal, 32)
-        .padding(.top, 10)
-        .padding(.bottom, max(12, bottomInset + 4))
+        .frame(maxWidth: .infinity)
     }
 
     private var classicProgressBlock: some View {
@@ -331,18 +350,19 @@ struct PlayerView: View {
                 let progressX = progressFrac * width
 
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.18)).frame(height: 4)
-                    Capsule().fill(.white.opacity(0.30)).frame(width: bufferedFrac * width, height: 4)
-                    Capsule().fill(.white.opacity(0.88)).frame(width: progressX, height: 4)
+                    Capsule().fill(.white.opacity(0.22)).frame(height: 4)
+                    Capsule().fill(.white.opacity(0.32)).frame(width: bufferedFrac * width, height: 4)
+                    Capsule().fill(dominantColor).frame(width: progressX, height: 4)
+                        .shadow(color: dominantColor.opacity(0.55), radius: 6, y: 0)
                     Circle()
                         .fill(.white)
-                        .frame(width: isScrubbing ? 18 : 12, height: isScrubbing ? 18 : 12)
-                        .shadow(color: .white.opacity(isScrubbing ? 0.55 : 0.28),
-                                radius: isScrubbing ? 10 : 3)
-                        .offset(x: max(0, min(width - (isScrubbing ? 18 : 12),
-                                              progressX - (isScrubbing ? 9 : 6))))
+                        .frame(width: isScrubbing ? 16 : 10, height: isScrubbing ? 16 : 10)
+                        .shadow(color: .white.opacity(isScrubbing ? 0.5 : 0.25),
+                                radius: isScrubbing ? 8 : 3)
+                        .offset(x: max(0, min(width - (isScrubbing ? 16 : 10),
+                                              progressX - (isScrubbing ? 8 : 5))))
                 }
-                .frame(height: 30)
+                .frame(height: 28)
                 .contentShape(Rectangle())
                 .highPriorityGesture(
                     DragGesture(minimumDistance: 0)
@@ -365,42 +385,33 @@ struct PlayerView: View {
                         Text(displayTime.clockString)
                             .font(.system(size: 11, weight: .semibold, design: .monospaced))
                             .foregroundStyle(.white)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 5)
+                            .padding(.horizontal, 9).padding(.vertical, 5)
                             .background(.black.opacity(0.44), in: Capsule())
-                            .offset(x: max(0, min(width - 62, progressX - 31)), y: -28)
-                            .transition(.scale(scale: 0.92).combined(with: .opacity))
+                            .offset(x: max(0, min(width - 62, progressX - 31)), y: -26)
                     }
                 }
             }
-            .frame(height: 30)
+            .frame(height: 28)
             .animation(.spring(response: 0.24, dampingFraction: 0.82), value: isScrubbing)
 
             HStack(spacing: 6) {
-                seekPillButton("gobackward.15") {
-                    store.seek(to: max(0, store.currentTime - 15))
-                }
+                seekPillButton("gobackward.15") { store.seek(to: max(0, store.currentTime - 15)) }
                 Text(displayTime.clockString)
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.58))
+                    .foregroundStyle(.white.opacity(0.56))
                     .frame(minWidth: 34, alignment: .leading)
                 Spacer(minLength: 0)
                 Text(store.duration.clockString)
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.58))
+                    .foregroundStyle(.white.opacity(0.56))
                     .frame(minWidth: 34, alignment: .trailing)
-                seekPillButton("goforward.15") {
-                    store.seek(to: max(0, min(store.duration, store.currentTime + 15)))
-                }
+                seekPillButton("goforward.15") { store.seek(to: max(0, min(store.duration, store.currentTime + 15))) }
             }
         }
     }
 
     private func seekPillButton(_ icon: String, action: @escaping () -> Void) -> some View {
-        Button {
-            Haptics.light()
-            action()
-        } label: {
+        Button { Haptics.light(); action() } label: {
             Image(systemName: icon)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.72))
@@ -409,7 +420,7 @@ struct PlayerView: View {
         .buttonStyle(.plain)
     }
 
-    private var classicDeckRow: some View {
+    private var classicDeckControls: some View {
         ZStack {
             // 两侧：循环 / 队列
             HStack {
@@ -417,84 +428,74 @@ struct PlayerView: View {
                 Spacer(minLength: 0)
                 classicQueueButton
             }
-            .padding(.horizontal, 8)
 
-            // 中间：上一曲 / 播放 / 下一曲
-            HStack(spacing: 16) {
+            // 中间三个：上一曲 / 播放暂停 / 下一曲
+            HStack(spacing: 20) {
                 Button { store.step(-1); Haptics.light() } label: {
                     Image(systemName: "backward.fill")
-                        .font(.system(size: 25, weight: .semibold))
+                        .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(.white)
-                        .frame(width: 44, height: 58)
-                }
-                .buttonStyle(.plain)
+                        .frame(width: 44, height: 56)
+                }.buttonStyle(.plain)
 
                 classicPlayPauseButton
 
                 Button { store.step(1); Haptics.light() } label: {
                     Image(systemName: "forward.fill")
-                        .font(.system(size: 25, weight: .semibold))
+                        .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(.white)
-                        .frame(width: 44, height: 58)
-                }
-                .buttonStyle(.plain)
+                        .frame(width: 44, height: 56)
+                }.buttonStyle(.plain)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 64)
+        .frame(maxWidth: .infinity, minHeight: 56)
     }
 
     private var classicModeButton: some View {
-        let modeIcon = { () -> String in
-            switch store.mode {
-            case .shuffle: return "shuffle"
-            case .single:  return "repeat.1"
-            case .order:   return "arrow.right"
-            }
-        }()
-        let modeActive = store.mode == .shuffle || store.mode == .single
-        return Button {
-            store.cycleMode(); Haptics.light()
-        } label: {
-            Image(systemName: modeIcon)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(modeActive ? dominantColor : .white.opacity(0.78))
+        let icon: String
+        let active: Bool
+        switch store.mode {
+        case .shuffle: icon = "shuffle"; active = true
+        case .single:  icon = "repeat.1"; active = true
+        case .order:   icon = "arrow.right"; active = false
+        }
+        return Button { store.cycleMode(); Haptics.light() } label: {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(active ? dominantColor : .white.opacity(0.75))
                 .frame(width: 44, height: 44)
         }
         .buttonStyle(.plain)
     }
 
     private var classicQueueButton: some View {
-        Button {
-            store.isQueuePresented.toggle(); Haptics.light()
-        } label: {
+        Button { store.isQueuePresented.toggle(); Haptics.light() } label: {
             Image(systemName: "list.bullet")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(store.isQueuePresented ? dominantColor : .white.opacity(0.78))
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(store.isQueuePresented ? dominantColor : .white.opacity(0.75))
                 .frame(width: 44, height: 44)
         }
         .buttonStyle(.plain)
     }
 
     private var classicPlayPauseButton: some View {
-        Button {
-            store.toggle(); Haptics.soft()
-        } label: {
+        Button { store.toggle(); Haptics.soft() } label: {
             ZStack {
                 Circle()
-                    .fill(.white.opacity(0.16))
-                    .frame(width: 72, height: 64)
-                    .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 1))
+                    .fill(.white.opacity(0.14))
+                    .frame(width: 64, height: 64)
+                    .shadow(color: dominantColor.opacity(store.isPlaying ? 0.35 : 0),
+                            radius: store.isPlaying ? 20 : 0, y: 0)
 
                 if store.isLoading || store.isBuffering {
                     ProgressView().tint(.white)
                 } else {
                     Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 36, weight: .bold))
+                        .font(.system(size: 30, weight: .bold))
                         .foregroundStyle(.white)
                         .offset(x: store.isPlaying ? 0 : 2)
                 }
             }
-            .frame(width: 76, height: 72)
         }
         .buttonStyle(.plain)
     }
