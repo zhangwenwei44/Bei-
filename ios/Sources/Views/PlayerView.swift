@@ -71,9 +71,8 @@ struct PlayerView: View {
             VStack(spacing: 0) {
                 classicHeaderBar
 
-                Spacer(minLength: 0)
-
                 classicAlbumPanel(in: geo)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 classicControlDeck(bottomInset: win.safeBottom)
             }
@@ -117,15 +116,16 @@ struct PlayerView: View {
     // MARK: - 经典封面 · 专辑面板（圆形封面+光晕+歌词预览）
 
     private func classicCoverSize(in geo: GeometryProxy) -> CGFloat {
-        min(280, min(geo.size.width * 0.60, geo.size.height * 0.42))
+        // XS 宽 375pt 时约 225pt，高度不超屏幕 40%
+        let byWidth = geo.size.width * 0.60
+        let byHeight = geo.size.height * 0.36
+        return min(240, min(byWidth, byHeight))
     }
 
     private func classicAlbumPanel(in geo: GeometryProxy) -> some View {
         let size = classicCoverSize(in: geo)
 
-        return VStack(spacing: 12) {
-            Spacer(minLength: 0)
-
+        return VStack(spacing: 0) {
             // 圆形封面 + 光晕 + 玻璃托盘
             Button {
                 withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
@@ -133,21 +133,15 @@ struct PlayerView: View {
                 ZStack {
                     // 主色光晕
                     Circle()
-                        .fill(dominantColor.opacity(0.24))
-                        .frame(width: size * 1.38, height: size * 1.38)
-                        .blur(radius: 46)
-
-                    // 次色光晕
-                    Circle()
-                        .fill(.white.opacity(0.10))
-                        .frame(width: size * 1.10, height: size * 1.10)
-                        .blur(radius: 40)
+                        .fill(dominantColor.opacity(0.22))
+                        .frame(width: size * 1.20, height: size * 1.20)
+                        .blur(radius: 28)
 
                     // 玻璃托盘
                     Circle()
-                        .fill(.white.opacity(0.08))
-                        .frame(width: size * 1.10, height: size * 1.10)
-                        .shadow(color: .black.opacity(0.28), radius: 26, y: 12)
+                        .fill(.white.opacity(0.07))
+                        .frame(width: size * 1.06, height: size * 1.06)
+                        .shadow(color: .black.opacity(0.22), radius: 18, y: 8)
 
                     // 封面本体（圆形 + 旋转 + 3D 拖拽 + 反光）
                     Group {
@@ -163,20 +157,19 @@ struct PlayerView: View {
                     .frame(width: size, height: size)
                     .clipShape(Circle())
                     .overlay {
-                        Circle().strokeBorder(.white.opacity(0.28), lineWidth: 1)
+                        Circle().strokeBorder(.white.opacity(0.22), lineWidth: 1)
                     }
                     .overlay {
-                        // 顶部玻璃反光
                         Circle()
                             .fill(
                                 LinearGradient(
-                                    colors: [.white.opacity(0.28), .white.opacity(0.03), .clear],
+                                    colors: [.white.opacity(0.25), .white.opacity(0.02), .clear],
                                     startPoint: .top, endPoint: .center
                                 )
                             )
                             .clipShape(Circle())
                     }
-                    .shadow(color: .black.opacity(0.38), radius: 24, y: 12)
+                    .shadow(color: .black.opacity(0.32), radius: 18, y: 8)
                     .rotationEffect(.degrees(classicCoverAngle))
                     .rotation3DEffect(.degrees(Double(classicCoverOffset.height / -18)),
                                       axis: (x: 1, y: 0, z: 0), perspective: 0.55)
@@ -185,7 +178,7 @@ struct PlayerView: View {
                     .offset(x: classicCoverOffset.width * 0.05, y: classicCoverOffset.height * 0.05)
                     .animation(.spring(response: 0.34, dampingFraction: 0.86), value: classicCoverOffset)
                 }
-                .frame(width: size * 1.10, height: size * 1.10)
+                .frame(width: size * 1.06, height: size * 1.06)
             }
             .buttonStyle(.plain)
             .gesture(
@@ -211,37 +204,34 @@ struct PlayerView: View {
             .opacity(CGFloat(1) - min(abs(classicSwipeOffset) / 260, 0.35))
 
             // 歌名 + 歌手
-            VStack(spacing: 6) {
+            VStack(spacing: 4) {
                 Text(store.current?.title ?? "未在播放")
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(2)
-                    .minimumScaleFactor(0.55)
+                    .minimumScaleFactor(0.5)
                     .multilineTextAlignment(.center)
-                    .shadow(color: .black.opacity(0.30), radius: 6, y: 2)
 
                 if let artist = store.current?.artist, !artist.isEmpty {
                     Text(artist)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.72))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.70))
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .contentShape(Rectangle())
                         .onTapGesture {
                             NotificationCenter.default.post(name: .navigateToArtist, object: store.current)
                         }
-                        .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
                 }
             }
-            .padding(.horizontal, 36)
+            .padding(.top, 16)
+            .padding(.horizontal, 32)
 
             // 5 行歌词预览（固定高度，点击打开完整歌词）
             classicLyricPreviewBox
-
-            Spacer(minLength: 0)
+                .padding(.top, 8)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.bottom, 18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: store.isPlaying) { _ in classicUpdateCoverSpin() }
         .onChange(of: store.currentIndex) { _ in classicUpdateCoverSpin() }
         .onAppear { classicUpdateCoverSpin() }
