@@ -193,7 +193,7 @@ struct ArtistDetailView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 8)
 
-                VStack(spacing: 2) {
+                VStack(spacing: 0) {
                     ForEach(albums) { album in
                         NavigationLink {
                             AlbumDetailView(album: album)
@@ -219,15 +219,14 @@ struct ArtistDetailView: View {
                                         .lineLimit(1)
                                 }
                                 Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(AppStyle.tertiaryText)
+                                // 无 chevron.right — 整行可点
                             }
                             .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
+                            .padding(.vertical, 12)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.plain)
+                        Divider().padding(.leading, 78)
                     }
                 }
                 .padding(.horizontal, 10)
@@ -430,43 +429,70 @@ private struct ArtistSongRow: View {
     let song: Song
     let index: Int
     let onPlay: () -> Void
+    @ObservedObject private var library = LibraryStore.shared
+    @ObservedObject private var downloads = DownloadManager.shared
 
     var body: some View {
-        Button(action: onPlay) {
-            HStack(spacing: 12) {
-                Text("\(index)")
-                    .font(.system(size: 13))
-                    .foregroundStyle(AppStyle.secondaryText)
-                    .frame(width: 24, alignment: .center)
+        HStack(spacing: 10) {
+            Button(action: onPlay) {
+                HStack(spacing: 12) {
+                    Text("\(index)")
+                        .font(.system(size: 13))
+                        .foregroundStyle(AppStyle.secondaryText)
+                        .frame(width: 24, alignment: .center)
 
-                CoverImage(
-                    url: song.artworkURL,
-                    fallbackKeys: song.kugouHash.isEmpty ? [] : ["kg:\(song.kugouHash)"],
-                    seed: song.id,
-                    size: 40,
-                    corner: 6
-                )
-                .frame(width: 40, height: 40)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                    CoverImage(
+                        url: song.artworkURL,
+                        fallbackKeys: song.kugouHash.isEmpty ? [] : ["kg:\(song.kugouHash)"],
+                        seed: song.id,
+                        size: 40,
+                        corner: 6
+                    )
+                    .frame(width: 40, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
 
-                VStack(alignment: .leading, spacing: 2) {
-                    MarqueeText(text: song.title,
-                                size: 14,
-                                weight: .regular,
-                                color: AppStyle.primaryText)
-                    MarqueeText(text: song.album,
-                                size: 11,
-                                weight: .regular,
-                                color: AppStyle.secondaryText)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(song.title)
+                            .font(.system(size: 14))
+                            .foregroundStyle(AppStyle.primaryText)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Text(song.album)
+                            .font(.system(size: 11))
+                            .foregroundStyle(AppStyle.secondaryText)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(0)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .layoutPriority(0)
-
-                Spacer()
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .buttonStyle(.plain)
+
+            HStack(spacing: 2) {
+                Button {
+                    _ = library.toggleFavorite(song); Haptics.light()
+                } label: {
+                    Image(systemName: library.isFavorite(song) ? "heart.fill" : "heart")
+                        .font(.system(size: 14))
+                        .foregroundStyle(library.isFavorite(song) ? AppStyle.like : AppStyle.tertiaryText)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    if song.isRemote { Haptics.light(); Task { _ = try? await downloads.download(song) } }
+                } label: {
+                    Image(systemName: song.source == .local ? "arrow.down.circle.fill" : "arrow.down.circle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(song.source == .local ? AppStyle.tertiaryText.opacity(0.4) : AppStyle.tertiaryText)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .disabled(song.source == .local)
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 }

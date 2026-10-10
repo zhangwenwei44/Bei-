@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 import UIKit
 
 /// 全局配色。以酷狗音乐的蓝为主色，浅色下蓝白相间。
@@ -387,10 +387,12 @@ struct SongRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    MarqueeText(text: song.title,
-                                size: 15,
-                                weight: .medium,
-                                color: isCurrent ? AppStyle.accent : AppStyle.primaryText)
+                    Text(song.title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(isCurrent ? AppStyle.accent : AppStyle.primaryText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     if song.source == .local {
                         Text("本地")
                             .font(.system(size: 9))
@@ -401,15 +403,14 @@ struct SongRow: View {
                             .fixedSize()
                     }
                 }
-                HStack(spacing: 4) {
-                    MarqueeText(text: song.artist,
-                                size: 12,
-                                weight: .regular,
-                                color: AppStyle.secondaryText)
-                }
+                Text(song.artist)
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppStyle.secondaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)  // ← 约束在封面和 trailing 之间
-            .layoutPriority(0)   // ← trailing 按钮优先保留空间
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(0)
 
             Spacer(minLength: 0)
 
@@ -424,27 +425,25 @@ struct SongRow: View {
     }
 }
 
-/// 行尾：收藏 + 下载 + 更多（三按钮并列，不再藏菜单）
+/// 行尾：收藏 + 下载（两按钮，去掉 ⋯ 给歌名腾空间）
 private struct RowTrailingButtons: View {
     let song: Song
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var downloads = DownloadManager.shared
 
     var body: some View {
-        HStack(spacing: 10) {
-            // 收藏
+        HStack(spacing: 4) {
             Button {
                 _ = library.toggleFavorite(song)
                 Haptics.light()
             } label: {
                 Image(systemName: library.isFavorite(song) ? "heart.fill" : "heart")
-                    .font(.system(size: 17))
+                    .font(.system(size: 16))
                     .foregroundStyle(library.isFavorite(song) ? AppStyle.like : AppStyle.tertiaryText)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 36, height: 36)
             }
             .buttonStyle(.plain)
 
-            // 下载（本地歌变灰禁用）
             Button {
                 if song.isRemote {
                     Haptics.light()
@@ -452,27 +451,12 @@ private struct RowTrailingButtons: View {
                 }
             } label: {
                 Image(systemName: song.source == .local ? "arrow.down.circle.fill" : "arrow.down.circle")
-                    .font(.system(size: 17))
+                    .font(.system(size: 16))
                     .foregroundStyle(song.source == .local ? AppStyle.tertiaryText.opacity(0.4) : AppStyle.tertiaryText)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 36, height: 36)
             }
             .buttonStyle(.plain)
             .disabled(song.source == .local)
-
-            // 更多菜单（歌手主页 + 分享）
-            Menu {
-                Button {
-                    NotificationCenter.default.post(name: .navigateToArtist, object: song)
-                } label: {
-                    Label("查看歌手", systemImage: "person")
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 17))
-                    .foregroundStyle(AppStyle.tertiaryText)
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
         }
     }
 }

@@ -212,15 +212,22 @@ struct PlaylistDetailView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 if isSelecting {
-                    Button {
-                        if selectedIDs.count == displaySongs.count { selectedIDs.removeAll() }
-                        else { selectedIDs = Set(displaySongs.map(\.id)) }
-                    } label: {
-                        Text(selectedIDs.count == displaySongs.count ? "取消全选" : "全选")
-                            .font(.system(size: 14, weight: .medium))
+                    HStack(spacing: 14) {
+                        Button {
+                            if selectedIDs.count == displaySongs.count { selectedIDs.removeAll() }
+                            else { selectedIDs = Set(displaySongs.map(\.id)) }
+                        } label: {
+                            Text(selectedIDs.count == displaySongs.count ? "取消全选" : "全选")
+                                .font(.system(size: 14, weight: .medium))
+                        }
                     }
                 } else {
-                    HStack(spacing: 10) {
+                    HStack(spacing: 4) {
+                        if !displaySongs.isEmpty {
+                            Button { Task { await downloadAllSongs() } } label: {
+                                Image(systemName: "arrow.down.circle.dotted").font(.system(size: 16)).frame(width: 36, height: 36)
+                            }
+                        }
                         if localPlaylist == nil {
                             Button {
                                 isCollected.toggle()
@@ -228,19 +235,14 @@ struct PlaylistDetailView: View {
                                 Haptics.light()
                             } label: {
                                 Image(systemName: isCollected ? "heart.fill" : "heart")
+                                    .font(.system(size: 16))
                                     .foregroundStyle(isCollected ? AppStyle.like : AppStyle.primaryText)
+                                    .frame(width: 36, height: 36)
                             }
                         }
                         if !displaySongs.isEmpty {
-                            Button {
-                                Task { await downloadAllSongs() }
-                            } label: {
-                                Label("下载全部", systemImage: "arrow.down.circle.dotted").font(.system(size: 13))
-                            }
-                            Button {
-                                isSelecting = true; selectedIDs.removeAll()
-                            } label: {
-                                Label("多选", systemImage: "checkmark.circle").font(.system(size: 13))
+                            Button { isSelecting = true; selectedIDs.removeAll() } label: {
+                                Image(systemName: "checkmark.circle").font(.system(size: 16)).frame(width: 36, height: 36)
                             }
                         }
                     }
@@ -294,24 +296,31 @@ struct PlaylistDetailView: View {
     }
 
     private var actionBar: some View {
-        HStack(spacing: 22) {
+        HStack(spacing: 16) {
             Button {
-                store.play(displaySongs)
+                store.play(displaySongs); Haptics.light()
             } label: {
-                Image(systemName: "play.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(AppStyle.onAccent)
-                    .frame(width: 52, height: 52)
-                    .background(AppStyle.accent, in: Circle())
+                HStack(spacing: 6) {
+                    Image(systemName: "play.fill").font(.system(size: 16, weight: .bold))
+                    Text("播放全部").font(.system(size: 14, weight: .semibold))
+                }
+                .foregroundStyle(AppStyle.onAccent)
+                .frame(width: 132, height: 42)
+                .background(AppStyle.accent, in: Capsule())
             }
             .buttonStyle(.plain)
 
             Button {
                 Task { await downloadAllSongs() }
             } label: {
-                Label("下载全部", systemImage: "arrow.down.circle.dotted")
-                    .font(.system(size: 13))
-                    .foregroundStyle(AppStyle.primaryText)
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.down.circle.dotted").font(.system(size: 16))
+                    Text("下载全部").font(.system(size: 14))
+                }
+                .foregroundStyle(AppStyle.primaryText)
+                .frame(height: 42)
+                .padding(.horizontal, 16)
+                .background(AppStyle.surface.opacity(0.6), in: Capsule())
             }
             .buttonStyle(.plain)
 
@@ -324,13 +333,15 @@ struct PlaylistDetailView: View {
                     }
                 } label: {
                     Image(systemName: "list.number")
-                        .font(.system(size: 17))
+                        .font(.system(size: 18))
                         .foregroundStyle(AppStyle.primaryText)
+                        .frame(width: 36, height: 36)
+                        .background(AppStyle.surface.opacity(0.6), in: Circle())
                 }
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 18)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 16)
     }
 
     private func play(_ song: Song) {
