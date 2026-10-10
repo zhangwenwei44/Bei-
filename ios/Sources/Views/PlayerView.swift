@@ -92,7 +92,7 @@ struct PlayerView: View {
         HStack(spacing: 8) {
             Button { animateOut() } label: {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 19, weight: .semibold))
+                    .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 44, height: 44, alignment: .top)
             }
@@ -104,11 +104,11 @@ struct PlayerView: View {
                 weight: .semibold,
                 color: .white
             )
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
 
             ShareLink(item: shareText) {
                 Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(.white.opacity(0.78))
                     .frame(width: 44, height: 44, alignment: .top)
             }
@@ -782,10 +782,10 @@ struct PlayerView: View {
             Button { animateOut() } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 20, weight: .semibold))
-                    .frame(width: 44, height: 44)
+                    .frame(width: 44, height: 44, alignment: .top)
             }
 
-            VStack(spacing: 1) {
+            VStack(alignment: .leading, spacing: 1) {
                 Text(store.current?.title ?? "未播放")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
@@ -797,20 +797,19 @@ struct PlayerView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .top)
             .padding(.horizontal, 8)
 
             HStack(spacing: 18) {
                 ShareLink(item: shareText) {
                     Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 19, weight: .medium))
-                        .frame(width: 40, height: 40)
+                        .frame(width: 40, height: 40, alignment: .top)
                 }
             }
         }
+        .frame(maxHeight: .infinity, alignment: .top)
         .foregroundStyle(.white)
-        // VStack 已被 SwiftUI 自动偏移 safeTop，这里只给 8pt 小间距让按钮不贴状态栏
-        .padding(.top, 8)
     }
 
     private var shareText: String {

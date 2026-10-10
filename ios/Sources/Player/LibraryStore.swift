@@ -385,12 +385,24 @@ final class LibraryStore: ObservableObject {
             albumFavorites.append(contentsOf: pkg.albumFavorites.filter { !existingAlbums.contains($0.id) })
             let existingPlIDs = Set(playlists.map(\.id))
             for pl in pkg.playlists where !existingPlIDs.contains(pl.id) {
-                playlists.insert(pl, at: 0)
+                // 🔴 恢复歌单对应的歌曲
+                if let songs = pkg.playlistSongs[pl.id] {
+                    var restored = pl
+                    restored.songs = songs
+                    playlists.insert(restored, at: 0)
+                } else {
+                    playlists.insert(pl, at: 0)
+                }
             }
         } else {
             favorites = pkg.favorites
             albumFavorites = pkg.albumFavorites
-            playlists = pkg.playlists
+            // 🔴 恢复歌单对应的歌曲
+            playlists = pkg.playlists.map { pl in
+                var restored = pl
+                restored.songs = pkg.playlistSongs[pl.id] ?? pl.songs
+                return restored
+            }
         }
         persist(favorites, key: key("favorites"))
         persist(albumFavorites, key: key("albumFavorites"))

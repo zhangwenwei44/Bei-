@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>AuroraMusic 经典封面</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-font-smoothing:antialiased; }
+  body {
+    min-height: 100vh;
+    background: #1a1a1a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 0;
+    gap: 20px;
+    font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+  }
+  h3 { color:#888; font-weight:400; font-size:14px; }
+
+  /* ======= iPhone 壳 ======= */
+  .phone {
+    width: 375px;
+    height: 812px;
+    border-radius: 50px;
+    overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5), inset 0 0 0 8px #222;
+    position: relative;
+    background: #000;
+  }
+  .status-bar {
+    height: 44px;
+    padding: 0 28px 0 28px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    position: relative;
+    z-index: 10;
+  }
+  .status-bar .right { font-size: 12px; display:flex; gap:5px; align-items:center; }
+  .dynamic-island {
+    position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    width: 120px; height: 30px; background:#000; border-radius: 20px;
+  }
+
+  /* ======= Aurora 播放器 ======= */
+  .player {
+    position: absolute; inset: 0;
+    overflow: hidden;
+  }
+  /* 沉浸式背景 */
+  .player-bg {
+    position: absolute; inset: -20px;
+    background: url('https://picsum.photos/seed/aurora-bg/800/800') center/cover no-repeat;
+    filter: blur(50px) saturate(1.2);
+    opacity: 0.85;
+  }
+  .player-bg::after {
+    content:''; position:absolute; inset:0;
+    background: linear-gradient(180deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.35) 100%);
+  }
+
+  /* ======= 顶栏 ======= */
+  .header {
+    position: relative; z-index: 5;
+    height: 56px; padding: 0 10px;
+    display: flex; align-items: flex-start;
+    padding-top: 6px;
+  }
+  .header .icon-btn {
+    width: 44px; height: 44px;
+    display: flex; align-items: flex-start; justify-content: center;
+    padding-top: 2px;
+    background: none; border: none; color: #fff; font-size: 19px; cursor: pointer;
+  }
+  .header .marquee-wrap {
+    flex: 1; min-width: 0; height: 22px;
+    margin-top: 11px; overflow: hidden;
+    position: relative;
+    mask-image: linear-gradient(90deg, transparent 0, #000 30%, #000 70%, transparent 100%);
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 30%, #000 70%, transparent 100%);
+  }
+  .header .marquee {
+    display: inline-block; white-space: nowrap;
+    color: #fff; font-size: 14px; font-weight: 600;
+    padding-left: 100%;
+    animation: marquee 18s linear infinite;
+  }
+  @keyframes marquee {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-100%); }
+  }
+
+  /* ======= 封面区 ======= */
+  .cover-area {
+    position: relative; z-index: 3;
+    height: 380px;
+    display: flex; flex-direction: column; align-items: center;
+    padding-top: 20px;
+  }
+  .cover-glow {
+    position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+    width: 260px; height: 260px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,140,60,0.45) 0%, rgba(255,140,60,0) 70%);
+    filter: blur(20px);
+  }
+  .cover-glass {
+    position: absolute; top: 27px; left: 50%; transform: translateX(-50%);
+    width: 235px; height: 235px; border-radius: 50%;
+    background: rgba(255,255,255,0.06);
+    box-shadow: 0 14px 30px rgba(0,0,0,0.35);
+  }
+  .cover {
+    width: 225px; height: 225px; border-radius: 50%;
+    background: url('https://picsum.photos/seed/aurora-cover/500/500') center/cover no-repeat;
+    position: relative; z-index: 2;
+    box-shadow: 0 14px 28px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.2);
+    animation: spin 24s linear infinite;
+  }
+  .cover::before {
+    content:''; position:absolute; inset:0; border-radius:50%;
+    background: linear-gradient(180deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.02) 40%, transparent 70%);
+  }
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  /* ======= 歌词预览（7 行黑色） ======= */
+  .lyrics {
+    margin-top: 16px;
+    width: 100%;
+    padding: 0 32px;
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .lyric-row {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; line-height: 16px;
+    font-weight: 400; color: rgba(0,0,0,0.55);
+  }
+  .lyric-row .dot { color: rgba(0,0,0,0.22); font-size: 8px; width: 8px; }
+  .lyric-row.current { color: #000; font-weight: 600; }
+  .lyric-row.current .dot { color: #ff6a2c; font-size: 10px; }
+
+  /* ======= 底部 deck ======= */
+  .deck {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    z-index: 5;
+    padding: 8px 28px calc(env(safe-area-inset-bottom, 20px) + 10px);
+    padding-bottom: 34px;
+  }
+  /* 流光进度条 */
+  .progress-wrap { position: relative; height: 34px; }
+  .progress-track {
+    position: absolute; top: 15px; left: 0; right: 0; height: 5px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.22);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: inset 0 0 0 0.5px rgba(255,255,255,0.2);
+  }
+  .progress-fill {
+    position: absolute; top: 15px; left: 0; height: 5px;
+    width: 40%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, #ff6a2c, rgba(255,140,60,0.7), rgba(255,255,255,0.85));
+    box-shadow: 0 1px 4px rgba(255,106,44,0.5);
+    overflow: hidden;
+  }
+  .progress-fill::before {
+    content:''; position:absolute; inset:0;
+    background: linear-gradient(180deg, rgba(255,255,255,0.55) 0%, transparent 50%);
+    height: 2.5px; border-radius: 3px;
+  }
+  .progress-thumb {
+    position: absolute; top: 8px; left: calc(40% - 7px);
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 0 0.8px rgba(255,255,255,0.95), 0 2px 6px rgba(255,106,44,0.7);
+  }
+  .flow-dot {
+    position: absolute; top: 12px; left: 0;
+    width: 5px; height: 5px; border-radius: 50%;
+    background: #fff; box-shadow: 0 0 4px rgba(255,255,255,0.8), 0 0 8px rgba(255,255,255,0.4);
+    animation: flow 2.4s ease-in-out infinite;
+  }
+  @keyframes flow {
+    0% { left: 10%; opacity: 0.9; }
+    50% { left: 38%; opacity: 1; }
+    100% { left: 10%; opacity: 0.9; }
+  }
+
+  .time-row {
+    margin-top: 28px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 10px; color: rgba(255,255,255,0.56); font-family: Menlo, monospace;
+  }
+  .time-row .pill {
+    font-size: 11px; color: rgba(255,255,255,0.72);
+    padding: 2px 6px; cursor: pointer;
+  }
+
+  /* ======= 控件行 ======= */
+  .controls {
+    margin-top: 6px;
+    position: relative; height: 56px;
+  }
+  .controls .side {
+    position: absolute; top: 0;
+    width: 36px; height: 36px; border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; color: rgba(255,255,255,0.75);
+    border: 0.5px solid rgba(255,255,255,0.18);
+    cursor: pointer;
+  }
+  .controls .left { left: 0; color: #ff6a2c; border-color: rgba(255,106,44,0.52); }
+  .controls .right { right: 0; }
+  .controls .middle {
+    position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 18px; align-items: center;
+  }
+  .ctrl-btn {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    border: 0.5px solid rgba(255,255,255,0.18);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; color: #fff;
+    cursor: pointer;
+  }
+  .play-btn {
+    width: 60px; height: 60px; border-radius: 50%;
+    background: linear-gradient(135deg, rgba(255,106,44,0.82), rgba(255,140,60,0.52));
+    border: none;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 26px;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.28), 0 0 22px rgba(255,106,44,0.55);
+    cursor: pointer;
+    position: relative; z-index: 2;
+    margin: -3px 0;
+  }
+
+  .label { text-align:center; margin-top:8px; color:#999; font-size:12px; }
+</style>
+</head>
+<body>
+
+<h3>AuroraMusic · 经典封面主题（iPhone XS 375×812）</h3>
+
+<div class="phone">
+  <!-- 状态栏 -->
+  <div class="status-bar">
+    <div class="dynamic-island"></div>
+    <span style="margin-left: 30px;">23:52</span>
+    <span class="right">📶 🔋 22%</span>
+  </div>
+
+  <!-- 播放器 -->
+  <div class="player">
+    <div class="player-bg"></div>
+
+    <!-- 顶栏 -->
+    <div class="header">
+      <button class="icon-btn">▾</button>
+      <div class="marquee-wrap">
+        <span class="marquee">正在播放 · 邓紫棋 - 自由的你 · 专辑全集 · 酷狗音乐</span>
+      </div>
+      <button class="icon-btn">⇪</button>
+    </div>
+
+    <!-- 封面 -->
+    <div class="cover-area">
+      <div class="cover-glow"></div>
+      <div class="cover-glass"></div>
+      <div class="cover"></div>
+
+      <!-- 7 行歌词 -->
+      <div class="lyrics">
+        <div class="lyric-row"><span class="dot">·</span>自由是逃离着全世界到你身边</div>
+        <div class="lyric-row"><span class="dot">·</span>自由得放掉整个世界一路荒野</div>
+        <div class="lyric-row"><span class="dot">·</span>你是我的地平线我只为你放眼</div>
+        <div class="lyric-row current"><span class="dot">●</span>自由是与你浪迹的天 无惧危险</div>
+        <div class="lyric-row"><span class="dot">·</span>自由得对世俗的愚见 不再执念</div>
+        <div class="lyric-row"><span class="dot">·</span>四季日月的更迭都只在你一眼之间</div>
+        <div class="lyric-row"><span class="dot">·</span>而妆容只有你看破</div>
+      </div>
+    </div>
+
+    <!-- 底部 deck -->
+    <div class="deck">
+      <div class="progress-wrap">
+        <div class="progress-track"></div>
+        <div class="progress-fill"></div>
+        <div class="flow-dot"></div>
+        <div class="progress-thumb"></div>
+      </div>
+
+      <div class="time-row">
+        <span class="pill">⏪ -15</span>
+        <span>01:42</span>
+        <span>04:56</span>
+        <span class="pill">+15 ⏩</span>
+      </div>
+
+      <div class="controls">
+        <div class="side left">↻</div>
+        <div class="middle">
+          <button class="ctrl-btn">⏮</button>
+          <button class="play-btn">⏸</button>
+          <button class="ctrl-btn">⏭</button>
+        </div>
+        <div class="side right">☰</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="label">用 HBuilderX 打开此文件，或直接拖到浏览器预览</div>
+
+<script>
+  // 进度条滑块拖拽模拟 + 播放/暂停切换
+  const fill = document.querySelector('.progress-fill');
+  const thumb = document.querySelector('.progress-thumb');
+  const playBtn = document.querySelector('.play-btn');
+  let playing = true;
+
+  playBtn.addEventListener('click', () => {
+    playing = !playing;
+    playBtn.textContent = playing ? '⏸' : '▶';
+    document.querySelector('.cover').style.animationPlayState = playing ? 'running' : 'paused';
+    document.querySelector('.flow-dot').style.animationPlayState = playing ? 'running' : 'paused';
+  });
+
+  // 自动走进度条
+  let pct = 40;
+  setInterval(() => {
+    if (!playing) return;
+    pct = (pct + 0.15) % 100;
+    fill.style.width = pct + '%';
+    thumb.style.left = `calc(${pct}% - 7px)`;
+  }, 100);
+</script>
+</body>
+</html>

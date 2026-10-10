@@ -70,6 +70,8 @@ final class PlayerStore: ObservableObject {
     /// 换源重试限制：同一首歌最多自动重试 1 次，防止把音源打熔断
     private var recoverySongID: String?
     private var recoveryAttempts = 0
+    /// prepare() 开始时间戳 —— 后台超时兜底用
+    private var lastPrepareStart: TimeInterval = 0
     private var preparingTask: Task<Void, Never>?
     /// 下一首预加载（只创建 AVPlayerItem 让 AVAsset 建立连接，不 attach，不耗太多带宽）。
     private var preloadedItem: AVPlayerItem?
@@ -272,6 +274,7 @@ final class PlayerStore: ObservableObject {
     private func prepare(autoplay: Bool) {
         guard let song = current else { return }
         preparingTask?.cancel()
+        lastPrepareStart = Date().timeIntervalSince1970
 
         lyrics = []
         currentLyricIndex = nil
@@ -342,9 +345,18 @@ final class PlayerStore: ObservableObject {
                 self.sourceName = outcome.name
                 self.bitrateLabel = outcome.label
                 guard let url = finalURL else {
-                    self.playbackError = "这首歌暂时无法播放，去「我的 - 音源」看看"
+                    self.playbackError = "这首歌暂时无法播放，自动跳下一首"
                     self.player.pause()
                     self.isPlaying = false
+                    // 🔴 自动下一首（automatic=true 的自动切歌场景）
+                    // 用户手动点播放/切歌时 autoplay=true 但不是 automatic，不跳下一首避免死循环
+                    if autoplay {
+                        Log.warn("播放", "URL 解析失败，自动跳过当前歌曲 step(1)")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                            guard let self else { return }
+                            if !self.queue.isEmpty { self.step(1, automatic: true) }
+                        }
+                    }
                     return
                 }
                 self.attach(url: url, thirdParty: outcome.isThirdParty, autoplay: autoplay)
@@ -757,6 +769,18 @@ final class PlayerStore: ObservableObject {
                    rawTime > self.duration - 2 {
                     Log.warn("播放", "锁屏兜底：检测到 player.rate==0 但还有下一首，自动 step(1)")
                     self.step(1, automatic: true)
+                }
+
+                // 🛡️ 后台 prepare 超时兜底：如果 URL 解析或 attach 卡了 >10s，强制跳下一首
+                if self.isLoading,
+                   self.queue.count > 1,
+                   self.currentIndex < self.queue.count - 1 {
+                    let now = Date().timeIntervalSince1970
+                    if self.lastPrepareStart + 10 < now {
+                        Log.warn("播放", "锁屏兜底：isLoading 超过 10s，自动 step(1)")
+                        self.isLoading = false
+                        self.step(1, automatic: true)
+                    }
                 }
             }
         }
