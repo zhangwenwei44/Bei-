@@ -230,8 +230,9 @@ struct PlayerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: store.isPlaying) { _ in classicUpdateCoverSpin() }
-        .onChange(of: store.currentIndex) { _ in classicUpdateCoverSpin() }
-        .onAppear { classicUpdateCoverSpin() }
+        .onChange(of: store.currentIndex) { _ in classicUpdateCoverSpin(); extractDominantColor() }
+        .onAppear { classicUpdateCoverSpin(); extractDominantColor() }
+        .onChange(of: store.artwork) { _ in extractDominantColor() }
     }
 
     // MARK: CoverSpin
