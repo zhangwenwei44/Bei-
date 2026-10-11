@@ -18,7 +18,7 @@ final class KugouClient {
     private let searchSalt = "y9tjae~n)k)vn[8"
     private let playKeySalt = "57ae12eb6890223e355ccfcb74edf70d"
     private let webSalt = "NVPh5oo715z5DIWAeQlhMDsWXXQV4hwt"  // web 端签名 salt
-    private let androidSalt = "9F2F15584D7A0576863B3B3D4C2C7B7D"  // android 端签名 salt（🔴 gateway.kugou.com 用这个！）
+    private let androidSalt = "LnT6xpN3khm36zse0QzvmgTZ3waWdRSA"  // 🔴 Beans 真实 androidSignKey！之前瞎猜的错了！
 
     private let session: URLSession
     /// 歌手写真缓存（NSCache 线程安全）。key 是歌手名。
@@ -1137,50 +1137,43 @@ final class KugouClient {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    /// 🔴 gateway.kugou.com 接口专用 POST 请求 —— Beans 用 gatewayRequest(..., "POST")！
-    /// params 放 POST body（application/x-www-form-urlencoded），自动加 Cookie header（userid/token）
-    private func gatewayPostRaw(path: String,
-                                 params: [String: String],
-                                 headers extra: [String: String] = [:]) async throws -> String {
-        let url = URL(string: "https://gateway.kugou.com" + path)!
+    /// 🔴 gateway.kugou.com 接口专用 GET 请求 —— Beans gatewayRequest 默认 GET！
+    /// params 拼 URL query（和 login-user.kugou.com 一样），自动加风控 headers
+    private func gatewayGetRaw(path: String,
+                                params: [String: String],
+                                headers extra: [String: String] = [:]) async throws -> String {
+        // URL query 拼接
+        let query = params.keys.sorted().map { k in
+            "\(k.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!)=\((params[k] ?? "").addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!)"
+        }.joined(separator: "&")
+        let url = URL(string: "https://gateway.kugou.com\(path)?\(query)")!
         var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        request.httpMethod = "GET"
         request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
         request.setValue("https://www.kugou.com/", forHTTPHeaderField: "Referer")
+        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
 
-        // 🔴 关键：Beans gatewayRequest 会带 Cookie header（userid=xxx; token=xxx）！
+        // 🔴 Cookie header
         let cookie = KugouAuth.shared.cookieHeader
         if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
 
         // 🔴 风控指纹 headers（Beans gatewayRequest 固定注入）
         request.setValue(dfid, forHTTPHeaderField: "dfid")
         request.setValue(mid, forHTTPHeaderField: "mid")
-        let ct = params["clienttime"] ?? "\(Int(Date().timeIntervalSince1970))"
-        request.setValue(ct, forHTTPHeaderField: "clienttime")
-        // kg-rc / kg-thash / kg-rec / kg-rf —— 酷狗风控指纹，Web 端通常是固定 UA 派生值
+        request.setValue(params["clienttime"] ?? "\(Int(Date().timeIntervalSince1970))", forHTTPHeaderField: "clienttime")
         request.setValue("101", forHTTPHeaderField: "kg-rc")
         request.setValue(Data(browserUA.utf8).md5Hex(), forHTTPHeaderField: "kg-thash")
-        request.setValue("", forHTTPHeaderField: "kg-rec")
-        request.setValue("", forHTTPHeaderField: "kg-rf")
 
         for (k, v) in extra { request.setValue(v, forHTTPHeaderField: k) }
-
-        // body: params 按键排序 + URL 编码
-        let body = params.keys.sorted().map { k in
-            "\(k.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!)=\((params[k] ?? "").addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!)"
-        }.joined(separator: "&")
-        request.httpBody = Data(body.utf8)
 
         let started = Date()
         let (data, response) = try await session.data(for: request)
         let elapsed = Int(Date().timeIntervalSince(started) * 1000)
         let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-        Log.info("网络", "POST \(url.path) params=\(params.count) -> \(status) / \(data.count)B / \(elapsed)ms")
+        Log.info("网络", "GET \(path)?... params=\(params.count) -> \(status) / \(data.count)B / \(elapsed)ms")
         guard (200...299).contains(status) else {
             let preview = String(data: data.prefix(200), encoding: .utf8) ?? ""
-            Log.error("网络", "POST HTTP \(status) 响应: \(preview)")
+            Log.error("网络", "GET HTTP \(status): \(preview)")
             throw KugouError.httpStatus(status)
         }
         return String(data: data, encoding: .utf8) ?? ""
@@ -1391,11 +1384,11 @@ final class KugouClient {
             ]
             params["signature"] = androidSign(params)  // 🔴 gateway.kugou.com 用 androidSign！
 
-            let raw = try await gatewayPostRaw(path: "/v7/get_all_list",
-                                                params: params,
-                                                headers: [
-                                                    "x-router": "cloudlist.service.kugou.com",
-                                                ])
+            let raw = try await gatewayGetRaw(path: "/v7/get_all_list",
+                                               params: params,
+                                               headers: [
+                                                   "x-router": "cloudlist.service.kugou.com",
+                                               ])
             let json = Self.extractJSONP(raw)
                 ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
                 ?? [:]
@@ -1475,11 +1468,11 @@ final class KugouClient {
             ]
             params["signature"] = androidSign(params)
 
-            let raw = try await gatewayPostRaw(path: "/v7/get_list_song",
-                                                params: params,
-                                                headers: [
-                                                    "x-router": "cloudlist.service.kugou.com",
-                                                ])
+            let raw = try await gatewayGetRaw(path: "/v7/get_list_song",
+                                               params: params,
+                                               headers: [
+                                                   "x-router": "cloudlist.service.kugou.com",
+                                               ])
             let json = Self.extractJSONP(raw)
                 ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
                 ?? [:]
