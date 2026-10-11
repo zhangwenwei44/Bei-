@@ -339,12 +339,14 @@ struct PlayerView: View {
     // MARK: 播放控件（Beans 直接搬：accent=dominantColor 渐变 + 发光 + 玻璃描边）
 
     private func classicDeck(bottomInset: CGFloat) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 8) {
             classicProgressBlock
+                .frame(height: 50)  // 🔴 锁死高度！GeometryReader 不能再吃掉空间
             classicDeckControls
+                .frame(height: 56)
         }
         .padding(.horizontal, 28)
-        .padding(.top, 0)
+        .padding(.top, 4)
         .padding(.bottom, max(10, bottomInset))
     }
 
