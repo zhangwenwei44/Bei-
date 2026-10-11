@@ -1390,6 +1390,8 @@ final class KugouClient {
                 "token": token,
             ]
             params["signature"] = androidSign(params)  // 🔴 gateway.kugou.com 用 androidSign！
+
+            let raw = try await gatewayPostRaw(path: "/v7/get_all_list",
                                                 params: params,
                                                 headers: [
                                                     "x-router": "cloudlist.service.kugou.com",
