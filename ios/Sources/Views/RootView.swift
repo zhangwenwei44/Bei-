@@ -41,6 +41,9 @@ struct RootView: View {
                 MiniPlayer(isExpanded: $isPlayerExpanded)
                     .padding(.horizontal, 10)
                     .padding(.bottom, 50)
+                    // 🔴 锁死 MiniPlayer 高度 → ZStack 不会给它多余的 frame 覆盖 TabBar
+                    .frame(maxWidth: .infinity, alignment: .bottom)
+                    .allowsHitTesting(true)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -125,14 +128,15 @@ struct MiniPlayer: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(alignment: .bottomLeading) {
-            GeometryReader { proxy in
+        // 🔴 进度条：GeometryReader 锁死在 2pt 高度内，绝不允许撑开 MiniPlayer
+        .overlay(alignment: .bottom) {
+            GeometryReader { geo in
                 Capsule()
                     .fill(AppStyle.accent)
-                    .frame(width: proxy.size.width * store.progress, height: 2)
+                    .frame(width: geo.size.width * max(0, min(1, store.progress)), height: 2)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
-            .frame(height: 2)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .frame(height: 2)  // 🔴 关键：锁死 GeometryReader 高度
         }
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -140,6 +144,7 @@ struct MiniPlayer: View {
         )
         // 浮在 TabBar 之上，给一点投影把层次拉开
         .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 4)
+        // 🔴 hitTest 区域严格限制在圆角矩形内，超出的地方（比如 TabBar）不拦截
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .onTapGesture { expand() }
         .gesture(
