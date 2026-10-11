@@ -15,7 +15,7 @@ struct LibraryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 🔴 顶栏 Tab 切换
+            // 🔴 顶栏 Tab 切换（和 DiscoverView 统一风格）
             topBar
 
             // 🔴 用 if/else 代替 TabView(.page) —— TabView 会同时渲染两页导致卡顿！
@@ -31,8 +31,8 @@ struct LibraryView: View {
         }
         .animation(.easeOut(duration: 0.18), value: topTab)
         .background(AppStyle.background)
-        .navigationTitle(topTab == .local ? "我的音乐" : "酷狗音乐")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationTitle("")  // 🔴 不要大字标题，保持顶栏简洁
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 kugouAvatarButton

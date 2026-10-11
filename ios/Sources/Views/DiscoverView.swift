@@ -58,35 +58,6 @@ struct DiscoverView: View {
             .padding(.bottom, 24)
         }
         .background(AppStyle.background)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                if kugouAuth.isLoggedIn {
-                    NavigationLink {
-                        KugouAccountCenter()
-                    } label: {
-                        HStack(spacing: 5) {
-                            CoverImage(url: kugouAuth.avatarURL,
-                                       fallbackKeys: ["kg-user:\(kugouAuth.userId)"],
-                                       seed: kugouAuth.nickname,
-                                       size: 28, corner: 14)
-                            Text(kugouAuth.nickname.isEmpty ? "酷狗" : kugouAuth.nickname)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(AppStyle.primaryText)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    Button {
-                        NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
-                    } label: {
-                        Image(systemName: "music.mic.circle")
-                            .font(.system(size: 22))
-                            .foregroundStyle(AppStyle.secondaryText)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
         .refreshable { await load(force: true) }
         .task { if feed.isEmpty { await load() } }
         .navigationBarTitleDisplayMode(.inline)
@@ -120,30 +91,70 @@ struct DiscoverView: View {
     // MARK: Tab 栏
 
     private var tabBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .bottom, spacing: 24) {
-                ForEach(DiscoverTab.allCases, id: \.self) { tab in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            selectedTab = tab
+        HStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .bottom, spacing: 24) {
+                    ForEach(DiscoverTab.allCases, id: \.self) { tab in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) { selectedTab = tab }
+                        } label: {
+                            VStack(spacing: 6) {
+                                Text(tab.title)
+                                    .font(.system(size: 16, weight: selectedTab == tab ? .semibold : .regular))
+                                    .foregroundStyle(selectedTab == tab ? AppStyle.accent : AppStyle.primaryText)
+                                Capsule()
+                                    .fill(selectedTab == tab ? AppStyle.accent : Color.clear)
+                                    .frame(width: tab.title.count == 2 ? 20 : 28, height: 3)
+                            }
                         }
-                    } label: {
-                        VStack(spacing: 6) {
-                            Text(tab.title)
-                                .font(.system(size: 16, weight: selectedTab == tab ? .semibold : .regular))
-                                .foregroundStyle(selectedTab == tab ? AppStyle.accent : AppStyle.primaryText)
-                            Capsule()
-                                .fill(selectedTab == tab ? AppStyle.accent : Color.clear)
-                                .frame(width: tab.title.count == 2 ? 20 : 28, height: 3)
-                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16)
+            }
+            .scrollDisabled(true)
+
+            Spacer(minLength: 0)
+
+            // 🔴 酷狗登录头像/按钮 —— 和 Tab 同一行最右边
+            kugouAvatar
+                .padding(.trailing, 16)
+        }
+        .frame(height: 44)
+    }
+
+    @ViewBuilder
+    private var kugouAvatar: some View {
+        if kugouAuth.isLoggedIn {
+            NavigationLink {
+                KugouAccountCenter()
+            } label: {
+                HStack(spacing: 4) {
+                    CoverImage(url: kugouAuth.avatarURL,
+                               fallbackKeys: ["kg-user:\(kugouAuth.userId)"],
+                               seed: kugouAuth.nickname,
+                               size: 26, corner: 13)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(AppStyle.tertiaryText)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .buttonStyle(.plain)
+        } else {
+            Button {
+                NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "music.mic.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.green)
+                    Text("登录")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(AppStyle.secondaryText)
+                }
+            }
+            .buttonStyle(.plain)
         }
-        .padding(.bottom, 4)
     }
 
     // MARK: 搜索入口

@@ -1136,6 +1136,44 @@ final class KugouClient {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
+    /// 🔴 gateway.kugou.com 接口专用 POST 请求 —— Beans 用 gatewayRequest(..., "POST")！
+    /// params 放 POST body（application/x-www-form-urlencoded），自动加 Cookie header（userid/token）
+    private func gatewayPostRaw(path: String,
+                                 params: [String: String],
+                                 headers extra: [String: String] = [:]) async throws -> String {
+        let url = URL(string: "https://gateway.kugou.com" + path)!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://www.kugou.com/", forHTTPHeaderField: "Referer")
+
+        // 🔴 关键：Beans gatewayRequest 会带 Cookie header（userid=xxx; token=xxx）！
+        let cookie = KugouAuth.shared.cookieHeader
+        if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+
+        for (k, v) in extra { request.setValue(v, forHTTPHeaderField: k) }
+
+        // body: params 按键排序 + URL 编码
+        let body = params.keys.sorted().map { k in
+            "\(k.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!)=\((params[k] ?? "").addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!)"
+        }.joined(separator: "&")
+        request.httpBody = Data(body.utf8)
+
+        let started = Date()
+        let (data, response) = try await session.data(for: request)
+        let elapsed = Int(Date().timeIntervalSince(started) * 1000)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        Log.info("网络", "POST \(url.path) params=\(params.count) -> \(status) / \(data.count)B / \(elapsed)ms")
+        guard (200...299).contains(status) else {
+            let preview = String(data: data.prefix(200), encoding: .utf8) ?? ""
+            Log.error("网络", "POST HTTP \(status) 响应: \(preview)")
+            throw KugouError.httpStatus(status)
+        }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
     /// 酷狗有些接口用 JSONP 包裹。
     static func extractJSONP(_ raw: String) -> [String: Any]? {
         guard let start = raw.firstIndex(of: "{"), let end = raw.lastIndex(of: "}") else { return nil }
@@ -1333,13 +1371,11 @@ final class KugouClient {
             ]
             params["signature"] = webSign(params)
 
-            let raw = try await getRaw(path: "/v7/get_all_list",
-                                        host: "https://gateway.kugou.com",
-                                        params: params,
-                                        headers: [
-                                            "User-Agent": browserUA,
-                                            "x-router": "cloudlist.service.kugou.com",
-                                        ])
+            let raw = try await gatewayPostRaw(path: "/v7/get_all_list",
+                                                params: params,
+                                                extraHeaders: [
+                                                    "x-router": "cloudlist.service.kugou.com",
+                                                ])
             let json = Self.extractJSONP(raw)
                 ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
                 ?? [:]
@@ -1419,13 +1455,11 @@ final class KugouClient {
             ]
             params["signature"] = webSign(params)
 
-            let raw = try await getRaw(path: "/v7/get_list_song",
-                                        host: "https://gateway.kugou.com",
-                                        params: params,
-                                        headers: [
-                                            "User-Agent": browserUA,
-                                            "x-router": "cloudlist.service.kugou.com",
-                                        ])
+            let raw = try await gatewayPostRaw(path: "/v7/get_list_song",
+                                                params: params,
+                                                extraHeaders: [
+                                                    "x-router": "cloudlist.service.kugou.com",
+                                                ])
             let json = Self.extractJSONP(raw)
                 ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
                 ?? [:]

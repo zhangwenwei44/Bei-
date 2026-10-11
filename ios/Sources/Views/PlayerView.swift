@@ -90,7 +90,7 @@ struct PlayerView: View {
     }
 
     private var classicHeaderBar: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .center, spacing: 8) {
             Button { animateOut() } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 20, weight: .semibold))
@@ -98,14 +98,22 @@ struct PlayerView: View {
                     .frame(width: 44, height: 44)
             }
 
-            MarqueeText(
-                text: "\(store.isPlaying ? "正在播放" : "已暂停") · \(store.current?.title ?? "未在播放")",
-                size: 14,
-                weight: .semibold,
-                color: .white
-            )
+            // 🔴 居中：歌名 + 歌手（去掉"正在播放·"前缀）
+            VStack(spacing: 0) {
+                MarqueeText(
+                    text: store.current?.title ?? "未在播放",
+                    size: 15,
+                    weight: .bold,
+                    color: .white
+                )
+                MarqueeText(
+                    text: store.current?.artist ?? "",
+                    size: 11,
+                    weight: .regular,
+                    color: .white.opacity(0.6)
+                )
+            }
             .frame(maxWidth: .infinity)
-            .frame(height: 44, alignment: .leading)
 
             Button { presentShare() } label: {
                 Image(systemName: "square.and.arrow.up")
@@ -211,9 +219,9 @@ struct PlayerView: View {
         .buttonStyle(.plain)
     }
 
-    /// 经典封面功能按钮行：下载 | 收藏 | 翻译 | 歌词
+    /// 经典封面功能按钮行：下载 | 收藏 | 翻译 | 歌词 | 🔴评论
     private var classicActionRow: some View {
-        HStack(spacing: 22) {
+        HStack(spacing: 18) {
             classicActionButton(icon: "arrow.down.circle", label: "下载") {
                 if let song = store.current {
                     Task { _ = try? await DownloadManager.shared.download(song) }
@@ -223,11 +231,20 @@ struct PlayerView: View {
                 store.toggleFavorite()
             }
             classicActionButton(icon: "textformat", label: "翻译") {
-                // 翻译歌词 —— 直接打开歌词页（暂不做翻译功能，保持可扩展）
                 withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
             }
             classicActionButton(icon: "music.note.list", label: "歌词") {
                 withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+            }
+            // 🔴 评论按钮（暂用 web 打开酷狗评论页）
+            classicActionButton(icon: "bubble.left.and.bubble.right", label: "评论") {
+                if let song = store.current, let kugouID = song.kugouAlbumID, !kugouID.isEmpty {
+                    let urlStr = "https://www.kugou.com/album/\(kugouID).html"
+                    if let url = URL(string: urlStr) { UIApplication.shared.open(url) }
+                } else if let song = store.current, let listID = song.kugouHash, !listID.isEmpty {
+                    let urlStr = "https://www.kugou.com/song/#\(listID)"
+                    if let url = URL(string: urlStr) { UIApplication.shared.open(url) }
+                }
             }
         }
         .frame(maxWidth: .infinity)
