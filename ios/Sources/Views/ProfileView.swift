@@ -539,7 +539,7 @@ struct ProfileView: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .compatPresentationDetents([.medium, .large])
     }
 
     private func loadRecommended() async {

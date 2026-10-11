@@ -556,10 +556,16 @@ struct SourceEditorView: View {
                 }
 
                 Section {
-                    TextField("每行一条：Key=Value", text: $headersText, axis: .vertical)
-                        .font(.system(size: 13, design: .monospaced))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
+                    if #available(iOS 16.0, *) {
+                        TextField("每行一条：Key=Value", text: $headersText, axis: .vertical)
+                            .font(.system(size: 13, design: .monospaced))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    } else {
+                        TextEditor(text: $headersText)
+                            .font(.system(size: 13, design: .monospaced))
+                            .frame(minHeight: 80)
+                    }
                 } header: {
                     Text("请求头")
                 } footer: {
@@ -599,7 +605,7 @@ struct SourceEditorView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("保存") { save() }
-                        .fontWeight(.semibold)
+                        .font(.system(size: 14, weight: .semibold))
                         .disabled(draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
@@ -708,7 +714,7 @@ struct SourceImportView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("导入") { importSources() }
-                        .fontWeight(.semibold)
+                        .font(.system(size: 14, weight: .semibold))
                 }
             }
         }
@@ -829,6 +835,6 @@ struct SourceURLImportView: View {
             }
             .onAppear { isFieldFocused = true }
         }
-        .presentationDetents([.medium])
+        .compatPresentationDetents([.medium])
     }
 }

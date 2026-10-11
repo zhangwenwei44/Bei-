@@ -8,8 +8,8 @@ private struct QueueSheetModifier: ViewModifier {
             .sheet(isPresented: $store.isQueuePresented) {
                 QueueView()
                     .environmentObject(store)
-                    .presentationDetents([.medium, .large])
-                    .presentationDragIndicator(.visible)
+                    .compatPresentationDetents([.medium, .large])
+                    .compatPresentationDragIndicator(.visible)
             }
     }
 }
