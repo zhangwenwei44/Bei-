@@ -835,6 +835,6 @@ struct SourceURLImportView: View {
             }
             .onAppear { isFieldFocused = true }
         }
-        .compatPresentationDetents([.medium])
+        .applyIfiOS16 { $0.presentationDetents([.medium]) }
     }
 }

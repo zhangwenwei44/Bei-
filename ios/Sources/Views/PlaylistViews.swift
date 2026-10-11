@@ -54,7 +54,7 @@ struct SongListView: View {
                     }
                     .padding(.horizontal, 16)
                 }
-                .compatScrollIndicators(.hidden)
+                .applyIfiOS16 { $0.scrollIndicators(.hidden) }
             }
         }
         .background(AppStyle.background)
