@@ -71,8 +71,9 @@ struct PlayerView: View {
                              win: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat),
                              screen: CGRect) -> some View {
         let headerH: CGFloat = 56
-        let deckH: CGFloat = 150   // 进度条 + 控件行
-        let bodyH = max(200, contentHeight - headerH - deckH)
+        // 🔴 deckH 加大：经典控件行(约44) + 进度条(50) + 控制按钮(56) + padding
+        let deckH: CGFloat = 200
+        let bodyH = max(160, contentHeight - headerH - deckH)
 
         return VStack(spacing: 0) {
             classicHeaderBar
@@ -94,10 +95,9 @@ struct PlayerView: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 44, height: 44, alignment: .top)
+                    .frame(width: 44, height: 44)
             }
 
-            // 中间：正在播放 - 歌名 横向滑动（Marquee）
             MarqueeText(
                 text: "\(store.isPlaying ? "正在播放" : "已暂停") · \(store.current?.title ?? "未在播放")",
                 size: 14,
@@ -105,13 +105,13 @@ struct PlayerView: View {
                 color: .white
             )
             .frame(maxWidth: .infinity)
-            .frame(height: 44, alignment: .topLeading)
+            .frame(height: 44, alignment: .leading)
 
             Button { presentShare() } label: {
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(.white.opacity(0.78))
-                    .frame(width: 44, height: 44, alignment: .top)
+                    .frame(width: 44, height: 44)
             }
         }
         .frame(height: 44)
@@ -161,10 +161,6 @@ struct PlayerView: View {
             // 7 行歌词预览
             classicLyricPreviewBox
                 .padding(.top, 20)
-
-            // 功能按钮
-            classicActionRow
-                .padding(.top, 14)
 
             Spacer(minLength: 0)
         }
@@ -339,14 +335,20 @@ struct PlayerView: View {
     // MARK: 播放控件（Beans 直接搬：accent=dominantColor 渐变 + 发光 + 玻璃描边）
 
     private func classicDeck(bottomInset: CGFloat) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
+            // 🔴 进度条上面一行：下载 / 收藏 / 翻译 / 歌词（移到这里！）
+            classicActionRow
+                .padding(.top, 2)
+                .padding(.bottom, 2)
+
             classicProgressBlock
-                .frame(height: 50)  // 🔴 锁死高度！GeometryReader 不能再吃掉空间
+                .frame(height: 50)
+
             classicDeckControls
                 .frame(height: 56)
         }
         .padding(.horizontal, 28)
-        .padding(.top, 4)
+        .padding(.top, 2)
         .padding(.bottom, max(10, bottomInset))
     }
 
@@ -530,12 +532,12 @@ struct PlayerView: View {
         .buttonStyle(.plain)
     }
 
-    /// 上一曲/下一曲：玻璃圆底 + dominantColor icon
+    /// 上一曲/下一曲：玻璃圆底 + dominantColor icon（🔴 着色！）
     private func classicPrevNextButton(icon: String, action: @escaping () -> Void) -> some View {
         Button { action(); Haptics.light() } label: {
             Image(systemName: icon)
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(dominantColor)
                 .frame(width: 44, height: 44)
                 .background { classicButtonSurface(size: 44) }
         }

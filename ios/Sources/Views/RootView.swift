@@ -38,14 +38,23 @@ struct RootView: View {
                 .tag(Tab.profile)
             }
 
+            // 🔴 MiniPlayer 用 overlay 但加了明确的 bottom inset 避开 TabBar
+            //    TabBar 高度≈56 (safeArea.bottom+49)，MiniPlayer 高 ≈ 50
+            //    之前 .padding(.bottom, 50) 不够，MiniPlayer 还是叠到 TabBar 按钮上
             if store.current != nil && !store.isAnyMultiSelecting {
                 MiniPlayer(isExpanded: $isPlayerExpanded)
                     .padding(.horizontal, 10)
-                    .padding(.bottom, 50)
-                    // 🔴 锁死 MiniPlayer 高度 → ZStack 不会给它多余的 frame 覆盖 TabBar
+                    // 🔴 留够 56pt 给 TabBar（iOS 15+ TabBar 自带 safeAreaInset）
+                    .padding(.bottom, 56)
                     .frame(maxWidth: .infinity, alignment: .bottom)
-                    .allowsHitTesting(true)
+                    // 🔴 严格限制 hitTest 区域：只有 MiniPlayer 本体可点，padding 出来的空间不吃事件
+                    .contentShape(Rectangle())
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                            isPlayerExpanded = true
+                        }
+                    }
             }
         }
         .overlay {
@@ -62,7 +71,6 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .auroraShowKugouLogin)) { _ in
             showKugouLogin = true
         }
-        // TabBar 与选中态统一走品牌蓝
         .tint(AppStyle.accent)
     }
 }

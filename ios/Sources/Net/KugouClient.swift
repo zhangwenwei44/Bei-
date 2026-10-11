@@ -1305,21 +1305,25 @@ final class KugouClient {
         var songs: [Song]       // 歌单里的歌曲
     }
 
-    /// 拉取当前登录用户的所有歌单
+    /// 拉取当前登录用户的所有歌单（🔴 gateway.kugou.com 接口必须带 webSign + x-router！）
     func userPlaylists() async throws -> [KugouPlaylist] {
         guard KugouAuth.shared.isLoggedIn else { return [] }
         let userId = KugouAuth.shared.userId
         let token = KugouAuth.shared.token
 
-        let allItems: [[String: Any]] = try await fetchAllPages(
-            basePath: "/v7/get_all_list",
-            host: "https://gateway.kugou.com",
-            pageSize: 200,
-            extractItems: { json in
-                Self.deepArray(json, path: ["lists"]) ?? Self.deepArray(json, path: ["data", "lists"]) ?? []
-            }
-        ) { page in
-            [
+        // 🔴 gateway.kugou.com 接口签名参数必须完整照搬 Beans gatewayRequest：
+        // baseParams (dfid/mid/uuid/clienttime) + 业务 params + webSign 签名
+        var allItems: [[String: Any]] = []
+        var page = 1
+        while true {
+            let clienttime = "\(Int(Date().timeIntervalSince1970))"
+            var params: [String: String] = [
+                "dfid": dfid,
+                "mid": mid,
+                "uuid": "-",
+                "appid": appID,
+                "clientver": clientVersion,
+                "clienttime": clienttime,
                 "total_ver": "979",
                 "type": "2",
                 "page": "\(page)",
@@ -1327,6 +1331,35 @@ final class KugouClient {
                 "userid": userId,
                 "token": token,
             ]
+            params["signature"] = webSign(params)
+
+            let raw = try await getRaw(path: "/v7/get_all_list",
+                                        host: "https://gateway.kugou.com",
+                                        params: params,
+                                        headers: [
+                                            "User-Agent": browserUA,
+                                            "x-router": "cloudlist.service.kugou.com",
+                                        ])
+            let json = Self.extractJSONP(raw)
+                ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+                ?? [:]
+            Log.info("酷狗", "userPlaylists page=\(page) raw=\(String(raw.prefix(200)))")
+
+            // 检查状态码
+            let status = Self.deepInt(json, path: ["status"]) ?? 0
+            if status != 1 && status != 200 {
+                let errMsg = Self.deepString(json, path: ["error_msg"]) ?? Self.deepString(json, path: ["message"]) ?? "未知错误"
+                Log.error("酷狗", "userPlaylists 错误 status=\(status) msg=\(errMsg)")
+                break
+            }
+
+            let items = Self.deepArray(json, path: ["lists"]) ?? Self.deepArray(json, path: ["data", "lists"]) ?? []
+            allItems.append(contentsOf: items)
+
+            // 分页判断：如果返回数量 < pagesize 就到底了
+            if items.count < 200 { break }
+            page += 1
+            if page > 10 { break } // 防无限循环
         }
 
         var playlists: [KugouPlaylist] = []
@@ -1361,27 +1394,48 @@ final class KugouClient {
 
     // MARK: - 酷狗歌单详情（拉取歌单内歌曲）
 
-    /// 根据 listid 拉取歌单内所有歌曲（分页）
+    /// 根据 listid 拉取歌单内所有歌曲（分页 + 🔴 gateway.kugou.com 接口必须带 webSign）
     func playlistSongs(listid: String) async throws -> [Song] {
         guard KugouAuth.shared.isLoggedIn else { throw KugouError.parse("请先登录酷狗") }
         let userId = KugouAuth.shared.userId
         let token = KugouAuth.shared.token
 
-        let allItems: [[String: Any]] = try await fetchAllPages(
-            basePath: "/v7/get_list_song",
-            host: "https://gateway.kugou.com",
-            pageSize: 200,
-            extractItems: { json in
-                Self.deepArray(json, path: ["songlist"]) ?? Self.deepArray(json, path: ["data", "songlist"]) ?? []
-            }
-        ) { page in
-            [
+        var allItems: [[String: Any]] = []
+        var page = 1
+        while true {
+            let clienttime = "\(Int(Date().timeIntervalSince1970))"
+            var params: [String: String] = [
+                "dfid": dfid,
+                "mid": mid,
+                "uuid": "-",
+                "appid": appID,
+                "clientver": clientVersion,
+                "clienttime": clienttime,
                 "listid": listid,
                 "userid": userId,
                 "token": token,
                 "page": "\(page)",
                 "pagesize": "200",
             ]
+            params["signature"] = webSign(params)
+
+            let raw = try await getRaw(path: "/v7/get_list_song",
+                                        host: "https://gateway.kugou.com",
+                                        params: params,
+                                        headers: [
+                                            "User-Agent": browserUA,
+                                            "x-router": "cloudlist.service.kugou.com",
+                                        ])
+            let json = Self.extractJSONP(raw)
+                ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+                ?? [:]
+            Log.info("酷狗", "playlistSongs listid=\(listid) page=\(page) raw=\(String(raw.prefix(150)))")
+
+            let items = Self.deepArray(json, path: ["songlist"]) ?? Self.deepArray(json, path: ["data", "songlist"]) ?? []
+            allItems.append(contentsOf: items)
+            if items.count < 200 { break }
+            page += 1
+            if page > 50 { break }
         }
 
         var songs: [Song] = []
@@ -1395,9 +1449,7 @@ final class KugouClient {
             let durationSec: Double
             if let d = Self.deepInt(item, path: ["duration"]), d > 0 {
                 durationSec = Double(d) / 1000.0
-            } else {
-                durationSec = 0
-            }
+            } else { durationSec = 0 }
 
             if !hash.isEmpty {
                 songs.append(Song(

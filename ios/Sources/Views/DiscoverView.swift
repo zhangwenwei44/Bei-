@@ -4,6 +4,7 @@ import SwiftUI
 struct DiscoverView: View {
     @EnvironmentObject private var store: PlayerStore
     @ObservedObject private var library = LibraryStore.shared
+    @ObservedObject private var kugouAuth = KugouAuth.shared
     @State private var feed = DiscoverFeed()
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -57,6 +58,35 @@ struct DiscoverView: View {
             .padding(.bottom, 24)
         }
         .background(AppStyle.background)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if kugouAuth.isLoggedIn {
+                    NavigationLink {
+                        KugouAccountCenter()
+                    } label: {
+                        HStack(spacing: 5) {
+                            CoverImage(url: kugouAuth.avatarURL,
+                                       fallbackKeys: ["kg-user:\(kugouAuth.userId)"],
+                                       seed: kugouAuth.nickname,
+                                       size: 28, corner: 14)
+                            Text(kugouAuth.nickname.isEmpty ? "酷狗" : kugouAuth.nickname)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(AppStyle.primaryText)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Button {
+                        NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
+                    } label: {
+                        Image(systemName: "music.mic.circle")
+                            .font(.system(size: 22))
+                            .foregroundStyle(AppStyle.secondaryText)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
         .refreshable { await load(force: true) }
         .task { if feed.isEmpty { await load() } }
         .navigationBarTitleDisplayMode(.inline)
