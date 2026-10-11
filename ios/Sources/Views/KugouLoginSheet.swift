@@ -168,6 +168,7 @@ struct KugouLoginSheet: View {
                         isSuccess = true
                         successName = name
                         statusText = "登录成功！"
+                        NotificationCenter.default.post(name: .auroraKugouLoginSuccess, object: nil)
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { dismiss() }
                     case .error(let msg):
                         // 单次轮询错误不致命，跳过

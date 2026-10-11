@@ -32,62 +32,14 @@ struct ProfileView: View {
 
     var body: some View {
         List {
-            // MARK: 账号
-            Section {
-                if let user = auth.currentUser {
-                    HStack {
-                        Image(systemName: "person.crop.circle.fill")
-                            .font(.system(size: 44))
-                            .foregroundStyle(AppStyle.accent.opacity(0.6))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(user)
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(AppStyle.primaryText)
-                            Text("已登录")
-                                .font(.system(size: 12))
-                                .foregroundStyle(AppStyle.tertiaryText)
-                        }
-                        Spacer()
-                    }
-                    Button(role: .destructive) {
-                        auth.logout()
-                    } label: {
-                        Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                } else {
-                    HStack {
-                        Image(systemName: "person.crop.circle")
-                            .font(.system(size: 44))
-                            .foregroundStyle(AppStyle.tertiaryText)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("游客模式")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(AppStyle.primaryText)
-                            Text("登录后可以在多设备间同步歌单")
-                                .font(.system(size: 12))
-                                .foregroundStyle(AppStyle.tertiaryText)
-                        }
-                        Spacer()
-                    }
-                    // 游客模式下没有直接登录按钮 — 退出登录自动回到 LoginView
-                    // 如果想在设置页也能登录，可以加一个 Button { auth.logout() } label: { Text("登录") }
-                }
-            } header: {
-                headerText("账号")
-            } footer: {
-                Text("登录后收藏、歌单、下载记录会按账号独立保存。当前版本为本地账号，多设备同步即将推出。")
-                    .font(.system(size: 11))
-                    .foregroundStyle(AppStyle.tertiaryText)
-            }
-
-            // MARK: 酷狗音乐（扫码登录）
+            // MARK: 酷狗音乐（扫码登录）—— 顶部大卡片
             Section {
                 if kugouAuth.isLoggedIn {
-                    HStack {
-                        Image(systemName: "music.mic.circle.fill")
-                            .font(.system(size: 44))
-                            .foregroundStyle(.green)
-                        VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 12) {
+                        CoverImage(url: kugouAuth.avatarURL, seed: kugouAuth.nickname,
+                                   size: 48, corner: 24,
+                                   fallbackKeys: ["kg-user:\(kugouAuth.userId)"])
+                        VStack(alignment: .leading, spacing: 3) {
                             Text(kugouAuth.nickname.isEmpty ? "酷狗用户 \(kugouAuth.userId)" : kugouAuth.nickname)
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(AppStyle.primaryText)
@@ -110,7 +62,9 @@ struct ProfileView: View {
                         }
                     }
                 } else {
-                    Button { sheet = .kugouLogin } label: {
+                    Button {
+                        NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
+                    } label: {
                         HStack {
                             Image(systemName: "music.mic.circle")
                                 .font(.system(size: 44))

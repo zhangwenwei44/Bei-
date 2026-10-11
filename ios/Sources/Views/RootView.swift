@@ -4,6 +4,7 @@ struct RootView: View {
     @EnvironmentObject private var store: PlayerStore
     @State private var tab: Tab = .discover
     @State private var isPlayerExpanded = false
+    @State private var showKugouLogin = false
 
     private enum Tab: Hashable {
         case discover, search, library, profile
@@ -55,6 +56,12 @@ struct RootView: View {
         }
         .queueSheet()
         .ignoresSafeArea(.keyboard)
+        .sheet(isPresented: $showKugouLogin) {
+            KugouLoginSheet()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .auroraShowKugouLogin)) { _ in
+            showKugouLogin = true
+        }
         // TabBar 与选中态统一走品牌蓝
         .tint(AppStyle.accent)
     }

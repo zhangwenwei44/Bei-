@@ -1359,6 +1359,67 @@ final class KugouClient {
         Log.info("酷狗", "歌曲已保存到歌单 \(listid)")
     }
 
+    // MARK: - 酷狗歌单详情（拉取歌单内歌曲）
+
+    /// 根据 listid 拉取歌单内所有歌曲（分页）
+    func playlistSongs(listid: String) async throws -> [Song] {
+        guard KugouAuth.shared.isLoggedIn else { throw KugouError.parse("请先登录酷狗") }
+        let userId = KugouAuth.shared.userId
+        let token = KugouAuth.shared.token
+
+        let allItems: [[String: Any]] = try await fetchAllPages(
+            basePath: "/v7/get_list_song",
+            host: "https://gateway.kugou.com",
+            pageSize: 200,
+            extractItems: { json in
+                Self.deepArray(json, path: ["songlist"]) ?? Self.deepArray(json, path: ["data", "songlist"]) ?? []
+            }
+        ) { page in
+            [
+                "listid": listid,
+                "userid": userId,
+                "token": token,
+                "page": "\(page)",
+                "pagesize": "200",
+            ]
+        }
+
+        var songs: [Song] = []
+        for item in allItems {
+            let hash = Self.string(item["hash"]) ?? Self.string(item["hash_16bit"]) ?? ""
+            let fileName = Self.string(item["filename"]) ?? ""
+            let title = Self.string(item["songname"]) ?? fileName
+            var artist = Self.string(item["singername"]) ?? ""
+            if artist.isEmpty { artist = Self.string(item["artistname"]) ?? "" }
+            let album = Self.string(item["album_name"]) ?? Self.string(item["albumname"]) ?? ""
+            let durationSec: Double
+            if let d = Self.deepInt(item, path: ["duration"]), d > 0 {
+                durationSec = Double(d) / 1000.0
+            } else {
+                durationSec = 0
+            }
+
+            if !hash.isEmpty {
+                let artworkURL = Self.coverURL(forHash: hash, size: 600)
+                songs.append(Song(
+                    id: "kg:\(hash)",
+                    title: title,
+                    artist: artist,
+                    url: nil,
+                    tags: ["酷狗", "kugou-list:\(listid)"],
+                    duration: durationSec,
+                    artworkURL: artworkURL,
+                    source: .kugou,
+                    kugouHash: hash,
+                    album: album,
+                    kugouAlbumID: Self.string(item["album_id"]) ?? Self.string(item["albumid"]) ?? ""
+                ))
+            }
+        }
+        Log.info("酷狗", "歌单 \(listid) 解析出 \(songs.count) 首歌")
+        return songs
+    }
+
     // MARK: - 深值提取工具（简化版，支持 a.b.c 路径链式取值）
 
     static func deepString(_ json: [String: Any], path: [String]) -> String? {
