@@ -16,6 +16,7 @@ final class KugouClient {
     private let songClientVersion = "11430"
     private let searchSalt = "y9tjae~n)k)vn[8"
     private let playKeySalt = "57ae12eb6890223e355ccfcb74edf70d"
+    private let webSalt = "NVPh5oo715z5DIWAeQlhMDsWXXQV4hwt"  // web 端签名 salt
 
     private let session: URLSession
     /// 歌手写真缓存（NSCache 线程安全）。key 是歌手名。
@@ -1178,28 +1179,41 @@ final class KugouClient {
     /// 生成登录二维码的 key 和扫码 URL
     func qrKey() async throws -> QRLogin {
         let qrcodeText = "https://h5.kugou.com/apps/loginQRCode/html/index.html?appid=\(qrAppid)"
-        let params = [
+        let clienttime = "\(Int(Date().timeIntervalSince1970))"
+        var params: [String: String] = [
             "appid": qrAppid,
             "type": "1",
             "plat": "4",
             "qrcode_txt": qrcodeText,
             "srcappid": qrSrcAppid,
+            "dfid": dfid,
+            "mid": mid,
+            "clienttime": clienttime,
+            "uuid": "-",
+            "version": "9108",
         ]
-        Log.info("酷狗登录", "qrKey 请求 appid=\(qrAppid) srcappid=\(qrSrcAppid)")
+        // web 签名：MD5(salt + sortedKVs + salt) —— 和 gateway 签名算法一样但 salt 不同
+        params["signature"] = webSign(params)
+        Log.info("酷狗登录", "qrKey 请求 appid=\(qrAppid) clienttime=\(clienttime)")
         let raw = try await getRaw(path: "/v2/qrcode",
                                     host: loginBase,
                                     params: params,
                                     headers: [
-                                        "x-router": "login-user.kugou.com",
                                         "User-Agent": browserUA,
+                                        "x-router": "login-user.kugou.com",
+                                        "dfid": dfid,
+                                        "mid": mid,
+                                        "clienttime": clienttime,
                                     ])
         let json = Self.extractJSONP(raw) ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any]) ?? [:]
         Log.info("酷狗登录", "qrKey 响应 raw=\(String(raw.prefix(400)))")
         // key 在 qrcode.key 或 data.qrcode.key
         let key = Self.deepString(json, path: ["qrcode", "key"]) ?? Self.deepString(json, path: ["data", "qrcode", "key"]) ?? ""
         guard !key.isEmpty else {
-            Log.error("酷狗登录", "qrKey 解析失败 json=\(json)")
-            throw KugouError.parse("二维码生成失败（key 为空）")
+            let err = Self.deepInt(json, path: ["error_code"]) ?? -1
+            let msg = Self.deepString(json, path: ["error_msg"]) ?? Self.deepString(json, path: ["message"]) ?? ""
+            Log.error("酷狗登录", "qrKey 解析失败 error_code=\(err) msg=\(msg) json=\(json)")
+            throw KugouError.parse("二维码生成失败 (error_code=\(err), \(msg))")
         }
         let url = "https://h5.kugou.com/apps/loginQRCode/html/index.html?qrcode=\(Self.urlEncode(key))"
         Log.info("酷狗登录", "QR key=\(key.prefix(12))...")
@@ -1208,18 +1222,28 @@ final class KugouClient {
 
     /// 轮询二维码扫描状态
     func pollQR(key: String) async throws -> QRState {
-        let params = [
+        let clienttime = "\(Int(Date().timeIntervalSince1970))"
+        var params: [String: String] = [
             "plat": "4",
             "appid": qrAppid,
             "srcappid": qrSrcAppid,
             "qrcode": key,
+            "dfid": dfid,
+            "mid": mid,
+            "clienttime": clienttime,
+            "uuid": "-",
+            "version": "9108",
         ]
+        params["signature"] = webSign(params)
         let raw = try await getRaw(path: "/v2/get_userinfo_qrcode",
                                     host: loginBase,
                                     params: params,
                                     headers: [
-                                        "x-router": "login-user.kugou.com",
                                         "User-Agent": browserUA,
+                                        "x-router": "login-user.kugou.com",
+                                        "dfid": dfid,
+                                        "mid": mid,
+                                        "clienttime": clienttime,
                                     ])
         let json = Self.extractJSONP(raw) ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any]) ?? [:]
         Log.info("酷狗登录", "pollQR 响应 raw=\(String(raw.prefix(300)))")
@@ -1245,6 +1269,12 @@ final class KugouClient {
         let displayName = nick.isEmpty ? "酷狗音乐用户 \(userId)" : nick
         Log.info("酷狗登录", "成功 user=\(displayName)")
         return .success(displayName)
+    }
+
+    /// web 端签名：MD5(salt + sortedKeyVals + salt) —— 和 gateway 签名算法相同但 salt 不同
+    private func webSign(_ params: [String: String]) -> String {
+        let body = params.keys.sorted().map { "\($0)=\(params[$0] ?? "")" }.joined()
+        return Data("\(webSalt)\(body)\(webSalt)".utf8).md5Hex()
     }
 
     // MARK: - 酷狗歌单同步
