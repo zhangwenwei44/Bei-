@@ -24,7 +24,7 @@ struct QueueView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        CompatNavigationStack {
             Group {
                 if store.queue.isEmpty {
                     EmptyStateView(icon: "music.note.list", title: "播放列表是空的")
@@ -58,7 +58,7 @@ struct QueueView: View {
                         }
                     }
                     .listStyle(.plain)
-                    .scrollContentBackground(.hidden)
+                    .compatScrollContentBackground(.hidden)
                 }
             }
             .background(AppStyle.background)

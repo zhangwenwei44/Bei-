@@ -17,7 +17,7 @@ struct KugouLoginSheet: View {
     @State private var pollTask: Task<Void, Never>?
 
     var body: some View {
-        NavigationStack {
+        CompatNavigationStack {
             ZStack {
                 LinearGradient(colors: [.black, .gray.opacity(0.15)],
                                startPoint: .topLeading, endPoint: .bottomTrailing)

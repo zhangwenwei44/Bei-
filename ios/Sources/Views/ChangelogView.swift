@@ -9,7 +9,7 @@ struct ChangelogView: View {
     @State private var isLoadingRemote = false
 
     var body: some View {
-        NavigationStack {
+        CompatNavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     latestSection

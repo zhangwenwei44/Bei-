@@ -181,7 +181,7 @@ struct SourceSettingsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
+        .compatScrollContentBackground(.hidden)
         .background(AppStyle.background)
         .navigationTitle("第三方音源")
         .navigationBarTitleDisplayMode(.inline)
@@ -505,7 +505,7 @@ struct SourceEditorView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        CompatNavigationStack {
             Form {
                 Section("基本信息") {
                     TextField("名称", text: $draft.name)
@@ -681,14 +681,14 @@ struct SourceImportView: View {
     @ObservedObject private var store = SourceStore.shared
 
     var body: some View {
-        NavigationStack {
+        CompatNavigationStack {
             VStack(alignment: .leading, spacing: 12) {
                 Text("支持洛雪（lx-music）音源脚本。粘进来先按 JSON 配置试，认不出来就整段当 JS 脚本存。")
                     .font(.system(size: 12))
                     .foregroundStyle(AppStyle.secondaryText)
                 TextEditor(text: $text)
                     .font(.system(size: 12, design: .monospaced))
-                    .scrollContentBackground(.hidden)
+                    .compatScrollContentBackground(.hidden)
                     .padding(8)
                     .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 10))
                 if let message {
@@ -755,7 +755,7 @@ struct SourceExportView: View {
     @ObservedObject private var store = SourceStore.shared
 
     var body: some View {
-        NavigationStack {
+        CompatNavigationStack {
             VStack(alignment: .leading, spacing: 12) {
                 ScrollView {
                     Text(text)
@@ -797,7 +797,7 @@ struct SourceURLImportView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        CompatNavigationStack {
             Form {
                 Section {
                     TextField("https://example.com/source.js", text: $urlString)

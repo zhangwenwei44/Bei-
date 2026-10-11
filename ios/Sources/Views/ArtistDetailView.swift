@@ -29,8 +29,7 @@ struct ArtistDetailView: View {
         }
         .background(AppStyle.background)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.hidden, for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
+        .compatToolbarHidden()  // iOS 15 fallback 自动忽略 iOS 16 API
         .toolbar {
             ToolbarItem(placement: .principal) {
                 if isSelecting {

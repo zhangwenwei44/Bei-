@@ -364,7 +364,7 @@ struct ProfileView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
+        .compatScrollContentBackground(.hidden)
         .background(AppStyle.background)
         .navigationTitle("设置")
         .navigationBarTitleDisplayMode(.large)
@@ -416,7 +416,7 @@ struct ProfileView: View {
     }
 
     private var kugouImportSheet: some View {
-        NavigationStack {
+        CompatNavigationStack {
             VStack(alignment: .leading, spacing: 0) {
                 // 精选歌单快捷入口
                 VStack(alignment: .leading, spacing: 10) {
@@ -643,7 +643,7 @@ struct AboutView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        CompatNavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Aurora Music")

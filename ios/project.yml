@@ -2,7 +2,7 @@ name: AuroraMusic
 options:
   bundleIdPrefix: com.aurora
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "15.0"
   createIntermediateGroups: true
   objectVersion: "56"
 settings:

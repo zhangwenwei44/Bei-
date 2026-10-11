@@ -13,7 +13,7 @@ struct UpdateView: View {
     @State private var showUpdatePrompt = false
 
     var body: some View {
-        NavigationStack {
+        CompatNavigationStack {
             VStack(spacing: 0) {
                 header
                 Divider().overlay(AppStyle.stroke)

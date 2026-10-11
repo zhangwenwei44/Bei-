@@ -12,25 +12,25 @@ struct RootView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $tab) {
-                NavigationStack {
+                CompatNavigationStack {
                     DiscoverView()
                 }
                 .tabItem { Label("主页", systemImage: "safari.fill") }
                 .tag(Tab.discover)
 
-                NavigationStack {
+                CompatNavigationStack {
                     SearchView()
                 }
                 .tabItem { Label("搜索", systemImage: "magnifyingglass") }
                 .tag(Tab.search)
 
-                NavigationStack {
+                CompatNavigationStack {
                     LibraryView()
                 }
                 .tabItem { Label("我的音乐", systemImage: "music.note.list") }
                 .tag(Tab.library)
 
-                NavigationStack {
+                CompatNavigationStack {
                     ProfileView()
                 }
                 .tabItem { Label("设置", systemImage: "gearshape.fill") }

@@ -171,7 +171,7 @@ struct DiagnosticsView: View {
             .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
-        .scrollContentBackground(.hidden)
+        .compatScrollContentBackground(.hidden)
     }
 
     private func levelColor(_ level: Log.Level) -> Color {
