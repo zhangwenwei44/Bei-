@@ -116,6 +116,7 @@ struct PlayerView: View {
                     .frame(width: 44, height: 44, alignment: .top)
             }
             .buttonStyle(.plain)
+        }
         .frame(height: 44)
         .padding(.horizontal, 10)
     }
@@ -856,6 +857,7 @@ struct PlayerView: View {
                         .frame(width: 40, height: 40, alignment: .top)
                 }
                 .buttonStyle(.plain)
+            }
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .foregroundStyle(.white)
@@ -866,16 +868,7 @@ struct PlayerView: View {
         return "\(song?.title ?? "") - \(song?.artist ?? "")"
     }
 
-    /// iOS 16+ 用 ShareLink，iOS 15 fallback 到 UIActivityViewController
-    private var shareButton: some View {
-        Button {
-            presentShare(items: [shareText])
-        } label: {
-            Image(systemName: "square.and.arrow.up")
-        }
-        .buttonStyle(.plain)
-    }
-
+    /// iOS 15+ 统一用 UIActivityViewController（ShareLink 是 iOS 16 专属）
     private func presentShare(items: [Any]) {
         guard let window = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
