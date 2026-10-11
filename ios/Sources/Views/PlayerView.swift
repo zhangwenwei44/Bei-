@@ -238,12 +238,14 @@ struct PlayerView: View {
             }
             // 🔴 评论按钮（暂用 web 打开酷狗评论页）
             classicActionButton(icon: "bubble.left.and.bubble.right", label: "评论") {
-                if let song = store.current, let kugouID = song.kugouAlbumID, !kugouID.isEmpty {
-                    let urlStr = "https://www.kugou.com/album/\(kugouID).html"
-                    if let url = URL(string: urlStr) { UIApplication.shared.open(url) }
-                } else if let song = store.current, let listID = song.kugouHash, !listID.isEmpty {
-                    let urlStr = "https://www.kugou.com/song/#\(listID)"
-                    if let url = URL(string: urlStr) { UIApplication.shared.open(url) }
+                if let song = store.current {
+                    let albumID = song.kugouAlbumID
+                    let hash = song.kugouHash
+                    if !albumID.isEmpty {
+                        if let url = URL(string: "https://www.kugou.com/album/\(albumID).html") { UIApplication.shared.open(url) }
+                    } else if !hash.isEmpty {
+                        if let url = URL(string: "https://www.kugou.com/song/#\(hash)") { UIApplication.shared.open(url) }
+                    }
                 }
             }
         }

@@ -91,28 +91,25 @@ struct DiscoverView: View {
     // MARK: Tab 栏
 
     private var tabBar: some View {
-        HStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .bottom, spacing: 24) {
-                    ForEach(DiscoverTab.allCases, id: \.self) { tab in
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) { selectedTab = tab }
-                        } label: {
-                            VStack(spacing: 6) {
-                                Text(tab.title)
-                                    .font(.system(size: 16, weight: selectedTab == tab ? .semibold : .regular))
-                                    .foregroundStyle(selectedTab == tab ? AppStyle.accent : AppStyle.primaryText)
-                                Capsule()
-                                    .fill(selectedTab == tab ? AppStyle.accent : Color.clear)
-                                    .frame(width: tab.title.count == 2 ? 20 : 28, height: 3)
-                            }
+        HStack(alignment: .bottom, spacing: 0) {
+            HStack(alignment: .bottom, spacing: 24) {
+                ForEach(DiscoverTab.allCases, id: \.self) { tab in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { selectedTab = tab }
+                    } label: {
+                        VStack(spacing: 6) {
+                            Text(tab.title)
+                                .font(.system(size: 16, weight: selectedTab == tab ? .semibold : .regular))
+                                .foregroundStyle(selectedTab == tab ? AppStyle.accent : AppStyle.primaryText)
+                            Capsule()
+                                .fill(selectedTab == tab ? AppStyle.accent : Color.clear)
+                                .frame(width: tab.title.count == 2 ? 20 : 28, height: 3)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 16)
             }
-            .scrollDisabled(true)
+            .padding(.leading, 16)
 
             Spacer(minLength: 0)
 

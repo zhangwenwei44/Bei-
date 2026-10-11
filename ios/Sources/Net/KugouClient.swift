@@ -1373,7 +1373,7 @@ final class KugouClient {
 
             let raw = try await gatewayPostRaw(path: "/v7/get_all_list",
                                                 params: params,
-                                                extraHeaders: [
+                                                headers: [
                                                     "x-router": "cloudlist.service.kugou.com",
                                                 ])
             let json = Self.extractJSONP(raw)
@@ -1457,7 +1457,7 @@ final class KugouClient {
 
             let raw = try await gatewayPostRaw(path: "/v7/get_list_song",
                                                 params: params,
-                                                extraHeaders: [
+                                                headers: [
                                                     "x-router": "cloudlist.service.kugou.com",
                                                 ])
             let json = Self.extractJSONP(raw)
