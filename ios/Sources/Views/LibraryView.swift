@@ -341,8 +341,9 @@ private struct LocalLibraryPage: View {
             ForEach(library.albumFavorites) { album in
                 NavigationLink { AlbumDetailView(album: album) } label: {
                     VStack(alignment: .leading, spacing: 8) {
-                        CoverImage(url: album.coverURL, seed: album.name, size: 160, corner: 10,
-                                   fallbackKeys: album.albumID.isEmpty ? [] : ["al:\(album.albumID)"])
+                        CoverImage(url: album.coverURL,
+                                   fallbackKeys: album.albumID.isEmpty ? [] : ["al:\(album.albumID)"],
+                                   seed: album.name, size: 160, corner: 10)
                         Text(album.name).font(.system(size: 13, weight: .medium)).foregroundStyle(AppStyle.primaryText).lineLimit(1)
                         Text(album.artist).font(.system(size: 11)).foregroundStyle(AppStyle.tertiaryText).lineLimit(1)
                     }.frame(maxWidth: .infinity, alignment: .leading)
@@ -362,7 +363,7 @@ private struct LocalLibraryPage: View {
                     }
                 } label: {
                     HStack(spacing: 12) {
-                        CoverImage(url: artist.coverURL, seed: artist.name, size: 46, corner: 23, fallbackKeys: [artist.id])
+                        CoverImage(url: artist.coverURL, fallbackKeys: [artist.id], seed: artist.name, size: 46, corner: 23)
                         Text(artist.name).font(.system(size: 14, weight: .medium)).foregroundStyle(AppStyle.primaryText).lineLimit(1)
                         Spacer()
                         Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(AppStyle.tertiaryText)
@@ -456,7 +457,8 @@ private struct KugouLibraryPage: View {
     private var kugouHeader: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 14) {
-                CoverImage(url: kugouAuth.avatarURL, seed: kugouAuth.nickname, size: 56, corner: 28, fallbackKeys: ["kg-user:\(kugouAuth.userId)"])
+                CoverImage(url: kugouAuth.avatarURL, fallbackKeys: ["kg-user:\(kugouAuth.userId)"],
+                           seed: kugouAuth.nickname, size: 56, corner: 28)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(kugouAuth.nickname.isEmpty ? "酷狗用户 \(kugouAuth.userId)" : kugouAuth.nickname)
@@ -642,8 +644,9 @@ struct KugouAccountCenter: View {
                 VStack(spacing: 18) {
                     ZStack {
                         Circle().fill(AppStyle.accent.opacity(0.12)).frame(width: 80, height: 80)
-                        CoverImage(url: kugouAuth.avatarURL, seed: kugouAuth.nickname, size: 64, corner: 32,
-                                   fallbackKeys: ["kg-user:\(kugouAuth.userId)"])
+                        CoverImage(url: kugouAuth.avatarURL,
+                                   fallbackKeys: ["kg-user:\(kugouAuth.userId)"],
+                                   seed: kugouAuth.nickname, size: 64, corner: 32)
                     }
                     Text(kugouAuth.nickname.isEmpty ? "酷狗用户 \(kugouAuth.userId)" : kugouAuth.nickname)
                         .font(.system(size: 18, weight: .bold)).foregroundStyle(AppStyle.primaryText)

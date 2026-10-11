@@ -36,9 +36,10 @@ struct ProfileView: View {
             Section {
                 if kugouAuth.isLoggedIn {
                     HStack(spacing: 12) {
-                        CoverImage(url: kugouAuth.avatarURL, seed: kugouAuth.nickname,
-                                   size: 48, corner: 24,
-                                   fallbackKeys: ["kg-user:\(kugouAuth.userId)"])
+                        CoverImage(url: kugouAuth.avatarURL,
+                                   fallbackKeys: ["kg-user:\(kugouAuth.userId)"],
+                                   seed: kugouAuth.nickname,
+                                   size: 48, corner: 24)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(kugouAuth.nickname.isEmpty ? "酷狗用户 \(kugouAuth.userId)" : kugouAuth.nickname)
                                 .font(.system(size: 16, weight: .semibold))

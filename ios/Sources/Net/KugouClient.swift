@@ -1400,18 +1400,17 @@ final class KugouClient {
             }
 
             if !hash.isEmpty {
-                let artworkURL = Self.coverURL(forHash: hash, size: 600)
                 songs.append(Song(
                     id: "kg:\(hash)",
                     title: title,
                     artist: artist,
+                    album: album,
                     url: nil,
                     tags: ["酷狗", "kugou-list:\(listid)"],
                     duration: durationSec,
-                    artworkURL: artworkURL,
+                    artworkURL: nil,
                     source: .kugou,
                     kugouHash: hash,
-                    album: album,
                     kugouAlbumID: Self.string(item["album_id"]) ?? Self.string(item["albumid"]) ?? ""
                 ))
             }
