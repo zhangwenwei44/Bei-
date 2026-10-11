@@ -525,12 +525,20 @@ struct SourceEditorView: View {
 
                 if draft.kind == .template {
                     Section {
-                        TextField("请求地址，如 https://example.com/song?id={id}&br={quality}",
-                                  text: $draft.template,
-                                  axis: .vertical)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .font(.system(size: 13, design: .monospaced))
+                        if #available(iOS 16.0, *) {
+                            TextField("请求地址，如 https://example.com/song?id={id}&br={quality}",
+                                      text: $draft.template,
+                                      axis: .vertical)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .font(.system(size: 13, design: .monospaced))
+                        } else {
+                            TextEditor(text: $draft.template)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .font(.system(size: 13, design: .monospaced))
+                                .frame(minHeight: 80)
+                        }
                         TextField("地址字段，如 data.url|url", text: $draft.urlPath)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -556,10 +564,18 @@ struct SourceEditorView: View {
                 }
 
                 Section {
-                    TextField("每行一条：Key=Value", text: $headersText, axis: .vertical)
-                        .font(.system(size: 13, design: .monospaced))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
+                    if #available(iOS 16.0, *) {
+                        TextField("每行一条：Key=Value", text: $headersText, axis: .vertical)
+                            .font(.system(size: 13, design: .monospaced))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    } else {
+                        TextEditor(text: $headersText)
+                            .font(.system(size: 13, design: .monospaced))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .frame(minHeight: 60)
+                    }
                 } header: {
                     Text("请求头")
                 } footer: {
@@ -599,7 +615,7 @@ struct SourceEditorView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("保存") { save() }
-                        .fontWeight(.semibold)
+                        .font(.system(size: 14, weight: .semibold))
                         .disabled(draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
@@ -708,7 +724,7 @@ struct SourceImportView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("导入") { importSources() }
-                        .fontWeight(.semibold)
+                        .font(.system(size: 14, weight: .semibold))
                 }
             }
         }
@@ -829,6 +845,14 @@ struct SourceURLImportView: View {
             }
             .onAppear { isFieldFocused = true }
         }
-        .presentationDetents([.medium])
+        .presentationDetentsCompatMedium()
+    }
+
+    private func presentationDetentsCompatMedium() -> some View {
+        Group {
+            if #available(iOS 16.0, *) {
+                self.presentationDetents([.medium])
+            } else { self }
+        }
     }
 }

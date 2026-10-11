@@ -539,7 +539,18 @@ struct ProfileView: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetentsCompatSheet()
+    }
+
+    // 🔴 iOS 15 编译时 PresentationDetent 类型不存在，把函数放调用方用 if #available 包裹
+    private func presentationDetentsCompatSheet() -> some View {
+        Group {
+            if #available(iOS 16.0, *) {
+                self.presentationDetents([.medium, .large])
+            } else {
+                self
+            }
+        }
     }
 
     private func loadRecommended() async {

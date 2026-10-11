@@ -107,7 +107,7 @@ struct PlayerView: View {
             .frame(maxWidth: .infinity)
             .frame(height: 44, alignment: .topLeading)
 
-            ShareLink(item: shareText) {
+            Button { presentShare() } label: {
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(.white.opacity(0.78))
@@ -846,7 +846,7 @@ struct PlayerView: View {
             .padding(.horizontal, 8)
 
             HStack(spacing: 18) {
-                ShareLink(item: shareText) {
+                Button { presentShare() } label: {
                     Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 19, weight: .medium))
                         .frame(width: 40, height: 40, alignment: .top)

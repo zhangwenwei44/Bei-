@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// 酷狗音乐直连接口。搜索 / 歌词 / 榜单 / 封面都走这里。
 ///
@@ -1163,10 +1164,9 @@ final class KugouClient {
     private let qrAppid = "1001"
     private let qrSrcAppid = "2919"
 
-    struct QRLogin: Equatable {
+    struct QRLogin {
         let key: String
         let url: String
-        /// API 直接返回的 base64 二维码图，省掉 CIFilter 生成
         let qrcodeImg: UIImage?
     }
 
