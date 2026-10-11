@@ -126,14 +126,15 @@ struct DiscoverView: View {
             NavigationLink {
                 KugouAccountCenter()
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: 5) {
                     CoverImage(url: kugouAuth.avatarURL,
                                fallbackKeys: ["kg-user:\(kugouAuth.userId)"],
                                seed: kugouAuth.nickname,
-                               size: 26, corner: 13)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(AppStyle.tertiaryText)
+                               size: 24, corner: 12)
+                    Text(kugouAuth.nickname.isEmpty ? "酷狗" : kugouAuth.nickname)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(AppStyle.secondaryText)
+                        .lineLimit(1)
                 }
             }
             .buttonStyle(.plain)

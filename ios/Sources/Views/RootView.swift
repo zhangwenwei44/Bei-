@@ -38,23 +38,17 @@ struct RootView: View {
                 .tag(Tab.profile)
             }
 
-            // 🔴 MiniPlayer 用 overlay 但加了明确的 bottom inset 避开 TabBar
-            //    TabBar 高度≈56 (safeArea.bottom+49)，MiniPlayer 高 ≈ 50
-            //    之前 .padding(.bottom, 50) 不够，MiniPlayer 还是叠到 TabBar 按钮上
+            // 🔴 MiniPlayer —— iOS 15+ TabView 会自动把 TabBar 顶到 safeArea 上面
+            //    MiniPlayer 用 overlay + .safeAreaInset（iOS 16+）或直接 frame 约束
+            //    关键：不能给 MiniPlayer 加 contentShape 覆盖 padding 空间
             if store.current != nil && !store.isAnyMultiSelecting {
                 MiniPlayer(isExpanded: $isPlayerExpanded)
                     .padding(.horizontal, 10)
-                    // 🔴 留够 56pt 给 TabBar（iOS 15+ TabBar 自带 safeAreaInset）
-                    .padding(.bottom, 56)
+                    // 🔴 极简：只 padding 10pt，TabBar 的 safeAreaInset 会自动撑开
+                    .padding(.bottom, 10)
                     .frame(maxWidth: .infinity, alignment: .bottom)
-                    // 🔴 严格限制 hitTest 区域：只有 MiniPlayer 本体可点，padding 出来的空间不吃事件
-                    .contentShape(Rectangle())
+                    // 🔴 只过渡动画 —— 不加 contentShape/Rectangle，让 MiniPlayer 内部自己管 hitTest
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .onTapGesture {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
-                            isPlayerExpanded = true
-                        }
-                    }
             }
         }
         .overlay {

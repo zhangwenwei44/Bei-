@@ -98,20 +98,18 @@ struct PlayerView: View {
                     .frame(width: 44, height: 44)
             }
 
-            // 🔴 居中：歌名 + 歌手（去掉"正在播放·"前缀）
-            VStack(spacing: 0) {
-                MarqueeText(
-                    text: store.current?.title ?? "未在播放",
-                    size: 15,
-                    weight: .bold,
-                    color: .white
-                )
-                MarqueeText(
-                    text: store.current?.artist ?? "",
-                    size: 11,
-                    weight: .regular,
-                    color: .white.opacity(0.6)
-                )
+            // 🔴 居中：歌名 + 歌手（不用 Marquee —— 纯居中，不横向滑动）
+            VStack(spacing: 1) {
+                Text(store.current?.title ?? "未在播放")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .multilineTextAlignment(.center)
+                Text(store.current?.artist ?? "")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .lineLimit(1)
+                    .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
 
@@ -129,7 +127,7 @@ struct PlayerView: View {
     // MARK: 封面区：圆形封面 + 光晕 + 歌名 + 歌手 + 歌词预览（紧凑，高度固定 bodyH）
 
     private func classicCoverArea(height: CGFloat) -> some View {
-        let vinylSide = max(200, min(height * 0.42, UIScreen.main.bounds.width * 0.65))
+        let vinylSide = max(220, min(height * 0.50, UIScreen.main.bounds.width * 0.72))
         let coverSide = vinylSide * 0.56
 
         return VStack(spacing: 0) {
@@ -306,11 +304,11 @@ struct PlayerView: View {
         }
         guard !filtered.isEmpty else { return [] }
 
-        // 在过滤后的数组里找 current 位置，展示 current 前后共 7 行
+        // 在过滤后的数组里找 current 位置，展示 current 前后共 2 行（🔴 改少）
         let currentIdxInFiltered = filtered.firstIndex { $0.idx == current } ?? 0
-        let start = max(0, currentIdxInFiltered - 3)
+        let start = max(0, currentIdxInFiltered - 1)
         var rows: [ClassicLyricPreviewRow] = []
-        for j in start..<min(filtered.count, start + 7) {
+        for j in start..<min(filtered.count, start + 2) {
             let item = filtered[j]
             rows.append(ClassicLyricPreviewRow(text: item.text,
                                                isCurrent: item.idx == current))

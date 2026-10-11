@@ -1153,6 +1153,17 @@ final class KugouClient {
         let cookie = KugouAuth.shared.cookieHeader
         if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
 
+        // 🔴 风控指纹 headers（Beans gatewayRequest 固定注入）
+        request.setValue(dfid, forHTTPHeaderField: "dfid")
+        request.setValue(mid, forHTTPHeaderField: "mid")
+        let ct = params["clienttime"] ?? "\(Int(Date().timeIntervalSince1970))"
+        request.setValue(ct, forHTTPHeaderField: "clienttime")
+        // kg-rc / kg-thash / kg-rec / kg-rf —— 酷狗风控指纹，Web 端通常是固定 UA 派生值
+        request.setValue("101", forHTTPHeaderField: "kg-rc")
+        request.setValue(Data(browserUA.utf8).md5Hex(), forHTTPHeaderField: "kg-thash")
+        request.setValue("", forHTTPHeaderField: "kg-rec")
+        request.setValue("", forHTTPHeaderField: "kg-rf")
+
         for (k, v) in extra { request.setValue(v, forHTTPHeaderField: k) }
 
         // body: params 按键排序 + URL 编码
