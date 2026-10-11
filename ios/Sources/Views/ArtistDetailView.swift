@@ -21,7 +21,7 @@ struct ArtistDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
+            LazyVStack(spacing: 0) {   // 🔴 VStack→LazyVStack！只渲染屏幕可见部分
                 immersiveHeader
                 albumSection
                 songListSection
@@ -270,7 +270,7 @@ struct ArtistDetailView: View {
                     .font(.system(size: 13)).foregroundStyle(AppStyle.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: 60)
             } else {
-                VStack(spacing: 0) {
+                LazyVStack(spacing: 0) {   // 🔴 VStack→LazyVStack！内层也懒加载
                     ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
                         let selected = selectedIDs.contains(song.id)
                         HStack(spacing: 0) {
