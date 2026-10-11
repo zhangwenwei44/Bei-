@@ -80,10 +80,10 @@ final class PlayerStore: ObservableObject {
     /// 解析过的播放地址缓存（key = song.id, value = (url, thirdParty, timestamp)）。
     /// 同一首歌在短时间内被 prepare 多次（AVPlayer stall 重试、SwiftUI body 重新计算等）
     /// 时直接用缓存，不再重复走 SourceResolver。
-    /// CDN 地址是分时 token，有效窗口约 2 小时，缓存 15 分钟就够覆盖 99% 的场景。
+    /// 🔴 CDN URL token 过期策略：stall 恢复时强制清缓存，保证拿到新鲜地址
     private struct ResolvedEntry { let url: URL; let thirdParty: Bool; let at: Date }
     private var resolvedURLCache: [String: ResolvedEntry] = [:]
-    private let resolvedURLCacheTTL: TimeInterval = 15 * 60
+    private let resolvedURLCacheTTL: TimeInterval = 15 * 60  // 15 分钟
     private var artworkTaskID: String?
     private var artistPhotoTaskID: String?
     private var lyricTaskID: String?
@@ -105,7 +105,8 @@ final class PlayerStore: ObservableObject {
 
     init() {
         player.actionAtItemEnd = .pause
-        player.automaticallyWaitsToMinimizeStalling = true
+        // 🔴 关闭自动等待以最小化卡顿 —— 让 AVPlayer 播放更激进（有一点缓冲就播）
+        player.automaticallyWaitsToMinimizeStalling = false
         installTimeObserver()
         installNotifications()
         installRemoteCommands()
@@ -407,10 +408,11 @@ final class PlayerStore: ObservableObject {
             Log.info("预加载", "复用预加载好的 item，跳过新建")
         } else {
             item = AVPlayerItem(url: url)
-            // 前置缓冲 10 秒 —— 让 AVPlayer 攒够一段数据再开始播，弱网下首帧更快出来
-            item.preferredForwardBufferDuration = 10
+            // 🔴 前置缓冲 20 秒（之前 10 秒）—— 让 AVPlayer 攒够一段数据再开始播，弱网下不再频繁 stall
+            item.preferredForwardBufferDuration = 20
         }
-
+        // 🔴 强制让 AVPlayer 提前建立连接 + 预缓冲 —— 播放几秒就卡的根因是 AVAsset 连接建立慢
+        item.automaticallyLoadedAssetKeys = ["duration", "playbackBufferEmpty", "playbackLikelyToKeepUp"]
         player.replaceCurrentItem(with: item)
         itemThirdParty = thirdParty
         // 这次能播，之前拉黑的节点就放回候选池
@@ -843,15 +845,19 @@ final class PlayerStore: ObservableObject {
                                             object: nil,
                                             queue: .main) { [weak self] notification in
             guard let self, let item = notification.object as? AVPlayerItem, item === self.player.currentItem else { return }
-            // 卡顿不是失败：AVPlayer 会自己缓冲恢复，但网络慢时可能卡很久。
-            // 先立即尝试一次 play()（有时 stall 后 rate=0 但 play() 能把它拉回来），
-            // 8 秒没恢复 → 用缓存 URL 重新 attach 一次（给 AVPlayer 重新拉流的信号）。
-            Log.info("播放", "缓冲卡顿（\(self.assetHost(of: item) ?? "?")），先尝试 play()，8 秒没恢复就重 attach")
+            // 🔴 stall 恢复优化：先立即 play() + seek(0) 拉 AVPlayer 重新开始，
+            // 3 秒没恢复就强制重新 prepare（换源，不用旧缓存）
+            Log.info("播放", "缓冲卡顿（\(self.assetHost(of: item) ?? "?")），立即 seek+play 尝试恢复")
             self.isBuffering = true
+            // 先尝试 seek 到当前位置（有时 stall 后 AVPlayer 的播放指针停了，seek 能重新触发拉流）
+            let currentPos = item.currentTime()
+            self.player.seek(to: currentPos, toleranceBefore: .zero, toleranceAfter: .zero)
             if self.isPlaying { self.player.play() }
+
             self.stallRecoveryTimer?.invalidate()
             self.stalledSongID = self.current?.id
-            self.stallRecoveryTimer = Timer.scheduledTimer(withTimeInterval: 8, repeats: false) { [weak self] _ in
+            // 🔴 3 秒（之前 8 秒）—— 用户体感"几秒就卡"，必须更快响应
+            self.stallRecoveryTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { [weak self] _ in
                 nonisolated(unsafe) let captured = self
                 Task { @MainActor in
                     captured?.recoverFromStall()
@@ -875,6 +881,7 @@ final class PlayerStore: ObservableObject {
 
     /// stall 自动恢复：优先用缓存的 URL 重新 attach 一次，
     /// 没有缓存就重新 prepare（可能换源）。attach 后强制 player.play() 确保重新启动。
+    /// 🔴 关键：stall 很可能是 CDN token 过期 —— 强制清掉缓存，让 prepare 重新解析 URL！
     private func recoverFromStall() {
         stallRecoveryTimer?.invalidate()
         stallRecoveryTimer = nil
@@ -885,22 +892,15 @@ final class PlayerStore: ObservableObject {
             return
         }
         let wasPlaying = isPlaying || player.rate > 0
-        if let cached = resolvedURLCache[current!.id] {
-            Log.info("播放", "stall 8 秒未恢复，用缓存 URL 重新 attach")
-            attach(url: cached.url, thirdParty: cached.thirdParty, autoplay: wasPlaying)
-        } else {
-            Log.info("播放", "stall 8 秒未恢复，无缓存 URL，重新 prepare")
-            prepare(autoplay: true)
-            return
-        }
-        // attach 完成后 AVPlayer 可能还在等缓冲，显式 play() 再拉一次
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 600_000_000)
-            if self.isPlaying {
-                self.player.play()
-                Log.info("播放", "stall 恢复后显式 player.play()")
-            }
-        }
+
+        // 🔴 清掉当前歌曲的缓存 —— stall 大概率是 token 过期，必须重新解析
+        if let current { resolvedURLCache.removeValue(forKey: current.id) }
+        Log.info("播放", "stall 3 秒未恢复，清缓存并重新 prepare")
+
+        // 🔴 stall 恢复也确保 AVSession 活跃
+        try? AVAudioSession.sharedInstance().setActive(true, options: [])
+
+        prepare(autoplay: wasPlaying)
     }
 
     /// 播放失败：如果是第三方地址，把该域名拉黑并换源重试一次。

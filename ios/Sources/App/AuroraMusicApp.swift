@@ -77,7 +77,13 @@ struct AuroraMusicApp: App {
 enum AudioSessionController {
     static func activate() {
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .default, options: [])
-        try? session.setActive(true)
+        // 🔴 .duckOthers —— 播放时压低其他 App 的声音（视频/游戏/语音等），
+        // .mixWithOthers —— 允许和其他 App 同时播放（比如后台刷抖音时继续放歌），
+        // .defaultToSpeaker —— 没有外接音频时走扬声器，iOS 14+ 必须显式设置
+        try? session.setCategory(.playback,
+                                 mode: .default,
+                                 options: [.duckOthers, .mixWithOthers, .defaultToSpeaker])
+        try? session.setActive(true, options: [])
+        // 监听路由变化：AirPods 断连/插耳机时自动暂停（PlayerStore 里已经有 routeChange handler）
     }
 }

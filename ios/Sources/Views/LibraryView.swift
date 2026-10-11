@@ -14,27 +14,28 @@ struct LibraryView: View {
     enum TopTab { case local, kugou }
 
     var body: some View {
-        CompatNavigationStack {
-            VStack(spacing: 0) {
-                // 🔴 顶栏 Tab 切换
-                topBar
+        VStack(spacing: 0) {
+            // 🔴 顶栏 Tab 切换
+            topBar
 
-                TabView(selection: $topTab) {
-                    LocalLibraryPage()
-                        .tag(TopTab.local)
-                    KugouLibraryPage()
-                        .tag(TopTab.kugou)
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .animation(.none, value: topTab)
+            // 🔴 用 if/else 代替 TabView(.page) —— TabView 会同时渲染两页导致卡顿！
+            if topTab == .local {
+                LocalLibraryPage()
+                    .transition(.opacity)
+                    .id("local")
+            } else {
+                KugouLibraryPage()
+                    .transition(.opacity)
+                    .id("kugou")
             }
-            .background(AppStyle.background)
-            .navigationTitle(topTab == .local ? "我的音乐" : "酷狗音乐")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    kugouAvatarButton
-                }
+        }
+        .animation(.easeOut(duration: 0.18), value: topTab)
+        .background(AppStyle.background)
+        .navigationTitle(topTab == .local ? "我的音乐" : "酷狗音乐")
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                kugouAvatarButton
             }
         }
     }
