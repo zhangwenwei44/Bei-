@@ -411,11 +411,9 @@ final class PlayerStore: ObservableObject {
             // 🔴 前置缓冲 20 秒（之前 10 秒）—— 让 AVPlayer 攒够一段数据再开始播，弱网下不再频繁 stall
             item.preferredForwardBufferDuration = 20
         }
-        // 🔴 强制让 AVPlayer 提前建立连接 + 预缓冲 —— 播放几秒就卡的根因是 AVAsset 连接建立慢
-        item.automaticallyLoadedAssetKeys = ["duration", "playbackBufferEmpty", "playbackLikelyToKeepUp"]
+
         player.replaceCurrentItem(with: item)
         itemThirdParty = thirdParty
-        // 这次能播，之前拉黑的节点就放回候选池
         failedHosts = []
 
         // KVO: 缓冲状态 — Swift 6 strict concurrency：KVO 闭包非隔离，[weak self] 捕获后不能在 Task 内直接用 self，
