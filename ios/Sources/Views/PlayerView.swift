@@ -107,15 +107,12 @@ struct PlayerView: View {
             .frame(maxWidth: .infinity)
             .frame(height: 44, alignment: .topLeading)
 
-            Button {
-                presentShare(items: [shareText])
-            } label: {
+            ShareLink(item: shareText) {
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(.white.opacity(0.78))
                     .frame(width: 44, height: 44, alignment: .top)
             }
-            .buttonStyle(.plain)
         }
         .frame(height: 44)
         .padding(.horizontal, 10)
@@ -849,14 +846,11 @@ struct PlayerView: View {
             .padding(.horizontal, 8)
 
             HStack(spacing: 18) {
-                Button {
-                    presentShare(items: [shareText])
-                } label: {
+                ShareLink(item: shareText) {
                     Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 19, weight: .medium))
                         .frame(width: 40, height: 40, alignment: .top)
                 }
-                .buttonStyle(.plain)
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
@@ -866,17 +860,6 @@ struct PlayerView: View {
     private var shareText: String {
         let song = store.current
         return "\(song?.title ?? "") - \(song?.artist ?? "")"
-    }
-
-    /// iOS 15+ 统一用 UIActivityViewController（ShareLink 是 iOS 16 专属）
-    private func presentShare(items: [Any]) {
-        guard let window = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .first?.windows.first(where: { $0.isKeyWindow }) else { return }
-        let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
-        vc.popoverPresentationController?.sourceView = window
-        vc.popoverPresentationController?.sourceRect = CGRect(x: window.bounds.midX, y: window.bounds.midY, width: 0, height: 0)
-        window.rootViewController?.present(vc, animated: true)
     }
 
     /// 顶栏中间显示的专辑名（优先歌曲专辑，fallback 源名）

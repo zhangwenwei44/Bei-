@@ -6,15 +6,10 @@ private struct QueueSheetModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $store.isQueuePresented) {
-                if #available(iOS 16.0, *) {
-                    QueueView()
-                        .environmentObject(store)
-                        .presentationDetents([.medium, .large])
-                        .presentationDragIndicator(.visible)
-                } else {
-                    QueueView()
-                        .environmentObject(store)
-                }
+                QueueView()
+                    .environmentObject(store)
+                    .compatPresentationDetents([.medium, .large])
+                    .compatPresentationDragIndicator(.visible)
             }
     }
 }

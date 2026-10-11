@@ -229,7 +229,7 @@ enum CoverLoader {
     }
 
     /// 对任何 URL，都同时生成 https 和 http 两个候选地址，按「非 http 优先」排列。
-    /// 这样无论 API 给的是 http:// 还是 https://，都有另一个 protocol 兜底。
+    /// 另外 singerimg.kugou.com 在部分运营商网络下 HTTPS 全挂，自动加备用 CDN。
     private static func candidateURLs(for target: URL) -> [URL] {
         let orig = target.absoluteString
         var urls: [URL] = [target]
@@ -239,6 +239,13 @@ enum CoverLoader {
         } else if orig.hasPrefix("https://") {
             let insecure = "http://" + orig.dropFirst("https://".count)
             if let u = URL(string: insecure) { urls.append(u) }
+        }
+        // singerimg.kugou.com 在部分运营商下 HTTPS 全超时 —— 加 CDN 换域名兜底
+        if orig.contains("singerimg.kugou.com") {
+            let alt1 = orig.replacingOccurrences(of: "singerimg.kugou.com", with: "imge.kugou.com")
+            if let u = URL(string: alt1) { urls.append(u) }
+            let alt2 = orig.replacingOccurrences(of: "singerimg.kugou.com", with: "mobi.kugou.com")
+            if let u = URL(string: alt2) { urls.append(u) }
         }
         return urls
     }

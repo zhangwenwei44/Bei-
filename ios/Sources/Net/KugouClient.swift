@@ -1166,6 +1166,8 @@ final class KugouClient {
     struct QRLogin: Equatable {
         let key: String
         let url: String
+        /// API 直接返回的 base64 二维码图，省掉 CIFilter 生成
+        let qrcodeImg: UIImage?
     }
 
     enum QRState: Equatable {
@@ -1208,16 +1210,36 @@ final class KugouClient {
                                     ])
         let json = Self.extractJSONP(raw) ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any]) ?? [:]
         Log.info("酷狗登录", "qrKey 响应 raw=\(String(raw.prefix(400)))")
-        let key = Self.deepString(json, path: ["qrcode", "key"]) ?? Self.deepString(json, path: ["data", "qrcode", "key"]) ?? ""
+
+        // 🔴 酷狗返回格式：
+        // {"status":1,"error_code":0,"data":{"qrcode":"2218895...(key)", "qrcode_img":"data:image/png;base64,..."}}
+        // qrcode 就是 key 字符串，不是嵌套对象！之前错误地用 ["qrcode","key"] 路径
+        let key = Self.deepString(json, path: ["data", "qrcode"]) ?? ""
+
+        // 顺便提取 base64 图片 —— API 直接给了，省掉 CIFilter
+        var qrImg: UIImage? = nil
+        if let b64 = Self.deepString(json, path: ["data", "qrcode_img"]),
+           let data = Self.decodeBase64Image(b64) {
+            qrImg = UIImage(data: data)
+            Log.info("酷狗登录", "qrKey 解析：用 API 返回的 qrcode_img 解码成功")
+        }
+
         guard !key.isEmpty else {
             let err = Self.deepInt(json, path: ["error_code"]) ?? -1
-            let msg = Self.deepString(json, path: ["error_msg"]) ?? Self.deepString(json, path: ["message"]) ?? Self.deepString(json, path: ["data"]) ?? ""
+            let msg = Self.deepString(json, path: ["error_msg"]) ?? Self.deepString(json, path: ["message"]) ?? ""
             Log.error("酷狗登录", "qrKey 解析失败 error_code=\(err) msg=\(msg) json=\(json)")
             throw KugouError.parse("二维码生成失败 (error_code=\(err))")
         }
         let url = "https://h5.kugou.com/apps/loginQRCode/html/index.html?qrcode=\(Self.urlEncode(key))"
         Log.info("酷狗登录", "QR key=\(key.prefix(12))...")
-        return QRLogin(key: key, url: url)
+        return QRLogin(key: key, url: url, qrcodeImg: qrImg)
+    }
+
+    /// 解码酷狗返回的 data:image/png;base64,xxx 格式
+    static func decodeBase64Image(_ b64: String) -> Data? {
+        let clean = b64.replacingOccurrences(of: "data:image/png;base64,", with: "")
+            .replacingOccurrences(of: "data:image/jpeg;base64,", with: "")
+        return Data(base64Encoded: clean)
     }
 
     /// 轮询二维码扫描状态（完全照搬 Beans —— 注意 pollQR 用默认 appid 不是 qrAppid！）

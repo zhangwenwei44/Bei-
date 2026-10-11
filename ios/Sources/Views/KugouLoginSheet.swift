@@ -100,8 +100,13 @@ struct KugouLoginSheet: View {
             defer { Task { @MainActor in isStarting = false } }
             do {
                 let login = try await KugouClient.shared.qrKey()
-                // 🔴 CIFilter 只在成功拿到 key 时生成一次，后续渲染复用缓存的 qrImage
-                let image = await MainActor.run { generateQRImage(from: login.url) }
+                // 🔴 优先用 API 返回的 base64 二维码图（省 CIFilter 开销），没有才 fallback 本地生成
+                let image: UIImage
+                if let serverImg = login.qrcodeImg {
+                    image = serverImg
+                } else {
+                    image = await MainActor.run { generateQRImage(from: login.url) }
+                }
                 await MainActor.run {
                     qrImage = image
                     statusText = "等待扫码…"

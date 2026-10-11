@@ -193,17 +193,9 @@ struct SourceSettingsView: View {
             case .editor(let source):
                 SourceEditorView(source: source)
             case .urlImport:
-                if #available(iOS 16.0, *) {
-                    SourceURLImportView { urlString in
-                        sheet = nil
-                        Task { await importFromURL(urlString) }
-                    }
-                    .presentationDetents([.medium])
-                } else {
-                    SourceURLImportView { urlString in
-                        sheet = nil
-                        Task { await importFromURL(urlString) }
-                    }
+                SourceURLImportView { urlString in
+                    sheet = nil
+                    Task { await importFromURL(urlString) }
                 }
             case .export:
                 SourceExportView()
@@ -533,20 +525,12 @@ struct SourceEditorView: View {
 
                 if draft.kind == .template {
                     Section {
-                        if #available(iOS 16.0, *) {
-                            TextField("请求地址，如 https://example.com/song?id={id}&br={quality}",
-                                      text: $draft.template,
-                                      axis: .vertical)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .font(.system(size: 13, design: .monospaced))
-                        } else {
-                            TextEditor(text: $draft.template)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .font(.system(size: 13, design: .monospaced))
-                                .frame(minHeight: 80)
-                        }
+                        TextField("请求地址，如 https://example.com/song?id={id}&br={quality}",
+                                  text: $draft.template,
+                                  axis: .vertical)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.system(size: 13, design: .monospaced))
                         TextField("地址字段，如 data.url|url", text: $draft.urlPath)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -572,16 +556,10 @@ struct SourceEditorView: View {
                 }
 
                 Section {
-                    if #available(iOS 16.0, *) {
-                        TextField("每行一条：Key=Value", text: $headersText, axis: .vertical)
-                            .font(.system(size: 13, design: .monospaced))
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                    } else {
-                        TextEditor(text: $headersText)
-                            .font(.system(size: 13, design: .monospaced))
-                            .frame(minHeight: 80)
-                    }
+                    TextField("每行一条：Key=Value", text: $headersText, axis: .vertical)
+                        .font(.system(size: 13, design: .monospaced))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
                 } header: {
                     Text("请求头")
                 } footer: {
@@ -621,7 +599,7 @@ struct SourceEditorView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("保存") { save() }
-                        .font(.system(size: 14, weight: .semibold))
+                        .fontWeight(.semibold)
                         .disabled(draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
@@ -730,7 +708,7 @@ struct SourceImportView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("导入") { importSources() }
-                        .font(.system(size: 14, weight: .semibold))
+                        .fontWeight(.semibold)
                 }
             }
         }
@@ -851,5 +829,6 @@ struct SourceURLImportView: View {
             }
             .onAppear { isFieldFocused = true }
         }
+        .presentationDetents([.medium])
     }
 }

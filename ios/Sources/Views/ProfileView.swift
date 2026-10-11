@@ -539,6 +539,7 @@ struct ProfileView: View {
                 }
             }
         }
+        .presentationDetents([.medium, .large])
     }
 
     private func loadRecommended() async {

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 歌手主页：沉浸式横幅 + 歌曲列表 + 专辑板块 + 多选下载。
+/// 歌手主页：沉浸式横幅 + 分段切换「歌曲 / 专辑」+ 多选下载。
 struct ArtistDetailView: View {
     let artist: Artist
     @EnvironmentObject private var store: PlayerStore
@@ -9,6 +9,9 @@ struct ArtistDetailView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @ObservedObject private var library = LibraryStore.shared
+
+    // 顶部 Tab：歌曲 / 专辑
+    @State private var tab: Int = 0
 
     // 多选模式
     @State private var isSelecting = false
@@ -21,15 +24,19 @@ struct ArtistDetailView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 0) {   // 🔴 VStack→LazyVStack！只渲染屏幕可见部分
+            LazyVStack(spacing: 0) {
                 immersiveHeader
-                albumSection
-                songListSection
+                tabBar
+                if tab == 0 {
+                    songListSection
+                } else {
+                    albumGridSection
+                }
             }
         }
         .background(AppStyle.background)
         .navigationBarTitleDisplayMode(.inline)
-        .compatToolbarHidden()  // iOS 15 fallback 自动忽略 iOS 16 API
+        .compatToolbarHidden()
         .toolbar {
             ToolbarItem(placement: .principal) {
                 if isSelecting {
@@ -84,18 +91,53 @@ struct ArtistDetailView: View {
         .onDisappear { store.isAnyMultiSelecting = false }
     }
 
+    // MARK: - 分段 Tab 条
+
+    private var tabBar: some View {
+        HStack(spacing: 4) {
+            tabButton(title: "歌曲", count: songs.count, selected: tab == 0) {
+                withAnimation(.easeOut(duration: 0.2)) { tab = 0 }
+            }
+            tabButton(title: "专辑", count: albums.count, selected: tab == 1) {
+                withAnimation(.easeOut(duration: 0.2)) { tab = 1 }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 6)
+    }
+
+    private func tabButton(title: String, count: Int, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Text(title).font(.system(size: 15, weight: selected ? .semibold : .regular))
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 10, weight: .medium))
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(.white.opacity(0.15), in: Capsule())
+                }
+            }
+            .foregroundStyle(selected ? AppStyle.accent : AppStyle.secondaryText)
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(
+                Capsule().fill(selected ? AppStyle.accent.opacity(0.12) : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - 顶部沉浸式横幅
 
     private var immersiveHeader: some View {
         let screenW = UIScreen.main.bounds.width
         let bannerHeight: CGFloat = 240
         return ZStack(alignment: .bottomLeading) {
-            // 歌手大图（不传 size 让 CoverImage 用 displayWidth 拉满）
             CoverImage(
                 url: artist.coverURL,
                 fallbackKeys: [artist.id],
                 seed: artist.name,
-                size: max(screenW, 720),  // 让 Kugou imgurl 的 {size} 替换成 720 拿高清图
+                size: max(screenW, 720),
                 corner: 0,
                 displayWidth: screenW,
                 displayHeight: bannerHeight
@@ -107,7 +149,6 @@ struct ArtistDetailView: View {
                 .frame(width: screenW, height: bannerHeight)
 
             VStack(alignment: .leading, spacing: 12) {
-                // 顶部：歌手名 + 粉丝
                 VStack(alignment: .leading, spacing: 4) {
                     Text(artist.name)
                         .font(.system(size: 22, weight: .bold))
@@ -120,7 +161,6 @@ struct ArtistDetailView: View {
                     }
                 }
 
-                // 底部按钮行：小圆头像 + Spacer + 播放全部 + 收藏
                 HStack(spacing: 12) {
                     CoverImage(
                         url: artist.coverURL,
@@ -135,18 +175,19 @@ struct ArtistDetailView: View {
 
                     Spacer()
 
+                    // 🔴 播放全部：更大更显眼
                     Button {
                         Haptics.soft()
                         store.queueID = "artist:\(artist.id)"
                         store.play(songs, startAt: 0)
                     } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "play.fill").font(.system(size: 10, weight: .bold))
+                        HStack(spacing: 6) {
+                            Image(systemName: "play.fill").font(.system(size: 11, weight: .bold))
                             Text("播放全部").font(.system(size: 12, weight: .semibold))
                         }
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 14).padding(.vertical, 6)
-                        .background(Capsule().fill(AppStyle.accent))
+                        .padding(.horizontal, 16).padding(.vertical, 7)
+                        .background(Capsule().fill(AppStyle.accent).shadow(color: AppStyle.accent.opacity(0.5), radius: 6, y: 2))
                     }
                     .buttonStyle(.plain)
                     .disabled(songs.isEmpty)
@@ -161,8 +202,8 @@ struct ArtistDetailView: View {
                         }
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(Capsule().fill(.white.opacity(0.25)))
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(Capsule().fill(.white.opacity(0.22)))
                     }
                     .buttonStyle(.plain)
                 }
@@ -173,89 +214,24 @@ struct ArtistDetailView: View {
         .frame(width: screenW, height: bannerHeight)
     }
 
-    // MARK: - 专辑板块
-
-    @ViewBuilder
-    private var albumSection: some View {
-        if !albums.isEmpty {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Label("专辑", systemImage: "square.stack")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(AppStyle.primaryText)
-                    Spacer()
-                    Text("\(albums.count) 张")
-                        .font(.system(size: 12))
-                        .foregroundStyle(AppStyle.secondaryText)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
-                .padding(.bottom, 8)
-
-                VStack(spacing: 0) {
-                    ForEach(albums) { album in
-                        NavigationLink {
-                            AlbumDetailView(album: album)
-                        } label: {
-                            HStack(spacing: 14) {
-                                CoverImage(
-                                    url: album.coverURL,
-                                    fallbackKeys: album.albumID.isEmpty ? [] : ["al:\(album.albumID)"],
-                                    seed: album.name,
-                                    size: 52,
-                                    corner: 8
-                                )
-                                .frame(width: 52, height: 52)
-
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(album.name)
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundStyle(AppStyle.primaryText)
-                                        .lineLimit(2)
-                                    Text(album.artist)
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(AppStyle.secondaryText)
-                                        .lineLimit(1)
-                                }
-                                Spacer()
-                                // 无 chevron.right — 整行可点
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
-                        Divider().padding(.leading, 78)
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 10)
-            }
-            .background(AppStyle.surface.opacity(0.45))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-        }
-    }
-
-    // MARK: - Song List
+    // MARK: - 歌曲列表
 
     private var songListSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Label("歌曲", systemImage: "music.note.list")
-                    .font(.system(size: 16, weight: .bold))
+                Text("歌曲列表")
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(AppStyle.primaryText)
                 Spacer()
                 if !songs.isEmpty {
-                    Text("\(songs.count) 首")
-                        .font(.system(size: 12))
+                    Text("共 \(songs.count) 首")
+                        .font(.system(size: 11))
                         .foregroundStyle(AppStyle.secondaryText)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 6)
 
             if isLoading {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: 60)
@@ -269,7 +245,7 @@ struct ArtistDetailView: View {
                     .font(.system(size: 13)).foregroundStyle(AppStyle.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: 60)
             } else {
-                LazyVStack(spacing: 0) {   // 🔴 VStack→LazyVStack！内层也懒加载
+                LazyVStack(spacing: 0) {
                     ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
                         let selected = selectedIDs.contains(song.id)
                         HStack(spacing: 0) {
@@ -317,32 +293,117 @@ struct ArtistDetailView: View {
         .background(AppStyle.surface.opacity(0.45))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .padding(.horizontal, 16)
-        .padding(.top, 14)
+        .padding(.top, 6)
         .padding(.bottom, 20)
     }
 
-    // MARK: - 多选底部操作条
+    // MARK: - 专辑列表（统一和歌曲列表一样的卡片样式）
+
+    private var albumGridSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if albums.isEmpty {
+                // 专辑为空，底部留点空间让布局对齐
+                EmptyView()
+            } else {
+                HStack {
+                    Text("全部专辑")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(AppStyle.primaryText)
+                    Spacer()
+                    Text("共 \(albums.count) 张")
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppStyle.secondaryText)
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+                .padding(.bottom, 6)
+
+                VStack(spacing: 0) {
+                    ForEach(albums) { album in
+                        NavigationLink {
+                            AlbumDetailView(album: album)
+                        } label: {
+                            HStack(spacing: 14) {
+                                CoverImage(
+                                    url: album.coverURL,
+                                    fallbackKeys: album.albumID.isEmpty ? [] : ["al:\(album.albumID)"],
+                                    seed: album.name,
+                                    size: 52,
+                                    corner: 8
+                                )
+                                .frame(width: 52, height: 52)
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(album.name)
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundStyle(AppStyle.primaryText)
+                                        .lineLimit(2)
+                                    Text(album.artist)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(AppStyle.secondaryText)
+                                        .lineLimit(1)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                        Divider().padding(.leading, 78)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 6)
+            }
+        }
+        .background(AppStyle.surface.opacity(albums.isEmpty ? 0 : 0.45))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
+        .padding(.bottom, 20)
+    }
+
+    // MARK: - 多选底部操作条（美化播放/下载）
 
     private var selectedActionBar: some View {
         let selected = songs.filter { selectedIDs.contains($0.id) }
         let downloads = DownloadManager.shared
         return HStack(spacing: 0) {
+            // 🔴 播放全部：主色调大按钮
             Button {
                 store.play(selected); Haptics.soft()
                 isSelecting = false; selectedIDs.removeAll()
             } label: {
-                VStack(spacing: 4) { Image(systemName: "play.fill").font(.system(size: 18)); Text("播放").font(.system(size: 11)) }
-                    .foregroundStyle(AppStyle.primaryText).frame(maxWidth: .infinity).padding(.vertical, 12)
+                VStack(spacing: 6) {
+                    Image(systemName: "play.fill").font(.system(size: 20, weight: .bold))
+                    Text("播放").font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 10))
+                .padding(.horizontal, 8)
             }.buttonStyle(.plain)
-            Divider().frame(height: 24)
+
+            // 🔴 下载：次色调
             Button {
                 Task { for song in selected { if song.isRemote { _ = try? await downloads.download(song) } } }
                 Haptics.soft(); isSelecting = false; selectedIDs.removeAll()
             } label: {
-                VStack(spacing: 4) { Image(systemName: "arrow.down.circle").font(.system(size: 18)); Text("下载").font(.system(size: 11)) }
-                    .foregroundStyle(AppStyle.primaryText).frame(maxWidth: .infinity).padding(.vertical, 12)
+                VStack(spacing: 6) {
+                    Image(systemName: "arrow.down.circle.fill").font(.system(size: 20))
+                    Text("下载").font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(AppStyle.primaryText)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppStyle.stroke, lineWidth: 0.5))
+                .padding(.horizontal, 8)
             }.buttonStyle(.plain)
-            Divider().frame(height: 24)
+
+            // 加歌单
             Menu {
                 if library.playlists.isEmpty { Text("还没有歌单") }
                 ForEach(library.playlists) { pl in
@@ -352,11 +413,18 @@ struct ArtistDetailView: View {
                     }
                 }
             } label: {
-                VStack(spacing: 4) { Image(systemName: "text.badge.plus").font(.system(size: 18)); Text("加歌单").font(.system(size: 11)) }
-                    .foregroundStyle(AppStyle.primaryText).frame(maxWidth: .infinity).padding(.vertical, 12)
+                VStack(spacing: 6) {
+                    Image(systemName: "text.badge.plus").font(.system(size: 20))
+                    Text("加歌单").font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(AppStyle.primaryText)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
             }.buttonStyle(.plain)
         }
-        .background(AppStyle.surface)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(AppStyle.background)
         .overlay(Rectangle().fill(AppStyle.stroke).frame(height: 0.5), alignment: .top)
     }
 
@@ -381,13 +449,11 @@ struct ArtistDetailView: View {
             let cleaned = artist.name.trimmingCharacters(in: .whitespaces)
             let pageSongs = try await client.searchSongs(keyword: cleaned, page: page, limit: 30)
 
-            // 过滤：artist 名包含匹配
             var filtered = pageSongs.filter { song in
                 let a = song.artist.trimmingCharacters(in: .whitespaces)
                 return a == cleaned || a.contains(cleaned) || cleaned.contains(a)
             }
 
-            // 去重
             let existingIDs = Set(songs.map(\.id))
             filtered.removeAll { existingIDs.contains($0.id) }
 
@@ -395,7 +461,6 @@ struct ArtistDetailView: View {
                 songs.append(contentsOf: filtered)
             } else {
                 songs = filtered
-                // 首次加载顺便聚合专辑
                 var seen = Set<String>()
                 albums = pageSongs
                     .filter { !$0.album.isEmpty && $0.album != $0.title }
