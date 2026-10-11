@@ -257,7 +257,14 @@ struct ProfileView: View {
                 } label: {
                     Label("导入酷狗歌单", systemImage: "square.and.arrow.down.on.square")
                 }
-                ShareLink(item: backupTempURL()) {
+                // 🔴 用 Button 触发手动写备份 → 再调系统分享面板
+                // 旧写法 ShareLink(item: backupTempURL()) 会在每次 body 渲染时写一个新备份到 tmp
+                // 每秒 5~10 次 → 磁盘爆满 + CPU 打满 + 卡顿
+                Button {
+                    if let url = try? writeBackupOnce() {
+                        showShareSheet(url: url)
+                    }
+                } label: {
                     Label("导出歌单备份", systemImage: "square.and.arrow.up")
                 }
                 Button {
@@ -593,19 +600,25 @@ struct ProfileView: View {
     }
 
     /// 备份 JSON 写到临时目录，返回 URL 供 ShareLink 使用
-    private func backupTempURL() -> URL {
+    /// 只在用户点"导出"时写一次备份文件（不再在 body 渲染时疯狂写）
+    private func writeBackupOnce() throws -> URL {
         let fm = FileManager.default
-        let tmpDir = fm.temporaryDirectory
-        let fileName = "aurora-backup-\(ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")).json"
-        let url = tmpDir.appendingPathComponent(fileName)
-        do {
-            let data = try library.backupAllData()
-            try data.write(to: url, options: .atomic)
-            Log.info("备份", "写出备份文件 \(url.lastPathComponent) (\(data.count) bytes)")
-        } catch {
-            Log.warn("备份", "写出备份失败 \(error.localizedDescription)")
-        }
+        let docDir = try fm.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+        let url = docDir.appendingPathComponent("aurora-backup-latest.json")
+        let data = try library.backupAllData()
+        try data.write(to: url, options: .atomic)
+        Log.info("备份", "一次性写出备份 \(url.path) (\(data.count) bytes)")
         return url
+    }
+
+    private func showShareSheet(url: URL) {
+        guard let window = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first?.windows.first(where: { $0.isKeyWindow }) else { return }
+        let vc = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        vc.popoverPresentationController?.sourceView = window
+        vc.popoverPresentationController?.sourceRect = CGRect(x: window.bounds.midX, y: window.bounds.midY, width: 0, height: 0)
+        window.rootViewController?.present(vc, animated: true)
     }
 
     /// 从备份文件恢复

@@ -339,12 +339,12 @@ struct PlayerView: View {
     // MARK: 播放控件（Beans 直接搬：accent=dominantColor 渐变 + 发光 + 玻璃描边）
 
     private func classicDeck(bottomInset: CGFloat) -> some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             classicProgressBlock
             classicDeckControls
         }
         .padding(.horizontal, 28)
-        .padding(.top, 8)
+        .padding(.top, 0)
         .padding(.bottom, max(10, bottomInset))
     }
 

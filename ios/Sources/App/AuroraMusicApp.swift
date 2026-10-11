@@ -6,6 +6,7 @@ struct AuroraMusicApp: App {
     @StateObject private var store = PlayerStore()
     @StateObject private var auth = AuthService.shared
     @AppStorage("aurora.disclaimer.accepted") private var disclaimerAccepted = false
+    @State private var showQQSheet = false
 
     init() {
         // 必须最先装：播放闪退时全靠它把现场写进运行日志
@@ -52,7 +53,24 @@ struct AuroraMusicApp: App {
             .environmentObject(store)
             .environmentObject(auth)
             .preferredColorScheme(ThemeSettings.mode.colorScheme)
-            .onAppear { store.bootstrap() }
+            .onAppear {
+                store.bootstrap()
+                // 🔴 首次启动弹 QQ 群公告（用户点"知道了"后关闭本 App 重开就不再弹）
+                let dismissed = UserDefaults.standard.bool(forKey: "aurora.qqAnnouncement.dismissed")
+                let launched = UserDefaults.standard.integer(forKey: "aurora.qqAnnouncement.launchCount")
+                if !dismissed {
+                    // 只在前 3 次启动弹，超过 3 次用户还没关就自动不弹了
+                    if launched < 3 {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            showQQSheet = true
+                        }
+                        UserDefaults.standard.set(launched + 1, forKey: "aurora.qqAnnouncement.launchCount")
+                    }
+                }
+            }
+            .sheet(isPresented: $showQQSheet) {
+                QQAnnouncementView()
+            }
     }
 }
 

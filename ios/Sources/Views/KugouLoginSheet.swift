@@ -70,6 +70,10 @@ struct KugouLoginSheet: View {
         .task {
             if qr == nil { startLogin() }
         }
+        .onAppear {
+            // 兜底：iOS 16 上 .task 有时不触发
+            if qr == nil { startLogin() }
+        }
         .onDisappear { stopPolling() }
     }
 

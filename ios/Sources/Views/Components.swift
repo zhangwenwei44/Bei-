@@ -367,16 +367,16 @@ struct SongRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
             if showsCover {
                 CoverImage(url: song.artworkURL,
                            fallbackKeys: song.coverFallbackKeys,
                            seed: "\(song.artist)-\(song.title)",
-                           size: 44)
+                           size: 50)
                 .overlay(alignment: .bottomTrailing) {
                     if isPlaying {
                         Image(systemName: "waveform")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(AppStyle.onAccent)
                             .padding(3)
                             .background(AppStyle.accent, in: Circle())
@@ -385,10 +385,10 @@ struct SongRow: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(song.title)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(isCurrent ? AppStyle.accent : AppStyle.primaryText)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -404,7 +404,7 @@ struct SongRow: View {
                     }
                 }
                 Text(song.artist)
-                    .font(.system(size: 12))
+                    .font(.system(size: 13))
                     .foregroundStyle(AppStyle.secondaryText)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -420,7 +420,7 @@ struct SongRow: View {
                 RowTrailingButtons(song: song)
             }
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 10)
         .contentShape(Rectangle())
     }
 }
