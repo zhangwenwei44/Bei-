@@ -18,6 +18,7 @@ final class KugouClient {
     private let searchSalt = "y9tjae~n)k)vn[8"
     private let playKeySalt = "57ae12eb6890223e355ccfcb74edf70d"
     private let webSalt = "NVPh5oo715z5DIWAeQlhMDsWXXQV4hwt"  // web 端签名 salt
+    private let androidSalt = "9F2F15584D7A0576863B3B3D4C2C7B7D"  // android 端签名 salt（🔴 gateway.kugou.com 用这个！）
 
     private let session: URLSession
     /// 歌手写真缓存（NSCache 线程安全）。key 是歌手名。
@@ -1346,6 +1347,14 @@ final class KugouClient {
         return Data("\(webSalt)\(body)\(webSalt)".utf8).md5Hex()
     }
 
+    /// 🔴 Android 签名 —— gateway.kugou.com 接口用这个！
+    /// Beans androidSignature: MD5(androidSalt + 排序key=value + data + androidSalt)
+    /// gateway 接口 data 是空字符串（没有额外请求体）
+    private func androidSign(_ params: [String: String], data: String = "") -> String {
+        let body = params.keys.sorted().map { "\($0)=\(params[$0] ?? "")" }.joined()
+        return Data("\(androidSalt)\(body)\(data)\(androidSalt)".utf8).md5Hex()
+    }
+
     // MARK: - 酷狗歌单同步
 
     struct KugouPlaylist: Identifiable {
@@ -1380,9 +1389,7 @@ final class KugouClient {
                 "userid": userId,
                 "token": token,
             ]
-            params["signature"] = webSign(params)
-
-            let raw = try await gatewayPostRaw(path: "/v7/get_all_list",
+            params["signature"] = androidSign(params)  // 🔴 gateway.kugou.com 用 androidSign！
                                                 params: params,
                                                 headers: [
                                                     "x-router": "cloudlist.service.kugou.com",
@@ -1464,7 +1471,7 @@ final class KugouClient {
                 "page": "\(page)",
                 "pagesize": "200",
             ]
-            params["signature"] = webSign(params)
+            params["signature"] = androidSign(params)
 
             let raw = try await gatewayPostRaw(path: "/v7/get_list_song",
                                                 params: params,

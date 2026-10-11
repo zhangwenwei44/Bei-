@@ -1,5 +1,38 @@
 import SwiftUI
 
+// MARK: - MiniPlayer Inset（iOS 16 safeAreaInset + iOS 15 fallback）
+
+private extension View {
+    @ViewBuilder
+    func applyMiniPlayerInset<Content: View>(
+        showMini: Bool,
+        isExpanded: Binding<Bool>,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        if showMini {
+            if #available(iOS 16.0, *) {
+                // 🔴 iOS 16+: safeAreaInset —— SwiftUI 自动把 TabBar 顶到 MiniPlayer 下方，无任何 Z-order 重叠！
+                self.safeAreaInset(edge: .bottom, spacing: 0) {
+                    content()
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 6)  // safeAreaInset 内部 spacing
+                }
+            } else {
+                // iOS 15 fallback: overlay + 手动 frame 约束
+                self.overlay(alignment: .bottom) {
+                    content()
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 6)
+                        .frame(maxWidth: .infinity, alignment: .bottom)
+                        .offset(y: -49)  // 推到 TabBar 正上方
+                }
+            }
+        } else {
+            self
+        }
+    }
+}
+
 struct RootView: View {
     @EnvironmentObject private var store: PlayerStore
     @State private var tab: Tab = .discover
@@ -11,45 +44,36 @@ struct RootView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            TabView(selection: $tab) {
-                CompatNavigationStack {
-                    DiscoverView()
-                }
-                .tabItem { Label("主页", systemImage: "safari.fill") }
-                .tag(Tab.discover)
-
-                CompatNavigationStack {
-                    SearchView()
-                }
-                .tabItem { Label("搜索", systemImage: "magnifyingglass") }
-                .tag(Tab.search)
-
-                CompatNavigationStack {
-                    LibraryView()
-                }
-                .tabItem { Label("我的音乐", systemImage: "music.note.list") }
-                .tag(Tab.library)
-
-                CompatNavigationStack {
-                    ProfileView()
-                }
-                .tabItem { Label("设置", systemImage: "gearshape.fill") }
-                .tag(Tab.profile)
+        TabView(selection: $tab) {
+            CompatNavigationStack {
+                DiscoverView()
             }
+            .tabItem { Label("主页", systemImage: "safari.fill") }
+            .tag(Tab.discover)
 
-            // 🔴 MiniPlayer —— iOS 15+ TabView 会自动把 TabBar 顶到 safeArea 上面
-            //    MiniPlayer 用 overlay + .safeAreaInset（iOS 16+）或直接 frame 约束
-            //    关键：不能给 MiniPlayer 加 contentShape 覆盖 padding 空间
-            if store.current != nil && !store.isAnyMultiSelecting {
-                MiniPlayer(isExpanded: $isPlayerExpanded)
-                    .padding(.horizontal, 10)
-                    // 🔴 极简：只 padding 10pt，TabBar 的 safeAreaInset 会自动撑开
-                    .padding(.bottom, 10)
-                    .frame(maxWidth: .infinity, alignment: .bottom)
-                    // 🔴 只过渡动画 —— 不加 contentShape/Rectangle，让 MiniPlayer 内部自己管 hitTest
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            CompatNavigationStack {
+                SearchView()
             }
+            .tabItem { Label("搜索", systemImage: "magnifyingglass") }
+            .tag(Tab.search)
+
+            CompatNavigationStack {
+                LibraryView()
+            }
+            .tabItem { Label("我的音乐", systemImage: "music.note.list") }
+            .tag(Tab.library)
+
+            CompatNavigationStack {
+                ProfileView()
+            }
+            .tabItem { Label("设置", systemImage: "gearshape.fill") }
+            .tag(Tab.profile)
+        }
+        // 🔴 safeAreaInset —— 唯一正确的方式让 TabView 自动避让 MiniPlayer
+        // iOS 15 没有 safeAreaInset，fallback 到 overlay + 正确的 frame 约束
+        .applyMiniPlayerInset(showMini: store.current != nil && !store.isAnyMultiSelecting,
+                              isExpanded: $isPlayerExpanded) {
+            MiniPlayer(isExpanded: $isPlayerExpanded)
         }
         .overlay {
             if isPlayerExpanded, store.current != nil {
