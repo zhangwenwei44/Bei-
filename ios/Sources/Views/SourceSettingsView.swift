@@ -193,9 +193,17 @@ struct SourceSettingsView: View {
             case .editor(let source):
                 SourceEditorView(source: source)
             case .urlImport:
-                SourceURLImportView { urlString in
-                    sheet = nil
-                    Task { await importFromURL(urlString) }
+                if #available(iOS 16.0, *) {
+                    SourceURLImportView { urlString in
+                        sheet = nil
+                        Task { await importFromURL(urlString) }
+                    }
+                    .presentationDetents([.medium])
+                } else {
+                    SourceURLImportView { urlString in
+                        sheet = nil
+                        Task { await importFromURL(urlString) }
+                    }
                 }
             case .export:
                 SourceExportView()
@@ -844,15 +852,6 @@ struct SourceURLImportView: View {
                 }
             }
             .onAppear { isFieldFocused = true }
-        }
-        .presentationDetentsCompatMedium()
-    }
-
-    private func presentationDetentsCompatMedium() -> some View {
-        Group {
-            if #available(iOS 16.0, *) {
-                self.presentationDetents([.medium])
-            } else { self }
         }
     }
 }

@@ -379,7 +379,12 @@ struct ProfileView: View {
             case .about: AboutView()
             case .update: UpdateView()
             case .changelog: ChangelogView()
-            case .kugouImport: kugouImportSheet
+            case .kugouImport:
+                if #available(iOS 16.0, *) {
+                    kugouImportSheet.presentationDetents([.medium, .large])
+                } else {
+                    kugouImportSheet
+                }
             case .kugouLogin: KugouLoginSheet()
             }
         }
@@ -537,18 +542,6 @@ struct ProfileView: View {
                 if recommendedPlaylists.isEmpty {
                     await loadRecommended()
                 }
-            }
-        }
-        .presentationDetentsCompatSheet()
-    }
-
-    // 🔴 iOS 15 编译时 PresentationDetent 类型不存在，把函数放调用方用 if #available 包裹
-    private func presentationDetentsCompatSheet() -> some View {
-        Group {
-            if #available(iOS 16.0, *) {
-                self.presentationDetents([.medium, .large])
-            } else {
-                self
             }
         }
     }

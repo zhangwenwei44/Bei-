@@ -862,6 +862,18 @@ struct PlayerView: View {
         return "\(song?.title ?? "") - \(song?.artist ?? "")"
     }
 
+    private func presentShare() {
+        let items = [shareText] as [Any]
+        let ac = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        for scene in UIApplication.shared.connectedScenes {
+            guard let ws = scene as? UIWindowScene,
+                  let vc = ws.windows.first?.rootViewController else { continue }
+            ac.popoverPresentationController?.sourceView = vc.view
+            ac.popoverPresentationController?.sourceRect = CGRect(x: vc.view.bounds.midX, y: vc.view.bounds.midY, width: 0, height: 0)
+            vc.present(ac, animated: true); break
+        }
+    }
+
     /// 顶栏中间显示的专辑名（优先歌曲专辑，fallback 源名）
     private var albumDisplay: String {
         if let album = store.current?.album, !album.isEmpty { return album }
