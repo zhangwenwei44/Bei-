@@ -193,9 +193,17 @@ struct SourceSettingsView: View {
             case .editor(let source):
                 SourceEditorView(source: source)
             case .urlImport:
-                SourceURLImportView { urlString in
-                    sheet = nil
-                    Task { await importFromURL(urlString) }
+                if #available(iOS 16.0, *) {
+                    SourceURLImportView { urlString in
+                        sheet = nil
+                        Task { await importFromURL(urlString) }
+                    }
+                    .presentationDetents([.medium])
+                } else {
+                    SourceURLImportView { urlString in
+                        sheet = nil
+                        Task { await importFromURL(urlString) }
+                    }
                 }
             case .export:
                 SourceExportView()
@@ -525,12 +533,20 @@ struct SourceEditorView: View {
 
                 if draft.kind == .template {
                     Section {
-                        TextField("请求地址，如 https://example.com/song?id={id}&br={quality}",
-                                  text: $draft.template,
-                                  axis: .vertical)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .font(.system(size: 13, design: .monospaced))
+                        if #available(iOS 16.0, *) {
+                            TextField("请求地址，如 https://example.com/song?id={id}&br={quality}",
+                                      text: $draft.template,
+                                      axis: .vertical)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .font(.system(size: 13, design: .monospaced))
+                        } else {
+                            TextEditor(text: $draft.template)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .font(.system(size: 13, design: .monospaced))
+                                .frame(minHeight: 80)
+                        }
                         TextField("地址字段，如 data.url|url", text: $draft.urlPath)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -835,6 +851,5 @@ struct SourceURLImportView: View {
             }
             .onAppear { isFieldFocused = true }
         }
-        .applyIfiOS16 { $0.presentationDetents([.medium]) }
     }
 }

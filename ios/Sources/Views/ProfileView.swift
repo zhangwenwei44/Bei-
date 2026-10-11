@@ -539,7 +539,6 @@ struct ProfileView: View {
                 }
             }
         }
-        .applyIfiOS16 { $0.presentationDetents([.medium, .large]) }
     }
 
     private func loadRecommended() async {

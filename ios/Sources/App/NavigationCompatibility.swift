@@ -1,8 +1,8 @@
 import SwiftUI
 
 // MARK: - iOS 15 兼容层
-// 原 deploymentTarget=16.0，iOS 15 上 NavigationStack 等类不存在 → dyld crash 闪退。
-// 方案：所有 iOS 16 专属 API 用 #available 包裹 + fallback 实现。
+// 原 deploymentTarget=16.0，iOS 15 上 NavigationStack 类不存在 → dyld crash。
+// 方案：所有 iOS 16 API 用 if #available(iOS 16.0, *) { ... } else { self } 包裹。
 
 // MARK: NavigationStack ↔ NavigationView
 
@@ -19,15 +19,9 @@ struct CompatNavigationStack<Content: View>: View {
     }
 }
 
-// MARK: - 通用兼容扩展
+// MARK: - 简单兼容扩展（内部 if #available 包装 iOS 16 API）
 
 extension View {
-    /// iOS 16+ 执行 modifier，iOS 15 忽略 —— 用来包依赖 iOS 16 类型的 API 调用（如 PresentationDetent）
-    @ViewBuilder
-    func applyIfiOS16(_ modifier: (Self) -> some View) -> some View {
-        if #available(iOS 16.0, *) { modifier(self) } else { self }
-    }
-
     @ViewBuilder
     func compatScrollContentBackground(_ visibility: Visibility) -> some View {
         if #available(iOS 16.0, *) { scrollContentBackground(visibility) } else { self }
@@ -42,7 +36,7 @@ extension View {
     }
 }
 
-// MARK: - FlowLayout / Layout protocol iOS 16
+// MARK: - FlowLayout / Layout protocol
 
 @available(iOS 16.0, *)
 struct FlowLayout: Layout {
@@ -70,29 +64,19 @@ struct FlowLayout: Layout {
     }
 }
 
-/// iOS 15 简单 FlowChips fallback
+/// iOS 15 FlowChips fallback（手动 HStack 换行）
 struct LegacyFlowChips: View {
     let items: [String]
     var action: (String) -> Void
     var spacing: CGFloat = 8
 
     var body: some View {
-        VStack(alignment: .leading, spacing: spacing) {
-            // iOS 15 没 Layout 协议，每行一个 HStack，手动估算换行
-            rows
-        }
-    }
-
-    @ViewBuilder
-    private var rows: some View {
         let screenW = UIScreen.main.bounds.width - 32
-        let estimatedChipH: CGFloat = 30  // padding(.vertical,7)*2 + content
         var currentW: CGFloat = 0
         var currentRow: [String] = []
         var rows: [[String]] = []
-
         for item in items {
-            let estW = CGFloat(item.count) * 7 + 24  // 粗估
+            let estW = CGFloat(item.count) * 7 + 24
             if currentW + estW > screenW && !currentRow.isEmpty {
                 rows.append(currentRow); currentRow = []; currentW = 0
             }
@@ -100,15 +84,17 @@ struct LegacyFlowChips: View {
         }
         if !currentRow.isEmpty { rows.append(currentRow) }
 
-        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-            HStack(spacing: spacing) {
-                ForEach(row, id: \.self) { item in
-                    Button { Haptics.light(); action(item) } label: {
-                        Text(item).font(.system(size: 13)).foregroundStyle(AppStyle.primaryText)
-                            .padding(.horizontal, 12).padding(.vertical, 7)
-                            .background(AppStyle.surface, in: Capsule())
-                            .overlay(Capsule().stroke(AppStyle.stroke, lineWidth: 0.5))
-                    }.buttonStyle(.plain)
+        return VStack(alignment: .leading, spacing: spacing) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: spacing) {
+                    ForEach(row, id: \.self) { item in
+                        Button { Haptics.light(); action(item) } label: {
+                            Text(item).font(.system(size: 13)).foregroundStyle(AppStyle.primaryText)
+                                .padding(.horizontal, 12).padding(.vertical, 7)
+                                .background(AppStyle.surface, in: Capsule())
+                                .overlay(Capsule().stroke(AppStyle.stroke, lineWidth: 0.5))
+                        }.buttonStyle(.plain)
+                    }
                 }
             }
         }

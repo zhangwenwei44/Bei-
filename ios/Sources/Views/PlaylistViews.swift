@@ -29,32 +29,59 @@ struct SongListView: View {
             if songs.isEmpty {
                 EmptyStateView(icon: "music.note.list", title: "这里还没有歌曲")
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        // 副标题行
-                        HStack {
-                            Text(subtitle ?? "\(songs.count) 首")
-                                .font(.system(size: 12))
-                                .foregroundStyle(AppStyle.tertiaryText)
-                            Spacer()
+                if #available(iOS 16.0, *) {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            // 副标题行
+                            HStack {
+                                Text(subtitle ?? "\(songs.count) 首")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(AppStyle.tertiaryText)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                            .padding(.bottom, 4)
+
+                            ForEach(songs) { song in
+                                SongRow(song: song,
+                                        isCurrent: store.current?.id == song.id,
+                                        isPlaying: store.isPlaying)
+                                    .equatable()
+                                    .songMenu(song)
+                                    .onTapGesture { play(song) }
+                                    Divider().padding(.leading, 74)
+                            }
                         }
                         .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .padding(.bottom, 4)
-
-                        ForEach(songs) { song in
-                            SongRow(song: song,
-                                    isCurrent: store.current?.id == song.id,
-                                    isPlaying: store.isPlaying)
-                                .equatable()
-                                .songMenu(song)
-                                .onTapGesture { play(song) }
-                                Divider().padding(.leading, 74)
-                        }
                     }
-                    .padding(.horizontal, 16)
+                    .scrollIndicators(.hidden)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            HStack {
+                                Text(subtitle ?? "\(songs.count) 首")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(AppStyle.tertiaryText)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                            .padding(.bottom, 4)
+
+                            ForEach(songs) { song in
+                                SongRow(song: song,
+                                        isCurrent: store.current?.id == song.id,
+                                        isPlaying: store.isPlaying)
+                                    .equatable()
+                                    .songMenu(song)
+                                    .onTapGesture { play(song) }
+                                    Divider().padding(.leading, 74)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
                 }
-                .applyIfiOS16 { $0.scrollIndicators(.hidden) }
             }
         }
         .background(AppStyle.background)
