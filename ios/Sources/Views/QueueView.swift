@@ -1,4 +1,4 @@
-﻿﻿import SwiftUI
+﻿import SwiftUI
 
 private struct QueueSheetModifier: ViewModifier {
     @EnvironmentObject private var store: PlayerStore
