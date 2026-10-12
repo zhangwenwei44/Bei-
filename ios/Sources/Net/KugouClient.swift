@@ -1456,7 +1456,7 @@ final class KugouClient {
         }
     }
 
-    private static func randomLower(_ length: Int) -> String {
+    private static func randomLower(_ length: Int) -> String? {
         let chars = Array("1234567890abcdefghijklmnopqrstuvwxyz")
         return String((0..<length).map { _ in chars[Int.random(in: 0..<chars.count)] })
     }
