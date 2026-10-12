@@ -1402,16 +1402,17 @@ final class KugouClient {
             final["page"] = "\(page)"
             final["pagesize"] = "200"
 
-            // 🔴 JSON body（POST 必须有）
-            let bodyData = try JSONSerialization.data(withJSONObject: dataBody, options: [.sortedKeys])
+            // 🔴 JSON body —— 和 Beans 一样！不要 .sortedKeys！
+            let bodyData = try JSONSerialization.data(withJSONObject: dataBody)
             let bodyStr = String(data: bodyData, encoding: .utf8) ?? ""
 
-            // 🔴 androidSignature —— Beans 用这个！gateway 服务端也用 androidSalt 验签
+            // 🔴 androidSignature —— Beans 用这个！
+            let signBody = final.keys.sorted().map { "\($0)=\(final[$0] ?? "")" }.joined()
             final["signature"] = androidSign(final, data: bodyStr)
 
-            // 🔴 POST 到 gateway.kugou.com —— 用 URLComponents 拼 URL（和 Beans 一样）
+            // 🔴 POST 到 gateway.kugou.com —— URLComponents 和 Beans 一样（Beans 也不排序 queryItems）
             var comps = URLComponents(string: "https://gateway.kugou.com/v7/get_all_list")!
-            comps.queryItems = final.sorted(by: { $0.key < $1.key }).map { URLQueryItem(name: $0.key, value: $0.value) }
+            comps.queryItems = final.map { URLQueryItem(name: $0.key, value: $0.value) }
             let url = comps.url!
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
@@ -1427,6 +1428,14 @@ final class KugouClient {
             request.setValue(clienttime, forHTTPHeaderField: "clienttime")
             let cookie = KugouAuth.shared.cookieHeader
             if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+
+            // 🔴 完整 debug 日志 —— 这次要看清楚
+            let allHeaders = request.allHTTPHeaderFields ?? [:]
+            Log.info("酷狗", "🔴 GATEWAY REQUEST: url=\(url.absoluteString)")
+            Log.info("酷狗", "🔴 GATEWAY REQUEST: body=\(bodyStr)")
+            Log.info("酷狗", "🔴 GATEWAY REQUEST: signInput=androidSalt + \(signBody.prefix(300)) + \(bodyStr.prefix(200)) + androidSalt")
+            Log.info("酷狗", "🔴 GATEWAY REQUEST: signature=\(final["signature"] ?? "nil")")
+            Log.info("酷狗", "🔴 GATEWAY REQUEST: headers=\(allHeaders)")
 
             let started = Date()
             let (data, resp) = try await session.data(for: request)
