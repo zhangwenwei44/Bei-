@@ -1402,11 +1402,12 @@ final class KugouClient {
             final["page"] = "\(page)"
             final["pagesize"] = "200"
 
-            // 🔴 androidSignature(params 排序 + data body 字符串)
-            // ⚠️ 关键：JSON 必须 .sortedKeys 否则每次 key 顺序不同 → bodyStr 不同 → 签名不同 → 20017！
+            // 🔴 JSON body（POST 必须有）
             let bodyData = try JSONSerialization.data(withJSONObject: dataBody, options: [.sortedKeys])
-            let bodyStr = String(data: bodyData, encoding: .utf8) ?? ""
-            final["signature"] = androidSign(final, data: bodyStr)
+
+            // 🔴 签名 —— 试 webSign（和 login-user 完全一致！Beans 用 androidSign 但 gateway 可能接受 webSign）
+            // 如果还是 20017 再换回来
+            final["signature"] = webSign(final)
 
             // 🔴 POST 到 gateway.kugou.com —— 用 URLComponents 拼 URL（和 Beans 一样）
             var comps = URLComponents(string: "https://gateway.kugou.com/v7/get_all_list")!
