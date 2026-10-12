@@ -21,15 +21,34 @@ final class KugouAuth: ObservableObject {
 
     var token: String { defaults.string(forKey: key + ".token") ?? "" }
     var isVip: Bool { (defaults.object(forKey: key + ".vipType") as? Int ?? 0) > 0 }
+    var vipType: Int { defaults.object(forKey: key + ".vipType") as? Int ?? 0 }
+
+    /// 设备指纹 dfid —— Beans 默认 "-"（registerDevice 后才有真实值，不注册也能用）
+    var dfid: String { "-" }
+
+    /// 设备指纹 mid —— 必须持久化且与 Cookie 里的 KUGOU_API_MID 完全一致，否则 gateway 20017
+    /// 算法照搬 Beans: MD5(identifierForVendor) 前 15 位 hex → UInt64 十进制
+    var mid: String {
+        if let saved = defaults.string(forKey: "aurora_kugou_mid"), !saved.isEmpty { return saved }
+        let seed = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
+        let hex = Data(seed.utf8).md5Hex()
+        let prefix = String(hex.prefix(15))
+        let value = UInt64(prefix, radix: 16).map(String.init) ?? hex
+        defaults.set(value, forKey: "aurora_kugou_mid")
+        return value
+    }
 
     var cookieHeader: String {
+        // 🔴 必须和 Beans 完全一致：4 项！缺 KUGOU_API_MID/dfid 会导致 gateway 20017
         var items: [(String, String)] = [
             ("userid", userId),
             ("token", token),
+            ("KUGOU_API_MID", mid),
+            ("dfid", dfid),
         ]
-        if isVip {
-            items.append(("vipType", "1"))
-            items.append(("viptype", "1"))
+        if vipType > 0 {
+            items.append(("vipType", "\(vipType)"))
+            items.append(("viptype", "\(vipType)"))
         }
         return items.filter { !$0.1.isEmpty }.map { "\($0.0)=\($0.1)" }.joined(separator: "; ")
     }

@@ -55,20 +55,10 @@ final class KugouClient {
         config.httpMaximumConnectionsPerHost = 5
         session = URLSession(configuration: config)
 
-        // 🔴 mid 必须持久化！gateway 校验设备注册，每次启动不同会导致签名不匹配！
-        // Beans 用 identifierForVendor + UserDefaults 持久化
-        let defaults = UserDefaults.standard
-        if let savedMid = defaults.string(forKey: "aurora_kugou_mid"), !savedMid.isEmpty {
-            mid = savedMid
-        } else {
-            let seed = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
-            let hex = Data(seed.utf8).md5Hex()
-            let prefix = String(hex.prefix(15))
-            mid = UInt64(prefix, radix: 16).map(String.init) ?? hex
-            defaults.set(mid, forKey: "aurora_kugou_mid")
-        }
-        // dfid —— Beans 默认就是 "-"
-        dfid = "-"
+        // 🔴 mid/dfid 统一从 KugouAuth 读 —— 保证 query / headers / Cookie 三处完全一致！
+        // 不一致会导致 gateway 20017 签名/设备校验失败
+        mid = KugouAuth.shared.mid
+        dfid = KugouAuth.shared.dfid
     }
 
     // MARK: - 签名
@@ -1427,7 +1417,7 @@ final class KugouClient {
             request.httpBody = bodyData
             request.setValue(gatewayUA, forHTTPHeaderField: "User-Agent")
             request.setValue("cloudlist.service.kugou.com", forHTTPHeaderField: "x-router")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            // 🔴 Beans gatewayRequest 不发 Content-Type！userPlaylists 走 gatewayRequest（不是 cloudlistRequest）
             request.setValue("1", forHTTPHeaderField: "kg-rc")
             request.setValue("5d816a0", forHTTPHeaderField: "kg-thash")
             request.setValue("1", forHTTPHeaderField: "kg-rec")

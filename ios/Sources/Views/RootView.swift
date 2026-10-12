@@ -11,29 +11,24 @@ struct RootView: View {
     }
 
     var body: some View {
-        ZStack {
-            TabView(selection: $tab) {
-                CompatNavigationStack { DiscoverView() }
-                    .tabItem { Label("主页", systemImage: "safari.fill") }.tag(Tab.discover)
-                CompatNavigationStack { SearchView() }
-                    .tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(Tab.search)
-                CompatNavigationStack { LibraryView() }
-                    .tabItem { Label("我的音乐", systemImage: "music.note.list") }.tag(Tab.library)
-                CompatNavigationStack { ProfileView() }
-                    .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
-            }
-            // 🔴 MiniPlayer —— 不依赖 GeometryReader，不依赖 overlay！
-            // 直接放 ZStack 里用 UIScreen + position() 绝对坐标！
-            // 没有任何全屏父 view 拦截 hitTest！
+        TabView(selection: $tab) {
+            CompatNavigationStack { DiscoverView() }
+                .tabItem { Label("主页", systemImage: "safari.fill") }.tag(Tab.discover)
+            CompatNavigationStack { SearchView() }
+                .tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(Tab.search)
+            CompatNavigationStack { LibraryView() }
+                .tabItem { Label("我的音乐", systemImage: "music.note.list") }.tag(Tab.library)
+            CompatNavigationStack { ProfileView() }
+                .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
+        }
+        // 🔴 SwiftUI 官方方案：safeAreaInset 直接挂 TabView
+        // 系统自动把 MiniPlayer 放在 TabBar 正上方，两者 frame 完全独立 → 都能点！
+        // iOS 15.0 就有这个 API，无需版本守卫
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             if store.current != nil && !store.isAnyMultiSelecting {
-                let screenH = UIScreen.main.bounds.height
-                let screenW = UIScreen.main.bounds.width
-                // MiniPlayer 中心 y = TabBar顶部往上MiniPlayer高度一半
-                // TabBar 顶部 = screenH - 83 (safeArea.bottom=34 + TabBar=49)
-                // MiniPlayer 高约 50pt → 往上 25pt
                 MiniPlayer(isExpanded: $isPlayerExpanded)
                     .padding(.horizontal, 10)
-                    .position(x: screenW / 2, y: screenH - 83 - 25)
+                    .padding(.bottom, 4)
             }
         }
         .overlay {
