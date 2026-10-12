@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// 酷狗音乐账号登录态管理（扫码登录后存 token / userid / nickname）。
 ///
