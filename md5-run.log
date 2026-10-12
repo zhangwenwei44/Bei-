@@ -1,0 +1,25 @@
+--- RFC 1321 附录 A.5 标准测试向量 ---
+  PASS  空串
+  PASS  a
+  PASS  abc
+  PASS  message digest
+  PASS  a-z
+  PASS  全字符集
+  PASS  80 位数字
+
+--- 跨分组边界（填充逻辑）---
+  PASS  len=55  04364420e25c512fd958a70738aa8f72
+  PASS  len=56  668a72d5ba17f08e62dabcafad6db14b
+  PASS  len=57  693037871c4a9d3d8685018905cb530a
+  PASS  len=63  7dc2ca208106a2f703567bdff99d8981
+  PASS  len=64  c1bb4f81d892b2d57947682aeb252456
+  PASS  len=65  1bc932052302d074bdec39795fe00cf6
+  PASS  len=119  ab347a5f68c8a443cfcddc633f12c24f
+  PASS  len=120  fb98667f98096de92620b64f46e1c5b5
+  PASS  len=128  d69cb61a6ee87200676eb0d4b90edbcb
+
+--- 酷狗真实签名串（确认协议实际用法能算对）---
+  PASS  搜索签名
+  PASS  播放签名
+
+=== 通过 18 / 失败 0 ===
