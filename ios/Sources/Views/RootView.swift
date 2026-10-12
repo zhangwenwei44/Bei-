@@ -42,7 +42,7 @@ struct RootView: View {
     }
 }
 
-// MARK: - safeAreaInset 兼容扩展（iOS 16+ / iOS 15 fallback）
+// MARK: - safeAreaInset 扩展（✅ iOS 15+ 原生支持！之前错误加了 iOS 16+ 守卫）
 
 private extension View {
     @ViewBuilder
@@ -51,11 +51,9 @@ private extension View {
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         if show {
-            if #available(iOS 16.0, *) {
-                self.safeAreaInset(edge: .bottom, spacing: 0) { content() }
-            } else {
-                self.overlay(alignment: .bottom) { content().offset(y: -83) }
-            }
+            // 🔴 safeAreaInset(edge:) 是 iOS 15.0 引入的 API！iOS 15+ 全部能用
+            // 之前错误加了 #available(iOS 16.0, *) 守卫 → iOS 15 用了 overlay+offset fallback → hitTest 挡 TabBar！
+            self.safeAreaInset(edge: .bottom, spacing: 0) { content() }
         } else {
             self
         }

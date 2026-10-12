@@ -146,7 +146,6 @@ struct PlayerView: View {
             .offset(x: classicSwipeOffset)
             .opacity(CGFloat(1) - min(abs(classicSwipeOffset) / 260, 0.35))
             .animation(.spring(response: 0.34, dampingFraction: 0.86), value: classicSwipeOffset)
-            .padding(.top, 15)  // 🔴 黑胶往下移 15pt
             .gesture(
                 DragGesture(minimumDistance: 15)
                     .onChanged { value in
@@ -166,13 +165,13 @@ struct PlayerView: View {
                     }
             )
 
-            // 2 行歌词预览
+            // 7 行歌词预览
             classicLyricPreviewBox
-                .padding(.top, 15)  // 🔴 歌词也往下移（之前 20）
+                .padding(.top, 20)
 
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)  // 🔴 改回 .top 控制
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: store.isPlaying) { _ in classicUpdateCoverSpin() }
         .onChange(of: store.currentIndex) { _ in classicUpdateCoverSpin(); extractDominantColor() }
         .onAppear { classicUpdateCoverSpin(); extractDominantColor() }
@@ -221,7 +220,7 @@ struct PlayerView: View {
 
     /// 经典封面功能按钮行：下载 | 收藏 | 翻译 | 歌词 | 🔴评论
     private var classicActionRow: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 28) {  // 🔴 间距加大 18→28
             // ① 收藏
             classicActionButton(icon: store.isLiked ? "heart.fill" : "heart", label: "收藏") {
                 store.toggleFavorite()
