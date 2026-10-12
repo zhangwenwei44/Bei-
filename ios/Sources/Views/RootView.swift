@@ -29,11 +29,9 @@ struct RootView: View {
                     Spacer()
                     MiniPlayer(isExpanded: $isPlayerExpanded)
                         .padding(.horizontal, 10)
-                        .padding(.bottom, 0)
-                    // 🔴 TabBar 区域（safeArea.bottom + TabBar = 34+49=83pt）
-                    // 透明 + allowsHitTesting(false) → 点击穿透到 TabBar！
+                    // 🔴 TabBar 穿透区域 —— 减到 60pt 让 MiniPlayer 下移贴近 TabBar
                     Color.clear
-                        .frame(height: 83)
+                        .frame(height: 60)
                         .allowsHitTesting(false)
                 }
                 .ignoresSafeArea(.keyboard)

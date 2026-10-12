@@ -219,24 +219,28 @@ struct PlayerView: View {
         .buttonStyle(.plain)
     }
 
-    /// 经典封面功能按钮行：下载 | 收藏 | 翻译 | 歌词 | 🔴评论
+    /// 经典封面功能按钮行：收藏① | 下载② | 翻译③ | 歌词④ | 评论⑤
     private var classicActionRow: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 28) {  // 🔴 间距加大到 28
+            // ① 收藏
+            classicActionButton(icon: store.isLiked ? "heart.fill" : "heart", label: "收藏") {
+                store.toggleFavorite()
+            }
+            // ② 下载
             classicActionButton(icon: "arrow.down.circle", label: "下载") {
                 if let song = store.current {
                     Task { _ = try? await DownloadManager.shared.download(song) }
                 }
             }
-            classicActionButton(icon: store.isLiked ? "heart.fill" : "heart", label: "收藏") {
-                store.toggleFavorite()
-            }
+            // ③ 翻译
             classicActionButton(icon: "textformat", label: "翻译") {
                 withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
             }
+            // ④ 歌词
             classicActionButton(icon: "music.note.list", label: "歌词") {
                 withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
             }
-            // 🔴 评论按钮（暂用 web 打开酷狗评论页）
+            // ⑤ 评论
             classicActionButton(icon: "bubble.left.and.bubble.right", label: "评论") {
                 if let song = store.current {
                     let albumID = song.kugouAlbumID
