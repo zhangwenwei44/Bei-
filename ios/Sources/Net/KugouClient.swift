@@ -1405,7 +1405,9 @@ final class KugouClient {
             // 🔴 androidSignature(params 排序 + data body 字符串)
             let bodyData = try JSONSerialization.data(withJSONObject: dataBody)
             let bodyStr = String(data: bodyData, encoding: .utf8) ?? ""
+            let signBody = final.keys.sorted().map { "\($0)=\(final[$0] ?? "")" }.joined()
             final["signature"] = androidSign(final, data: bodyStr)
+            Log.info("酷狗", "gateway sign params body=\(signBody.prefix(200)) data=\(bodyStr.prefix(100)) sig=\(final["signature"] ?? "")")
 
             // 🔴 POST 到 gateway.kugou.com —— 用 URLComponents 拼 URL（和 Beans 一样）
             var comps = URLComponents(string: "https://gateway.kugou.com/v7/get_all_list")!
