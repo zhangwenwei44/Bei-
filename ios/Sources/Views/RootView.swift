@@ -11,30 +11,23 @@ struct RootView: View {
     }
 
     var body: some View {
-        ZStack {
-            TabView(selection: $tab) {
-                CompatNavigationStack { DiscoverView() }
-                    .tabItem { Label("主页", systemImage: "safari.fill") }.tag(Tab.discover)
-                CompatNavigationStack { SearchView() }
-                    .tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(Tab.search)
-                CompatNavigationStack { LibraryView() }
-                    .tabItem { Label("我的音乐", systemImage: "music.note.list") }.tag(Tab.library)
-                CompatNavigationStack { ProfileView() }
-                    .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
-            }
-            // 🔴 MiniPlayer + 精准 hitTest 分层
-            // VStack 整体不拦截 → Color.clear 区域让 TabBar 穿透 → 只有 MiniPlayer 本体拦截
+        TabView(selection: $tab) {
+            CompatNavigationStack { DiscoverView() }
+                .tabItem { Label("主页", systemImage: "safari.fill") }.tag(Tab.discover)
+            CompatNavigationStack { SearchView() }
+                .tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(Tab.search)
+            CompatNavigationStack { LibraryView() }
+                .tabItem { Label("我的音乐", systemImage: "music.note.list") }.tag(Tab.library)
+            CompatNavigationStack { ProfileView() }
+                .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
+        }
+        // 🔴 overlay(alignment: .bottom) —— 只渲染 MiniPlayer 本体 frame
+        // 不占满全屏 → MiniPlayer hitTest + TabBar hitTest 完全分离（各自只在自己 frame 内拦截）
+        .overlay(alignment: .bottom) {
             if store.current != nil && !store.isAnyMultiSelecting {
-                VStack(spacing: 0) {
-                    MiniPlayer(isExpanded: $isPlayerExpanded)
-                        .padding(.horizontal, 10)
-                        .allowsHitTesting(true)  // 只有 MiniPlayer 本体拦截
-                    Color.clear
-                        .frame(height: 83)  // TabBar(49) + safeArea.bottom(34) = 83pt
-                        .allowsHitTesting(false)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .allowsHitTesting(false)  // VStack 整体不拦截，只靠子 view 的单独设置
+                MiniPlayer(isExpanded: $isPlayerExpanded)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 83)  // 推到 TabBar 正上方（34+49）
             }
         }
         .overlay {
