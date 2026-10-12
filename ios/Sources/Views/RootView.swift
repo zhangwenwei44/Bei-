@@ -11,30 +11,23 @@ struct RootView: View {
     }
 
     var body: some View {
-        ZStack {
-            TabView(selection: $tab) {
-                CompatNavigationStack { DiscoverView() }
-                    .tabItem { Label("主页", systemImage: "safari.fill") }.tag(Tab.discover)
-                CompatNavigationStack { SearchView() }
-                    .tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(Tab.search)
-                CompatNavigationStack { LibraryView() }
-                    .tabItem { Label("我的音乐", systemImage: "music.note.list") }.tag(Tab.library)
-                CompatNavigationStack { ProfileView() }
-                    .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
-            }
-
-            // 🔴 MiniPlayer —— 整体 hitTest=false 穿透，只有 MiniPlayer 本体通过 overlay 单独恢复 hitTest
+        TabView(selection: $tab) {
+            CompatNavigationStack { DiscoverView() }
+                .tabItem { Label("主页", systemImage: "safari.fill") }.tag(Tab.discover)
+            CompatNavigationStack { SearchView() }
+                .tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(Tab.search)
+            CompatNavigationStack { LibraryView() }
+                .tabItem { Label("我的音乐", systemImage: "music.note.list") }.tag(Tab.library)
+            CompatNavigationStack { ProfileView() }
+                .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
+        }
+        // 🔴 safeAreaInset 直接挂 TabView —— TabView 自动把 MiniPlayer 当 safe area
+        // iOS 15+ 原生支持，TabBar 自动在 MiniPlayer 下方，零 hitTest 重叠
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             if store.current != nil && !store.isAnyMultiSelecting {
-                Color.clear
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .allowsHitTesting(false)  // 全屏区域不拦截
-                    // 🔴 MiniPlayer 本体通过 overlay 单独恢复 hitTest
-                    .overlay(alignment: .bottom) {
-                        MiniPlayer(isExpanded: $isPlayerExpanded)
-                            .padding(.horizontal, 10)
-                            .padding(.bottom, 60)  // 往上 60pt 贴近 TabBar
-                            .allowsHitTesting(true)
-                    }
+                MiniPlayer(isExpanded: $isPlayerExpanded)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 4)
             }
         }
         .overlay {
