@@ -40,10 +40,12 @@ final class KugouAuth: ObservableObject {
         defaults.set(userId, forKey: key + ".userId")
         defaults.set(token, forKey: key + ".token")
         defaults.set(nickname, forKey: key + ".nickname")
-        defaults.set(avatar, forKey: key + ".avatar")
+        // 🔴 http → https —— ATS 阻止 HTTP，CoverImage 加载会静默失败！
+        let fixedAvatar = avatar.hasPrefix("http://") ? "https://" + avatar.dropFirst(7) : avatar
+        defaults.set(fixedAvatar, forKey: key + ".avatar")
         defaults.set(vipType, forKey: key + ".vipType")
         load()
-        Log.info("酷狗", "登录成功 user=\(nickname) id=\(userId)")
+        Log.info("酷狗", "登录成功 user=\(nickname) id=\(userId) avatar=\(fixedAvatar.prefix(50))")
     }
 
     func logout() {
@@ -59,7 +61,9 @@ final class KugouAuth: ObservableObject {
         userId = defaults.string(forKey: key + ".userId") ?? ""
         nickname = defaults.string(forKey: key + ".nickname") ?? ""
         if let av = defaults.string(forKey: key + ".avatar"), !av.isEmpty {
-            avatarURL = URL(string: av)
+            // 🔴 同样转 HTTPS —— 之前登录的用户可能存了 HTTP
+            let fixed = av.hasPrefix("http://") ? "https://" + av.dropFirst(7) : av
+            avatarURL = URL(string: fixed)
         } else {
             avatarURL = nil
         }

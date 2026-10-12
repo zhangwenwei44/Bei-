@@ -11,29 +11,22 @@ struct RootView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            TabView(selection: $tab) {
-                CompatNavigationStack { DiscoverView() }
-                    .tabItem { Label("主页", systemImage: "safari.fill") }.tag(Tab.discover)
-                CompatNavigationStack { SearchView() }
-                    .tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(Tab.search)
-                CompatNavigationStack { LibraryView() }
-                    .tabItem { Label("我的音乐", systemImage: "music.note.list") }.tag(Tab.library)
-                CompatNavigationStack { ProfileView() }
-                    .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
-            }
-
-            // 🔴 MiniPlayer —— 关键：padding(.bottom, 83) 彻底避开 TabBar！
-            // iPhone XS: safeArea.bottom(34) + TabBar.height(49) = 83pt
-            // 其他机型也够用（iPhone 14 safeArea=34 → 83pt，iPhone SE 无 safeArea 也够）
-            if store.current != nil && !store.isAnyMultiSelecting {
-                MiniPlayer(isExpanded: $isPlayerExpanded)
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 83)  // 🔴 精确计算值
-                    .frame(maxWidth: .infinity, alignment: .bottom)
-                    // 🔴 不加任何 contentShape —— 让 MiniPlayer 内部自己管 hitTest
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
+        TabView(selection: $tab) {
+            CompatNavigationStack { DiscoverView() }
+                .tabItem { Label("主页", systemImage: "safari.fill") }.tag(Tab.discover)
+            CompatNavigationStack { SearchView() }
+                .tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(Tab.search)
+            CompatNavigationStack { LibraryView() }
+                .tabItem { Label("我的音乐", systemImage: "music.note.list") }.tag(Tab.library)
+            CompatNavigationStack { ProfileView() }
+                .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
+        }
+        // 🔴 safeAreaInset —— 让 SwiftUI 官方处理 MiniPlayer + TabBar 层级关系！
+        // MiniPlayer 占用 bottom safe area，TabBar 自动在 MiniPlayer **下方**
+        .applyMiniPlayerInset(show: store.current != nil && !store.isAnyMultiSelecting) {
+            MiniPlayer(isExpanded: $isPlayerExpanded)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 6)
         }
         .overlay {
             if isPlayerExpanded, store.current != nil {
@@ -46,6 +39,26 @@ struct RootView: View {
         .sheet(isPresented: $showKugouLogin) { KugouLoginSheet() }
         .onReceive(NotificationCenter.default.publisher(for: .auroraShowKugouLogin)) { _ in showKugouLogin = true }
         .tint(AppStyle.accent)
+    }
+}
+
+// MARK: - safeAreaInset 兼容扩展（iOS 16+ / iOS 15 fallback）
+
+private extension View {
+    @ViewBuilder
+    func applyMiniPlayerInset<Content: View>(
+        show: Bool,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        if show {
+            if #available(iOS 16.0, *) {
+                self.safeAreaInset(edge: .bottom, spacing: 0) { content() }
+            } else {
+                self.overlay(alignment: .bottom) { content().offset(y: -83) }
+            }
+        } else {
+            self
+        }
     }
 }
 
@@ -117,15 +130,16 @@ struct MiniPlayer: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        // 🔴 进度条：GeometryReader 锁死在 2pt 高度内，绝不允许撑开 MiniPlayer
+        // 🔴 关键：先 clipShape 裁住整个 MiniPlayer（含进度条 overlay）
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        // 🔴 进度条放在 clipShape 之前 → 会被 clipShape 裁在圆角矩形里，不再溢出！
         .overlay(alignment: .bottom) {
             GeometryReader { geo in
                 Capsule()
                     .fill(AppStyle.accent)
                     .frame(width: geo.size.width * max(0, min(1, store.progress)), height: 2)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
-            .frame(height: 2)  // 🔴 关键：锁死 GeometryReader 高度
+            .frame(height: 2)  // 锁死 GeometryReader 高度
         }
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)

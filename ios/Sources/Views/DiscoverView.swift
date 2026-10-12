@@ -130,9 +130,9 @@ struct DiscoverView: View {
                     CoverImage(url: kugouAuth.avatarURL,
                                fallbackKeys: ["kg-user:\(kugouAuth.userId)"],
                                seed: kugouAuth.nickname,
-                               size: 24, corner: 12)
+                               size: 30, corner: 15)  // 🔴 改大 24→30
                     Text(kugouAuth.nickname.isEmpty ? "酷狗" : kugouAuth.nickname)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))  // 12→13
                         .foregroundStyle(AppStyle.secondaryText)
                         .lineLimit(1)
                 }
@@ -144,10 +144,10 @@ struct DiscoverView: View {
             } label: {
                 HStack(spacing: 3) {
                     Image(systemName: "music.mic.circle.fill")
-                        .font(.system(size: 16))
+                        .font(.system(size: 22))  // 🔴 改大 16→22
                         .foregroundStyle(.green)
                     Text("登录")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))  // 12→13
                         .foregroundStyle(AppStyle.secondaryText)
                 }
             }

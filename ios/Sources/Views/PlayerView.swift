@@ -86,7 +86,8 @@ struct PlayerView: View {
                 .frame(height: deckH)
         }
         .frame(width: screen.width, height: contentHeight)
-        .padding(.top, win.safeTop)
+        // 🔴 去掉 padding(.top, win.safeTop) —— 让 headerBar 从屏幕顶部（y=0）开始！
+        // PlayerView 整体已经 ignoresSafeArea，classicBody 在全屏幕坐标系里
     }
 
     private var classicHeaderBar: some View {

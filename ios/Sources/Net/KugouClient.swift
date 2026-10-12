@@ -1382,7 +1382,7 @@ final class KugouClient {
                 "userid": userId,
                 "token": token,
             ]
-            params["signature"] = androidSign(params)  // 🔴 gateway.kugou.com 用 androidSign！
+            params["signature"] = webSign(params)  // 🔴 试 webSign（和 qrKey/pollQR 完全一致！Android sign key 可能不对！）
 
             let raw = try await gatewayGetRaw(path: "/v7/get_all_list",
                                                params: params,
