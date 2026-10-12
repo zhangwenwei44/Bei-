@@ -1407,16 +1407,14 @@ final class KugouClient {
             let bodyStr = String(data: bodyData, encoding: .utf8) ?? ""
             final["signature"] = androidSign(final, data: bodyStr)
 
-            // 🔴 POST 到 gateway.kugou.com（不是 cloudlist 直连！cloudlist 有 SSL 证书问题）
-            let query = final.keys.sorted().map { k in
-                "\(k.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!)=\((final[k] ?? "").addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!)"
-            }.joined(separator: "&")
-            let url = URL(string: "https://gateway.kugou.com/v7/get_all_list?\(query)")!
+            // 🔴 POST 到 gateway.kugou.com —— 用 URLComponents 拼 URL（和 Beans 一样）
+            var comps = URLComponents(string: "https://gateway.kugou.com/v7/get_all_list")!
+            comps.queryItems = final.sorted(by: { $0.key < $1.key }).map { URLQueryItem(name: $0.key, value: $0.value) }
+            let url = comps.url!
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.httpBody = bodyData
             request.setValue(gatewayUA, forHTTPHeaderField: "User-Agent")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("cloudlist.service.kugou.com", forHTTPHeaderField: "x-router")
             request.setValue("1", forHTTPHeaderField: "kg-rc")
             request.setValue("5d816a0", forHTTPHeaderField: "kg-thash")
