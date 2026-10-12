@@ -92,30 +92,32 @@ struct DiscoverView: View {
 
     private var tabBar: some View {
         HStack(alignment: .bottom, spacing: 0) {
-            HStack(alignment: .bottom, spacing: 24) {
+            HStack(alignment: .bottom, spacing: 16) {  // 24→16 缩小间距
                 ForEach(DiscoverTab.allCases, id: \.self) { tab in
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) { selectedTab = tab }
                     } label: {
                         VStack(spacing: 6) {
                             Text(tab.title)
-                                .font(.system(size: 16, weight: selectedTab == tab ? .semibold : .regular))
+                                .font(.system(size: 14, weight: selectedTab == tab ? .semibold : .regular))  // 16→14
                                 .foregroundStyle(selectedTab == tab ? AppStyle.accent : AppStyle.primaryText)
+                                .fixedSize()  // 🔴 禁止截断
+                                .lineLimit(1)  // 🔴 单行
                             Capsule()
                                 .fill(selectedTab == tab ? AppStyle.accent : Color.clear)
-                                .frame(width: tab.title.count == 2 ? 20 : 28, height: 3)
+                                .frame(width: tab.title.count == 2 ? 18 : 24, height: 3)
                         }
+                        .frame(minWidth: 0)  // 🔴 允许压缩
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.leading, 16)
+            .padding(.leading, 12)
 
             Spacer(minLength: 0)
 
-            // 🔴 酷狗登录头像/按钮 —— 和 Tab 同一行最右边
             kugouAvatar
-                .padding(.trailing, 16)
+                .padding(.trailing, 12)
         }
         .frame(height: 44)
     }

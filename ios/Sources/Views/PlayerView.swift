@@ -146,6 +146,7 @@ struct PlayerView: View {
             .offset(x: classicSwipeOffset)
             .opacity(CGFloat(1) - min(abs(classicSwipeOffset) / 260, 0.35))
             .animation(.spring(response: 0.34, dampingFraction: 0.86), value: classicSwipeOffset)
+            .padding(.top, 11)  // 🔴 黑胶往下移 11pt
             .gesture(
                 DragGesture(minimumDistance: 15)
                     .onChanged { value in
@@ -167,7 +168,7 @@ struct PlayerView: View {
 
             // 7 行歌词预览
             classicLyricPreviewBox
-                .padding(.top, 20)
+                .padding(.top, 8)  // 🔴 歌词下移 20→8
 
             Spacer(minLength: 0)
         }
@@ -220,26 +221,22 @@ struct PlayerView: View {
 
     /// 经典封面功能按钮行：下载 | 收藏 | 翻译 | 歌词 | 🔴评论
     private var classicActionRow: some View {
-        HStack(spacing: 28) {  // 🔴 间距加大 18→28
-            // ① 收藏
-            classicActionButton(icon: store.isLiked ? "heart.fill" : "heart", label: "收藏") {
-                store.toggleFavorite()
-            }
-            // ② 下载
+        HStack(spacing: 18) {
             classicActionButton(icon: "arrow.down.circle", label: "下载") {
                 if let song = store.current {
                     Task { _ = try? await DownloadManager.shared.download(song) }
                 }
             }
-            // ③ 翻译
+            classicActionButton(icon: store.isLiked ? "heart.fill" : "heart", label: "收藏") {
+                store.toggleFavorite()
+            }
             classicActionButton(icon: "textformat", label: "翻译") {
                 withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
             }
-            // ④ 歌词
             classicActionButton(icon: "music.note.list", label: "歌词") {
                 withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
             }
-            // ⑤ 评论（暂用 web 打开酷狗评论页）
+            // 🔴 评论按钮（暂用 web 打开酷狗评论页）
             classicActionButton(icon: "bubble.left.and.bubble.right", label: "评论") {
                 if let song = store.current {
                     let albumID = song.kugouAlbumID

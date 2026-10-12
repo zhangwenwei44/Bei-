@@ -1356,14 +1356,13 @@ final class KugouClient {
         var songs: [Song]       // 歌单里的歌曲
     }
 
-    /// 拉取当前登录用户的所有歌单（🔴 gateway.kugou.com 接口必须带 webSign + x-router！）
+    /// 拉取当前登录用户的所有歌单
+    /// 🔴 直接 cloudlist.service.kugou.com —— gateway.kugou.com + x-router 一直 20006
     func userPlaylists() async throws -> [KugouPlaylist] {
         guard KugouAuth.shared.isLoggedIn else { return [] }
         let userId = KugouAuth.shared.userId
         let token = KugouAuth.shared.token
 
-        // 🔴 gateway.kugou.com 接口签名参数必须完整照搬 Beans gatewayRequest：
-        // baseParams (dfid/mid/uuid/clienttime) + 业务 params + webSign 签名
         var allItems: [[String: Any]] = []
         var page = 1
         while true {
@@ -1382,33 +1381,51 @@ final class KugouClient {
                 "userid": userId,
                 "token": token,
             ]
-            params["signature"] = webSign(params)  // 🔴 试 webSign（和 qrKey/pollQR 完全一致！Android sign key 可能不对！）
+            params["signature"] = webSign(params)
 
-            let raw = try await gatewayGetRaw(path: "/v7/get_all_list",
-                                               params: params,
-                                               headers: [
-                                                   "x-router": "cloudlist.service.kugou.com",
-                                               ])
+            // 🔴 直接 cloudlist.service.kugou.com —— 绕过 gateway 路由层
+            let query = params.keys.sorted().map { k in
+                "\(k.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!)=\((params[k] ?? "").addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!)"
+            }.joined(separator: "&")
+            let url = URL(string: "https://cloudlist.service.kugou.com/v7/get_all_list?\(query)")!
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
+            request.setValue("https://www.kugou.com/", forHTTPHeaderField: "Referer")
+            request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+            let cookie = KugouAuth.shared.cookieHeader
+            if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+            request.setValue(dfid, forHTTPHeaderField: "dfid")
+            request.setValue(mid, forHTTPHeaderField: "mid")
+            request.setValue(clienttime, forHTTPHeaderField: "clienttime")
+            request.setValue("101", forHTTPHeaderField: "kg-rc")
+            request.setValue(Data(browserUA.utf8).md5Hex(), forHTTPHeaderField: "kg-thash")
+
+            let started = Date()
+            let (data, resp) = try await session.data(for: request)
+            let elapsed = Date().timeIntervalSince(started)
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            let httpCode = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            Log.info("酷狗", "cloudlist userPlaylists page=\(page) HTTP=\(httpCode)/\(raw.count)B/\(Int(elapsed*1000))ms raw=\(String(raw.prefix(300)))")
+
             let json = Self.extractJSONP(raw)
                 ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
                 ?? [:]
-            Log.info("酷狗", "userPlaylists page=\(page) raw=\(String(raw.prefix(200)))")
 
-            // 检查状态码
             let status = Self.deepInt(json, path: ["status"]) ?? 0
             if status != 1 && status != 200 {
                 let errMsg = Self.deepString(json, path: ["error_msg"]) ?? Self.deepString(json, path: ["message"]) ?? "未知错误"
-                Log.error("酷狗", "userPlaylists 错误 status=\(status) msg=\(errMsg)")
+                let errcode = Self.deepInt(json, path: ["error_code"]) ?? -1
+                Log.error("酷狗", "cloudlist userPlaylists 错误 status=\(status) errcode=\(errcode) msg=\(errMsg)")
                 break
             }
 
             let items = Self.deepArray(json, path: ["lists"]) ?? Self.deepArray(json, path: ["data", "lists"]) ?? []
             allItems.append(contentsOf: items)
 
-            // 分页判断：如果返回数量 < pagesize 就到底了
             if items.count < 200 { break }
             page += 1
-            if page > 10 { break } // 防无限循环
+            if page > 10 { break }
         }
 
         var playlists: [KugouPlaylist] = []

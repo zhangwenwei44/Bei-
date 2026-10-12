@@ -11,22 +11,33 @@ struct RootView: View {
     }
 
     var body: some View {
-        TabView(selection: $tab) {
-            CompatNavigationStack { DiscoverView() }
-                .tabItem { Label("主页", systemImage: "safari.fill") }.tag(Tab.discover)
-            CompatNavigationStack { SearchView() }
-                .tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(Tab.search)
-            CompatNavigationStack { LibraryView() }
-                .tabItem { Label("我的音乐", systemImage: "music.note.list") }.tag(Tab.library)
-            CompatNavigationStack { ProfileView() }
-                .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
-        }
-        // 🔴 safeAreaInset —— 让 SwiftUI 官方处理 MiniPlayer + TabBar 层级关系！
-        // MiniPlayer 占用 bottom safe area，TabBar 自动在 MiniPlayer **下方**
-        .applyMiniPlayerInset(show: store.current != nil && !store.isAnyMultiSelecting) {
-            MiniPlayer(isExpanded: $isPlayerExpanded)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 6)
+        ZStack {
+            TabView(selection: $tab) {
+                CompatNavigationStack { DiscoverView() }
+                    .tabItem { Label("主页", systemImage: "safari.fill") }.tag(Tab.discover)
+                CompatNavigationStack { SearchView() }
+                    .tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(Tab.search)
+                CompatNavigationStack { LibraryView() }
+                    .tabItem { Label("我的音乐", systemImage: "music.note.list") }.tag(Tab.library)
+                CompatNavigationStack { ProfileView() }
+                    .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
+            }
+
+            // 🔴 MiniPlayer 放在 ZStack 上层 —— 底部 VStack：MiniPlayer + 透明 TabBar 穿透区域
+            if store.current != nil && !store.isAnyMultiSelecting {
+                VStack(spacing: 0) {
+                    Spacer()
+                    MiniPlayer(isExpanded: $isPlayerExpanded)
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 0)
+                    // 🔴 TabBar 区域（safeArea.bottom + TabBar = 34+49=83pt）
+                    // 透明 + allowsHitTesting(false) → 点击穿透到 TabBar！
+                    Color.clear
+                        .frame(height: 83)
+                        .allowsHitTesting(false)
+                }
+                .ignoresSafeArea(.keyboard)
+            }
         }
         .overlay {
             if isPlayerExpanded, store.current != nil {
@@ -39,24 +50,6 @@ struct RootView: View {
         .sheet(isPresented: $showKugouLogin) { KugouLoginSheet() }
         .onReceive(NotificationCenter.default.publisher(for: .auroraShowKugouLogin)) { _ in showKugouLogin = true }
         .tint(AppStyle.accent)
-    }
-}
-
-// MARK: - safeAreaInset 扩展（✅ iOS 15+ 原生支持！之前错误加了 iOS 16+ 守卫）
-
-private extension View {
-    @ViewBuilder
-    func applyMiniPlayerInset<Content: View>(
-        show: Bool,
-        @ViewBuilder content: @escaping () -> Content
-    ) -> some View {
-        if show {
-            // 🔴 safeAreaInset(edge:) 是 iOS 15.0 引入的 API！iOS 15+ 全部能用
-            // 之前错误加了 #available(iOS 16.0, *) 守卫 → iOS 15 用了 overlay+offset fallback → hitTest 挡 TabBar！
-            self.safeAreaInset(edge: .bottom, spacing: 0) { content() }
-        } else {
-            self
-        }
     }
 }
 
