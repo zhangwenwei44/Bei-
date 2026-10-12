@@ -10,6 +10,13 @@ struct RootView: View {
         case discover, search, library, profile
     }
 
+    /// 底部安全区（Home Indicator 高度），从 keyWindow 读取，避免全屏 GeometryReader 拦截点击
+    private static var bottomSafeInset: CGFloat {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }.first
+        return scene?.windows.first(where: { $0.isKeyWindow })?.safeAreaInsets.bottom ?? 34
+    }
+
     var body: some View {
         TabView(selection: $tab) {
             CompatNavigationStack { DiscoverView() }
@@ -21,14 +28,20 @@ struct RootView: View {
             CompatNavigationStack { ProfileView() }
                 .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
         }
-        // 🔴 SwiftUI 官方方案：safeAreaInset 直接挂 TabView
-        // 系统自动把 MiniPlayer 放在 TabBar 正上方，两者 frame 完全独立 → 都能点！
-        // iOS 15.0 就有这个 API，无需版本守卫
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        // 🔴 overlay 只占底部内容大小（不是全屏！）
+        // VStack = MiniPlayer + 透明穿透区（高度=TabBar 49 + Home Indicator）
+        // 穿透区 allowsHitTesting(false) → 点击直接落到下面 TabView 的 TabBar
+        // MiniPlayer 本体正常接收点击 → 两个都能点，任何播放状态都不变
+        .overlay(alignment: .bottom) {
             if store.current != nil && !store.isAnyMultiSelecting {
-                MiniPlayer(isExpanded: $isPlayerExpanded)
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 4)
+                VStack(spacing: 0) {
+                    MiniPlayer(isExpanded: $isPlayerExpanded)
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 4)
+                    Color.clear
+                        .frame(height: 49 + Self.bottomSafeInset)
+                        .allowsHitTesting(false)
+                }
             }
         }
         .overlay {

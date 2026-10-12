@@ -1,5 +1,7 @@
 import Foundation
 import UIKit
+import CommonCrypto
+import Security
 
 /// 酷狗音乐直连接口。搜索 / 歌词 / 榜单 / 封面都走这里。
 ///
@@ -41,8 +43,9 @@ final class KugouClient {
     private let browserUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     private let searchUA = "IPhone-20549-Search#183534257/723988397/625045823/284854956-SearchGeneralInfoWithKeyWordV8"
 
-    private let mid: String
-    private let dfid: String
+    // 🔴 mid/dfid 实时从 KugouAuth 读 —— registerDevice 拿到真实 dfid 后全局立即生效
+    private var mid: String { KugouAuth.shared.mid }
+    private var dfid: String { KugouAuth.shared.dfid }
 
     init() {
         let config = URLSessionConfiguration.default
@@ -54,11 +57,6 @@ final class KugouClient {
         // 反而让首批请求全部卡在握手阶段。
         config.httpMaximumConnectionsPerHost = 5
         session = URLSession(configuration: config)
-
-        // 🔴 mid/dfid 统一从 KugouAuth 读 —— 保证 query / headers / Cookie 三处完全一致！
-        // 不一致会导致 gateway 20017 签名/设备校验失败
-        mid = KugouAuth.shared.mid
-        dfid = KugouAuth.shared.dfid
     }
 
     // MARK: - 签名
@@ -1333,6 +1331,8 @@ final class KugouClient {
         KugouAuth.shared.saveLogin(userId: userId, token: token, nickname: nick, avatar: avatar, vipType: vip)
         let displayName = nick.isEmpty ? "酷狗音乐用户 \(userId)" : nick
         Log.info("酷狗登录", "成功 user=\(displayName)")
+        // 🔴 登录成功立即注册设备风控（拿真实 dfid），否则 gateway 歌单 20017
+        Task { await registerDevice() }
         return .success(displayName)
     }
 
@@ -1350,6 +1350,161 @@ final class KugouClient {
         return Data("\(androidSalt)\(body)\(data)\(androidSalt)".utf8).md5Hex()
     }
 
+    // MARK: - 酷狗设备风控注册（照搬 Beans registerDevice）
+    //
+    // gateway 的云歌单接口有风控：mid 必须先通过 /risk/v2/r_register_dev 绑定到账号，
+    // 服务端返回真实 dfid。没注册过的设备直接调 get_all_list 会返回 20017。
+    // 上报体用 AES-CBC 加密，AES 密钥用酷狗 RSA 公钥 PKCS1 加密后放在 p 参数。
+
+    private static let kugouRSAPublicKeyBase64 =
+        "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDECi0Np2UR87scwrvTr72L6oO01rBbbBPriSDFPxr3Z5syug0O24QyQO8bg27+0+4kBzTBTBOZ/WWU0WryL1JSXRTXLgFVxtzIY41Pe7lPOgsfTCn5kZcvKhYKJesKnnJDNr5/abvTGf+rHG3YRwsCHcQ08/q6ifSioBszvb3QiwIDAQAB"
+
+    /// 登录成功后注册设备；失败不影响登录（dfid 保持 "-"）
+    @discardableResult
+    func registerDevice() async -> Bool {
+        let auth = KugouAuth.shared
+        guard auth.isLoggedIn else { return false }
+        let guid = auth.guid
+        let dataMap: [String: Any] = [
+            "availableRamSize": 4983533568,
+            "availableRomSize": 48114719,
+            "availableSDSize": 48114717,
+            "basebandVer": "",
+            "batteryLevel": 100,
+            "batteryStatus": 3,
+            "brand": "Redmi",
+            "buildSerial": "unknown",
+            "device": "marble",
+            "imei": guid,
+            "imsi": "",
+            "manufacturer": "Xiaomi",
+            "uuid": guid,
+            "accelerometer": false,
+            "gyroscope": false,
+        ]
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: dataMap),
+              let aes = Self.randomLower(6),
+              let encrypted = Self.aesCBC(jsonData, encrypt: true, password: aes),
+              let pData = try? JSONSerialization.data(withJSONObject: [
+                  "aes": aes,
+                  "uid": Int(auth.userId) ?? 0,
+                  "token": auth.token,
+              ]),
+              let rsa = Self.rsaEncryptPKCS1(pData, publicKeyBase64: Self.kugouRSAPublicKeyBase64) else {
+            Log.info("酷狗", "设备注册：加密失败")
+            return false
+        }
+
+        let clienttime = "\(Int(Date().timeIntervalSince1970))"
+        var final: [String: String] = [
+            "dfid": dfid,
+            "mid": mid,
+            "uuid": "-",
+            "appid": gatewayAppID,
+            "clientver": gatewayClientVer,
+            "clienttime": clienttime,
+            "token": auth.token,
+            "userid": auth.userId,
+            "part": "1",
+            "platid": "1",
+            "p": rsa.map { String(format: "%02x", $0) }.joined(),
+        ]
+        // Beans: body 是二进制 → String(data:.utf8) 失败 → 签名 data 用空串
+        final["signature"] = androidSign(final, data: "")
+
+        var comps = URLComponents(string: "https://userservice.kugou.com/risk/v2/r_register_dev")!
+        comps.queryItems = final.map { URLQueryItem(name: $0.key, value: $0.value) }
+        var request = URLRequest(url: comps.url!)
+        request.httpMethod = "POST"
+        request.httpBody = encrypted
+        request.setValue(gatewayUA, forHTTPHeaderField: "User-Agent")
+        request.setValue("userservice.kugou.com", forHTTPHeaderField: "x-router")
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.setValue("1", forHTTPHeaderField: "kg-rc")
+        request.setValue("5d816a0", forHTTPHeaderField: "kg-thash")
+        request.setValue("1", forHTTPHeaderField: "kg-rec")
+        request.setValue("B9EDA08A64250DEFFBCADDEE00F8F25F", forHTTPHeaderField: "kg-rf")
+        request.setValue(dfid, forHTTPHeaderField: "dfid")
+        request.setValue(mid, forHTTPHeaderField: "mid")
+        request.setValue(clienttime, forHTTPHeaderField: "clienttime")
+        let cookie = auth.cookieHeader
+        if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                Log.info("酷狗", "设备注册：HTTP 失败")
+                return false
+            }
+            var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            if json == nil,
+               let decrypted = Self.aesCBC(data, encrypt: false, password: aes) {
+                json = try? JSONSerialization.jsonObject(with: decrypted) as? [String: Any]
+            }
+            let newDfid = (json?["dfid"] as? String)
+                ?? ((json?["data"] as? [String: Any])?["dfid"] as? String) ?? ""
+            if !newDfid.isEmpty {
+                auth.saveDeviceDFID(newDfid)
+                Log.info("酷狗", "设备注册成功 dfid=\(newDfid)")
+                return true
+            }
+            Log.info("酷狗", "设备注册：无 dfid 返回 raw=\(String(data: data, encoding: .utf8)?.prefix(200) ?? "?")")
+            return false
+        } catch {
+            Log.info("酷狗", "设备注册失败：\(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private static func randomLower(_ length: Int) -> String {
+        let chars = Array("1234567890abcdefghijklmnopqrstuvwxyz")
+        return String((0..<length).map { _ in chars[Int.random(in: 0..<chars.count)] })
+    }
+
+    /// AES-128-CBC + PKCS7，key/iv 取密码 MD5 的前/后 16 位（照搬 Beans）
+    private static func aesCBC(_ data: Data, encrypt: Bool, password: String) -> Data? {
+        let digest = Data(password.utf8).md5Hex()
+        let key = Data(digest.prefix(16).utf8)
+        let iv = Data(digest.suffix(16).utf8)
+        var out = Data(count: data.count + kCCBlockSizeAES128)
+        let capacity = out.count
+        var outLen = 0
+        let status = out.withUnsafeMutableBytes { outPtr in
+            data.withUnsafeBytes { dataPtr in
+                key.withUnsafeBytes { keyPtr in
+                    iv.withUnsafeBytes { ivPtr in
+                        CCCrypt(
+                            CCOperation(encrypt ? kCCEncrypt : kCCDecrypt),
+                            CCAlgorithm(kCCAlgorithmAES),
+                            CCOptions(kCCOptionPKCS7Padding),
+                            keyPtr.baseAddress, kCCKeySizeAES128,
+                            ivPtr.baseAddress,
+                            dataPtr.baseAddress, data.count,
+                            outPtr.baseAddress, capacity, &outLen
+                        )
+                    }
+                }
+            }
+        }
+        guard status == kCCSuccess else { return nil }
+        out.count = outLen
+        return out
+    }
+
+    /// RSA PKCS1 公钥加密（Security framework）
+    private static func rsaEncryptPKCS1(_ data: Data, publicKeyBase64: String) -> Data? {
+        guard let keyData = Data(base64Encoded: publicKeyBase64) else { return nil }
+        let attrs: [CFString: Any] = [
+            kSecAttrKeyType: kSecAttrKeyTypeRSA,
+            kSecAttrKeyClass: kSecAttrKeyClassPublic,
+            kSecAttrKeySizeInBits: 1024,
+        ]
+        guard let key = SecKeyCreateWithData(keyData as CFData, attrs as CFDictionary, nil) else { return nil }
+        var error: Unmanaged<CFError>?
+        guard let encrypted = SecKeyCreateEncryptedData(key, .rsaEncryptionPKCS1, data as CFData, &error) else { return nil }
+        return encrypted as Data
+    }
+
     // MARK: - 酷狗歌单同步
 
     struct KugouPlaylist: Identifiable {
@@ -1362,6 +1517,10 @@ final class KugouClient {
     /// 🔴 1:1 照搬 Beans！POST + JSON body + androidSignature + gateway 3116 appid
     func userPlaylists() async throws -> [KugouPlaylist] {
         guard KugouAuth.shared.isLoggedIn else { return [] }
+        // 🔴 老版本登录态没有 dfid —— 拉歌单前补做一次设备风控注册
+        if KugouAuth.shared.dfid == "-" {
+            await registerDevice()
+        }
         let userId = KugouAuth.shared.userId
         let token = KugouAuth.shared.token
 

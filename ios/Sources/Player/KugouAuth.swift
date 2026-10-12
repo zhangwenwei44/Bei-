@@ -26,8 +26,26 @@ final class KugouAuth: ObservableObject {
     var isVip: Bool { (defaults.object(forKey: key + ".vipType") as? Int ?? 0) > 0 }
     var vipType: Int { defaults.object(forKey: key + ".vipType") as? Int ?? 0 }
 
-    /// 设备指纹 dfid —— Beans 默认 "-"（registerDevice 后才有真实值，不注册也能用）
-    var dfid: String { "-" }
+    /// 设备指纹 dfid —— 未做风控注册前 "-"；registerDevice 成功后保存服务端返回的真实值
+    var dfid: String {
+        let v = defaults.string(forKey: "aurora_kugou_dfid") ?? "-"
+        return v.isEmpty ? "-" : v
+    }
+
+    /// registerDevice 成功后保存真实 dfid
+    func saveDeviceDFID(_ value: String) {
+        guard !value.isEmpty, value != dfid else { return }
+        defaults.set(value, forKey: "aurora_kugou_dfid")
+        Log.info("酷狗", "设备 dfid 已保存 \(value)")
+    }
+
+    /// 设备 guid —— registerDevice 上报的 imei/uuid，随机生成一次后持久化（照搬 Beans ensureDevice）
+    var guid: String {
+        if let g = defaults.string(forKey: "aurora_kugou_guid"), !g.isEmpty { return g }
+        let g = UUID().uuidString
+        defaults.set(g, forKey: "aurora_kugou_guid")
+        return g
+    }
 
     /// 设备指纹 mid —— 必须持久化且与 Cookie 里的 KUGOU_API_MID 完全一致，否则 gateway 20017
     /// 算法照搬 Beans: MD5(identifierForVendor) 前 15 位 hex → UInt64 十进制
