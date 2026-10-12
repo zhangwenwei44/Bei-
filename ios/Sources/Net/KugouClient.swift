@@ -55,13 +55,13 @@ final class KugouClient {
         config.httpMaximumConnectionsPerHost = 5
         session = URLSession(configuration: config)
 
-        // 设备指纹：mid = MD5(guid) 前 15 位十六进制转十进制，和官方客户端一致
+        // 设备指纹：mid = MD5(guid) 前 15 位十六进制转十进制，和 Beans 官方客户端一致
         let guid = UUID().uuidString
         let hex = Data(guid.utf8).md5Hex()
         let prefix = String(hex.prefix(15))
         mid = UInt64(prefix, radix: 16).map(String.init) ?? hex
-        let dfidHex = String(Data("aurora-dfid".utf8).md5Hex().prefix(15))
-        dfid = UInt64(dfidHex, radix: 16).map(String.init) ?? dfidHex
+        // dfid —— Beans 默认就是 "-"！不要用假值！
+        dfid = "-"
     }
 
     // MARK: - 签名
@@ -1404,10 +1404,10 @@ final class KugouClient {
 
             // 🔴 JSON body（POST 必须有）
             let bodyData = try JSONSerialization.data(withJSONObject: dataBody, options: [.sortedKeys])
+            let bodyStr = String(data: bodyData, encoding: .utf8) ?? ""
 
-            // 🔴 签名 —— 试 webSign（和 login-user 完全一致！Beans 用 androidSign 但 gateway 可能接受 webSign）
-            // 如果还是 20017 再换回来
-            final["signature"] = webSign(final)
+            // 🔴 androidSignature —— Beans 用这个！gateway 服务端也用 androidSalt 验签
+            final["signature"] = androidSign(final, data: bodyStr)
 
             // 🔴 POST 到 gateway.kugou.com —— 用 URLComponents 拼 URL（和 Beans 一样）
             var comps = URLComponents(string: "https://gateway.kugou.com/v7/get_all_list")!
