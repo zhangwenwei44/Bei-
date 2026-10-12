@@ -11,24 +11,28 @@ struct RootView: View {
     }
 
     var body: some View {
-        TabView(selection: $tab) {
-            CompatNavigationStack { DiscoverView() }
-                .tabItem { Label("主页", systemImage: "safari.fill") }.tag(Tab.discover)
-            CompatNavigationStack { SearchView() }
-                .tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(Tab.search)
-            CompatNavigationStack { LibraryView() }
-                .tabItem { Label("我的音乐", systemImage: "music.note.list") }.tag(Tab.library)
-            CompatNavigationStack { ProfileView() }
-                .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
-        }
-        // 🔴 overlay(alignment: .bottom) —— 只渲染 MiniPlayer 本体 frame
-        // 用 .offset(y: -83) 往上推 —— offset 只改变视觉位置，不改变 frame/hitTest！
-        // padding 会扩大 hitTest 区域！offset 不会！
-        .overlay(alignment: .bottom) {
-            if store.current != nil && !store.isAnyMultiSelecting {
-                MiniPlayer(isExpanded: $isPlayerExpanded)
-                    .padding(.horizontal, 10)
-                    .offset(y: -83)  // 视觉上往上 83pt，hitTest 仍只在 MiniPlayer 圆角内
+        ZStack {
+            TabView(selection: $tab) {
+                CompatNavigationStack { DiscoverView() }
+                    .tabItem { Label("主页", systemImage: "safari.fill") }.tag(Tab.discover)
+                CompatNavigationStack { SearchView() }
+                    .tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(Tab.search)
+                CompatNavigationStack { LibraryView() }
+                    .tabItem { Label("我的音乐", systemImage: "music.note.list") }.tag(Tab.library)
+                CompatNavigationStack { ProfileView() }
+                    .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
+            }
+            // 🔴 MiniPlayer —— GeometryReader + position() 绝对坐标定位
+            // position(x:y:) 移动视图中心，hitTest 严格只在 MiniPlayer 自身 frame 内
+            // TabBar 在 bottom 83pt (safeArea.bottom=34 + TabBar=49)
+            // MiniPlayer 底部对齐 TabBar 顶部 → MiniPlayer frame: y = (h-83-mpHeight) ~ (h-83)
+            GeometryReader { geo in
+                if store.current != nil && !store.isAnyMultiSelecting {
+                    MiniPlayer(isExpanded: $isPlayerExpanded)
+                        .padding(.horizontal, 10)
+                        // position 中心坐标: x=屏幕中心, y=TabBar顶部往上MiniPlayer高度的一半
+                        .position(x: geo.size.width / 2, y: geo.size.height - 83 - 25)
+                }
             }
         }
         .overlay {
