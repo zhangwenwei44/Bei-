@@ -55,12 +55,19 @@ final class KugouClient {
         config.httpMaximumConnectionsPerHost = 5
         session = URLSession(configuration: config)
 
-        // 设备指纹：mid = MD5(guid) 前 15 位十六进制转十进制，和 Beans 官方客户端一致
-        let guid = UUID().uuidString
-        let hex = Data(guid.utf8).md5Hex()
-        let prefix = String(hex.prefix(15))
-        mid = UInt64(prefix, radix: 16).map(String.init) ?? hex
-        // dfid —— Beans 默认就是 "-"！不要用假值！
+        // 🔴 mid 必须持久化！gateway 校验设备注册，每次启动不同会导致签名不匹配！
+        // Beans 用 identifierForVendor + UserDefaults 持久化
+        let defaults = UserDefaults.standard
+        if let savedMid = defaults.string(forKey: "aurora_kugou_mid"), !savedMid.isEmpty {
+            mid = savedMid
+        } else {
+            let seed = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
+            let hex = Data(seed.utf8).md5Hex()
+            let prefix = String(hex.prefix(15))
+            mid = UInt64(prefix, radix: 16).map(String.init) ?? hex
+            defaults.set(mid, forKey: "aurora_kugou_mid")
+        }
+        // dfid —— Beans 默认就是 "-"
         dfid = "-"
     }
 

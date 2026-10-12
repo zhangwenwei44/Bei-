@@ -22,17 +22,18 @@ struct RootView: View {
                 CompatNavigationStack { ProfileView() }
                     .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
             }
-            // 🔴 MiniPlayer —— GeometryReader + position() 绝对坐标定位
-            // position(x:y:) 移动视图中心，hitTest 严格只在 MiniPlayer 自身 frame 内
-            // TabBar 在 bottom 83pt (safeArea.bottom=34 + TabBar=49)
-            // MiniPlayer 底部对齐 TabBar 顶部 → MiniPlayer frame: y = (h-83-mpHeight) ~ (h-83)
-            GeometryReader { geo in
-                if store.current != nil && !store.isAnyMultiSelecting {
-                    MiniPlayer(isExpanded: $isPlayerExpanded)
-                        .padding(.horizontal, 10)
-                        // position 中心坐标: x=屏幕中心, y=TabBar顶部往上MiniPlayer高度的一半
-                        .position(x: geo.size.width / 2, y: geo.size.height - 83 - 25)
-                }
+            // 🔴 MiniPlayer —— 不依赖 GeometryReader，不依赖 overlay！
+            // 直接放 ZStack 里用 UIScreen + position() 绝对坐标！
+            // 没有任何全屏父 view 拦截 hitTest！
+            if store.current != nil && !store.isAnyMultiSelecting {
+                let screenH = UIScreen.main.bounds.height
+                let screenW = UIScreen.main.bounds.width
+                // MiniPlayer 中心 y = TabBar顶部往上MiniPlayer高度一半
+                // TabBar 顶部 = screenH - 83 (safeArea.bottom=34 + TabBar=49)
+                // MiniPlayer 高约 50pt → 往上 25pt
+                MiniPlayer(isExpanded: $isPlayerExpanded)
+                    .padding(.horizontal, 10)
+                    .position(x: screenW / 2, y: screenH - 83 - 25)
             }
         }
         .overlay {
