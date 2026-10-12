@@ -67,7 +67,7 @@ struct ProfileView: View {
                         NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
                     } label: {
                         HStack {
-                            Image(systemName: "music.mic.circle")
+                            Image(systemName: "music.note.tv.fill")
                                 .font(.system(size: 44))
                                 .foregroundStyle(.green)
                             VStack(alignment: .leading, spacing: 2) {

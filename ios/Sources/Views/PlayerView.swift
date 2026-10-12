@@ -146,6 +146,7 @@ struct PlayerView: View {
             .offset(x: classicSwipeOffset)
             .opacity(CGFloat(1) - min(abs(classicSwipeOffset) / 260, 0.35))
             .animation(.spring(response: 0.34, dampingFraction: 0.86), value: classicSwipeOffset)
+            .padding(.top, 15)  // 🔴 黑胶往下移 15pt
             .gesture(
                 DragGesture(minimumDistance: 15)
                     .onChanged { value in
@@ -165,13 +166,13 @@ struct PlayerView: View {
                     }
             )
 
-            // 7 行歌词预览
+            // 2 行歌词预览
             classicLyricPreviewBox
-                .padding(.top, 20)
+                .padding(.top, 15)  // 🔴 歌词也往下移（之前 20）
 
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)  // 🔴 改回 .top 控制
         .onChange(of: store.isPlaying) { _ in classicUpdateCoverSpin() }
         .onChange(of: store.currentIndex) { _ in classicUpdateCoverSpin(); extractDominantColor() }
         .onAppear { classicUpdateCoverSpin(); extractDominantColor() }
@@ -221,21 +222,25 @@ struct PlayerView: View {
     /// 经典封面功能按钮行：下载 | 收藏 | 翻译 | 歌词 | 🔴评论
     private var classicActionRow: some View {
         HStack(spacing: 18) {
+            // ① 收藏
+            classicActionButton(icon: store.isLiked ? "heart.fill" : "heart", label: "收藏") {
+                store.toggleFavorite()
+            }
+            // ② 下载
             classicActionButton(icon: "arrow.down.circle", label: "下载") {
                 if let song = store.current {
                     Task { _ = try? await DownloadManager.shared.download(song) }
                 }
             }
-            classicActionButton(icon: store.isLiked ? "heart.fill" : "heart", label: "收藏") {
-                store.toggleFavorite()
-            }
+            // ③ 翻译
             classicActionButton(icon: "textformat", label: "翻译") {
                 withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
             }
+            // ④ 歌词
             classicActionButton(icon: "music.note.list", label: "歌词") {
                 withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
             }
-            // 🔴 评论按钮（暂用 web 打开酷狗评论页）
+            // ⑤ 评论（暂用 web 打开酷狗评论页）
             classicActionButton(icon: "bubble.left.and.bubble.right", label: "评论") {
                 if let song = store.current {
                     let albumID = song.kugouAlbumID
