@@ -22,20 +22,19 @@ struct RootView: View {
                 CompatNavigationStack { ProfileView() }
                     .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
             }
-            // 🔴 MiniPlayer 用 overlay(alignment: .bottom) + 精准 hitTest 分层
-            .overlay(alignment: .bottom) {
-                if store.current != nil && !store.isAnyMultiSelecting {
-                    ZStack(alignment: .bottom) {
-                        // 🔴 MiniPlayer 本体 — 正常拦截点击（它自己有 contentShape 限定区域）
+
+            // 🔴 MiniPlayer —— 整体 hitTest=false 穿透，只有 MiniPlayer 本体通过 overlay 单独恢复 hitTest
+            if store.current != nil && !store.isAnyMultiSelecting {
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .allowsHitTesting(false)  // 全屏区域不拦截
+                    // 🔴 MiniPlayer 本体通过 overlay 单独恢复 hitTest
+                    .overlay(alignment: .bottom) {
                         MiniPlayer(isExpanded: $isPlayerExpanded)
                             .padding(.horizontal, 10)
-                            .padding(.bottom, 60)  // 往上 60pt，下面留透明区给 TabBar
-                        // 🔴 TabBar 穿透区 — 透明 + allowsHitTesting(false)
-                        Color.clear
-                            .frame(height: 60)
-                            .allowsHitTesting(false)
+                            .padding(.bottom, 60)  // 往上 60pt 贴近 TabBar
+                            .allowsHitTesting(true)
                     }
-                }
             }
         }
         .overlay {
