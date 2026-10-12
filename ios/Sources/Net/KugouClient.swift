@@ -1410,15 +1410,15 @@ final class KugouClient {
             let signBody = final.keys.sorted().map { "\($0)=\(final[$0] ?? "")" }.joined()
             final["signature"] = androidSign(final, data: bodyStr)
 
-            // 🔴 POST 到 gateway.kugou.com —— URLComponents 和 Beans 一样（Beans 也不排序 queryItems）
-            var comps = URLComponents(string: "https://gateway.kugou.com/v7/get_all_list")!
+            // 🔴 试直连 cloudlist！绕开 gateway 路由层（gateway 验签一直 20017）
+            let baseURL = "https://cloudlist.service.kugou.com"
+            var comps = URLComponents(string: "\(baseURL)/v7/get_all_list")!
             comps.queryItems = final.map { URLQueryItem(name: $0.key, value: $0.value) }
             let url = comps.url!
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.httpBody = bodyData
             request.setValue(gatewayUA, forHTTPHeaderField: "User-Agent")
-            request.setValue("cloudlist.service.kugou.com", forHTTPHeaderField: "x-router")
             request.setValue("1", forHTTPHeaderField: "kg-rc")
             request.setValue("5d816a0", forHTTPHeaderField: "kg-thash")
             request.setValue("1", forHTTPHeaderField: "kg-rec")
@@ -1426,6 +1426,7 @@ final class KugouClient {
             request.setValue(dfid, forHTTPHeaderField: "dfid")
             request.setValue(mid, forHTTPHeaderField: "mid")
             request.setValue(clienttime, forHTTPHeaderField: "clienttime")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let cookie = KugouAuth.shared.cookieHeader
             if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
 

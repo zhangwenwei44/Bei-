@@ -22,12 +22,13 @@ struct RootView: View {
                 .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
         }
         // 🔴 overlay(alignment: .bottom) —— 只渲染 MiniPlayer 本体 frame
-        // 不占满全屏 → MiniPlayer hitTest + TabBar hitTest 完全分离（各自只在自己 frame 内拦截）
+        // 用 .offset(y: -83) 往上推 —— offset 只改变视觉位置，不改变 frame/hitTest！
+        // padding 会扩大 hitTest 区域！offset 不会！
         .overlay(alignment: .bottom) {
             if store.current != nil && !store.isAnyMultiSelecting {
                 MiniPlayer(isExpanded: $isPlayerExpanded)
                     .padding(.horizontal, 10)
-                    .padding(.bottom, 83)  // 推到 TabBar 正上方（34+49）
+                    .offset(y: -83)  // 视觉上往上 83pt，hitTest 仍只在 MiniPlayer 圆角内
             }
         }
         .overlay {
