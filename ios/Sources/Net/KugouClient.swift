@@ -17,8 +17,13 @@ final class KugouClient {
     private let songClientVersion = "11430"
     private let searchSalt = "y9tjae~n)k)vn[8"
     private let playKeySalt = "57ae12eb6890223e355ccfcb74edf70d"
-    private let webSalt = "NVPh5oo715z5DIWAeQlhMDsWXXQV4hwt"  // web 端签名 salt
-    private let androidSalt = "LnT6xpN3khm36zse0QzvmgTZ3waWdRSA"  // 🔴 Beans 真实 androidSignKey！之前瞎猜的错了！
+    private let webSalt = "NVPh5oo715z5DIWAeQlhMDsWXXQV4hwt"
+    private let androidSalt = "LnT6xpN3khm36zse0QzvmgTZ3waWdRSA"
+
+    // 🔴 gateway.kugou.com 接口专用 —— 完全照搬 Beans！
+    private let gatewayAppID = "3116"        // ← Beans 用这个！不是 1005
+    private let gatewayClientVer = "11440"   // ← Beans 用这个！不是 20489
+    private let gatewayUA = "Android15-1070-11440-46-0-DiscoveryDRADProtocol-wifi"
 
     private let session: URLSession
     /// 歌手写真缓存（NSCache 线程安全）。key 是歌手名。
@@ -1357,75 +1362,102 @@ final class KugouClient {
     }
 
     /// 拉取当前登录用户的所有歌单
-    /// 🔴 直接 cloudlist.service.kugou.com —— gateway.kugou.com + x-router 一直 20006
+    /// 🔴 1:1 照搬 Beans！POST + JSON body + androidSignature + gateway 3116 appid
     func userPlaylists() async throws -> [KugouPlaylist] {
         guard KugouAuth.shared.isLoggedIn else { return [] }
         let userId = KugouAuth.shared.userId
         let token = KugouAuth.shared.token
 
         var allItems: [[String: Any]] = []
+        var seen = Set<String>()
         var page = 1
-        while true {
+        while page <= 50 {
             let clienttime = "\(Int(Date().timeIntervalSince1970))"
-            var params: [String: String] = [
+
+            // 🔴 baseParams（完全照搬 Beans gatewayRequest）
+            var final: [String: String] = [
                 "dfid": dfid,
                 "mid": mid,
                 "uuid": "-",
-                "appid": appID,
-                "clientver": clientVersion,
+                "appid": gatewayAppID,      // 3116 —— Beans 用这个！
+                "clientver": gatewayClientVer, // 11440 —— Beans 用这个！
                 "clienttime": clienttime,
-                "total_ver": "979",
-                "type": "2",
-                "page": "\(page)",
-                "pagesize": "200",
-                "userid": userId,
+                "token": token,             // baseParams 自动注入
+                "userid": userId,           // baseParams 自动注入
+            ]
+
+            // 🔴 data body（POST JSON）
+            let dataBody: [String: Any] = [
+                "total_ver": 979,
+                "type": 2,
+                "page": page,
+                "pagesize": 200,
+                "userid": Int(userId) ?? 0,
                 "token": token,
             ]
-            params["signature"] = webSign(params)
 
-            // 🔴 直接 cloudlist.service.kugou.com —— 绕过 gateway 路由层
-            let query = params.keys.sorted().map { k in
-                "\(k.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!)=\((params[k] ?? "").addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!)"
+            // 🔴 业务 params（URL query 也带一份）
+            final["total_ver"] = "979"
+            final["type"] = "2"
+            final["page"] = "\(page)"
+            final["pagesize"] = "200"
+
+            // 🔴 androidSignature(params 排序 + data body 字符串)
+            let bodyData = try JSONSerialization.data(withJSONObject: dataBody)
+            let bodyStr = String(data: bodyData, encoding: .utf8) ?? ""
+            final["signature"] = androidSign(final, data: bodyStr)
+
+            // 🔴 POST 到 gateway.kugou.com（不是 cloudlist 直连！cloudlist 有 SSL 证书问题）
+            let query = final.keys.sorted().map { k in
+                "\(k.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!)=\((final[k] ?? "").addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!)"
             }.joined(separator: "&")
-            let url = URL(string: "https://cloudlist.service.kugou.com/v7/get_all_list?\(query)")!
+            let url = URL(string: "https://gateway.kugou.com/v7/get_all_list?\(query)")!
             var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
-            request.setValue("https://www.kugou.com/", forHTTPHeaderField: "Referer")
-            request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
-            let cookie = KugouAuth.shared.cookieHeader
-            if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+            request.httpMethod = "POST"
+            request.httpBody = bodyData
+            request.setValue(gatewayUA, forHTTPHeaderField: "User-Agent")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("cloudlist.service.kugou.com", forHTTPHeaderField: "x-router")
+            request.setValue("1", forHTTPHeaderField: "kg-rc")
+            request.setValue("5d816a0", forHTTPHeaderField: "kg-thash")
+            request.setValue("1", forHTTPHeaderField: "kg-rec")
+            request.setValue("B9EDA08A64250DEFFBCADDEE00F8F25F", forHTTPHeaderField: "kg-rf")
             request.setValue(dfid, forHTTPHeaderField: "dfid")
             request.setValue(mid, forHTTPHeaderField: "mid")
             request.setValue(clienttime, forHTTPHeaderField: "clienttime")
-            request.setValue("101", forHTTPHeaderField: "kg-rc")
-            request.setValue(Data(browserUA.utf8).md5Hex(), forHTTPHeaderField: "kg-thash")
+            let cookie = KugouAuth.shared.cookieHeader
+            if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
 
             let started = Date()
             let (data, resp) = try await session.data(for: request)
             let elapsed = Date().timeIntervalSince(started)
             let raw = String(data: data, encoding: .utf8) ?? ""
             let httpCode = (resp as? HTTPURLResponse)?.statusCode ?? 0
-            Log.info("酷狗", "cloudlist userPlaylists page=\(page) HTTP=\(httpCode)/\(raw.count)B/\(Int(elapsed*1000))ms raw=\(String(raw.prefix(300)))")
+            Log.info("酷狗", "gateway userPlaylists page=\(page) HTTP=\(httpCode)/\(raw.count)B/\(Int(elapsed*1000))ms raw=\(String(raw.prefix(400)))")
 
-            let json = Self.extractJSONP(raw)
-                ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
-                ?? [:]
+            let json = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
 
             let status = Self.deepInt(json, path: ["status"]) ?? 0
+            let errcode = Self.deepInt(json, path: ["error_code"]) ?? -1
             if status != 1 && status != 200 {
                 let errMsg = Self.deepString(json, path: ["error_msg"]) ?? Self.deepString(json, path: ["message"]) ?? "未知错误"
-                let errcode = Self.deepInt(json, path: ["error_code"]) ?? -1
-                Log.error("酷狗", "cloudlist userPlaylists 错误 status=\(status) errcode=\(errcode) msg=\(errMsg)")
+                Log.error("酷狗", "gateway userPlaylists 错误 status=\(status) errcode=\(errcode) msg=\(errMsg)")
                 break
             }
 
             let items = Self.deepArray(json, path: ["lists"]) ?? Self.deepArray(json, path: ["data", "lists"]) ?? []
-            allItems.append(contentsOf: items)
+            var newCount = 0
+            for item in items {
+                guard let listid = Self.string(item["listid"]) ?? Self.string(item["list_id"]) ?? Self.string(item["id"]) else { continue }
+                if seen.insert(listid).inserted {
+                    allItems.append(item)
+                    newCount += 1
+                }
+            }
 
-            if items.count < 200 { break }
+            Log.info("酷狗", "gateway page=\(page) 返回 \(items.count) 条 新增 \(newCount) 条 累计 \(allItems.count)")
+            if items.count < 200 || newCount == 0 { break }
             page += 1
-            if page > 10 { break }
         }
 
         var playlists: [KugouPlaylist] = []
