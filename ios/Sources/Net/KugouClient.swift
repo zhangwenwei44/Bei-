@@ -1229,17 +1229,17 @@ final class KugouClient {
     /// 生成登录二维码的 key 和扫码 URL（完全照搬 Beans KugouMusicAPI.gatewayRequest 逻辑）
     func qrKey() async throws -> QRLogin {
         let clienttime = "\(Int(Date().timeIntervalSince1970))"
-        // 🔴 qrcode_txt 里用默认 appid（1005），不是 qrAppid（1001）！Beans 用 appid=3116
+        // 🔴 qrcode_txt 里用 Android gateway appid=3116（照搬 Beans，常量 appid=3116，不是 1005）
         // 结尾带 & 是因为后面可能还要拼参数，纯复制 Beans 行为
-        let qrcodeText = "https://h5.kugou.com/apps/loginQRCode/html/index.html?appid=\(appID)&"
+        let qrcodeText = "https://h5.kugou.com/apps/loginQRCode/html/index.html?appid=\(gatewayAppID)&"
 
         // baseParams + 覆盖参数（和 Beans gatewayRequest 完全一致）
         var final: [String: String] = [
             "dfid": dfid,
             "mid": mid,
             "uuid": "-",
-            "appid": qrAppid,       // ← 覆盖 baseParams 的 appid 为 1001
-            "clientver": clientVersion,
+            "appid": qrAppid,       // ← 业务参数用 1001（Beans qrAppid）
+            "clientver": gatewayClientVer, // ← 11440（baseParams 默认，照搬 Beans）
             "clienttime": clienttime,
             "type": "1",
             "plat": "4",
@@ -1290,15 +1290,16 @@ final class KugouClient {
         return Data(base64Encoded: clean)
     }
 
-    /// 轮询二维码扫描状态（完全照搬 Beans —— 注意 pollQR 用默认 appid 不是 qrAppid！）
+    /// 轮询二维码扫描状态（完全照搬 Beans —— pollQR 用 Android gateway appid=3116/clientver=11440，
+    /// 这样签发的 token 才能用于同域的 get_all_list/registerDevice，否则云歌单接口返回 20017）
     func pollQR(key: String) async throws -> QRState {
         let clienttime = "\(Int(Date().timeIntervalSince1970))"
         var final: [String: String] = [
             "dfid": dfid,
             "mid": mid,
             "uuid": "-",
-            "appid": appID,          // ← pollQR 用默认 appid=1005，不是 qrAppid=1001！Beans 也是
-            "clientver": clientVersion,
+            "appid": gatewayAppID,   // ← 3116（Beans 常量 appid），决定 token 签发域
+            "clientver": gatewayClientVer, // ← 11440
             "clienttime": clienttime,
             "plat": "4",
             "srcappid": qrSrcAppid,

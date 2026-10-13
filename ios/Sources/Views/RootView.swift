@@ -1,20 +1,34 @@
 import SwiftUI
 
 struct RootView: View {
-    @EnvironmentObject private var store: PlayerStore
-    @State private var tab: Tab = .discover
-    @State private var isPlayerExpanded = false
-    @State private var showKugouLogin = false
-
-    private enum Tab: Hashable {
-        case discover, search, library, profile
+    var body: some View {
+        ZStack {
+            // 🔴 MainTabs【不订阅 PlayerStore】——播放时 currentTime 每 0.5s 变化，
+            // 只会重算下面的 MiniPlayerLayer，TabView 及 4 个重页面完全不重算，
+            // 彻底解决“播放时底部 TabBar 卡死点不动、暂停就正常”。
+            MainTabs()
+            MiniPlayerLayer()
+        }
+        .ignoresSafeArea(.keyboard)
     }
+}
 
-    /// 底部安全区（Home Indicator 高度），从 keyWindow 读取，避免全屏 GeometryReader 拦截点击
-    private static var bottomSafeInset: CGFloat {
+/// 底部安全区（Home Indicator 高度），从 keyWindow 读取
+private enum ScreenMetric {
+    static var bottomSafeInset: CGFloat {
         let scene = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first
         return scene?.windows.first(where: { $0.isKeyWindow })?.safeAreaInsets.bottom ?? 34
+    }
+}
+
+/// 主 Tab 容器 —— 刻意不持有/订阅 PlayerStore，避免播放进度高频更新引发整树重算。
+private struct MainTabs: View {
+    @State private var tab: Tab = .discover
+    @State private var showKugouLogin = false
+
+    fileprivate enum Tab: Hashable {
+        case discover, search, library, profile
     }
 
     var body: some View {
@@ -28,24 +42,34 @@ struct RootView: View {
             CompatNavigationStack { ProfileView() }
                 .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
         }
-        // 🔴 终极方案：overlay(alignment:.bottom) + 纯 padding 上移
-        //
-        // SwiftUI hitTest 铁律：
-        //  · padding 的空白区【不吃】点击（点在 padding 上会直接落到下层 TabView）
-        //  · Color.clear【吃】点击（即使透明，是明确填充视图）
-        //  · offset 改视觉但 hitTest 行为不稳定
-        //
-        // 所以这里：MiniPlayer 用 .padding(.bottom, TabBar+HomeIndicator) 视觉上移，
-        // TabBar 区域只有 padding 空白，点击 100% 穿透到系统 TabBar；
-        // MiniPlayer 自身 contentShape 是圆角矩形，只在条内吃点击。
-        // 布局是静态的，播放/暂停完全一致，不存在“播放时挡住”。
-        .overlay(alignment: .bottom) {
+        .sheet(isPresented: $showKugouLogin) { KugouLoginSheet() }
+        .onReceive(NotificationCenter.default.publisher(for: .auroraShowKugouLogin)) { _ in
+            showKugouLogin = true
+        }
+        .tint(AppStyle.accent)
+    }
+}
+
+/// MiniPlayer + 全屏播放页层 —— 只有这一层订阅 PlayerStore（播放进度高频更新隔离在此）。
+private struct MiniPlayerLayer: View {
+    @EnvironmentObject private var store: PlayerStore
+    @State private var isPlayerExpanded = false
+
+    var body: some View {
+        // VStack + Spacer 布局：
+        //  · Spacer 是弹性占位，不绘制内容、【不参与命中测试】→ 大片空白区点击穿透到 MainTabs
+        //  · 只有 MiniPlayer 本体（圆角条）吃点击
+        //  · 底部 padding 把 MiniPlayer 抬到系统 TabBar(49) + HomeIndicator 之上，padding 也不吃命中
+        VStack {
+            Spacer(minLength: 0)
             if store.current != nil && !store.isAnyMultiSelecting {
                 MiniPlayer(isExpanded: $isPlayerExpanded)
                     .padding(.horizontal, 10)
-                    .padding(.bottom, 49 + Self.bottomSafeInset + 4)
+                    .padding(.bottom, 49 + ScreenMetric.bottomSafeInset + 4)
+                    .id("mini-player")
             }
         }
+        // 全屏播放页
         .overlay {
             if isPlayerExpanded, store.current != nil {
                 PlayerView(isExpanded: $isPlayerExpanded)
@@ -53,10 +77,6 @@ struct RootView: View {
             }
         }
         .queueSheet()
-        .ignoresSafeArea(.keyboard)
-        .sheet(isPresented: $showKugouLogin) { KugouLoginSheet() }
-        .onReceive(NotificationCenter.default.publisher(for: .auroraShowKugouLogin)) { _ in showKugouLogin = true }
-        .tint(AppStyle.accent)
     }
 }
 
