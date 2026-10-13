@@ -28,20 +28,22 @@ struct RootView: View {
             CompatNavigationStack { ProfileView() }
                 .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
         }
-        // 🔴 overlay 只占底部内容大小（不是全屏！）
-        // VStack = MiniPlayer + 透明穿透区（高度=TabBar 49 + Home Indicator）
-        // 穿透区 allowsHitTesting(false) → 点击直接落到下面 TabView 的 TabBar
-        // MiniPlayer 本体正常接收点击 → 两个都能点，任何播放状态都不变
+        // 🔴 终极方案：overlay(alignment:.bottom) + 纯 padding 上移
+        //
+        // SwiftUI hitTest 铁律：
+        //  · padding 的空白区【不吃】点击（点在 padding 上会直接落到下层 TabView）
+        //  · Color.clear【吃】点击（即使透明，是明确填充视图）
+        //  · offset 改视觉但 hitTest 行为不稳定
+        //
+        // 所以这里：MiniPlayer 用 .padding(.bottom, TabBar+HomeIndicator) 视觉上移，
+        // TabBar 区域只有 padding 空白，点击 100% 穿透到系统 TabBar；
+        // MiniPlayer 自身 contentShape 是圆角矩形，只在条内吃点击。
+        // 布局是静态的，播放/暂停完全一致，不存在“播放时挡住”。
         .overlay(alignment: .bottom) {
             if store.current != nil && !store.isAnyMultiSelecting {
-                VStack(spacing: 0) {
-                    MiniPlayer(isExpanded: $isPlayerExpanded)
-                        .padding(.horizontal, 10)
-                        .padding(.bottom, 4)
-                    Color.clear
-                        .frame(height: 49 + Self.bottomSafeInset)
-                        .allowsHitTesting(false)
-                }
+                MiniPlayer(isExpanded: $isPlayerExpanded)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 49 + Self.bottomSafeInset + 4)
             }
         }
         .overlay {
@@ -128,14 +130,10 @@ struct MiniPlayer: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         // 🔴 关键：先 clipShape 裁住整个 MiniPlayer（含进度条 overlay）
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        // 🔴 进度条放在 clipShape 之前 → 会被 clipShape 裁在圆角矩形里，不再溢出！
+        // 🔴 进度条独立成子视图：播放时只重绘这 2pt 小条，
+        // 不重建整个 MiniPlayer（material 背景 / CoverImage / 按钮都不动）→ 降低主线程负载
         .overlay(alignment: .bottom) {
-            GeometryReader { geo in
-                Capsule()
-                    .fill(AppStyle.accent)
-                    .frame(width: geo.size.width * max(0, min(1, store.progress)), height: 2)
-            }
-            .frame(height: 2)  // 锁死 GeometryReader 高度
+            MiniPlayerProgressBar()
         }
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -156,5 +154,21 @@ struct MiniPlayer: View {
 
     private func expand() {
         withAnimation(.spring(response: 0.5, dampingFraction: 0.86)) { isExpanded = true }
+    }
+}
+
+/// MiniPlayer 底部 2pt 进度条 —— 独立订阅 progress，播放时只重绘它自己，
+/// 避免每 0.5s 把整个 MiniPlayer（material/封面/按钮）全部重建。
+private struct MiniPlayerProgressBar: View {
+    @EnvironmentObject private var store: PlayerStore
+
+    var body: some View {
+        GeometryReader { geo in
+            Capsule()
+                .fill(AppStyle.accent)
+                .frame(width: geo.size.width * max(0, min(1, store.progress)), height: 2)
+        }
+        .frame(height: 2)
+        .allowsHitTesting(false)
     }
 }

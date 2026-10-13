@@ -52,6 +52,11 @@ final class KugouClient {
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 30
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        // 🔴 对齐 Beans：禁用 URLSession 自动 Cookie 管理！
+        // 登录接口的 Set-Cookie 会被自动存进共享 cookieStore，之后请求 gateway 时
+        // 系统会把脏 cookie 与我们手动拼的 Cookie 头合并/覆盖，导致签名设备态对不上 → 20017/20006
+        config.httpShouldSetCookies = false
+        config.httpCookieAcceptPolicy = .never
         // 限流：全站最多 5 个并发 HTTP 请求（默认 6，iOS 16 上也够用）。
         // 酷狗 CDN 很稳但 DNS 解析偶发慢，太多并发会同时打 DNS / TLS 握手，
         // 反而让首批请求全部卡在握手阶段。
