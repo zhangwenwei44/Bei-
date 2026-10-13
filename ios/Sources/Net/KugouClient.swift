@@ -1571,8 +1571,7 @@ final class KugouClient {
             let signBody = final.keys.sorted().map { "\($0)=\(final[$0] ?? "")" }.joined()
             final["signature"] = androidSign(final, data: bodyStr)
 
-            // 🔴 gateway.kugou.com + x-router: cloudlist.service.kugou.com
-            // Beans cloudlistRequest 用这个模式！注意要加 Content-Type: application/json
+            // 🔴 gateway.kugou.com + x-router: cloudlist.service.kugou.com（1:1 照搬 Beans gatewayRequest）
             var comps = URLComponents(string: "https://gateway.kugou.com/v7/get_all_list")!
             comps.queryItems = final.map { URLQueryItem(name: $0.key, value: $0.value) }
             let url = comps.url!
