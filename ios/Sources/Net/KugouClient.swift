@@ -1623,10 +1623,23 @@ final class KugouClient {
                 break
             }
 
-            let items = Self.deepArray(json, path: ["lists"]) ?? Self.deepArray(json, path: ["data", "lists"]) ?? []
+            // 🔴 字段名以服务端实际返回为准：get_all_list 的歌单数组在 data.info，
+            // 不是 data.lists。之前只找 ["lists"] / ["data","lists"] → 永远返回空数组，
+            // 表现成「登录成功但拉到 0 个歌单」，而接口本身 HTTP 200 且返回了 24KB 数据。
+            // 保留旧路径兜底，不同版本客户端字段名可能有差异。
+            let items = Self.deepArray(json, path: ["data", "info"])
+                ?? Self.deepArray(json, path: ["lists"])
+                ?? Self.deepArray(json, path: ["data", "lists"])
+                ?? []
+            if items.isEmpty {
+                // 一个都没解析出来时把顶层 key 打进日志，避免再次靠猜
+                let topKeys = (json as? [String: Any])?.keys.sorted().joined(separator: ",") ?? "?"
+                let dataKeys = ((json?["data"] as? [String: Any])?.keys.sorted().joined(separator: ",")) ?? "?"
+                Log.info("酷狗", "🔴 歌单解析为空：顶层 keys=[\(topKeys)] data keys=[\(dataKeys)]")
+            }
             var newCount = 0
             for item in items {
-                guard let listid = Self.string(item["listid"]) ?? Self.string(item["list_id"]) ?? Self.string(item["id"]) else { continue }
+                guard let listid = Self.playlistID(item) else { continue }
                 if seen.insert(listid).inserted {
                     allItems.append(item)
                     newCount += 1
@@ -1634,18 +1647,28 @@ final class KugouClient {
             }
 
             Log.info("酷狗", "gateway page=\(page) 返回 \(items.count) 条 新增 \(newCount) 条 累计 \(allItems.count)")
+            // 解析到条目但一个 id 都提取不出来 —— 说明歌单对象字段名变了，把 keys 打出来
+            if !items.isEmpty, newCount == 0, page == 1 {
+                Log.info("酷狗", "🔴 歌单条目取不到 id：首个对象 keys=[\(items[0].keys.sorted().joined(separator: ","))]")
+            }
             if items.count < 200 || newCount == 0 { break }
             page += 1
         }
 
         var playlists: [KugouPlaylist] = []
         for item in allItems {
-            guard let listid = Self.string(item["listid"]) ?? Self.string(item["list_id"]) ?? Self.string(item["id"]) else { continue }
+            guard let listid = Self.playlistID(item) else { continue }
             let name = Self.string(item["listname"]) ?? Self.string(item["name"]) ?? "未命名歌单"
             playlists.append(KugouPlaylist(id: listid, name: name, songs: []))
         }
         Log.info("酷狗", "拉到 \(playlists.count) 个云端歌单")
         return playlists
+    }
+
+    /// 歌单 id 字段名在不同接口/版本间不一致，逐个候选匹配。
+    /// `list_create_listid` 是创建者的默认歌单（=1），不能当歌单 id 用。
+    private static func playlistID(_ item: [String: Any]) -> String? {
+        string(item["listid"]) ?? string(item["list_id"]) ?? string(item["id"])
     }
 
     /// 把当前歌曲保存到指定酷狗歌单

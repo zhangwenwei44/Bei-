@@ -3,10 +3,12 @@ import SwiftUI
 struct RootView: View {
     var body: some View {
         ZStack {
-            // 🔴 MainTabs【不订阅 PlayerStore】——播放时 currentTime 每 0.5s 变化，
-            // 只会重算下面的 MiniPlayerLayer，TabView 及 4 个重页面完全不重算，
-            // 彻底解决“播放时底部 TabBar 卡死点不动、暂停就正常”。
+            // 🔴 MainTabs 在下层，负责真正的 TabBar 点击
             MainTabs()
+
+            // 🔴 播放条浮层在上层，但它自身不铺满屏参与命中测试
+            // （详见 MiniPlayerLayer 的注释）。ZStack 上层不吃触摸时，
+            // 触摸会落到下层的 MainTabs，TabBar 才能正常点击。
             MiniPlayerLayer()
         }
         .ignoresSafeArea(.keyboard)
@@ -56,27 +58,38 @@ private struct MiniPlayerLayer: View {
     @State private var isPlayerExpanded = false
 
     var body: some View {
-        // VStack + Spacer 布局：
-        //  · Spacer 是弹性占位，不绘制内容、【不参与命中测试】→ 大片空白区点击穿透到 MainTabs
-        //  · 只有 MiniPlayer 本体（圆角条）吃点击
-        //  · 底部 padding 把 MiniPlayer 抬到系统 TabBar(49) + HomeIndicator 之上，padding 也不吃命中
-        VStack {
-            Spacer(minLength: 0)
-            if store.current != nil && !store.isAnyMultiSelecting {
-                MiniPlayer(playback: store.playback, isExpanded: $isPlayerExpanded)
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 49 + ScreenMetric.bottomSafeInset + 4)
-                    .id("mini-player")
+        // 🔴 播放时 TabBar 点不动，与性能无关，是【触摸命中被拦截】：
+        //
+        // 旧写法 VStack { Spacer(); MiniPlayer } 把这层撑满全屏。
+        // SwiftUI 命中测试自顶向下，上层命中就不再传给下层 TabView ——
+        // 播放条一出现（store.current != nil），底部 TabBar 就点不动。
+        // 旧注释写的「Spacer 不参与命中测试所以能穿透」是错的：
+        // 不绘制内容 ≠ 不占命中区域，撑满的布局照样吃触摸。
+        //
+        // 🔴 allowsHitTesting 是【继承】的：父级 false 会连子级一起禁，子级 true 覆盖不了。
+        // 所以正确做法是把播放条做成【尺寸就等于播放条本身】的兄弟节点，
+        // 用 alignment: .bottom 贴到屏幕底部，而不是用 Spacer 撑满。
+        Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .allowsHitTesting(false)   // 背景不吃触摸 → 穿透给下层 TabBar
+            .overlay(alignment: .bottom) {
+                // 播放条：只有这个矩形参与命中，周围的空白穿透到 TabBar
+                if store.current != nil && !store.isAnyMultiSelecting {
+                    MiniPlayer(playback: store.playback, isExpanded: $isPlayerExpanded)
+                        .padding(.horizontal, 10)
+                        // 抬到系统 TabBar(49) + HomeIndicator 之上
+                        .padding(.bottom, 49 + ScreenMetric.bottomSafeInset + 4)
+                        .id("mini-player")
+                }
             }
-        }
-        // 全屏播放页
-        .overlay {
-            if isPlayerExpanded, store.current != nil {
-                PlayerView(playback: store.playback, isExpanded: $isPlayerExpanded)
-                    .transition(.move(edge: .bottom))
+            // 全屏播放页：覆盖全屏且需要吃全部触摸
+            .overlay {
+                if isPlayerExpanded, store.current != nil {
+                    PlayerView(playback: store.playback, isExpanded: $isPlayerExpanded)
+                        .transition(.move(edge: .bottom))
+                }
             }
-        }
-        .queueSheet()
+            .queueSheet()
     }
 }
 
