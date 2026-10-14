@@ -25,6 +25,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 🔴 内置音源不走 git —— 第三方脚本没有 license 声明，仓库无权再分发，
+      # 所以 ios/BundledSources/*.js 被 .gitignore 排除，checkout 拿不到。
+      #
+      # 方案：从本仓库的 v2.5.0 Release 资产拉 bundedsources.tar.gz
+      #（44KB 的脚本 base64 后会超过 GitHub Secret 48KB 上限，Secret 方案不可行）。
+      # 资产可以用 ship-ipa 脚本随时替换，CI 每次构建都取最新版本。
+      # 资产不存在时静默跳过 —— 出的包就是「无内置音源」的干净包。
+      - name: Fetch bundled sources from release asset
+        run: |
+          set -euo pipefail
+          URL="https://github.com/${{ github.repository }}/releases/download/v2.5.0/bundled-sources.tar.gz"
+          mkdir -p ios/BundledSources
+          if curl -fsSL --retry 3 --max-time 120 "$URL" -o /tmp/bundled.tar.gz; then
+            tar -xzf /tmp/bundled.tar.gz -C ios/BundledSources
+            rm -f /tmp/bundled.tar.gz
+            echo "✅ 已从 Release 取回内置音源："
+            ls -la ios/BundledSources/
+          else
+            echo "⚠️ 未找到 bundled-sources.tar.gz（$URL），本包不含内置音源"
+            echo "   上传方法见 ios/BundledSources/README.local.md"
+          fi
+
       - name: Select Xcode
         run: |
           set -euo pipefail

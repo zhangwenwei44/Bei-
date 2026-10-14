@@ -26,6 +26,23 @@ private enum ScreenMetric {
             .compactMap { $0 as? UIWindowScene }.first
         return scene?.windows.first(where: { $0.isKeyWindow })?.safeAreaInsets.bottom ?? 34
     }
+
+    /// TabBar 的实际高度（含 Home Indicator 安全区）。
+    ///
+    /// 🔴 不能硬编码 49 —— 之前写 `49 + safeArea` 会把播放条抬得过高，
+    /// 悬在列表中间（用户截图就是这个效果）。直接从 UITabBar 实测，
+    /// 播放条底边正好贴住 TabBar 上沿，既不遮挡 TabBar 点击，也不浮在列表中间。
+    static var tabBarHeight: CGFloat {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }.first
+        let tabBar = scene?.windows.first(where: { $0.isKeyWindow })?
+            .rootViewController?.children
+            .compactMap { $0 as? UITabBarController }
+            .first?.tabBar
+        // 拿不到时退回 49 + 安全区（老设备的通用值）
+        guard let tabBar else { return 49 + bottomSafeInset }
+        return max(tabBar.bounds.height, 49) + tabBar.safeAreaInsets.bottom
+    }
 }
 
 /// 主 Tab 容器 —— 刻意不持有/订阅 PlayerStore，避免播放进度高频更新引发整树重算。
@@ -81,16 +98,20 @@ private struct MiniPlayerLayer: View {
     }
 
     var body: some View {
-        // 整层铺满屏幕但不参与命中测试 → 空白区（含 TabBar）穿透到下层 MainTabs。
-        // allowsHitTesting 放在 overlay【之后】，保证播放条本体仍能接收触摸。
+        // 🔴 TabBar 点击与迷你播放器点击要能同时工作，方案是【让播放条只占自身高度】，
+        // 而不是用 allowsHitTesting 整层禁用（那样会把播放条自己也禁掉，点不进去）。
+        //
+        // 做法：Color.clear 铺满作为命中穿透的底板，播放条用 overlay(alignment:.bottom)
+        // 贴在【TabBar 上沿】。因为播放条矩形不覆盖 TabBar 区域，
+        // 两者的触摸天然互不干扰 —— 不需要任何 allowsHitTesting 全局禁用。
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .bottom) {
                 if mini.isVisible {
                     MiniPlayer(mini: mini, playback: playback, store: store, isExpanded: $isPlayerExpanded)
                         .padding(.horizontal, 10)
-                        // 抬到系统 TabBar(49) + HomeIndicator 之上
-                        .padding(.bottom, 49 + ScreenMetric.bottomSafeInset + 4)
+                        // 底边贴住 TabBar 上沿（不遮挡 TabBar）+ 4pt 间距
+                        .padding(.bottom, ScreenMetric.tabBarHeight + 4)
                         .id("mini-player")
                 }
             }
@@ -100,10 +121,6 @@ private struct MiniPlayerLayer: View {
                         .transition(.move(edge: .bottom))
                 }
             }
-            // 🔴 关键：放在最后，让整层（背景 + 播放条）都不吃触摸，
-            // 触摸穿透给下层 TabBar。播放条的可点击性由它自身的 Button 保证
-            // ——SwiftUI 中 Button 不依赖父层的 allowsHitTesting 传递规则。
-            .allowsHitTesting(false)
             .queueSheet()
     }
 }

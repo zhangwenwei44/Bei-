@@ -1804,18 +1804,65 @@ final class KugouClient {
 
         var songs: [Song] = []
         for item in allItems {
-            let hash = Self.string(item["hash"]) ?? Self.string(item["hash_16bit"]) ?? ""
-            let fileName = Self.string(item["filename"]) ?? ""
-            let title = Self.string(item["songname"]) ?? fileName
-            var artist = Self.string(item["singername"]) ?? ""
-            if artist.isEmpty { artist = Self.string(item["artistname"]) ?? "" }
-            let album = Self.string(item["album_name"]) ?? Self.string(item["albumname"]) ?? ""
+            // 🔴 字段候选对齐 Beans mapTrack —— 云歌单的歌曲对象在不同接口/版本下
+            // 字段名差异很大：搜索接口给 songname，歌单接口常常只给 filename。
+            let hash = Self.string(item["hash"])
+                ?? Self.string(item["Hash"])
+                ?? Self.string(item["file_hash"])
+                ?? Self.string(item["FileHash"])
+                ?? Self.string(item["audio_hash"])
+                ?? ""
+            let filename = Self.string(item["filename"]) ?? Self.string(item["FileName"]) ?? ""
+
+            var title = Self.string(item["songname"])
+                ?? Self.string(item["song_name"])
+                ?? Self.string(item["name"])
+                ?? Self.string(item["title"])
+                ?? ""
+            var artist = Self.string(item["singername"])
+                ?? Self.string(item["singer_name"])
+                ?? Self.string(item["author_name"])
+                ?? Self.string(item["singer"])
+                ?? Self.string(item["artist"])
+                ?? ""
+
+            // 🔴 关键兜底：filename 形如「歌手 - 歌名」，
+            // 歌单接口常常不单独给 songname/singername，全靠这里拆出来。
+            if !filename.isEmpty {
+                let parts = filename.components(separatedBy: " - ")
+                if parts.count >= 2 {
+                    if artist.isEmpty { artist = parts[0].trimmingCharacters(in: .whitespaces) }
+                    if title.isEmpty || title == filename {
+                        title = parts.dropFirst().joined(separator: " - ")
+                            .trimmingCharacters(in: .whitespaces)
+                    }
+                } else if title.isEmpty {
+                    title = filename
+                }
+            }
+            if artist.isEmpty {
+                artist = Self.string(item["h5_author_name"]) ?? Self.string(item["authors"]) ?? ""
+            }
+
+            let album = Self.string(item["album_name"])
+                ?? Self.string(item["albumname"])
+                ?? Self.string(item["album"])
+                ?? ""
             let durationSec: Double
             if let d = Self.deepInt(item, path: ["duration"]), d > 0 {
                 durationSec = Double(d) / 1000.0
+            } else if let d = Self.deepInt(item, path: ["timelength"]), d > 0 {
+                durationSec = Double(d) / 1000.0
             } else { durationSec = 0 }
 
-            if !hash.isEmpty {
+            let cover = Self.string(item["pic"])
+                ?? Self.string(item["img"])
+                ?? Self.string(item["image"])
+                ?? Self.string(item["cover"])
+                ?? Self.string(item["album_sizable_cover"])
+                ?? nil
+
+            if !hash.isEmpty, !title.isEmpty {
                 songs.append(Song(
                     id: "kg:\(hash)",
                     title: title,
@@ -1824,11 +1871,13 @@ final class KugouClient {
                     url: nil,
                     tags: ["酷狗", "kugou-list:\(listid)"],
                     duration: durationSec,
-                    artworkURL: nil,
+                    artworkURL: cover.flatMap { URL(string: $0.hasPrefix("http") ? $0 : "https://\($0)") },
                     source: .kugou,
                     kugouHash: hash,
                     kugouAlbumID: Self.string(item["album_id"]) ?? Self.string(item["albumid"]) ?? ""
                 ))
+            } else if songs.isEmpty {
+                Log.info("酷狗", "🔴 歌单条目缺 hash 或 title：keys=[\(item.keys.sorted().joined(separator: ","))]")
             }
         }
         Log.info("酷狗", "歌单 \(listid) 解析出 \(songs.count) 首歌")
