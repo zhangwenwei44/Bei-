@@ -73,15 +73,22 @@ cd ios && xcodegen generate && open AuroraMusic.xcodeproj
 
 ## 第三方音源
 
-CI 打出的安装包**不带音源脚本**（无 license 的脚本不能公开再分发）。
-装好 App 后到「我的 → 第三方音源」用「从文件导入」或「从剪贴板导入」加入
-长青SVIP洛雪脚本即可，导入一次会一直保留。
+CI 会尝试从 **v2.5.0 Release 资产 `bundled-sources.tar.gz`** 拉取内置音源
+（该资产存在时打进 IPA，不存在时静默跳过、产出干净包）。
+之所以走 Release 而不是 git：脚本没有 license 声明，仓库无权再分发，
+所以 `ios/BundledSources/*.js` 被 .gitignore 排除，`actions/checkout` 拿不到。
 
-- **长青SVIP音源 v1.2.0** — 没有 license 声明，仓库无权再分发。
-  本地打包想内置的话，把脚本放到 ios/BundledSources/changqing.js
-  （被 .gitignore 排除），打出来的包就会随包携带，启动时一键启用
+想更新/新增内置音源：把 `.js` 放进 `ios/BundledSources/` 后重新打成 tar 上传即可
 
-想加别的脚本，把 .js 丢进 ios/BundledSources/ 重新打包即可，
+```bash
+cd ios/BundledSources
+tar -czf bundled-sources.tar.gz *.js
+# 上传到 v2.5.0 Release，资产名固定为 bundled-sources.tar.gz
+```
+
+App 启动时会把包内所有 `.js` 注册成可选音源，在「我的 → 第三方音源」里一键启用。
+音源名、版本、作者从脚本头部 `/*! @name ... */` 注释读取。
+
 详见 [ios/BundledSources/README.local.md](ios/BundledSources/README.local.md)
 和 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
