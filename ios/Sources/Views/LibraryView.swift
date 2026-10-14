@@ -389,6 +389,10 @@ private struct KugouLibraryPage: View {
         Group {
             if !kugouAuth.isLoggedIn {
                 kugouNotLoggedInView
+            } else if kugouAuth.needsRelogin {
+                // 🔴 登录态失效（旧域签发的 token / 服务端返回 20017）：
+                // 不走歌单列表 —— 否则用户只会看到空列表，以为是歌单丢了。
+                kugouReloginRequiredView
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
@@ -410,6 +414,49 @@ private struct KugouLibraryPage: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .auroraKugouLoginSuccess)) { _ in
             Task { await reloadPlaylists() }
+        }
+    }
+
+    // MARK: 登录态失效
+
+    private var kugouReloginRequiredView: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            ZStack {
+                Circle().fill(Color.orange.opacity(0.14)).frame(width: 88, height: 88)
+                Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
+                    .font(.system(size: 38)).foregroundStyle(.orange)
+            }
+            .padding(.bottom, 20)
+
+            Text("登录已失效")
+                .font(.system(size: 20, weight: .bold)).foregroundStyle(AppStyle.primaryText)
+                .padding(.bottom, 6)
+
+            Text("你的酷狗登录凭证已过期，重新扫码即可恢复歌单同步")
+                .font(.system(size: 13)).foregroundStyle(AppStyle.tertiaryText)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+                .padding(.bottom, 24)
+
+            Button {
+                // 先清掉旧 token 再登录，避免拿脏凭证反复触发 20017
+                kugouAuth.clearForRelogin()
+                showDisclaimer = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "qrcode.viewfinder")
+                    Text("重新扫码登录")
+                }
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 24).padding(.vertical, 12)
+                .background(AppStyle.accent, in: Capsule())
+                .shadow(color: AppStyle.accent.opacity(0.4), radius: 10, y: 4)
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
         }
     }
 
@@ -782,4 +829,6 @@ extension Notification.Name {
     static let auroraShowKugouLogin = Notification.Name("aurora.showKugouLogin")
     /// 酷狗登录成功，各页面刷新歌单
     static let auroraKugouLoginSuccess = Notification.Name("aurora.kugouLoginSuccess")
+    /// 服务端拒绝 token（20017/20006）—— 需要重新扫码登录
+    static let auroraKugouTokenRejected = Notification.Name("aurora.kugouTokenRejected")
 }

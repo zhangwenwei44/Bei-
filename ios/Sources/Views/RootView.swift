@@ -63,7 +63,7 @@ private struct MiniPlayerLayer: View {
         VStack {
             Spacer(minLength: 0)
             if store.current != nil && !store.isAnyMultiSelecting {
-                MiniPlayer(isExpanded: $isPlayerExpanded)
+                MiniPlayer(isExpanded: $isPlayerExpanded, playback: store.playback)
                     .padding(.horizontal, 10)
                     .padding(.bottom, 49 + ScreenMetric.bottomSafeInset + 4)
                     .id("mini-player")
@@ -72,7 +72,7 @@ private struct MiniPlayerLayer: View {
         // 全屏播放页
         .overlay {
             if isPlayerExpanded, store.current != nil {
-                PlayerView(isExpanded: $isPlayerExpanded)
+                PlayerView(store: store, isExpanded: $isPlayerExpanded)
                     .transition(.move(edge: .bottom))
             }
         }
@@ -84,6 +84,8 @@ private struct MiniPlayerLayer: View {
 
 struct MiniPlayer: View {
     @EnvironmentObject private var store: PlayerStore
+    /// 进度条专用的高频订阅对象 —— 见 PlaybackProgress 文档。
+    @ObservedObject var playback: PlaybackProgress
     @Binding var isExpanded: Bool
 
     var body: some View {
@@ -153,7 +155,7 @@ struct MiniPlayer: View {
         // 🔴 进度条独立成子视图：播放时只重绘这 2pt 小条，
         // 不重建整个 MiniPlayer（material 背景 / CoverImage / 按钮都不动）→ 降低主线程负载
         .overlay(alignment: .bottom) {
-            MiniPlayerProgressBar()
+            MiniPlayerProgressBar(playback: playback)
         }
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -177,16 +179,20 @@ struct MiniPlayer: View {
     }
 }
 
-/// MiniPlayer 底部 2pt 进度条 —— 独立订阅 progress，播放时只重绘它自己，
+/// MiniPlayer 底部 2pt 进度条 —— 独立订阅 PlaybackProgress，播放时只重绘它自己，
 /// 避免每 0.5s 把整个 MiniPlayer（material/封面/按钮）全部重建。
+/// 🔴 订阅 progress 而非 PlayerStore：后者每 0.5s 变一次 currentTime，
+/// 会连带触发四个主页面的整树重算（TabBar 卡死的根因）。
 private struct MiniPlayerProgressBar: View {
     @EnvironmentObject private var store: PlayerStore
+    /// 进度实例由 PlayerStore 持有并注入 —— 与播放页共用同一份状态。
+    @ObservedObject var playback: PlaybackProgress
 
     var body: some View {
         GeometryReader { geo in
             Capsule()
                 .fill(AppStyle.accent)
-                .frame(width: geo.size.width * max(0, min(1, store.progress)), height: 2)
+                .frame(width: geo.size.width * max(0, min(1, playback.progress)), height: 2)
         }
         .frame(height: 2)
         .allowsHitTesting(false)

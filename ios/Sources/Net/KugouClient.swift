@@ -1614,6 +1614,12 @@ final class KugouClient {
             if status != 1 && status != 200 {
                 let errMsg = Self.deepString(json, path: ["error_msg"]) ?? Self.deepString(json, path: ["message"]) ?? "未知错误"
                 Log.error("酷狗", "gateway userPlaylists 错误 status=\(status) errcode=\(errcode) msg=\(errMsg)")
+                // 🔴 20017 = 设备态/token 与请求域不匹配；20006 = token 非法/过期。
+                // 这类错误重试没有意义（token 是旧域签发的），唯一出路是重新扫码 ——
+                // 标记后由 UI 弹出引导，否则用户只会看到"歌单是空的"。
+                if errcode == 20017 || errcode == 20006 {
+                    KugouAuth.shared.markTokenRejected()
+                }
                 break
             }
 

@@ -22,10 +22,22 @@ final class PlayerStore: ObservableObject {
     @Published private(set) var isBuffering = false
     @Published private(set) var playbackError: String?
     @Published private(set) var sourceName: String = ""
-    @Published private(set) var currentTime: Double = 0
-    @Published private(set) var duration: Double = 0
-    @Published private(set) var bufferedFraction: Double = 0
     @Published private(set) var bitrateLabel: String = ""
+
+    // MARK: 高频播放进度（已拆到独立对象，避免拖慢四个主页面）
+
+    /// 播放进度独立成对象 —— currentTime 每 0.5s 变一次，
+    /// 若与队列/收藏挤在同一个 PlayerStore 里，四个主页面会跟着整树重算（TabBar 卡死）。
+    /// 详见 PlaybackProgress 的文档注释。
+    let playback = PlaybackProgress()
+
+    /// 兼容旧调用点：内部逻辑仍可用 `store.currentTime` 读取。
+    /// 🔴 注意这些是**转发计算属性**，本身不触发 SwiftUI 订阅 ——
+    /// 需要 0.5s 级刷新的 UI 必须订阅 `store.playback`，而不是 PlayerStore。
+    var currentTime: Double { playback.currentTime }
+    var duration: Double { playback.duration }
+    var bufferedFraction: Double { playback.bufferedFraction }
+    var progress: Double { playback.progress }
 
     /// 网络状态：true=有网，false=断网。
     @Published private(set) var isNetworkAvailable = true
@@ -97,7 +109,6 @@ final class PlayerStore: ObservableObject {
     private var stalledSongID: String?
 
     var current: Song? { queue.indices.contains(currentIndex) ? queue[currentIndex] : nil }
-    var progress: Double { duration > 0 ? min(1, currentTime / duration) : 0 }
     var sleepTimerRemaining: TimeInterval? {
         guard let sleepTimerEnd else { return nil }
         return max(0, sleepTimerEnd.timeIntervalSinceNow)
@@ -250,8 +261,7 @@ final class PlayerStore: ObservableObject {
         isPlaying = false
         isLoading = false
         isBuffering = false
-        currentTime = 0
-        duration = 0
+        playback.reset()
         lyrics = []
         currentLyricIndex = nil
         playbackError = nil
@@ -279,9 +289,7 @@ final class PlayerStore: ObservableObject {
 
         lyrics = []
         currentLyricIndex = nil
-        currentTime = 0
-        duration = song.duration
-        bufferedFraction = 0
+        playback.reset(duration: song.duration)
         bitrateLabel = ""
         playbackError = nil
         isLiked = LibraryStore.shared.isFavorite(song)
@@ -427,7 +435,7 @@ final class PlayerStore: ObservableObject {
                 if total.isFinite, total > 0 {
                     let range = item.loadedTimeRanges.first?.timeRangeValue
                     let buffer = range.map { Double($0.duration.seconds / total) } ?? 0
-                    self.bufferedFraction = buffer.isFinite ? max(0, min(1, buffer)) : 0
+                    self.playback.bufferedFraction = buffer.isFinite ? max(0, min(1, buffer)) : 0
                 }
             }
         })
@@ -451,7 +459,7 @@ final class PlayerStore: ObservableObject {
                     // 音质切换 mid-song 场景：attach 完成 + item ready → 恢复 seek 位置
                     if let pending = self.pendingQualitySwitchSeek, pending > 0 {
                         self.player.seek(to: CMTime(seconds: pending, preferredTimescale: 600))
-                        self.currentTime = pending
+                        self.playback.setCurrentTime(pending)
                         self.pendingQualitySwitchSeek = nil
                         Log.info("播放", "音质切换 seek 恢复到 \(pending)s")
                     }
@@ -563,7 +571,7 @@ final class PlayerStore: ObservableObject {
         let upper = duration > 0 ? duration : seconds
         let target = max(0, min(seconds, upper))
         player.seek(to: CMTime(seconds: target, preferredTimescale: 600))
-        currentTime = target
+        playback.setCurrentTime(target)
         refreshLyric()
     }
 
@@ -731,17 +739,21 @@ final class PlayerStore: ObservableObject {
             guard let self else { return }
             let rawTime = time.seconds.isFinite ? max(0, time.seconds) : 0
 
-            // 节流 @Published currentTime：0.5 秒刷一次（2 次/秒），避免 UI 高频重建
+            // 节流 currentTime：0.5 秒刷一次（2 次/秒），避免 UI 高频重建。
+            // 写入独立的 playback 对象 —— 这样只有订阅了它的播放页/进度条会重算，
+            // 四个主页面（持有 PlayerStore）完全不受影响。
             let halfSecondBucket = Int(rawTime * 2)
             if halfSecondBucket != self.lastPublishedHalfSecond {
                 self.lastPublishedHalfSecond = halfSecondBucket
-                self.currentTime = rawTime
+                self.playback.setCurrentTime(rawTime)
             }
 
             // duration：AVPlayerItem ready 后才会有精准值，即时 publish（变化只在切歌时发生一次）
             if let item = self.player.currentItem {
                 let total = item.duration.seconds
-                if total.isFinite, total > 0, total != self.duration { self.duration = total }
+                if total.isFinite, total > 0, total != self.playback.duration {
+                    self.playback.duration = total
+                }
             }
 
             // 歌词刷新继续用原始时间 —— LRCParser.index 现在是二分 O(log n)，

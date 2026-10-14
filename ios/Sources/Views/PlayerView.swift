@@ -3,6 +3,10 @@ import UIKit
 
 struct PlayerView: View {
     @EnvironmentObject private var store: PlayerStore
+    /// 播放进度独立订阅 —— currentTime 每 0.5s 变一次。
+    /// 🔴 刻意不用 store.currentTime（那是转发计算属性，不触发刷新）：
+    /// 播放页确实需要跟着进度重绘，所以通过下面的 init 注入同一个 progress 实例。
+    @ObservedObject private var playback: PlaybackProgress
     @Binding var isExpanded: Bool
     @State private var isScrubbing = false
     @State private var scrubValue: Double = 0
@@ -13,12 +17,19 @@ struct PlayerView: View {
     @State private var vinylStart: Date = Date()
     @State private var dominantColor: Color = .white
 
+    /// 把 PlayerStore 持有的 progress 实例注入自己 —— 两者始终是同一份状态。
+    init(store: PlayerStore, isExpanded: Binding<Bool>) {
+        _store = EnvironmentObject(wrappedValue: store)
+        self.playback = store.playback
+        self._isExpanded = isExpanded
+    }
+
     private enum Theme: String {
         case vinyl, classic
     }
     private var currentTheme: Theme { Theme(rawValue: playerTheme) ?? .classic }
 
-    private var displayTime: Double { isScrubbing ? scrubValue : store.currentTime }
+    private var displayTime: Double { isScrubbing ? scrubValue : playback.currentTime }
 
     var body: some View {
         let win = Self.windowInfo
@@ -377,7 +388,7 @@ struct PlayerView: View {
 
     /// 流光进度条（Beans SeekBar default case 完整搬：accent 渐变 + ultraThinMaterial 轨道 + 顶部高光 + 游动光点 + 发光滑块）
     private var classicProgressBlock: some View {
-        let progressFrac = max(0, min(1, store.progress))
+        let progressFrac = max(0, min(1, playback.progress))
 
         return GeometryReader { geo in
             let gWidth = geo.size.width
@@ -444,9 +455,9 @@ struct PlayerView: View {
             .highPriorityGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        if !isScrubbing { scrubValue = store.currentTime; Haptics.soft() }
+                        if !isScrubbing { scrubValue = playback.currentTime; Haptics.soft() }
                         isScrubbing = true
-                        scrubValue = min(max(value.location.x / max(gWidth, 1), 0), 1) * store.duration
+                        scrubValue = min(max(value.location.x / max(gWidth, 1), 0), 1) * playback.duration
                     }
                     .onEnded { _ in
                         store.seek(to: scrubValue); isScrubbing = false; Haptics.light()
@@ -475,17 +486,17 @@ struct PlayerView: View {
             }
 
             HStack(spacing: 6) {
-                seekPillButton("gobackward.15") { store.seek(to: max(0, store.currentTime - 15)) }
+                seekPillButton("gobackward.15") { store.seek(to: max(0, playback.currentTime - 15)) }
                 Text(displayTime.clockString)
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.56))
                     .frame(minWidth: 34, alignment: .leading)
                 Spacer(minLength: 0)
-                Text(store.duration.clockString)
+                Text(playback.duration.clockString)
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.56))
                     .frame(minWidth: 34, alignment: .trailing)
-                seekPillButton("goforward.15") { store.seek(to: max(0, min(store.duration, store.currentTime + 15))) }
+                seekPillButton("goforward.15") { store.seek(to: max(0, min(playback.duration, playback.currentTime + 15))) }
             }
             .offset(y: 26)
         }
@@ -1104,8 +1115,8 @@ struct PlayerView: View {
     // MARK: - 进度
 
     private func progressSection() -> some View {
-        let progressFrac = max(0, min(1, store.progress))
-        let bufferedFrac = max(0, min(1, store.bufferedFraction))
+        let progressFrac = max(0, min(1, playback.progress))
+        let bufferedFrac = max(0, min(1, playback.bufferedFraction))
 
         return VStack(spacing: 6) {
             GeometryReader { geo in
@@ -1147,13 +1158,13 @@ struct PlayerView: View {
                 .contentShape(Rectangle())
                 .gesture(DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        guard store.duration > 0, trackWidth > 0 else { return }
+                        guard playback.duration > 0, trackWidth > 0 else { return }
                         if !isScrubbing {
                             isScrubbing = true
-                            scrubValue = store.currentTime
+                            scrubValue = playback.currentTime
                             Haptics.light()
                         }
-                        scrubValue = min(1, max(0, value.location.x / trackWidth)) * store.duration
+                        scrubValue = min(1, max(0, value.location.x / trackWidth)) * playback.duration
                     }
                     .onEnded { _ in
                         store.seek(to: scrubValue)
@@ -1165,7 +1176,7 @@ struct PlayerView: View {
             HStack {
                 Text(displayTime.clockString)
                 Spacer()
-                Text(store.duration.clockString)
+                Text(playback.duration.clockString)
             }
             .font(.system(size: 11, design: .monospaced))
             .foregroundStyle(.white.opacity(0.7))
