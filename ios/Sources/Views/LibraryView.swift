@@ -556,15 +556,18 @@ private struct KugouLibraryPage: View {
 
                 ForEach(playlists) { playlist in
                     NavigationLink {
-                        KugouPlaylistDetail(listid: playlist.id, name: playlist.name)
+                        KugouPlaylistDetail(listid: playlist.id, name: playlist.name, coverURL: playlist.coverURL)
                     } label: {
                         HStack(spacing: 12) {
-                            CoverImage(url: nil, seed: playlist.name, size: 54, corner: 8)
+                            // 🔴 之前硬编码 url: nil —— 歌单列表全是灰色占位块。
+                            CoverImage(url: playlist.coverURL.flatMap { URL(string: $0) },
+                                       fallbackKeys: ["kg-list:\(playlist.id)"],
+                                       seed: playlist.name, size: 54, corner: 8)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(playlist.name)
                                     .font(.system(size: 15, weight: .medium))
                                     .foregroundStyle(AppStyle.primaryText).lineLimit(1)
-                                Text("酷狗歌单")
+                                Text(playlist.songCount > 0 ? "酷狗歌单 · \(playlist.songCount) 首" : "酷狗歌单")
                                     .font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
                             }
                             Spacer()
@@ -597,6 +600,8 @@ private struct KugouLibraryPage: View {
 struct KugouPlaylistDetail: View {
     let listid: String
     let name: String
+    /// 🔴 从列表页传进来 —— 之前详情页封面硬编码 nil，一直是灰色占位块。
+    var coverURL: String? = nil
     @EnvironmentObject private var store: PlayerStore
     @ObservedObject private var kugouAuth = KugouAuth.shared
     @State private var songs: [Song] = []
@@ -618,7 +623,9 @@ struct KugouPlaylistDetail: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            CoverImage(url: nil, seed: name, size: 64, corner: 10)
+            CoverImage(url: coverURL.flatMap { URL(string: $0) },
+                       fallbackKeys: ["kg-list:\(listid)"],
+                       seed: name, size: 64, corner: 10)
             VStack(alignment: .leading, spacing: 3) {
                 Text(name).font(.system(size: 16, weight: .bold)).foregroundStyle(AppStyle.primaryText).lineLimit(1)
                 Text("酷狗歌单 · \(songs.count) 首").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)

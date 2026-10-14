@@ -1517,6 +1517,11 @@ final class KugouClient {
         let id: String          // listid
         let name: String
         var songs: [Song]       // 歌单里的歌曲
+        /// 🔴 歌单封面 URL —— 之前这个字段根本不存在，UI 只能传 nil，
+        /// 导致歌单列表全是灰色占位块。
+        var coverURL: String? = nil
+        /// 歌单里的歌曲数（接口给的权威值，比本地解析出的准）。
+        var songCount: Int = 0
     }
 
     /// 拉取当前登录用户的所有歌单
@@ -1658,10 +1663,39 @@ final class KugouClient {
         var playlists: [KugouPlaylist] = []
         for item in allItems {
             guard let listid = Self.playlistID(item) else { continue }
-            let name = Self.string(item["listname"]) ?? Self.string(item["name"]) ?? "未命名歌单"
-            playlists.append(KugouPlaylist(id: listid, name: name, songs: []))
+            let name = Self.string(item["listname"])
+                ?? Self.string(item["name"])
+                ?? Self.string(item["list_name"])
+                ?? "未命名歌单"
+            // 🔴 封面字段（对齐 Beans mapPlaylist）。
+            // 🔴 注意：酷狗的封面 URL 模板带 `{size}` 占位符
+            // （如 `.../{size}001.jpg`），不替换的话 URL 打不开、图片永远加载失败。
+            let rawCover = Self.string(item["pic"])
+                ?? Self.string(item["img"])
+                ?? Self.string(item["cover"])
+                ?? Self.string(item["sizable_cover"])
+                ?? Self.string(item["list_pic"])
+                ?? Self.string(item["album_sizable_cover"])
+            let cover = rawCover?
+                .replacingOccurrences(of: "{size}", with: "240")
+                .replacingOccurrences(of: "{size}", with: "300")
+            let coverURL = cover.flatMap { raw -> String? in
+                if raw.isEmpty { return nil }
+                // 有些接口返回协议相对路径（//imge.kugou.com/...）
+                if raw.hasPrefix("//") { return "https:" + raw }
+                if raw.hasPrefix("http://") { return "https://" + raw.dropFirst(7) }
+                if raw.hasPrefix("https://") { return raw }
+                return "https://" + raw
+            }
+            let songCount = Self.deepInt(item, path: ["count"])
+                ?? Self.deepInt(item, path: ["song_count"])
+                ?? Self.deepInt(item, path: ["total"])
+                ?? Self.deepInt(item, path: ["file_count"])
+                ?? 0
+
+            playlists.append(KugouPlaylist(id: listid, name: name, songs: [], coverURL: coverURL, songCount: songCount))
         }
-        Log.info("酷狗", "拉到 \(playlists.count) 个云端歌单")
+        Log.info("酷狗", "拉到 \(playlists.count) 个云端歌单，带封面 \(playlists.filter { $0.coverURL != nil }.count) 个")
         return playlists
     }
 

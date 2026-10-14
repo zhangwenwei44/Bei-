@@ -65,10 +65,9 @@ struct DiscoverView: View {
             tabBar
                 .background(AppStyle.background)
         }
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: store.current == nil ? 0 : 62)
-                .accessibilityHidden(true)
-        }
+        // 🔴 底部留白已由 RootView 的 .safeAreaInset(edge:.bottom) 统一处理
+        // （播放条现在是 TabView 的 inset 内容，不是浮层）。
+        // 这里再 inset 一次会变成双重留白。
         // 监听全局歌手导航通知
         .onReceive(NotificationCenter.default.publisher(for: .navigateToArtist)) { note in
             guard let song = note.object as? Song else { return }

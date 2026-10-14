@@ -323,12 +323,9 @@ struct ProfileView: View {
         .background(AppStyle.background)
         .navigationTitle("设置")
         .navigationBarTitleDisplayMode(.large)
-        // 迷你播放条悬浮在 TabBar 上方，会把列表最后几行盖住（运行日志/关于），
-        // 有歌在播时给滚动内容让出底部空间
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: store.current == nil ? 0 : 78)
-                .accessibilityHidden(true)
-        }
+        // 🔴 底部留白已由 RootView 的 .safeAreaInset(edge:.bottom) 统一处理
+        // （播放条现在是 TabView 的 inset 内容，不是浮层盖在列表上）。
+        // 这里再手动 inset 会造成双重留白。
         .sheet(item: $sheet) { item in
             switch item {
             case .about: AboutView()
