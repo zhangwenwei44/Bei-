@@ -1633,8 +1633,8 @@ final class KugouClient {
                 ?? []
             if items.isEmpty {
                 // 一个都没解析出来时把顶层 key 打进日志，避免再次靠猜
-                let topKeys = (json as? [String: Any])?.keys.sorted().joined(separator: ",") ?? "?"
-                let dataKeys = ((json?["data"] as? [String: Any])?.keys.sorted().joined(separator: ",")) ?? "?"
+                let topKeys = json.keys.sorted().joined(separator: ",")
+                let dataKeys = (json["data"] as? [String: Any])?.keys.sorted().joined(separator: ",") ?? "?"
                 Log.info("酷狗", "🔴 歌单解析为空：顶层 keys=[\(topKeys)] data keys=[\(dataKeys)]")
             }
             var newCount = 0
