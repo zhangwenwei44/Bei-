@@ -63,7 +63,7 @@ private struct MiniPlayerLayer: View {
         VStack {
             Spacer(minLength: 0)
             if store.current != nil && !store.isAnyMultiSelecting {
-                MiniPlayer(isExpanded: $isPlayerExpanded, playback: store.playback)
+                MiniPlayer(playback: store.playback, isExpanded: $isPlayerExpanded)
                     .padding(.horizontal, 10)
                     .padding(.bottom, 49 + ScreenMetric.bottomSafeInset + 4)
                     .id("mini-player")
@@ -72,7 +72,7 @@ private struct MiniPlayerLayer: View {
         // 全屏播放页
         .overlay {
             if isPlayerExpanded, store.current != nil {
-                PlayerView(store: store, isExpanded: $isPlayerExpanded)
+                PlayerView(playback: store.playback, isExpanded: $isPlayerExpanded)
                     .transition(.move(edge: .bottom))
             }
         }

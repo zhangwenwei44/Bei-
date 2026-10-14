@@ -5,8 +5,8 @@ struct PlayerView: View {
     @EnvironmentObject private var store: PlayerStore
     /// 播放进度独立订阅 —— currentTime 每 0.5s 变一次。
     /// 🔴 刻意不用 store.currentTime（那是转发计算属性，不触发刷新）：
-    /// 播放页确实需要跟着进度重绘，所以通过下面的 init 注入同一个 progress 实例。
-    @ObservedObject private var playback: PlaybackProgress
+    /// 播放页确实需要跟着进度重绘，所以由调用方（MiniPlayerLayer）注入同一个实例。
+    @ObservedObject var playback: PlaybackProgress
     @Binding var isExpanded: Bool
     @State private var isScrubbing = false
     @State private var scrubValue: Double = 0
@@ -17,10 +17,9 @@ struct PlayerView: View {
     @State private var vinylStart: Date = Date()
     @State private var dominantColor: Color = .white
 
-    /// 把 PlayerStore 持有的 progress 实例注入自己 —— 两者始终是同一份状态。
-    init(store: PlayerStore, isExpanded: Binding<Bool>) {
-        _store = EnvironmentObject(wrappedValue: store)
-        self.playback = store.playback
+    /// 参数顺序必须与属性声明顺序一致：playback 在 isExpanded 之前。
+    init(playback: PlaybackProgress, isExpanded: Binding<Bool>) {
+        self.playback = playback
         self._isExpanded = isExpanded
     }
 

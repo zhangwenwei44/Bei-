@@ -22,7 +22,11 @@ import SwiftUI
 ///   这些确实需要 0.5s 级刷新。
 /// - **订阅 `PlayerStore`**：列表高亮、播放按钮、队列等。
 ///   这些只依赖 `isPlaying` / `current`（切歌时才变），保持低频。
-@MainActor
+///
+/// 🔴 刻意不加 `@MainActor` —— PlayerStore 本身就不是 MainActor 隔离的，
+/// 跨隔离访问会报 "call to main actor-isolated initializer in a synchronous
+/// nonisolated context"。这里的属性只在主线程被 AVPlayer 观察器写入，
+/// 与 PlayerStore 其余 @Published 属性保持同一并发模型。
 final class PlaybackProgress: ObservableObject {
     /// 当前播放位置（秒）。由 PlayerStore 的节流时间观察器写入。
     @Published var currentTime: Double = 0
