@@ -10,9 +10,9 @@ struct RootView: View {
             // 🔴 MainTabs 在下层，负责真正的 TabBar 点击
             MainTabs()
 
-            // 🔴 播放条浮层在上层，但它自身不铺满屏参与命中测试
-            // （详见 MiniPlayerLayer 的注释）。ZStack 上层不吃触摸时，
-            // 触摸会落到下层的 MainTabs，TabBar 才能正常点击。
+            // 🔴 播放条浮层在上层。它内部只有播放条本身参与命中测试
+            // （详见 MiniPlayerLayer 的注释），其余区域都是 ZStack 空隙，
+            // 触摸落到下层 MainTabs，TabBar 才能正常点击。
             MiniPlayerLayer(store: store)
         }
         .ignoresSafeArea(.keyboard)
@@ -27,11 +27,14 @@ private enum ScreenMetric {
         return scene?.windows.first(where: { $0.isKeyWindow })?.safeAreaInsets.bottom ?? 34
     }
 
-    /// TabBar 的实际高度（含 Home Indicator 安全区）。
+    /// TabBar 的实际高度。
     ///
-    /// 🔴 不能硬编码 49 —— 之前写 `49 + safeArea` 会把播放条抬得过高，
-    /// 悬在列表中间（用户截图就是这个效果）。直接从 UITabBar 实测，
-    /// 播放条底边正好贴住 TabBar 上沿，既不遮挡 TabBar 点击，也不浮在列表中间。
+    /// 🔴 两个坑都踩过：
+    /// 1. 不能硬编码 `49`。真机上 TabBar 高度 = 内容区 49 + Home Indicator 安全区。
+    /// 2. 🔴 `tabBar.bounds.height` **本身就已经包含**安全区了。
+    ///    之前写成 `bounds.height + safeAreaInsets.bottom` 等于加了两遍，
+    ///    播放条被多抬一个安全区高度（34pt），用户反馈「怎么还调高了」。
+    ///    所以这里只取 bounds.height，绝不再加 safeAreaInsets。
     static var tabBarHeight: CGFloat {
         let scene = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first
@@ -39,9 +42,10 @@ private enum ScreenMetric {
             .rootViewController?.children
             .compactMap { $0 as? UITabBarController }
             .first?.tabBar
-        // 拿不到时退回 49 + 安全区（老设备的通用值）
-        guard let tabBar else { return 49 + bottomSafeInset }
-        return max(tabBar.bounds.height, 49) + tabBar.safeAreaInsets.bottom
+        // 拿不到时退回通用值（此时才需要手动加安全区）
+        guard let tabBar, tabBar.bounds.height > 0 else { return 49 + bottomSafeInset }
+        // bounds.height 已含安全区，直接用
+        return tabBar.bounds.height
     }
 }
 
@@ -98,30 +102,42 @@ private struct MiniPlayerLayer: View {
     }
 
     var body: some View {
-        // 🔴 TabBar 点击与迷你播放器点击要能同时工作，方案是【让播放条只占自身高度】，
-        // 而不是用 allowsHitTesting 整层禁用（那样会把播放条自己也禁掉，点不进去）。
+        // 🔴 这一层【绝对不能铺满屏幕】，否则会整层吃掉触摸、TabBar 点不动。
         //
-        // 做法：Color.clear 铺满作为命中穿透的底板，播放条用 overlay(alignment:.bottom)
-        // 贴在【TabBar 上沿】。因为播放条矩形不覆盖 TabBar 区域，
-        // 两者的触摸天然互不干扰 —— 不需要任何 allowsHitTesting 全局禁用。
-        Color.clear
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay(alignment: .bottom) {
-                if mini.isVisible {
-                    MiniPlayer(mini: mini, playback: playback, store: store, isExpanded: $isPlayerExpanded)
-                        .padding(.horizontal, 10)
-                        // 底边贴住 TabBar 上沿（不遮挡 TabBar）+ 4pt 间距
-                        .padding(.bottom, ScreenMetric.tabBarHeight + 4)
-                        .id("mini-player")
-                }
+        // 踩过的两个坑，都在本文件的历史里：
+        // 1. `VStack { Spacer(); MiniPlayer }` —— 撑满全屏 → TabBar 被吃。
+        // 2. `Color.clear.frame(maxWidth:.infinity, maxHeight:.infinity)`
+        //    当"命中穿透底板" —— Color.clear 虽然透明，但 frame 铺满后
+        //    它本身就在命中测试区里 → 照样吃掉全屏触摸。
+        //
+        // 现在的做法：用 ZStack + alignment 让播放条成为【尺寸只等于自身】的层，
+        // 靠 frame(maxHeight:.infinity, alignment:.bottom) 把它压到屏幕底部，
+        // 但 ZStack 本身不引入任何额外可命中内容 —— 播放条之外的区域全部是
+        // ZStack 的空隙，触摸自然落到下层 MainTabs 的 TabBar。
+        //
+        // 不用 allowsHitTesting 全局禁用，因为它在 SwiftUI 里是【继承】的
+        // （父级 false 会连子级一起禁，子级 true 覆盖不了），
+        // 一旦禁用就会连播放条自己也点不动。
+        ZStack(alignment: .bottom) {
+            if mini.isVisible {
+                MiniPlayer(mini: mini, playback: playback, store: store, isExpanded: $isPlayerExpanded)
+                    .padding(.horizontal, 10)
+                    // 底边贴住 TabBar 上沿 + 4pt 间距
+                    // （tabBarHeight 已含 Home Indicator，不能再加安全区）
+                    .padding(.bottom, ScreenMetric.tabBarHeight + 4)
+                    .id("mini-player")
             }
-            .overlay {
-                if isPlayerExpanded, mini.isVisible {
-                    PlayerView(playback: playback, isExpanded: $isPlayerExpanded)
-                        .transition(.move(edge: .bottom))
-                }
+
+            // 全屏播放页：确实要覆盖全屏并吃全部触摸
+            if isPlayerExpanded, mini.isVisible {
+                PlayerView(playback: playback, isExpanded: $isPlayerExpanded)
+                    .transition(.move(edge: .bottom))
             }
-            .queueSheet()
+        }
+        // 让 ZStack 铺满（否则贴不到屏幕底部），但它内部除播放条外都是空隙，
+        // 空隙不参与命中测试 —— 触摸落到下层 TabBar。
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .queueSheet()
     }
 }
 
