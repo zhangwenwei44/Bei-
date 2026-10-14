@@ -87,7 +87,7 @@ private struct MiniPlayerLayer: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .bottom) {
                 if mini.isVisible {
-                    MiniPlayer(store: store, mini: mini, playback: playback, isExpanded: $isPlayerExpanded)
+                    MiniPlayer(mini: mini, playback: playback, store: store, isExpanded: $isPlayerExpanded)
                         .padding(.horizontal, 10)
                         // 抬到系统 TabBar(49) + HomeIndicator 之上
                         .padding(.bottom, 49 + ScreenMetric.bottomSafeInset + 4)
