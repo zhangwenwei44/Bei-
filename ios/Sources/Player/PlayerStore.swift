@@ -8,20 +8,35 @@ import UIKit
 final class PlayerStore: ObservableObject {
     // MARK: 队列
 
-    @Published private(set) var queue: [Song] = []
-    @Published private(set) var currentIndex: Int = -1
+    @Published private(set) var queue: [Song] = [] {
+        didSet { mini.song = current }
+    }
+    // 🔴 currentIndex 变化即代表「换歌」，同步给迷你播放条。
+    // 覆盖所有场景：play / step / 上一首下一首 / 随机播放 / 队列去重。
+    @Published private(set) var currentIndex: Int = -1 {
+        didSet { if currentIndex != oldValue { mini.song = current } }
+    }
     @Published var queueID: String? = nil
     @Published var mode: PlaybackMode = .order
 
     // MARK: 播放状态
-
-    @Published private(set) var isPlaying = false
-    @Published private(set) var isLoading = false
+    //
+    // 🔴 isPlaying / isLoading / sourceName 带 didSet 同步到 mini（迷你播放条的独立状态）。
+    // 用 didSet 而不是手动调用 syncMiniState()，是为了覆盖所有赋值点
+    // （播放/暂停/解析完成/切歌/换源都有赋值，漏一处就表现为播放条状态不更新）。
+    @Published private(set) var isPlaying = false {
+        didSet { if isPlaying != oldValue { mini.isPlaying = isPlaying } }
+    }
+    @Published private(set) var isLoading = false {
+        didSet { if isLoading != oldValue { mini.isLoading = isLoading } }
+    }
     /// 播放中缓冲等待（有 URL 但还没足够数据开始播/继续播）。
     /// 和 isLoading 区别：isLoading = 解析 URL，isBuffering = AVPlayer 在等网络数据。
     @Published private(set) var isBuffering = false
     @Published private(set) var playbackError: String?
-    @Published private(set) var sourceName: String = ""
+    @Published private(set) var sourceName: String = "" {
+        didSet { if sourceName != oldValue { mini.sourceName = sourceName } }
+    }
     @Published private(set) var bitrateLabel: String = ""
 
     // MARK: 高频播放进度（已拆到独立对象，避免拖慢四个主页面）
@@ -38,6 +53,18 @@ final class PlayerStore: ObservableObject {
     var duration: Double { playback.duration }
     var bufferedFraction: Double { playback.bufferedFraction }
     var progress: Double { playback.progress }
+
+    /// 迷你播放条专用状态 —— 第二个高频隔离对象。
+    ///
+    /// 🔴 为什么还需要它：只拆 currentTime 是不够的。PlayerStore 里还有
+    /// `currentLyricIndex` 在播放时以 **4fps** 变化（歌词逐行高亮，refreshLyric 每次
+    /// 扫一遍歌词表）。只要 MiniPlayerLayer 用 @EnvironmentObject 订阅了整个
+    /// PlayerStore，这 4fps 就会把浮层每秒重算 4 次 —— 表现为
+    /// 「播放时底部 TabBar 点不动，暂停就能点」（暂停后歌词不再刷新，重算停止）。
+    ///
+    /// 这里只暴露浮层真正需要的低频状态（切歌/播放暂停时才变），
+    /// 与 PlaybackProgress 一起构成完整的隔离层。
+    let mini = MiniPlayerState()
 
     /// 网络状态：true=有网，false=断网。
     @Published private(set) var isNetworkAvailable = true
@@ -63,7 +90,9 @@ final class PlayerStore: ObservableObject {
     // MARK: - 多选共享状态
 
     /// 任何页面进入多选模式时置 true —— RootView 据此隐藏浮动 MiniPlayer，避免遮挡底部操作栏。
-    @Published var isAnyMultiSelecting = false
+    @Published var isAnyMultiSelecting = false {
+        didSet { if isAnyMultiSelecting != oldValue { mini.isMultiSelecting = isAnyMultiSelecting } }
+    }
 
     // MARK: 交互
 

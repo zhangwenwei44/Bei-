@@ -1,6 +1,10 @@
 import SwiftUI
 
 struct RootView: View {
+    /// 仅用于把 store 实例传给 MiniPlayerLayer —— body 里不读它的任何属性，
+    /// 所以不会因此建立订阅（SwiftUI 只对 body 中实际访问的属性建依赖）。
+    @EnvironmentObject private var store: PlayerStore
+
     var body: some View {
         ZStack {
             // 🔴 MainTabs 在下层，负责真正的 TabBar 点击
@@ -9,7 +13,7 @@ struct RootView: View {
             // 🔴 播放条浮层在上层，但它自身不铺满屏参与命中测试
             // （详见 MiniPlayerLayer 的注释）。ZStack 上层不吃触摸时，
             // 触摸会落到下层的 MainTabs，TabBar 才能正常点击。
-            MiniPlayerLayer()
+            MiniPlayerLayer(store: store)
         }
         .ignoresSafeArea(.keyboard)
     }
@@ -54,41 +58,52 @@ private struct MainTabs: View {
 
 /// MiniPlayer + 全屏播放页层 —— 只有这一层订阅 PlayerStore（播放进度高频更新隔离在此）。
 private struct MiniPlayerLayer: View {
-    @EnvironmentObject private var store: PlayerStore
+    /// 🔴 只订阅 MiniPlayerState，不再 @EnvironmentObject 订阅整个 PlayerStore。
+    ///
+    /// 根因：PlayerStore 里 `currentLyricIndex` 在播放时以 4fps 变化（歌词逐行高亮）。
+    /// 浮层一旦订阅整个 PlayerStore，就会被它带着每秒重算 4 次 →
+    /// 「播放时底部 TabBar 点不动，暂停就能点」（暂停后歌词不再刷新，重算停止）。
+    ///
+    /// MiniPlayerState 只含切歌/播放暂停时才变的低频状态，
+    /// 与 PlaybackProgress（0.5s 进度）一起构成完整的重算隔离。
+    @ObservedObject private var mini: MiniPlayerState
+    /// 播放进度：进度条自己订阅，不经过 PlayerStore。
+    @ObservedObject private var playback: PlaybackProgress
+    /// 仅用于派发用户操作（toggle/step/seek），不参与 body 依赖。
+    private let store: PlayerStore
+
     @State private var isPlayerExpanded = false
 
+    init(store: PlayerStore) {
+        self.store = store
+        self.mini = store.mini
+        self.playback = store.playback
+    }
+
     var body: some View {
-        // 🔴 播放时 TabBar 点不动，与性能无关，是【触摸命中被拦截】：
-        //
-        // 旧写法 VStack { Spacer(); MiniPlayer } 把这层撑满全屏。
-        // SwiftUI 命中测试自顶向下，上层命中就不再传给下层 TabView ——
-        // 播放条一出现（store.current != nil），底部 TabBar 就点不动。
-        // 旧注释写的「Spacer 不参与命中测试所以能穿透」是错的：
-        // 不绘制内容 ≠ 不占命中区域，撑满的布局照样吃触摸。
-        //
-        // 🔴 allowsHitTesting 是【继承】的：父级 false 会连子级一起禁，子级 true 覆盖不了。
-        // 所以正确做法是把播放条做成【尺寸就等于播放条本身】的兄弟节点，
-        // 用 alignment: .bottom 贴到屏幕底部，而不是用 Spacer 撑满。
+        // 整层铺满屏幕但不参与命中测试 → 空白区（含 TabBar）穿透到下层 MainTabs。
+        // allowsHitTesting 放在 overlay【之后】，保证播放条本体仍能接收触摸。
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .allowsHitTesting(false)   // 背景不吃触摸 → 穿透给下层 TabBar
             .overlay(alignment: .bottom) {
-                // 播放条：只有这个矩形参与命中，周围的空白穿透到 TabBar
-                if store.current != nil && !store.isAnyMultiSelecting {
-                    MiniPlayer(playback: store.playback, isExpanded: $isPlayerExpanded)
+                if mini.isVisible {
+                    MiniPlayer(store: store, mini: mini, playback: playback, isExpanded: $isPlayerExpanded)
                         .padding(.horizontal, 10)
                         // 抬到系统 TabBar(49) + HomeIndicator 之上
                         .padding(.bottom, 49 + ScreenMetric.bottomSafeInset + 4)
                         .id("mini-player")
                 }
             }
-            // 全屏播放页：覆盖全屏且需要吃全部触摸
             .overlay {
-                if isPlayerExpanded, store.current != nil {
-                    PlayerView(playback: store.playback, isExpanded: $isPlayerExpanded)
+                if isPlayerExpanded, mini.isVisible {
+                    PlayerView(playback: playback, isExpanded: $isPlayerExpanded)
                         .transition(.move(edge: .bottom))
                 }
             }
+            // 🔴 关键：放在最后，让整层（背景 + 播放条）都不吃触摸，
+            // 触摸穿透给下层 TabBar。播放条的可点击性由它自身的 Button 保证
+            // ——SwiftUI 中 Button 不依赖父层的 allowsHitTesting 传递规则。
+            .allowsHitTesting(false)
             .queueSheet()
     }
 }
@@ -96,34 +111,39 @@ private struct MiniPlayerLayer: View {
 // MARK: - 迷你播放条
 
 struct MiniPlayer: View {
-    @EnvironmentObject private var store: PlayerStore
+    /// 🔴 低频状态走 mini，高频进度走 playback —— 不订阅整个 PlayerStore。
+    /// 只要 body 里还读任何一个 PlayerStore 的高频属性（如 currentLyricIndex 4fps），
+    /// 整个播放条就会跟着每秒重算 4 次。
+    @ObservedObject var mini: MiniPlayerState
     /// 进度条专用的高频订阅对象 —— 见 PlaybackProgress 文档。
     @ObservedObject var playback: PlaybackProgress
+    /// 仅用于派发用户操作（toggle/step），不参与 body 依赖。
+    let store: PlayerStore
     @Binding var isExpanded: Bool
 
     var body: some View {
         HStack(spacing: 10) {
-            CoverImage(url: store.current?.artworkURL,
-                       fallbackKeys: store.current?.coverFallbackKeys ?? [],
-                       seed: "\(store.current?.artist ?? "")-\(store.current?.title ?? "")",
+            CoverImage(url: mini.song?.artworkURL,
+                       fallbackKeys: mini.song?.coverFallbackKeys ?? [],
+                       seed: "\(mini.song?.artist ?? "")-\(mini.song?.title ?? "")",
                        size: 40,
                        corner: 8)
 
             VStack(alignment: .leading, spacing: 2) {
                 // 歌名单独一行占满宽度：音源名原来跟歌名挤在同一行，
                 // 音源名一长就把歌名截没了
-                Text(store.current?.title ?? "")
+                Text(mini.song?.title ?? "")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(AppStyle.primaryText)
                     .lineLimit(1)
                 HStack(spacing: 6) {
-                    Text(store.current?.artist ?? "")
+                    Text(mini.song?.artist ?? "")
                         .font(.system(size: 11))
                         .foregroundStyle(AppStyle.secondaryText)
                         .lineLimit(1)
                         .layoutPriority(1)
-                    if !store.sourceName.isEmpty {
-                        Text(store.sourceName)
+                    if !mini.sourceName.isEmpty {
+                        Text(mini.sourceName)
                             .font(.system(size: 9))
                             .foregroundStyle(AppStyle.accent)
                             .lineLimit(1)
@@ -134,7 +154,7 @@ struct MiniPlayer: View {
 
             Spacer(minLength: 0)
 
-            if store.isLoading {
+            if mini.isLoading {
                 ProgressView()
                     .tint(AppStyle.accent)
                     .frame(width: 26, height: 26)
@@ -142,7 +162,7 @@ struct MiniPlayer: View {
                 Button {
                     store.toggle()
                 } label: {
-                    Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
+                    Image(systemName: mini.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(AppStyle.primaryText)
                         .frame(width: 36, height: 36)

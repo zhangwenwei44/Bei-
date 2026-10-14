@@ -1696,43 +1696,110 @@ final class KugouClient {
     /// 根据 listid 拉取歌单内所有歌曲（分页 + 🔴 gateway.kugou.com 接口必须带 webSign）
     func playlistSongs(listid: String) async throws -> [Song] {
         guard KugouAuth.shared.isLoggedIn else { throw KugouError.parse("请先登录酷狗") }
+        if KugouAuth.shared.dfid == "-" { await registerDevice() }
         let userId = KugouAuth.shared.userId
         let token = KugouAuth.shared.token
 
         var allItems: [[String: Any]] = []
         var page = 1
-        while true {
+        let pageSize = 200
+        while page <= 50 {
             let clienttime = "\(Int(Date().timeIntervalSince1970))"
-            var params: [String: String] = [
+
+            // 🔴 appid/clientver 必须用 gateway 版（3116/11440）。
+            // 之前这里用的是 appID(1005)/clientVersion(20489)，
+            // 与 get_all_list 不一致，且 token 是 3116 域签发的 → 服务端直接 404。
+            var final: [String: String] = [
                 "dfid": dfid,
                 "mid": mid,
                 "uuid": "-",
-                "appid": appID,
-                "clientver": clientVersion,
+                "appid": gatewayAppID,
+                "clientver": gatewayClientVer,
                 "clienttime": clienttime,
-                "listid": listid,
-                "userid": userId,
                 "token": token,
+                "userid": userId,
+                "listid": listid,
                 "page": "\(page)",
-                "pagesize": "200",
+                "pagesize": "\(pageSize)",
             ]
-            params["signature"] = androidSign(params)
 
-            let raw = try await gatewayGetRaw(path: "/v7/get_list_song",
-                                               params: params,
-                                               headers: [
-                                                   "x-router": "cloudlist.service.kugou.com",
-                                               ])
+            // 🔴 路径是 /v4/get_list_all_file，不是 /v7/get_list_song（后者 404，路由不存在）。
+            // 照搬 Beans cloudlistRequest("/v4/get_list_all_file", ...) 的 POST + JSON body 形式。
+            let body: [String: Any] = [
+                "listid": listid,
+                "page": page,
+                "pagesize": pageSize,
+                "area_code": 1,
+                "show_relate_goods": 0,
+                "allplatform": 1,
+                "show_cover": 1,
+                "type": 0,
+                "userid": Int(userId) ?? 0,
+                "token": token,
+            ]
+            let bodyData = try JSONSerialization.data(withJSONObject: body)
+            let bodyStr = String(data: bodyData, encoding: .utf8) ?? ""
+            final["signature"] = androidSign(final, data: bodyStr)
+
+            var comps = URLComponents(string: "https://gateway.kugou.com/v4/get_list_all_file")!
+            comps.queryItems = final.map { URLQueryItem(name: $0.key, value: $0.value) }
+            var request = URLRequest(url: comps.url!)
+            request.httpMethod = "POST"
+            request.httpBody = bodyData
+            request.setValue(gatewayUA, forHTTPHeaderField: "User-Agent")
+            request.setValue("cloudlist.service.kugou.com", forHTTPHeaderField: "x-router")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("1", forHTTPHeaderField: "kg-rc")
+            request.setValue("5d816a0", forHTTPHeaderField: "kg-thash")
+            request.setValue("1", forHTTPHeaderField: "kg-rec")
+            request.setValue("B9EDA08A64250DEFFBCADDEE00F8F25F", forHTTPHeaderField: "kg-rf")
+            request.setValue(dfid, forHTTPHeaderField: "dfid")
+            request.setValue(mid, forHTTPHeaderField: "mid")
+            request.setValue(clienttime, forHTTPHeaderField: "clienttime")
+            let cookie = KugouAuth.shared.cookieHeader
+            if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+
+            let started = Date()
+            let (data, resp) = try await session.data(for: request)
+            let elapsed = Int(Date().timeIntervalSince(started) * 1000)
+            let httpCode = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            Log.info("酷狗", "gateway 歌单详情 listid=\(listid) page=\(page) HTTP=\(httpCode)/\(data.count)B/\(elapsed)ms raw=\(String(raw.prefix(200)))")
+
+            guard (200...299).contains(httpCode) else {
+                throw KugouError.httpStatus(httpCode)
+            }
             let json = Self.extractJSONP(raw)
                 ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
                 ?? [:]
-            Log.info("酷狗", "playlistSongs listid=\(listid) page=\(page) raw=\(String(raw.prefix(150)))")
 
-            let items = Self.deepArray(json, path: ["songlist"]) ?? Self.deepArray(json, path: ["data", "songlist"]) ?? []
+            let status = Self.deepInt(json, path: ["status"]) ?? 0
+            let errcode = Self.deepInt(json, path: ["error_code"]) ?? -1
+            if status != 1 && status != 200 && errcode != 0 {
+                Log.error("酷狗", "歌单详情错误 listid=\(listid) status=\(status) errcode=\(errcode)")
+                if errcode == 20017 || errcode == 20006 {
+                    KugouAuth.shared.markTokenRejected()
+                }
+                break
+            }
+
+            // 🔴 字段名以 Beans 的候选列表为准：songs / songlist / list / info / files
+            let items = Self.deepArray(json, path: ["songs"])
+                ?? Self.deepArray(json, path: ["songlist"])
+                ?? Self.deepArray(json, path: ["data", "songs"])
+                ?? Self.deepArray(json, path: ["data", "songlist"])
+                ?? Self.deepArray(json, path: ["data", "info"])
+                ?? Self.deepArray(json, path: ["data", "files"])
+                ?? []
+            if items.isEmpty && page == 1 {
+                let topKeys = json.keys.sorted().joined(separator: ",")
+                let dataKeys = (json["data"] as? [String: Any])?.keys.sorted().joined(separator: ",") ?? "?"
+                Log.info("酷狗", "🔴 歌单详情解析为空：listid=\(listid) 顶层 keys=[\(topKeys)] data keys=[\(dataKeys)]")
+            }
+
             allItems.append(contentsOf: items)
-            if items.count < 200 { break }
+            if items.count < pageSize { break }
             page += 1
-            if page > 50 { break }
         }
 
         var songs: [Song] = []
