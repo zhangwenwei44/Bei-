@@ -550,7 +550,7 @@ struct PlayerView: View {
             classicDeckControls
                 .frame(height: 56)
         }
-        .padding(.horizontal, 28)
+        .padding(.horizontal, 18)
         .padding(.top, 2)
         .padding(.bottom, max(10, bottomInset))
     }
@@ -1161,7 +1161,7 @@ struct PlayerView: View {
 
             progressSection()
                 .padding(.top, 20)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 18)
 
             controls()
                 .padding(.top, 14)
@@ -1250,8 +1250,8 @@ struct PlayerView: View {
     }
 
     private func actionRow() -> some View {
-        // 居中簇 + 加大左右间距（不再铺满全宽，四项之间留出更大间隙，左右边距更大）
-        HStack(spacing: 40) {
+        // 居中簇：四项整体居中，不再铺满全宽；四项之间间距 30
+        HStack(spacing: 30) {
             actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
             actionButton(icon: store.isLiked ? "heart.fill" : "heart",
                          label: "收藏",

@@ -810,64 +810,86 @@ final class KugouClient {
     ///
     /// 方案 1：mobilecdn `/api/v3/singer/list?sort=1`（JSON，含粉丝数头像）
     /// 方案 2：www.kugou.com 歌手索引页（HTTPS，设备可达）
+    /// 热门歌手列表（按热度，前 `count` 位）。
+    ///
+    /// 现在叠在单页接口 `hotArtistsPage` 之上：循环翻页直到凑够 `count` 位，
+    /// 或某页返回不足一页（到底）。
     func hotArtists(count: Int = 20) async -> [Artist] {
-        // 方案 1：singer/list JSON
+        var result: [Artist] = []
+        var seen = Set<String>()
+        var page = 1
+        while result.count < count {
+            let batch = await hotArtistsPage(page: page, perPage: 20)
+            guard !batch.isEmpty else { break }
+            for a in batch where !seen.contains(a.id) {
+                seen.insert(a.id)
+                result.append(a)
+                if result.count >= count { break }
+            }
+            if batch.count < 20 { break }
+            page += 1
+        }
+        if result.isEmpty {
+            // 方案 2：www 歌手索引页兜底（仅整页取一次）
+            if let html = try? await getRaw(path: "/yy/singer/index/1-all-1.html",
+                                            host: "https://www.kugou.com",
+                                            params: [:],
+                                            headers: [:]) {
+                let artists = Self.artists(fromSingerIndexHTML: html)
+                Log.info("歌手", "热门歌手整页解析 \(artists.count) 位")
+                return artists
+            }
+        } else {
+            Log.info("歌手", "热门歌手 JSON 累计 \(result.count) 位")
+        }
+        return result
+    }
+
+    /// 热门歌手单页（默认 20 条）。跨多个 host 尝试；空数组表示本页无数据 / 已到底。
+    /// 给「更多」页做无限下拉刷新用。
+    func hotArtistsPage(page: Int, perPage: Int = 20) async -> [Artist] {
         for host in ["https://mobiles.kugou.com",
                      "http://mobiles.kugou.com",
                      "http://mobilecdn.kugou.com",
                      "https://mobilecdn.kugou.com"] {
-            if let artists = try? await hotArtistsJSON(host: host, count: count),
+            if let artists = try? await hotArtistsJSON(host: host, page: page, perPage: perPage),
                !artists.isEmpty {
-                Log.info("歌手", "热门歌手 JSON \(host) \(artists.count) 位")
+                Log.info("歌手", "热门歌手单页 \(host) page=\(page) \(artists.count) 位")
                 return artists
             }
-        }
-        // 方案 2：www 歌手索引页
-        if let html = try? await getRaw(path: "/yy/singer/index/1-all-1.html",
-                                        host: "https://www.kugou.com",
-                                        params: [:],
-                                        headers: [:]) {
-            let artists = Self.artists(fromSingerIndexHTML: html)
-            Log.info("歌手", "热门歌手整页解析 \(artists.count) 位")
-            return artists
         }
         return []
     }
 
-    private func hotArtistsJSON(host: String, count: Int) async throws -> [Artist] {
-        let pages = max(1, (count + 19) / 20)
+    private func hotArtistsJSON(host: String, page: Int, perPage: Int) async throws -> [Artist] {
+        let json = try await getJSON(path: "/api/v3/singer/list",
+                                     host: host,
+                                     params: ["clientver": "9108",
+                                              "page": String(page),
+                                              "pagesize": String(perPage),
+                                              "sort": "1",
+                                              "category": "0"],
+                                     headers: [:])
+        guard let data = json["data"] as? [String: Any],
+              let rows = data["info"] as? [[String: Any]] else { return [] }
         var result: [Artist] = []
         var seen = Set<String>()
-        for page in 1...pages {
-            let json = try await getJSON(path: "/api/v3/singer/list",
-                                         host: host,
-                                         params: ["clientver": "9108",
-                                                  "page": String(page),
-                                                  "pagesize": "20",
-                                                  "sort": "1",
-                                                  "category": "0"],
-                                         headers: [:])
-            guard let data = json["data"] as? [String: Any],
-                  let rows = data["info"] as? [[String: Any]] else { break }
-            for row in rows {
-                guard let id = KugouClient.string(row["singerid"]),
-                      let name = KugouClient.string(row["singername"]),
-                      !seen.contains(id) else { continue }
-                seen.insert(id)
-                var cover = KugouClient.string(row["imgurl"]) ?? ""
-                // singer/list 的 imgurl 是模板：http://singerimg.kugou.com/uploadpic/softhead/{size}/xxx.jpg
-                // {size} 需要换成实际尺寸（200 足够手机上圆形头像用）
-                if cover.contains("{size}") { cover = cover.replacingOccurrences(of: "{size}", with: "200") }
-                if cover.hasPrefix("http://") {
-                    cover = "https://" + cover.dropFirst("http://".count)
-                }
-                let fans = KugouClient.intValue(row["fanscount"]) ?? 0
-                result.append(Artist(id: id, name: name,
-                                     coverURL: URL(string: cover),
-                                     fansCount: fans))
-                if result.count >= count { return result }
+        for row in rows {
+            guard let id = KugouClient.string(row["singerid"]),
+                  let name = KugouClient.string(row["singername"]),
+                  !seen.contains(id) else { continue }
+            seen.insert(id)
+            var cover = KugouClient.string(row["imgurl"]) ?? ""
+            // singer/list 的 imgurl 是模板：http://singerimg.kugou.com/uploadpic/softhead/{size}/xxx.jpg
+            // {size} 需要换成实际尺寸（200 足够手机上圆形头像用）
+            if cover.contains("{size}") { cover = cover.replacingOccurrences(of: "{size}", with: "200") }
+            if cover.hasPrefix("http://") {
+                cover = "https://" + cover.dropFirst("http://".count)
             }
-            if rows.count < 20 { break }
+            let fans = KugouClient.intValue(row["fanscount"]) ?? 0
+            result.append(Artist(id: id, name: name,
+                                 coverURL: URL(string: cover),
+                                 fansCount: fans))
         }
         return result
     }

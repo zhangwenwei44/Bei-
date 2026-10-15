@@ -484,7 +484,7 @@ struct DiscoverView: View {
             Spacer()
             // 热门歌手右侧"更多"按钮：进入完整歌手列表
             NavigationLink {
-                MoreArtistsView(artists: hotArtists)
+                MoreArtistsView(initial: hotArtists)
             } label: {
                 HStack(spacing: 2) {
                     Text("更多").font(.system(size: 12))
@@ -1038,26 +1038,54 @@ struct ArtistRow: View {
     }
 }
 
-// MARK: - 更多歌手页（热门歌手"更多"入口）
+// MARK: - 更多歌手页（热门歌手"更多"入口，无限下拉刷新）
 
+/// 热门歌手「更多」页：先展示首页已加载的歌手，再往底部滚动时逐页加载，
+/// 直到接口返回不足一页（到底）。支持顶部下拉刷新（重置后从第一页重新拉取）。
 struct MoreArtistsView: View {
-    let artists: [Artist]
+    /// 首页推荐流里已加载的热门歌手（通常 50 位），作为首屏内容，避免重复请求。
+    let initial: [Artist]
+
+    @State private var artists: [Artist] = []
+    /// 下一页要拉的页码。首页 initial 已涵盖前若干页，这里接着往后翻。
+    @State private var page: Int = 1
+    @State private var isLoadingMore = false
+    @State private var hasMore = true
+
     var body: some View {
         ScrollView {
             if artists.isEmpty {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(artists.enumerated()), id: \.offset) { index, artist in
-                        NavigationLink {
-                            ArtistDetailView(artist: artist)
-                        } label: {
-                            ArtistRow(artist: artist, isPlaying: false)
-                        }
-                        .buttonStyle(.plain)
-                        if index < artists.count - 1 {
+                // 用 LazyVStack：只有滚到视口的行才构建，配合底部 onAppear 触发器
+                // 实现无限滚动（前面 VStack 全量渲染 50+ 行会越滚越卡）。
+                LazyVStack(spacing: 0) {
+                    ForEach(artists) { artist in
+                        artistRow(artist)
+                        if artist.id != artists.last?.id {
                             Divider().padding(.leading, 68)
                         }
+                    }
+
+                    if hasMore {
+                        HStack(spacing: 8) {
+                            Spacer()
+                            ProgressView()
+                            Text("加载更多")
+                                .font(.system(size: 12))
+                                .foregroundStyle(AppStyle.tertiaryText)
+                            Spacer()
+                        }
+                        .padding(.vertical, 16)
+                        // 🔴 滚到底部自动加载下一页；isLoadingMore / hasMore 双保险防重复触发
+                        .onAppear { Task { await loadMore() } }
+                    } else {
+                        Text("已经到底啦 ~")
+                            .font(.system(size: 12))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
                     }
                 }
                 .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -1068,6 +1096,51 @@ struct MoreArtistsView: View {
         .background(AppStyle.background)
         .navigationTitle("热门歌手")
         .navigationBarTitleDisplayMode(.inline)
+        // 顶部下拉刷新：清空后从第一页重新拉取
+        .refreshable { await reload() }
+        .task {
+            guard artists.isEmpty else { return }
+            artists = initial
+            // initial 已涵盖前 (initial.count/20) 页，接着往后翻
+            page = initial.isEmpty ? 1 : (initial.count / 20) + 1
+            await loadMore()
+        }
+    }
+
+    private func artistRow(_ artist: Artist) -> some View {
+        NavigationLink {
+            ArtistDetailView(artist: artist)
+        } label: {
+            ArtistRow(artist: artist, isPlaying: false)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 拉取下一页并追加（按 id 去重，防止 initial 与后续分页重叠）。
+    private func loadMore() async {
+        guard hasMore, !isLoadingMore else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        let batch = await KugouClient.shared.hotArtistsPage(page: page, perPage: 20)
+        await MainActor.run {
+            let existing = Set(artists.map(\.id))
+            for a in batch where !existing.contains(a.id) {
+                artists.append(a)
+            }
+            page += 1
+            if batch.isEmpty || batch.count < 20 { hasMore = false }
+            Log.info("歌手", "更多页累计 \(artists.count) 位，hasMore=\(hasMore)")
+        }
+    }
+
+    private func reload() async {
+        await MainActor.run {
+            // 先重新铺上首页已加载的歌手（秒回首屏），再从其后继续翻页
+            artists = initial
+            page = initial.isEmpty ? 1 : (initial.count / 20) + 1
+            hasMore = true
+        }
+        await loadMore()
     }
 }
 

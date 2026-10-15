@@ -197,16 +197,15 @@ struct MiniPlayer: View {
                        corner: 8)
 
             VStack(alignment: .leading, spacing: 2) {
-                // 歌名单独一行占满宽度：音源名原来跟歌名挤在同一行，
-                // 音源名一长就把歌名截没了
-                Text(mini.song?.title ?? "")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(AppStyle.primaryText)
+                // 歌手名在前（用户要求歌手名改在歌曲前面）
+                Text(mini.song?.artist ?? "")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(AppStyle.secondaryText)
                     .lineLimit(1)
                 HStack(spacing: 6) {
-                    Text(mini.song?.artist ?? "")
-                        .font(.system(size: 11))
-                        .foregroundStyle(AppStyle.secondaryText)
+                    Text(mini.song?.title ?? "")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(AppStyle.primaryText)
                         .lineLimit(1)
                         .layoutPriority(1)
                     if !mini.qualityName.isEmpty {
