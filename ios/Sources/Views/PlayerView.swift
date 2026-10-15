@@ -281,18 +281,19 @@ struct PlayerView: View {
                     .frame(width: 44, height: 44)
             }
 
-            // 🔴 居中：歌名 + 歌手（不用 Marquee —— 纯居中，不横向滑动）
-            VStack(spacing: 1) {
+            // 🔴 居中：歌名 + 歌手同一行（用户要求改在一行显示）
+            HStack(alignment: .center, spacing: 6) {
                 Text(store.current?.title ?? "未在播放")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                    .multilineTextAlignment(.center)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
                 Text(store.current?.artist ?? "")
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
-                    .multilineTextAlignment(.center)
+                    .truncationMode(.tail)
             }
             .frame(maxWidth: .infinity)
 
@@ -552,7 +553,7 @@ struct PlayerView: View {
             classicDeckControls
                 .frame(height: 56)
         }
-        .padding(.horizontal, 18)
+        .padding(.horizontal, 15)
         .padding(.top, 2)
         .padding(.bottom, max(10, bottomInset))
     }
@@ -1065,33 +1066,34 @@ struct PlayerView: View {
             Button { animateOut() } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 20, weight: .semibold))
-                    .frame(width: 44, height: 44, alignment: .top)
+                    .frame(width: 44, height: 44, alignment: .center)
             }
 
-            VStack(alignment: .leading, spacing: 1) {
+            // 歌名 + 歌手同一行（用户要求改在一行显示）
+            HStack(alignment: .center, spacing: 6) {
                 Text(store.current?.title ?? "未播放")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .layoutPriority(1)
                 Text(store.current?.artist ?? "")
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
-            .frame(maxWidth: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 8)
 
-            HStack(spacing: 18) {
-                Button { presentShare() } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 19, weight: .medium))
-                        .frame(width: 40, height: 40, alignment: .top)
-                }
+            Button { presentShare() } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 19, weight: .medium))
+                    .frame(width: 44, height: 44, alignment: .center)
             }
         }
-        .frame(maxHeight: .infinity, alignment: .top)
+        // 关闭/分享按钮同为 44×44 居中对齐，两个图标齐平
+        .frame(height: 44)
         .foregroundStyle(.white)
     }
 
@@ -1163,7 +1165,7 @@ struct PlayerView: View {
 
             progressSection()
                 .padding(.top, 20)
-                .padding(.horizontal, 18)
+                .padding(.horizontal, 15)
 
             controls()
                 .padding(.top, 14)
@@ -1253,24 +1255,25 @@ struct PlayerView: View {
 
     private func actionRow() -> some View {
         // 居中簇：五项整体居中，不铺满全宽；项间距 30
+        // 排序（用户要求）：收藏、下载、音质、翻译、歌词
         HStack(spacing: 30) {
-            actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
             actionButton(icon: store.isLiked ? "heart.fill" : "heart",
                          label: "收藏",
                          tint: store.isLiked ? AppStyle.like : .white) {
                 store.toggleFavorite()
+            }
+            actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
+            // 音质切换：点了弹确认框选档位，选完 SourceStore 自动用新音质重新解析当前歌
+            actionButton(icon: "waveform",
+                         label: qualityShortTitle,
+                         tint: AppStyle.gold) {
+                showQualityPicker = true
             }
             actionButton(icon: "character.bubble", label: "翻译") {
                 store.showTranslation.toggle()
             }
             actionButton(icon: "text.quote", label: "歌词") {
                 withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
-            }
-            // 音质切换：点了弹确认框选档位，选完 SourceStore 自动用新音质重新解析当前歌
-            actionButton(icon: "waveform",
-                         label: qualityShortTitle,
-                         tint: AppStyle.gold) {
-                showQualityPicker = true
             }
         }
         .frame(maxWidth: .infinity)

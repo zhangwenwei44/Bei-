@@ -38,16 +38,29 @@ struct DiscoverView: View {
     @State private var classicSongs: [Song] = []
     @State private var newSongs: [Song] = []
 
-    /// 保留的 8 个精选榜单 rankID。
-    static let whitelistRankIDs: Set<String> = [
+    /// 榜单 Tab 展示的榜单（按酷狗「排行榜」页顺序排列）。
+    /// 截图里 15 个榜：未音原创榜 / AI音乐榜 / 华语流行音乐原创榜 / 原创音乐榜
+    /// 这 4 个 2026 新榜酷狗公开接口还没放出来（rank/list 只有 56 个旧榜），
+    /// 等接口放出来再把 rankid 补这里即可。
+    /// 旧白名单里的 18016(新歌推荐榜)/21845(华语金曲榜)/96069(会员热歌榜) 已从
+    /// rank/list 下线，一并移除；真正的会员热歌榜是 35811。
+    static let rankOrder: [String] = [
+        "49225",  // 80后热歌榜
+        "49223",  // 90后热歌榜
+        "49224",  // 00后热歌榜
+        "35811",  // 会员热歌榜
+        "33166",  // 欧美金曲榜
+        "33163",  // 影视金曲榜
+        "65234",  // 儿歌榜
+        "60170",  // 闽南语榜
+        "46910",  // 综艺新歌榜
+        "30972",  // 酷狗音乐人原创榜
+        "37361",  // 酷狗识曲榜
         "82831",  // 网络热歌榜
         "6666",   // 飙升榜
         "52144",  // 短视频热歌榜
         "24971",  // DJ热歌榜
         "85432",  // 百万收藏榜
-        "18016",  // 新歌推荐榜
-        "21845",  // 华语金曲榜
-        "96069",  // 会员热歌榜
     ]
 
     /// 猜你喜欢的抽词池。
@@ -968,8 +981,9 @@ struct DiscoverView: View {
     }
 
     private var filteredLists: [Playlist] {
-        let whitelist = Self.whitelistRankIDs
-        return feed.topLists.filter { whitelist.contains($0.kugouRankID ?? "") }
+        // 按 rankOrder 固定排序（不再跟随接口返回顺序），同 rankid 去重取第一个
+        let byID = Dictionary(grouping: feed.topLists) { $0.kugouRankID ?? "" }
+        return Self.rankOrder.compactMap { byID[$0]?.first }
     }
 
     // MARK: 行为
@@ -1045,8 +1059,7 @@ struct DiscoverView: View {
         if ktvSongs.isEmpty { ktvSongs = (try? await KugouClient.shared.searchSongs(keyword: "KTV必点 经典", limit: 30)) ?? [] }
         if classicSongs.isEmpty { classicSongs = (try? await KugouClient.shared.searchSongs(keyword: "华语经典 怀旧", limit: 30)) ?? [] }
         if newSongs.isEmpty { newSongs = (try? await KugouClient.shared.searchSongs(keyword: "新歌榜", limit: 30)) ?? [] }
-        let whitelist = Self.whitelistRankIDs
-        let whitelistedSlices = feed.topLists.filter { whitelist.contains($0.kugouRankID ?? "") }
+        let whitelistedSlices = filteredLists
         await loadTrackCounts(for: whitelistedSlices.prefix(5))
     }
 

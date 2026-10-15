@@ -197,18 +197,21 @@ struct MiniPlayer: View {
                        corner: 8)
 
             VStack(alignment: .leading, spacing: 2) {
-                // 歌手名在前（用户要求歌手名改在歌曲前面）
-                Text(mini.song?.artist ?? "")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(AppStyle.secondaryText)
-                    .lineLimit(1)
-                HStack(spacing: 6) {
+                // 歌手名与歌曲名同一行（用户要求）：歌名在前（主色加粗），歌手名跟后
+                HStack(spacing: 4) {
                     Text(mini.song?.title ?? "")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(AppStyle.primaryText)
                         .lineLimit(1)
                         .layoutPriority(1)
-                    if !mini.qualityName.isEmpty {
+                    Text(mini.song?.artist ?? "")
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppStyle.secondaryText)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                }
+                if !mini.qualityName.isEmpty {
+                    HStack(spacing: 6) {
                         Text(mini.qualityName)
                             .font(.system(size: 9))
                             .foregroundStyle(AppStyle.accent)
