@@ -1205,6 +1205,44 @@ final class KugouClient {
         return nil
     }
 
+    /// 🔴 递归全树搜索字段（大小写不敏感，按 names 优先级取第一个命中的非空值）。
+    ///
+    /// 酷狗登录响应的用户字段（头像/昵称）**位置和命名都不固定** ——
+    /// 精确路径（["avatar"] / ["data","avatar"]）经常全落空。
+    /// Beans（能正常显示头像的参考实现）就是用这种全树搜索兜底的（deepValue），
+    /// 1:1 照搬：先在本层按优先级找名字，找不到再往下钻。
+    static func deepSearchString(_ obj: Any, names: [String]) -> String {
+        let wanted = names.map { $0.lowercased() }
+        func walk(_ value: Any) -> String? {
+            if let dict = value as? [String: Any] {
+                // 本层先按优先级逐个名字找（字典遍历无序，不能一次 where 全比）
+                for name in wanted {
+                    for (key, child) in dict where key.lowercased() == name {
+                        if let s = string(child), !s.isEmpty { return s }
+                    }
+                }
+                // 本层没有 → 深入子节点
+                for child in dict.values {
+                    if let found = walk(child) { return found }
+                }
+            } else if let array = value as? [Any] {
+                for child in array {
+                    if let found = walk(child) { return found }
+                }
+            }
+            return nil
+        }
+        return walk(obj) ?? ""
+    }
+
+    /// 把搜到的"可能是头像"的值规范成可加载的 https URL；不是 URL 返回空串。
+    /// （防止把二维码 base64 之类的杂值误当头像。）
+    static func normalizeAvatarURL(_ raw: String) -> String {
+        if raw.hasPrefix("https://") || raw.hasPrefix("http://") { return raw }
+        if raw.hasPrefix("//") { return "https:" + raw }
+        return ""
+    }
+
     // MARK: - 酷狗扫码登录 API
 
     private let loginBase = "https://login-user.kugou.com"
@@ -1315,7 +1353,8 @@ final class KugouClient {
                                         "x-router": "login-user.kugou.com",
                                     ])
         let json = Self.extractJSONP(raw) ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any]) ?? [:]
-        Log.info("酷狗登录", "pollQR 响应 raw=\(String(raw.prefix(300)))")
+        // 🔴 800 字符：要能完整看到头像/昵称字段（300 经常被截在中间）
+        Log.info("酷狗登录", "pollQR 响应 raw=\(String(raw.prefix(800)))")
 
         let status = Self.deepInt(json, path: ["status"]) ?? Self.deepInt(json, path: ["data", "status"]) ?? 0
         let token = Self.deepString(json, path: ["token"]) ?? Self.deepString(json, path: ["user_token"]) ?? Self.deepString(json, path: ["data", "token"]) ?? ""
@@ -1331,15 +1370,138 @@ final class KugouClient {
         }
 
         let nick = Self.deepString(json, path: ["nickname"]) ?? Self.deepString(json, path: ["data", "nickname"]) ?? ""
-        let avatar = Self.deepString(json, path: ["avatar"]) ?? Self.deepString(json, path: ["data", "avatar"]) ?? ""
+        // 🔴 头像：之前只在 ["avatar"] / ["data","avatar"] 两条精确路径找，全落空。
+        // 酷狗这个接口的头像字段名/位置不固定（avatar/pic/headpic/user_pic/userpic/img），
+        // Beans 用递归全树搜索兜底 —— 照搬。搜到后只认 http(s)/协议相对地址，
+        // 防止把别的杂值（比如 base64）误存成头像。
+        let avatarRaw = Self.deepSearchString(json, names: ["avatar", "pic", "headpic", "user_pic", "userpic", "img"])
+        let avatar = Self.normalizeAvatarURL(avatarRaw)
+        if avatar.isEmpty, !avatarRaw.isEmpty {
+            Log.info("酷狗登录", "搜到疑似头像字段但不是 URL：\(avatarRaw.prefix(80))")
+        }
         let vip = Self.deepInt(json, path: ["vip_type"]) ?? Self.deepInt(json, path: ["data", "vip_type"]) ?? 0
 
         KugouAuth.shared.saveLogin(userId: userId, token: token, nickname: nick, avatar: avatar, vipType: vip)
+        // 🔴 登录响应里没给头像 → 走 usercenter 的 get_my_info 补拉（异步，不阻塞登录流程）
+        if avatar.isEmpty {
+            Task { await fetchMyInfo() }
+        }
         let displayName = nick.isEmpty ? "酷狗音乐用户 \(userId)" : nick
         Log.info("酷狗登录", "成功 user=\(displayName)")
         // 🔴 登录成功立即注册设备风控（拿真实 dfid），否则 gateway 歌单 20017
         Task { await registerDevice() }
         return .success(displayName)
+    }
+
+    /// 🔴 拉取酷狗账号资料（头像兜底）。
+    ///
+    /// 二维码登录响应经常不含头像字段；已登录的存量用户也不会重新扫码 ——
+    /// 这两类人都需要走 usercenter 主动补拉一次。
+    /// 接口照搬 KuGouMusicApi user_detail 模块：
+    /// `POST gateway.kugou.com/v3/get_my_info`（x-router: usercenter.kugou.com），
+    /// body = {visit_time, usertype:1, p, userid}，其中
+    /// p = 零填充裸 RSA(JSON{token, clienttime}) 的十六进制大写。
+    /// 失败只记日志，不影响任何现有功能。
+    @discardableResult
+    func fetchMyInfo() async -> Bool {
+        let auth = KugouAuth.shared
+        guard auth.isLoggedIn, !auth.needsRelogin else { return false }
+        guard let userIdNum = Int(auth.userId) else { return false }
+        let token = auth.token
+        let clienttime = Int(Date().timeIntervalSince1970)
+
+        // 🔴 p 参数：JSON 键序必须和 KuGouMusicApi 的 JSON.stringify({token, clienttime})
+        // 完全一致（token 在前）—— 裸 RSA 加密的是字节序列，键序变了密文就对不上。
+        // token 是酷狗签发的字母数字串，这里的转义只是保险。
+        let escapedToken = token
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let pPlain = "{\"token\":\"\(escapedToken)\",\"clienttime\":\(clienttime)}"
+        guard let p = Self.rsaRawEncryptHex(Data(pPlain.utf8)) else {
+            Log.info("酷狗", "get_my_info：RSA 加密失败")
+            return false
+        }
+
+        let dataBody: [String: Any] = [
+            "visit_time": clienttime,
+            "usertype": 1,
+            "p": p,
+            "userid": userIdNum,
+        ]
+        // 🔴 和 Beans gatewayRequest 一样：不要 .sortedKeys
+        let bodyData = (try? JSONSerialization.data(withJSONObject: dataBody)) ?? Data()
+        let bodyStr = String(data: bodyData, encoding: .utf8) ?? ""
+
+        var final: [String: String] = [
+            "dfid": dfid,
+            "mid": mid,
+            "uuid": "-",
+            "appid": gatewayAppID,
+            "clientver": gatewayClientVer,
+            "clienttime": "\(clienttime)",
+            "plat": "1",
+            "token": token,
+            "userid": auth.userId,
+        ]
+        final["signature"] = androidSign(final, data: bodyStr)
+
+        var comps = URLComponents(string: "https://gateway.kugou.com/v3/get_my_info")!
+        comps.queryItems = final.map { URLQueryItem(name: $0.key, value: $0.value) }
+        guard let url = comps.url else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = bodyData
+        request.setValue(gatewayUA, forHTTPHeaderField: "User-Agent")
+        request.setValue("usercenter.kugou.com", forHTTPHeaderField: "x-router")
+        request.setValue("1", forHTTPHeaderField: "kg-rc")
+        request.setValue("5d816a0", forHTTPHeaderField: "kg-thash")
+        request.setValue("1", forHTTPHeaderField: "kg-rec")
+        request.setValue("B9EDA08A64250DEFFBCADDEE00F8F25F", forHTTPHeaderField: "kg-rf")
+        request.setValue(dfid, forHTTPHeaderField: "dfid")
+        request.setValue(mid, forHTTPHeaderField: "mid")
+        request.setValue("\(clienttime)", forHTTPHeaderField: "clienttime")
+        let cookie = auth.cookieHeader
+        if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+
+        do {
+            let (data, resp) = try await session.data(for: request)
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            Log.info("酷狗", "get_my_info HTTP=\(code)/\(raw.count)B raw=\(String(raw.prefix(500)))")
+            guard (200...299).contains(code) else { return false }
+
+            let json = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+            let picRaw = Self.deepSearchString(json, names: ["pic", "avatar", "headpic", "user_pic", "userpic", "img"])
+            let avatar = Self.normalizeAvatarURL(picRaw)
+            guard !avatar.isEmpty else {
+                Log.info("酷狗", "get_my_info：响应里没有可用头像字段")
+                return false
+            }
+            KugouAuth.shared.updateAvatar(avatar)
+            return true
+        } catch {
+            Log.error("酷狗", "get_my_info 请求失败：\(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// 零填充裸 RSA（无 PKCS1 填充）→ 十六进制大写。
+    /// KuGouMusicApi cryptoRSAEncrypt：数据右补零到密钥块大小（128 字节），
+    /// 直接 m^e mod n，不走填充 —— 对应 Security framework 的 .rsaEncryptionRaw。
+    private static func rsaRawEncryptHex(_ data: Data) -> String? {
+        guard let keyData = Data(base64Encoded: kugouRSAPublicKeyBase64) else { return nil }
+        let attrs: [CFString: Any] = [
+            kSecAttrKeyType: kSecAttrKeyTypeRSA,
+            kSecAttrKeyClass: kSecAttrKeyClassPublic,
+            kSecAttrKeySizeInBits: 1024,
+        ]
+        guard let key = SecKeyCreateWithData(keyData as CFData, attrs as CFDictionary, nil) else { return nil }
+        var padded = data
+        if padded.count < 128 { padded = padded + Data(repeating: 0, count: 128 - padded.count) }
+        guard padded.count == 128 else { return nil }   // 裸 RSA 要求输入 == 块大小
+        var error: Unmanaged<CFError>?
+        guard let encrypted = SecKeyCreateEncryptedData(key, .rsaEncryptionRaw, padded as CFData, &error) else { return nil }
+        return (encrypted as Data).map { String(format: "%02X", $0) }.joined()
     }
 
     /// web 端签名：MD5(salt + sortedKeyVals + salt) —— 和 gateway 签名算法相同但 salt 不同

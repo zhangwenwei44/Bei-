@@ -83,6 +83,18 @@ final class KugouAuth: ObservableObject {
 
     // MARK: - 登录态持久化
 
+    /// 登录后补拉到头像时更新（fetchMyInfo 用）—— 只在有值且变化时写，
+    /// 写完 load() 触发 @Published 刷新，UI 上的头像立即生效。
+    func updateAvatar(_ avatar: String) {
+        // 🔴 http → https —— ATS 阻止 HTTP，CoverImage 加载会静默失败！
+        var fixed = avatar.hasPrefix("http://") ? "https://" + avatar.dropFirst(7) : avatar
+        if fixed.hasPrefix("//") { fixed = "https:" + fixed }   // 协议相对地址
+        guard !fixed.isEmpty, fixed != defaults.string(forKey: key + ".avatar") else { return }
+        defaults.set(fixed, forKey: key + ".avatar")
+        load()
+        Log.info("酷狗", "头像已更新 \(fixed.prefix(60))")
+    }
+
     func saveLogin(userId: String, token: String, nickname: String, avatar: String, vipType: Int) {
         defaults.set(userId, forKey: key + ".userId")
         defaults.set(token, forKey: key + ".token")

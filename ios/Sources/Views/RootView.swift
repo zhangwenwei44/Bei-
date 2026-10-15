@@ -1,40 +1,30 @@
 import SwiftUI
 
 struct RootView: View {
-    /// 仅用于把 store 实例传给 MiniPlayerOverlay —— body 里不读它的任何属性，
+    /// 仅用于把 store 实例传给子层 —— body 里不读它的任何属性，
     /// 所以不会因此建立订阅（SwiftUI 只对 body 中实际访问的属性建依赖）。
     @EnvironmentObject private var store: PlayerStore
     @State private var isPlayerExpanded = false
 
     var body: some View {
-        // 🔴 终于换对方案：用 safeAreaInset，而不是 ZStack 浮层。
+        // 🔴 迷你播放条的挂载点：每个 Tab 的导航栈【外层】（见 MainTabs.tabRoot）。
         //
-        // 为什么之前三次都失败：ZStack 里的播放条是【浮在 TabView 之上】的，
-        // 只要它所在的层参与命中测试且覆盖了 TabBar 区域，TabBar 就点不动。
-        // 试过的三种错法都记在 MiniPlayerOverlay 的注释里。
-        //
-        // safeAreaInset 是【布局】方案：播放条被塞进 TabView 的安全区，
-        // TabView 的内容区自动缩小、播放条永远在 TabBar 上方，
-        // 二者不可能重叠 —— 从根上不存在遮挡问题。
-        MainTabs()
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                MiniPlayerOverlay(
-                    store: store,
-                    isExpanded: $isPlayerExpanded
-                )
-            }
-            // 🔴 播放页必须挂在【全屏宿主】的 overlay 上。
-            //
-            // 之前挂在 MiniPlayerOverlay 的 overlay 里 —— 而 MiniPlayerOverlay 是
-            // safeAreaInset 的内容，frame 只有播放条那么高，overlay 的 frame
-            // 跟随宿主，播放页被"锚"在底部一截，永远盖不满全屏（图1 的根因）。
-            //
-            // 这里的宿主是 MainTabs + safeAreaInset 的整体，frame = 全屏，
-            // 所以 PlayerView 才能真正铺满、盖住状态栏。
+        // ## 五版血泪史（别再改回去了）
+        // 1. ZStack + VStack/Spacer 浮层 → 浮层铺满全屏吃掉 TabBar 触摸
+        // 2. 整层 allowsHitTesting(false) → 播放条自己也点不了（继承性）
+        // 3. Color.clear 铺满当穿透底板 → Color 在命中区里，照样吃触摸
+        // 4. safeAreaInset 套在 TabView【整体】上 → inset 内容被放到 TabView
+        //    frame 最底边，而 TabBar 就住在那 → 播放条下坠 + 直接盖住 TabBar
+        //    （图4「TabBar 显示不出来」的根因）
+        // 5. ✅ 现方案：safeAreaInset 套在每个 Tab 的导航栈外层 —— 这个区域的
+        //    底边就是 TabBar 上沿，播放条被布局钉在 TabBar 正上方，
+        //    二者结构上不可能重叠，TabBar 由 TabView 正常渲染。
+        MainTabs(store: store, isExpanded: $isPlayerExpanded)
+            // 播放页挂在【全屏宿主】的 overlay 上（MainTabs frame = 全屏），
+            // PlayerView 才能盖满整屏、罩住状态栏。
             .overlay {
                 ExpandedPlayerLayer(store: store, isExpanded: $isPlayerExpanded)
             }
-            .ignoresSafeArea(.keyboard)
     }
 }
 
@@ -62,10 +52,20 @@ private struct ExpandedPlayerLayer: View {
     }
 }
 
-/// 主 Tab 容器 —— 刻意不持有/订阅 PlayerStore，避免播放进度高频更新引发整树重算。
+/// 主 Tab 容器 —— 刻意不订阅 PlayerStore（store 仅作构造参数传递），
+/// 避免播放进度高频更新引发整树重算。
 private struct MainTabs: View {
+    /// 仅用于把 store 传给各 Tab 的播放条 —— body 不读它的属性，不建立订阅。
+    private let store: PlayerStore
+    @Binding var isExpanded: Bool
+
     @State private var tab: Tab = .discover
     @State private var showKugouLogin = false
+
+    init(store: PlayerStore, isExpanded: Binding<Bool>) {
+        self.store = store
+        self._isExpanded = isExpanded
+    }
 
     fileprivate enum Tab: Hashable {
         case discover, search, library, profile
@@ -73,24 +73,47 @@ private struct MainTabs: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            CompatNavigationStack { DiscoverView() }
+            tabRoot(DiscoverView())
                 .tabItem { Label("主页", systemImage: "safari.fill") }.tag(Tab.discover)
-            CompatNavigationStack { SearchView() }
+            tabRoot(SearchView())
                 .tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(Tab.search)
-            CompatNavigationStack { LibraryView() }
+            tabRoot(LibraryView())
                 .tabItem { Label("我的音乐", systemImage: "music.note.list") }.tag(Tab.library)
-            CompatNavigationStack { ProfileView() }
+            tabRoot(ProfileView())
                 .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
         }
+        // 键盘弹出时不抬 TabBar/播放条（搜索页打字时保持原位，与旧版行为一致）
+        .ignoresSafeArea(.keyboard)
         .sheet(isPresented: $showKugouLogin) { KugouLoginSheet() }
         .onReceive(NotificationCenter.default.publisher(for: .auroraShowKugouLogin)) { _ in
             showKugouLogin = true
         }
         .tint(AppStyle.accent)
+        // 🔴 头像兜底：已登录但本地没存头像的存量用户（二维码登录响应没给、
+        // 或旧版本登录的），启动时走 usercenter 补拉一次。失败静默，不影响使用。
+        .task {
+            let auth = KugouAuth.shared
+            if auth.isLoggedIn, !auth.needsRelogin, auth.avatarURL == nil {
+                await KugouClient.shared.fetchMyInfo()
+            }
+        }
+    }
+
+    /// 🔴 每个 Tab 的根容器：导航栈【外层】套 safeAreaInset。
+    ///
+    /// Tab 内容区的 bottom 安全区天然到 TabBar 上沿为止，所以播放条被布局
+    /// 钉在 TabBar 正上方（底边贴住 TabBar 上沿）—— 不需要任何手动高度
+    /// 计算 / allowsHitTesting 花招，命中测试由布局结构保证。
+    /// 挂在导航栈外层还意味着 push 进二级页后播放条依然常驻。
+    private func tabRoot<Content: View>(_ content: Content) -> some View {
+        CompatNavigationStack { content }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                MiniPlayerOverlay(store: store, isExpanded: $isExpanded)
+            }
     }
 }
 
-/// 迷你播放条 —— 作为 TabView 的 bottom safeAreaInset 内容，不是浮层。
+/// 迷你播放条 —— 每个 Tab 导航栈外层的 bottom safeAreaInset 内容，不是浮层。
 ///
 /// ## 为什么不用 ZStack 浮层（前三次都失败了）
 ///
@@ -103,12 +126,16 @@ private struct MainTabs: View {
 ///
 /// 三次都是「让浮层不吃触摸」，但浮层的布局始终铺满屏幕。
 ///
-/// ## 现在的方案：布局，不是修饰器
+/// ## 第四次的错法（也别再犯）
 ///
-/// 通过 `safeAreaInset(edge: .bottom)` 挂到 TabView 上，播放条成为
-/// TabView 内容区的一部分 —— TabView 自动缩小、播放条自然落在 TabBar 上方。
-/// 两者在布局上就不可能重叠，TabBar 也不可能被遮挡。
-/// 命中测试由布局保证，不需要任何 allowsHitTesting 花招。
+/// `safeAreaInset` 套在 TabView **整体**上 —— inset 内容被放到 TabView frame
+/// 的最底边，而 TabBar 就住在那里 → 播放条下坠盖住 TabBar。
+///
+/// ## 现在的方案：挂对宿主
+///
+/// safeAreaInset 套在【每个 Tab 的导航栈外层】（MainTabs.tabRoot）。
+/// Tab 内容区的 bottom 安全区天然到 TabBar 上沿为止，播放条被布局钉在
+/// TabBar 正上方 —— 结构上不可能重叠，命中测试由布局保证。
 private struct MiniPlayerOverlay: View {
     /// 🔴 只订阅 MiniPlayerState，不订阅整个 PlayerStore。
     ///
@@ -134,11 +161,15 @@ private struct MiniPlayerOverlay: View {
             if mini.isVisible {
                 MiniPlayer(mini: mini, playback: playback, store: store, isExpanded: $isExpanded)
                     .padding(.horizontal, 10)
-                    .padding(.bottom, 6)
+                    // 🔴 底边贴住 TabBar 上沿（用户明确要求的形态）。
+                    // 不要再垫 padding —— 垫了就是"悬浮偏高"，用户已纠正过一次。
+                    .padding(.bottom, 0)
                     .id("mini-player")
             }
         }
-        .background(.ultraThinMaterial)
+        // 🔴 不加全宽材质背板：播放条自己是圆角胶囊 + ultraThinMaterial，
+        // 外面再糊一条全宽色带会把它变成一根"粗条"（也盖住 TabBar 上沿的层次）。
+        // 隐藏时 VStack 高度为 0，inset 自动消失。
         // 播放页已移到 RootView 的全屏 overlay（ExpandedPlayerLayer）——
         // 挂在这里 frame 只有播放条高，永远盖不满全屏。
         .queueSheet()
