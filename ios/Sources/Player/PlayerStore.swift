@@ -37,7 +37,9 @@ final class PlayerStore: ObservableObject {
     @Published private(set) var sourceName: String = "" {
         didSet { if sourceName != oldValue { mini.sourceName = sourceName } }
     }
-    @Published private(set) var bitrateLabel: String = ""
+    @Published private(set) var bitrateLabel: String = "" {
+        didSet { if bitrateLabel != oldValue { mini.qualityName = bitrateLabel } }
+    }
 
     // MARK: 高频播放进度（已拆到独立对象，避免拖慢四个主页面）
 

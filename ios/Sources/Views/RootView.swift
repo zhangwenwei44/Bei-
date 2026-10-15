@@ -209,8 +209,8 @@ struct MiniPlayer: View {
                         .foregroundStyle(AppStyle.secondaryText)
                         .lineLimit(1)
                         .layoutPriority(1)
-                    if !mini.sourceName.isEmpty {
-                        Text(mini.sourceName)
+                    if !mini.qualityName.isEmpty {
+                        Text(mini.qualityName)
                             .font(.system(size: 9))
                             .foregroundStyle(AppStyle.accent)
                             .lineLimit(1)

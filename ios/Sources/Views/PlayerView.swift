@@ -1161,7 +1161,7 @@ struct PlayerView: View {
 
             progressSection()
                 .padding(.top, 20)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 20)
 
             controls()
                 .padding(.top, 14)

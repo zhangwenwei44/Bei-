@@ -31,6 +31,8 @@ final class MiniPlayerState: ObservableObject {
     @Published var isLoading: Bool = false
     /// 当前使用的音源名（官方 / 第三方脚本名）。
     @Published var sourceName: String = ""
+    /// 当前音质（标准/较高/极高/无损/Hi-Res），迷你条用它在歌手行展示。
+    @Published var qualityName: String = ""
     /// 任一页面处于多选模式时隐藏播放条。
     @Published var isMultiSelecting: Bool = false
 

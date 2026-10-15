@@ -1047,7 +1047,7 @@ struct MoreArtistsView: View {
             if artists.isEmpty {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                LazyVStack(spacing: 0) {
+                VStack(spacing: 0) {
                     ForEach(Array(artists.enumerated()), id: \.offset) { index, artist in
                         NavigationLink {
                             ArtistDetailView(artist: artist)
