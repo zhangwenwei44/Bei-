@@ -17,6 +17,8 @@ struct PlayerView: View {
 
     @State private var showToast: String?
     @State private var isLyricsPage = false
+    /// 音质切换弹层
+    @State private var showQualityPicker = false
     @AppStorage("aurora.playerTheme") private var playerTheme: String = "glitter"
     @State private var vinylStart: Date = Date()
     @State private var dominantColor: Color = .white
@@ -1250,7 +1252,7 @@ struct PlayerView: View {
     }
 
     private func actionRow() -> some View {
-        // 居中簇：四项整体居中，不再铺满全宽；四项之间间距 30
+        // 居中簇：五项整体居中，不铺满全宽；项间距 30
         HStack(spacing: 30) {
             actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
             actionButton(icon: store.isLiked ? "heart.fill" : "heart",
@@ -1264,8 +1266,36 @@ struct PlayerView: View {
             actionButton(icon: "text.quote", label: "歌词") {
                 withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
             }
+            // 音质切换：点了弹确认框选档位，选完 SourceStore 自动用新音质重新解析当前歌
+            actionButton(icon: "waveform",
+                         label: qualityShortTitle,
+                         tint: AppStyle.gold) {
+                showQualityPicker = true
+            }
         }
         .frame(maxWidth: .infinity)
+        .confirmationDialog("选择音质", isPresented: $showQualityPicker, titleVisibility: .visible) {
+            ForEach(MusicQuality.allCases) { q in
+                Button(q == SourceStore.shared.quality ? "✓ \(q.title)" : q.title) {
+                    if q != SourceStore.shared.quality {
+                        SourceStore.shared.quality = q
+                        show("已切换到\(q.title)")
+                    }
+                }
+            }
+            Button("取消", role: .cancel) {}
+        }
+    }
+
+    /// 音质按钮的短标签（动作行空间有限，用两字/Hi-Res）
+    private var qualityShortTitle: String {
+        switch SourceStore.shared.quality {
+        case .standard: return "标准"
+        case .higher: return "较高"
+        case .exHigh: return "极高"
+        case .lossless: return "无损"
+        case .hires: return "Hi-Res"
+        }
     }
 
     private var modeLabel: String {

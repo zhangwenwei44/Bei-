@@ -20,6 +20,19 @@ struct DiscoverView: View {
     @State private var selectedTab: DiscoverTab = .recommend
     @State private var pendingArtist: Artist?
 
+    // 歌单页搜索（搜索歌单而不是歌曲）
+    @State private var playlistQuery = ""
+    @State private var playlistSearchResults: [Playlist] = []
+    @State private var playlistSearchTotal = 0
+    @State private var playlistSearchPage = 1
+    @State private var isSearchingPlaylists = false
+    @State private var playlistSearchExhausted = false
+
+    // 榜单页：每个榜单的前 3 首预览（rankID → 歌曲）
+    @State private var rankPreviewSongs: [String: [Song]] = [:]
+    /// 顶部宫格横翻页码
+    @State private var rankCardPage = 0
+
     // 三个新推荐板块
     @State private var ktvSongs: [Song] = []
     @State private var classicSongs: [Song] = []
@@ -51,7 +64,12 @@ struct DiscoverView: View {
                 } else if isLoading, feed.isEmpty {
                     LoadingRow()
                 } else {
-                    searchEntry
+                    // 歌单 Tab：搜索框变成「搜索歌单」；其它 Tab 保持全局搜索入口
+                    if selectedTab == .playlists {
+                        playlistSearchBar
+                    } else {
+                        searchEntry
+                    }
                     tabContent
                 }
             }
@@ -181,6 +199,49 @@ struct DiscoverView: View {
         .padding(.horizontal, 16)
         .padding(.top, 4)
         .padding(.bottom, 12)
+    }
+
+    /// 歌单页搜索框：输入关键词搜酷狗歌单（/api/v3/search/special），清空回到推荐流
+    private var playlistSearchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14))
+                .foregroundStyle(AppStyle.secondaryText)
+            TextField("搜索歌单", text: $playlistQuery)
+                .font(.system(size: 13))
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+            if !playlistQuery.isEmpty {
+                Button {
+                    playlistQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(AppStyle.secondaryText.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 12)
+        // 输入防抖 350ms 后搜索；空串直接回到推荐歌单
+        .task(id: playlistQuery) {
+            let q = playlistQuery.trimmingCharacters(in: .whitespaces)
+            if q.isEmpty {
+                playlistSearchResults = []
+                playlistSearchTotal = 0
+                playlistSearchPage = 1
+                playlistSearchExhausted = false
+                return
+            }
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled, q == playlistQuery.trimmingCharacters(in: .whitespaces) else { return }
+            await searchPlaylists(reset: true)
+        }
     }
 
     // MARK: Tab 内容切换
@@ -561,52 +622,289 @@ struct DiscoverView: View {
         }
     }
 
-    // MARK: 榜单 Tab
+    // MARK: 榜单 Tab（参考酷狗「排行榜」页排版）
+
+    /// 顶部宫格卡片配色（对应酷狗排行榜的彩色方块）
+    private let rankCardColors: [Color] = [
+        Color(red: 0.62, green: 0.36, blue: 0.90),  // 紫
+        Color(red: 0.28, green: 0.75, blue: 0.52),  // 绿
+        Color(red: 0.25, green: 0.62, blue: 0.95),  // 蓝
+        Color(red: 0.20, green: 0.78, blue: 0.72),  // 青
+        Color(red: 0.32, green: 0.33, blue: 0.40),  // 深灰
+        Color(red: 0.58, green: 0.24, blue: 0.30),  // 暗红
+        Color(red: 0.93, green: 0.56, blue: 0.26),  // 橙
+        Color(red: 0.36, green: 0.48, blue: 0.88),  // 靛蓝
+    ]
 
     private var ranksContent: some View {
-        Group {
-            if !filteredLists.isEmpty {
-                HStack {
-                    Text("热门榜单")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(AppStyle.primaryText)
-                    Spacer()
-                    Text("每日更新")
-                        .font(.system(size: 12))
-                        .foregroundStyle(AppStyle.tertiaryText)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 10)
-
-                VStack(spacing: 0) {
-                    ForEach(filteredLists) { playlist in
-                        NavigationLink {
-                            PlaylistDetailView(playlist: playlist)
-                        } label: {
-                            RankRow(playlist: playlist)
-                        }
-                        .buttonStyle(.plain)
-                        Divider().padding(.leading, 72)
-                    }
-                }
-                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .padding(.horizontal, 16)
+        VStack(alignment: .leading, spacing: 0) {
+            if filteredLists.isEmpty {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 200)
+            } else {
+                rankCardPager
+                rankPreviewList
             }
         }
+        .task(id: filteredLists.map(\.id)) { await loadRankPreviews() }
+    }
+
+    /// 顶部横翻宫格：每页 3×2 张彩色榜单卡，下面小圆点指示页码
+    private var rankCardPager: some View {
+        VStack(spacing: 10) {
+            let chunks = stride(from: 0, to: filteredLists.count, by: 6).map {
+                Array(filteredLists[$0..<min($0 + 6, filteredLists.count)])
+            }
+            TabView(selection: $rankCardPage) {
+                ForEach(Array(chunks.enumerated()), id: \.offset) { pageIndex, chunk in
+                    let cols = [GridItem(.flexible(), spacing: 10),
+                                GridItem(.flexible(), spacing: 10),
+                                GridItem(.flexible(), spacing: 10)]
+                    LazyVGrid(columns: cols, spacing: 10) {
+                        ForEach(Array(chunk.enumerated()), id: \.element.id) { slot, playlist in
+                            NavigationLink {
+                                PlaylistDetailView(playlist: playlist)
+                            } label: {
+                                rankCard(playlist: playlist,
+                                         color: rankCardColors[(pageIndex * 6 + slot) % rankCardColors.count])
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: 232)  // 两行卡(约106)+行距10
+            .onChange(of: rankCardPage) { _ in Haptics.soft() }
+
+            // 页码圆点（酷狗样式：当前页蓝色短条）
+            HStack(spacing: 5) {
+                ForEach(0..<max(chunks.count, 1), id: \.self) { idx in
+                    Capsule()
+                        .fill(idx == rankCardPage ? AppStyle.accent : AppStyle.secondaryText.opacity(0.25))
+                        .frame(width: idx == rankCardPage ? 16 : 6, height: 6)
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: rankCardPage)
+        }
+        .padding(.top, 12)
+    }
+
+    /// 单张榜单卡：彩色渐变底 + 白字榜名居中 + 左下播放量 + 右下播放键
+    private func rankCard(playlist: Playlist, color: Color) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(LinearGradient(colors: [color.opacity(0.85), color],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+            VStack(spacing: 0) {
+                Spacer()
+                Text(playlist.name)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .padding(.horizontal, 6)
+                Spacer()
+                HStack(alignment: .bottom) {
+                    Text(Self.playCountText(playlist.playCount))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                    Spacer()
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 17))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+            }
+            .padding(8)
+        }
+        .frame(height: 106)
+    }
+
+    /// 下方榜单预览大卡：榜名 + 更新频率 + 封面(播放量角标) + 前 3 首
+    private var rankPreviewList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("热门榜单")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(AppStyle.primaryText)
+                .padding(.horizontal, 16)
+                .padding(.top, 22)
+                .padding(.bottom, 10)
+
+            VStack(spacing: 12) {
+                ForEach(filteredLists) { playlist in
+                    NavigationLink {
+                        PlaylistDetailView(playlist: playlist)
+                    } label: {
+                        rankPreviewCard(playlist: playlist)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 24)
+        }
+    }
+
+    private func rankPreviewCard(playlist: Playlist) -> some View {
+        let songs = rankPreviewSongs[playlist.kugouRankID ?? ""] ?? []
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Text(playlist.name)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(AppStyle.primaryText)
+                    .lineLimit(1)
+                Spacer()
+                Text(rankFrequencyText(playlist.updateFrequency))
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.tertiaryText)
+            }
+
+            HStack(alignment: .top, spacing: 14) {
+                ZStack(alignment: .bottomLeading) {
+                    CoverImage(url: playlist.coverURL,
+                               fallbackKeys: [playlist.id],
+                               seed: playlist.name,
+                               size: 92, corner: 8)
+                    // 左下播放量角标
+                    Text(Self.playCountText(playlist.playCount))
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.black.opacity(0.45),
+                                    in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .padding(5)
+                }
+                .frame(width: 92, height: 92)
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .shadow(color: .black.opacity(0.4), radius: 2)
+                        .padding(5)
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    if songs.isEmpty {
+                        // 预览还没拉回来：占位行
+                        ForEach(0..<3, id: \.self) { _ in
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(AppStyle.secondaryText.opacity(0.12))
+                                .frame(height: 12)
+                        }
+                        .padding(.top, 4)
+                    } else {
+                        ForEach(Array(songs.prefix(3).enumerated()), id: \.element.id) { index, song in
+                            Button {
+                                store.queueID = playlist.id
+                                store.play(rankPreviewSongs[playlist.kugouRankID ?? ""] ?? [song], startAt: index)
+                                Haptics.soft()
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Text("\(index + 1)")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(AppStyle.secondaryText)
+                                        .frame(width: 12)
+                                    Text("\(song.title) - \(song.artist)")
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(AppStyle.primaryText)
+                                        .lineLimit(1)
+                                    Spacer(minLength: 0)
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(12)
+        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    /// 拉每个榜单的前 3 首做预览（并发 4，缺的才拉）
+    private func loadRankPreviews() async {
+        let lists = filteredLists.filter { rankPreviewSongs[$0.kugouRankID ?? ""] == nil }
+        guard !lists.isEmpty else { return }
+        let client = KugouClient.shared
+        typealias Hit = (String, [Song])
+        var hits: [Hit] = []
+        await withTaskGroup(of: Hit?.self) { group in
+            let concurrency = 4
+            let sem = AsyncStream.makeStream(of: Void.self)
+            nonisolated(unsafe) var active = 0
+            for playlist in lists {
+                guard let rankID = playlist.kugouRankID else { continue }
+                while active >= concurrency { _ = await sem.stream.first(where: { _ in true }) }
+                active += 1
+                group.addTask {
+                    defer {
+                        active -= 1
+                        Task { sem.continuation.yield(()) }
+                    }
+                    let songs = (try? await client.rankSongs(rankID: rankID, limit: 3)) ?? []
+                    return (rankID, songs)
+                }
+            }
+            for await hit in group {
+                if let hit { hits.append(hit) }
+            }
+        }
+        guard !hits.isEmpty else { return }
+        var updated = rankPreviewSongs
+        for (rankID, songs) in hits where updated[rankID] == nil {
+            updated[rankID] = songs
+        }
+        rankPreviewSongs = updated
+        Log.info("榜单", "预览拉取 \(hits.count) 个榜单")
+    }
+
+    private func rankFrequencyText(_ freq: String) -> String {
+        let f = freq.trimmingCharacters(in: .whitespaces)
+        return f.isEmpty ? "每日更新" : "\(f)更新"
+    }
+
+    /// 播放量格式化：1114932 -> 111.4万 / 89123 -> 8.9万
+    static func playCountText(_ count: Int) -> String {
+        guard count > 0 else { return "" }
+        if count >= 10_000 {
+            let w = Double(count) / 10_000
+            let s = w >= 100 ? String(format: "%.0f", w) : String(format: "%.1f", w)
+            let trimmed = s.hasSuffix(".0") ? String(s.dropLast(2)) : s
+            return "\(trimmed)万"
+        }
+        return String(count)
     }
 
     // MARK: 歌单 Tab
 
     private var playlistsContent: some View {
         Group {
-            if recommendedPlaylists.isEmpty {
+            let searching = !playlistQuery.trimmingCharacters(in: .whitespaces).isEmpty
+            let lists = searching ? playlistSearchResults : recommendedPlaylists
+            if searching ? (playlistSearchResults.isEmpty && isSearchingPlaylists)
+                         : recommendedPlaylists.isEmpty {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if lists.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "music.note.list")
+                        .font(.system(size: 34))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                    Text("没找到相关歌单")
+                        .font(.system(size: 13))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 60)
             } else {
                 let cols = [GridItem(.flexible(), spacing: 12),
                             GridItem(.flexible(), spacing: 12)]
                 LazyVGrid(columns: cols, spacing: 12) {
-                    ForEach(recommendedPlaylists) { playlist in
+                    ForEach(lists) { playlist in
                         NavigationLink {
                             PlaylistDetailView(playlist: playlist)
                         } label: {
@@ -616,8 +914,19 @@ struct DiscoverView: View {
                         .buttonStyle(.plain)
                     }
 
-                    // 底部加载触发器
-                    if recommendedPlaylists.count < squareTotal {
+                    // 底部加载触发器：推荐流按 squareTotal 翻页；搜索按 playlistSearchTotal 翻页
+                    if searching {
+                        if !playlistSearchExhausted,
+                           playlistSearchResults.count < playlistSearchTotal {
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                Spacer()
+                            }
+                            .padding(.vertical, 10)
+                            .onAppear { Task { await searchPlaylists(reset: false) } }
+                        }
+                    } else if recommendedPlaylists.count < squareTotal {
                         HStack {
                             Spacer()
                             ProgressView()
@@ -631,6 +940,30 @@ struct DiscoverView: View {
                 .padding(.top, 12)
                 .padding(.bottom, 24)
             }
+        }
+    }
+
+    /// 歌单搜索（reset=true 从第一页重来，否则追加下一页）。
+    private func searchPlaylists(reset: Bool) async {
+        guard !isSearchingPlaylists else { return }
+        let q = playlistQuery.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return }
+        isSearchingPlaylists = true
+        defer { isSearchingPlaylists = false }
+        let page = reset ? 1 : playlistSearchPage + 1
+        let result = await KugouClient.shared.searchPlaylists(keyword: q, page: page)
+        guard q == playlistQuery.trimmingCharacters(in: .whitespaces) else { return } // 关键词已变，丢弃
+        if reset { playlistSearchResults = [] }
+        var existing = Set(playlistSearchResults.map(\.id))
+        for p in result.playlists where !existing.contains(p.id) {
+            playlistSearchResults.append(p)
+            existing.insert(p.id)
+        }
+        playlistSearchPage = page
+        playlistSearchTotal = result.total
+        // 接口返回空页：到底了，别再重复请求
+        if result.playlists.isEmpty || (result.total > 0 && playlistSearchResults.count >= result.total) {
+            playlistSearchExhausted = true
         }
     }
 
@@ -764,7 +1097,11 @@ struct DiscoverView: View {
         defer { isLoadingMore = false }
         let nextPage = squarePage + 1
         let result = await KugouClient.shared.recommendedPlaylists(page: nextPage)
-        guard !result.playlists.isEmpty else { return }
+        guard !result.playlists.isEmpty else {
+            // 接口翻到底了：把 total 收口，隐藏底部加载触发器，避免反复空请求
+            squareTotal = recommendedPlaylists.count
+            return
+        }
         var existing = Set(recommendedPlaylists.map(\.id))
         for p in result.playlists where !existing.contains(p.id) {
             recommendedPlaylists.append(p)

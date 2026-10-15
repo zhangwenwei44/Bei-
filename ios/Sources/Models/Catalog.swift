@@ -11,10 +11,13 @@ struct Playlist: Identifiable, Hashable {
     /// 酷狗榜单 ID（`kg-rank:` 前缀的条目用）。
     var kugouRankID: String?
     var updateFrequency: String = ""
+    /// 播放量（榜单卡片左下角角标，rank/list 的 play_times 字段）。
+    var playCount: Int = 0
 
     init(id: String, name: String, coverURL: URL?, trackCount: Int,
          creatorName: String = "", source: SongSource = .kugou,
-         kugouRankID: String? = nil, updateFrequency: String = "") {
+         kugouRankID: String? = nil, updateFrequency: String = "",
+         playCount: Int = 0) {
         self.id = id
         self.name = name
         self.coverURL = coverURL
@@ -23,6 +26,7 @@ struct Playlist: Identifiable, Hashable {
         self.source = source
         self.kugouRankID = kugouRankID
         self.updateFrequency = updateFrequency
+        self.playCount = playCount
     }
 }
 

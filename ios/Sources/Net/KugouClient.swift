@@ -532,7 +532,8 @@ final class KugouClient {
                             creatorName: "酷狗音乐",
                             source: .kugou,
                             kugouRankID: rankID,
-                            updateFrequency: KugouClient.string(item["update_frequency"]) ?? "")
+                            updateFrequency: KugouClient.string(item["update_frequency"]) ?? "",
+                            playCount: KugouClient.intValue(item["play_times"]) ?? 0)
         }
     }
 
@@ -571,6 +572,51 @@ final class KugouClient {
                             updateFrequency: "")
         }
         return (playlists, total)
+    }
+
+    /// 歌单搜索（歌单页搜索框）。/api/v3/search/special，每页 30 个。
+    /// 实测字段：data.info[] = specialid / specialname / imgurl({size} 模板) / songcount / nickname。
+    func searchPlaylists(keyword: String, page: Int = 1) async -> (playlists: [Playlist], total: Int) {
+        guard !keyword.isEmpty else { return ([], 0) }
+        let hosts = ["http://mobilecdn.kugou.com",
+                     "https://mobiles.kugou.com",
+                     "http://mobiles.kugou.com"]
+        for host in hosts {
+            guard let json = try? await getJSON(path: "/api/v3/search/special",
+                                                host: host,
+                                                params: ["format": "json",
+                                                         "keyword": keyword,
+                                                         "page": String(page),
+                                                         "pagesize": "30"],
+                                                headers: [:]),
+                  let data = json["data"] as? [String: Any],
+                  let infos = data["info"] as? [[String: Any]] else { continue }
+
+            let total = KugouClient.intValue(data["total"]) ?? 0
+            let playlists = infos.compactMap { item -> Playlist? in
+                guard let specialID = KugouClient.string(item["specialid"]), !specialID.isEmpty else { return nil }
+                let name = KugouClient.string(item["specialname"]) ?? "歌单"
+                var cover = KugouClient.string(item["imgurl"]) ?? ""
+                cover = cover.replacingOccurrences(of: "{size}", with: "480")
+                    .replacingOccurrences(of: "{si}", with: "480")
+                if cover.hasPrefix("http://") { cover = "https://" + cover.dropFirst("http://".count) }
+                let count = KugouClient.intValue(item["songcount"]) ?? 0
+                let creator = KugouClient.string(item["nickname"]) ?? "酷狗音乐"
+                return Playlist(id: "kg-special:\(specialID)",
+                                name: name,
+                                coverURL: URL(string: cover),
+                                trackCount: count,
+                                creatorName: creator,
+                                source: .kugou,
+                                kugouRankID: nil,
+                                updateFrequency: "")
+            }
+            if !playlists.isEmpty || total > 0 {
+                Log.info("歌单", "搜索「\(keyword)」\(host) 第\(page)页 \(playlists.count)/\(total)")
+                return (playlists, total)
+            }
+        }
+        return ([], 0)
     }
 
     /// 普通歌单（specialid）里的歌曲。
