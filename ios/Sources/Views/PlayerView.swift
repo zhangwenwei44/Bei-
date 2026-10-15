@@ -1361,6 +1361,9 @@ private struct PlayButton: View {
 /// 词曲/编曲/制作人等简介信息独立为顶部折叠模块，滚动区只保留正文歌词。
 struct LyricsPageView: View {
     @EnvironmentObject private var store: PlayerStore
+    /// 歌词高亮独立订阅 —— store.currentLyricIndex 是转发计算属性不触发刷新。
+    /// 这个视图没有注入链，直接从单例取同一个实例。
+    @ObservedObject private var lyricState = PlayerStore.shared.lyricState
     @Binding var isShown: Bool
     @State private var isMetaExpanded = false
 
