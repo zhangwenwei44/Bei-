@@ -11,7 +11,7 @@ struct ProfileView: View {
     @StateObject private var updater = AppUpdater.shared
     /// 自动预缓存下一首 —— 用户手动开关，优先级高于网络判断（默认开启）。
     @AppStorage("aurora.autoPrecache") private var autoPrecacheEnabled: Bool = true
-    @AppStorage("aurora.playerTheme") private var playerTheme: String = "vinyl"
+    @AppStorage("aurora.playerTheme") private var playerTheme: String = "glitter"
     private var autoPrecacheBinding: Binding<Bool> {
         Binding(get: { autoPrecacheEnabled },
                 set: { autoPrecacheEnabled = $0 })

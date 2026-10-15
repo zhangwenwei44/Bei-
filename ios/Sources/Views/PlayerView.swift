@@ -17,7 +17,7 @@ struct PlayerView: View {
 
     @State private var showToast: String?
     @State private var isLyricsPage = false
-    @AppStorage("aurora.playerTheme") private var playerTheme: String = "classic"
+    @AppStorage("aurora.playerTheme") private var playerTheme: String = "glitter"
     @State private var vinylStart: Date = Date()
     @State private var dominantColor: Color = .white
 
@@ -1161,6 +1161,7 @@ struct PlayerView: View {
 
             progressSection()
                 .padding(.top, 20)
+                .padding(.horizontal, 30)
 
             controls()
                 .padding(.top, 14)
@@ -1249,23 +1250,22 @@ struct PlayerView: View {
     }
 
     private func actionRow() -> some View {
-        HStack(spacing: 0) {
+        // 居中簇 + 加大左右间距（不再铺满全宽，四项之间留出更大间隙，左右边距更大）
+        HStack(spacing: 40) {
             actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
-            Spacer(minLength: 0)
             actionButton(icon: store.isLiked ? "heart.fill" : "heart",
                          label: "收藏",
                          tint: store.isLiked ? AppStyle.like : .white) {
                 store.toggleFavorite()
             }
-            Spacer(minLength: 0)
             actionButton(icon: "character.bubble", label: "翻译") {
                 store.showTranslation.toggle()
             }
-            Spacer(minLength: 0)
             actionButton(icon: "text.quote", label: "歌词") {
                 withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
     private var modeLabel: String {
@@ -1305,7 +1305,6 @@ struct PlayerView: View {
                 }
             }
             .foregroundStyle(tint)
-            .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

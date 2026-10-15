@@ -222,32 +222,7 @@ struct DiscoverView: View {
         VStack(alignment: .leading, spacing: 0) {
             bigCardsGrid
             // 三个新推荐板块 —— 点"更多"push 进完整榜单页（复用已加载好的歌曲，省一次请求）
-            songSection(title: "KTV必点曲", moreDestination: {
-                NavigationLink {
-                    PlaylistDetailView(
-                        playlist: Playlist(id: "local-ktv", name: "KTV必点曲",
-                                           coverURL: nil, trackCount: ktvSongs.count,
-                                           creatorName: "Aurora 推荐", source: .kugou),
-                        initialSongs: ktvSongs)
-                } label: {
-                    HStack(spacing: 2) { Text("更多").font(.system(size: 12)); Image(systemName: "chevron.right").font(.system(size: 10)) }
-                        .foregroundStyle(AppStyle.tertiaryText)
-                }
-                .buttonStyle(.plain)
-            }, allSongs: ktvSongs)
-            songSection(title: "经典推荐", moreDestination: {
-                NavigationLink {
-                    PlaylistDetailView(
-                        playlist: Playlist(id: "local-classic", name: "经典推荐",
-                                           coverURL: nil, trackCount: classicSongs.count,
-                                           creatorName: "Aurora 推荐", source: .kugou),
-                        initialSongs: classicSongs)
-                } label: {
-                    HStack(spacing: 2) { Text("更多").font(.system(size: 12)); Image(systemName: "chevron.right").font(.system(size: 10)) }
-                        .foregroundStyle(AppStyle.tertiaryText)
-                }
-                .buttonStyle(.plain)
-            }, allSongs: classicSongs)
+            // 顺序：新歌推荐（置顶）→ 经典推荐 → KTV必点曲（按用户要求换位）
             songSection(title: "新歌推荐", moreDestination: {
                 NavigationLink {
                     PlaylistDetailView(
@@ -261,6 +236,32 @@ struct DiscoverView: View {
                 }
                 .buttonStyle(.plain)
             }, allSongs: newSongs)
+            songSection(title: "经典推荐", moreDestination: {
+                NavigationLink {
+                    PlaylistDetailView(
+                        playlist: Playlist(id: "local-classic", name: "经典推荐",
+                                           coverURL: nil, trackCount: classicSongs.count,
+                                           creatorName: "Aurora 推荐", source: .kugou),
+                        initialSongs: classicSongs)
+                } label: {
+                    HStack(spacing: 2) { Text("更多").font(.system(size: 12)); Image(systemName: "chevron.right").font(.system(size: 10)) }
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+                .buttonStyle(.plain)
+            }, allSongs: classicSongs)
+            songSection(title: "KTV必点曲", moreDestination: {
+                NavigationLink {
+                    PlaylistDetailView(
+                        playlist: Playlist(id: "local-ktv", name: "KTV必点曲",
+                                           coverURL: nil, trackCount: ktvSongs.count,
+                                           creatorName: "Aurora 推荐", source: .kugou),
+                        initialSongs: ktvSongs)
+                } label: {
+                    HStack(spacing: 2) { Text("更多").font(.system(size: 12)); Image(systemName: "chevron.right").font(.system(size: 10)) }
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+                .buttonStyle(.plain)
+            }, allSongs: ktvSongs)
             moodGreeting
             artistsSection
         }
@@ -481,6 +482,17 @@ struct DiscoverView: View {
                 .font(.system(size: 17, weight: .bold))
                 .foregroundStyle(AppStyle.primaryText)
             Spacer()
+            // 热门歌手右侧"更多"按钮：进入完整歌手列表
+            NavigationLink {
+                MoreArtistsView(artists: hotArtists)
+            } label: {
+                HStack(spacing: 2) {
+                    Text("更多").font(.system(size: 12))
+                    Image(systemName: "chevron.right").font(.system(size: 10))
+                }
+                .foregroundStyle(AppStyle.tertiaryText)
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
         .padding(.top, 22)
@@ -804,7 +816,7 @@ struct DiscoverView: View {
 // MARK: - Tab 枚举
 
 enum DiscoverTab: String, CaseIterable, Hashable {
-    case recommend, ranks, playlists, audiobook
+    case recommend, playlists, ranks, audiobook
     var title: String {
         switch self {
         case .recommend: return "推荐"
@@ -975,7 +987,7 @@ struct FeedSongRow: View {
 
 // MARK: - 歌手行
 
-private struct ArtistRow: View {
+struct ArtistRow: View {
     let artist: Artist
     var isPlaying: Bool = false
     @ObservedObject private var library = LibraryStore.shared
@@ -1023,6 +1035,39 @@ private struct ArtistRow: View {
             return "\(artist.fansCount) 粉丝"
         }
         return "热门歌手"
+    }
+}
+
+// MARK: - 更多歌手页（热门歌手"更多"入口）
+
+struct MoreArtistsView: View {
+    let artists: [Artist]
+    var body: some View {
+        ScrollView {
+            if artists.isEmpty {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(artists.enumerated()), id: \.element.id) { index, artist in
+                        NavigationLink {
+                            ArtistDetailView(artist: artist)
+                        } label: {
+                            ArtistRow(artist: artist, isPlaying: false)
+                        }
+                        .buttonStyle(.plain)
+                        if index < artists.count - 1 {
+                            Divider().padding(.leading, 68)
+                        }
+                    }
+                }
+                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+            }
+        }
+        .background(AppStyle.background)
+        .navigationTitle("热门歌手")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

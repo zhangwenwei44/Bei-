@@ -58,6 +58,8 @@ enum LRCParser {
                     // 如果 key 全字母但不在已知集合里，也跳过（保险）
                     if !key.isEmpty, key.allSatisfy({ $0.isLetter }) { continue }
                 }
+                // 裸元数据行（无方括号也无时间戳）：如 id:00000000 / id$00000000
+                if Self.isKugouMetadata(line) { continue }
                 result.append(LyricLine(time: 0, text: line))
                 continue
             }
@@ -69,9 +71,9 @@ enum LRCParser {
             // 这些标签跟时间戳同行，如 [00:01.23][d:$00000000]童话
             content = stripEmbeddedTags(content)
 
-            // 有时间戳但正文是 id00000000 / ar 许嵩这类也跳过
+            // 有时间戳但正文是酷狗元数据也跳过：id:00000000 / id$00000000 / id$AARRGGBB
             let contentLower = content.lowercased()
-            if contentLower.hasPrefix("id") && contentLower.dropFirst(2).allSatisfy({ $0.isNumber }) { continue }
+            if Self.isKugouMetadata(content) { continue }
             if lrcMetaKeys.contains(contentLower) { continue }
             // 颜色标签清除后可能为空
             if content.isEmpty { continue }
@@ -115,6 +117,22 @@ enum LRCParser {
         }
 
         return ParseResult(lines: result.sorted { $0.time < $1.time }, metadata: meta)
+    }
+
+    /// 判断是否为酷狗内嵌元数据（如 id:00000000 / id$00000000 / id$AARRGGBB / 纯 "id"）。
+    /// 这些可能出现在时间戳行正文、或作为裸行，不能当成歌词显示。
+    /// 注意：带 `:` 或 `$` 前缀才判定为元数据，避免误伤普通歌词（如 "idea"、"identity"）。
+    private static func isKugouMetadata(_ s: String) -> Bool {
+        let lower = s.lowercased()
+        guard lower.hasPrefix("id") else { return false }
+        let rest = String(lower.dropFirst(2))   // 去掉 "id"
+        if rest.isEmpty { return true }         // 纯 "id"
+        if rest.first == ":" || rest.first == "$" {
+            let tail = String(rest.dropFirst())
+            // 后面是数字或十六进制（酷狗 id 多为长串数字/十六进制）
+            return !tail.isEmpty && tail.allSatisfy { $0.isNumber || ($0 >= "a" && $0 <= "f") }
+        }
+        return false
     }
 
     /// 清除酷狗/QQ音乐 LRC 内嵌标签：[d:$00000000] / [d:0] / [v:1] / [t:xxx]
