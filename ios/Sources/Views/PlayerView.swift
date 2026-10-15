@@ -30,6 +30,12 @@ struct PlayerView: View {
 
     private enum Theme: String {
         case vinyl, classic
+        /// 炫胶唱片：黑胶版式 + 炫彩高光盘面
+        case glitter
+        /// 沉浸封面：封面全屏铺满 + 底部信息浮层
+        case immersive
+        /// 歌手写真：以大图歌手写真为主视觉
+        case singerPhoto
     }
     private var currentTheme: Theme { Theme(rawValue: playerTheme) ?? .classic }
 
@@ -44,8 +50,12 @@ struct PlayerView: View {
             immersiveBackground.ignoresSafeArea()
 
             switch currentTheme {
-            case .classic: classicBody(in: contentHeight, win: win, screen: screen)
-            case .vinyl:    vinylBody(in: contentHeight, win: win, screen: screen)
+            case .classic:     classicBody(in: contentHeight, win: win, screen: screen)
+            case .vinyl:       vinylBody(in: contentHeight, win: win, screen: screen)
+            // 炫胶唱片复用黑胶版式，盘面差异在 artworkStage 里处理
+            case .glitter:     vinylBody(in: contentHeight, win: win, screen: screen)
+            case .immersive:   immersiveBody(in: contentHeight, win: win, screen: screen)
+            case .singerPhoto: singerPhotoBody(in: contentHeight, win: win, screen: screen)
             }
         }
         .frame(width: screen.width, height: screen.height)
@@ -70,6 +80,148 @@ struct PlayerView: View {
         .frame(width: screen.width, height: contentHeight, alignment: .top)
         .padding(.top, win.safeTop)
         .clipped()
+    }
+
+    // MARK: - 沉浸封面（封面全屏铺满 + 底部信息浮层）
+
+    private func immersiveBody(in contentHeight: CGFloat,
+                               win: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat),
+                               screen: CGRect) -> some View {
+        ZStack {
+            // 全屏封面：有封面铺满，无封面用主色渐变
+            Group {
+                if let artwork = store.artwork {
+                    Image(uiImage: artwork).resizable().scaledToFill()
+                } else {
+                    LinearGradient(colors: store.currentPalette.gradient,
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                }
+            }
+            .frame(width: screen.width, height: screen.height)
+            .clipped()
+
+            // 上下暗化 scrim：保证顶栏与底部浮层可读
+            LinearGradient(colors: [.black.opacity(0.55),
+                                    .black.opacity(0.12),
+                                    .clear,
+                                    .black.opacity(0.30),
+                                    .black.opacity(0.86)],
+                           startPoint: .top, endPoint: .bottom)
+
+            VStack(spacing: 0) {
+                // topBar 内部 frame 是 maxHeight:.infinity（贪婪），这里给它定高，
+                // 否则它会吃掉所有剩余高度，把底部浮层信息挤没 / 写真无法居中。
+                topBar()
+                    .frame(height: 44)
+                    .padding(.top, win.safeTop)
+
+                Spacer(minLength: 0)
+
+                immersiveDeck(width: screen.width)
+                    .padding(.bottom, win.safeBottom + 10)
+            }
+            .frame(width: screen.width, height: screen.height)
+        }
+        .frame(width: screen.width, height: screen.height)
+        .animation(.easeInOut(duration: 0.35), value: store.currentIndex)
+        .clipped()
+    }
+
+    /// 沉浸封面底部信息浮层：歌词胶囊 + 进度 + 控制键（毛玻璃卡片）
+    private func immersiveDeck(width: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            currentLyricPill
+            progressSection()
+                .padding(.top, 16)
+            controls()
+                .padding(.top, 8)
+        }
+        .frame(width: width - 40, alignment: .leading)
+        .padding(16)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
+            .stroke(.white.opacity(0.12), lineWidth: 0.5))
+    }
+
+    // MARK: - 歌手写真（大图歌手写真主视觉 + 底部信息）
+
+    private func singerPhotoBody(in contentHeight: CGFloat,
+                                 win: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat),
+                                 screen: CGRect) -> some View {
+        ZStack {
+            // 背景：歌手写真（缺省回退封面）模糊铺满
+            Group {
+                if let photo = store.artistPhoto {
+                    Image(uiImage: photo).resizable().scaledToFill()
+                        .blur(radius: 44).opacity(0.55).scaleEffect(1.25)
+                } else if let artwork = store.artwork {
+                    Image(uiImage: artwork).resizable().scaledToFill()
+                        .blur(radius: 44).opacity(0.55).scaleEffect(1.25)
+                } else {
+                    LinearGradient(colors: store.currentPalette.gradient,
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                }
+            }
+            .frame(width: screen.width, height: screen.height)
+            .clipped()
+
+            LinearGradient(colors: [.black.opacity(0.35),
+                                    .clear,
+                                    .black.opacity(0.30),
+                                    .black.opacity(0.88)],
+                           startPoint: .top, endPoint: .bottom)
+
+            VStack(spacing: 0) {
+                topBar()
+                    .padding(.top, win.safeTop)
+
+                Spacer(minLength: 0)
+
+                singerPortrait
+
+                Spacer(minLength: 0)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    currentLyricPill
+                    progressSection()
+                        .padding(.top, 14)
+                    controls()
+                        .padding(.top, 8)
+                }
+                .frame(width: screen.width - 36, alignment: .leading)
+                .padding(.bottom, win.safeBottom + 10)
+            }
+            .frame(width: screen.width, height: screen.height)
+        }
+        .frame(width: screen.width, height: screen.height)
+        .animation(.easeInOut(duration: 0.35), value: store.currentIndex)
+        .clipped()
+    }
+
+    /// 歌手写真主视觉：大幅圆角写真（缺省回退封面 / 渐变占位）
+    private var singerPortrait: some View {
+        let screen = UIScreen.main.bounds
+        let side = max(200, min(screen.width * 0.66, 320))
+        return Group {
+            if let photo = store.artistPhoto {
+                Image(uiImage: photo).resizable().scaledToFill()
+            } else if let artwork = store.artwork {
+                Image(uiImage: artwork).resizable().scaledToFill()
+            } else {
+                ZStack {
+                    LinearGradient(colors: store.currentPalette.gradient,
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    Image(systemName: "person.fill")
+                        .font(.system(size: side * 0.3, weight: .light))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+            }
+        }
+        .frame(width: side, height: side)
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
+            .stroke(.white.opacity(0.18), lineWidth: 0.6))
+        .shadow(color: .black.opacity(0.5), radius: 22, y: 12)
     }
 
     // MARK: - 经典封面（参考 Beans ReferencePlaybackView · 紧凑版）
@@ -699,6 +851,8 @@ struct PlayerView: View {
         return Group {
             if currentTheme == .vinyl {
                 vinylArtwork(width: size.width, height: targetHeight)
+            } else if currentTheme == .glitter {
+                vinylArtwork(width: size.width, height: targetHeight, glitter: true)
             } else {
                 roundedArtwork(width: size.width, height: targetHeight)
             }
@@ -709,7 +863,7 @@ struct PlayerView: View {
     }
 
     /// 黑胶版：TimelineView(.animation) 每帧驱动旋转，黑胶盘+封面一起转
-    private func vinylArtwork(width: CGFloat, height: CGFloat) -> some View {
+    private func vinylArtwork(width: CGFloat, height: CGFloat, glitter: Bool = false) -> some View {
         // 封面尺寸：屏宽的 65%，最小 220 最大 300 — 和 stage 高度无关
         // 之前用 height * 0.38（整屏高度的 38%）→ 封面太大，挤占 meta 空间
         let vinylSide = max(220, min(width * 0.65, 300))
@@ -720,7 +874,7 @@ struct PlayerView: View {
                 ? (Date().timeIntervalSince(vinylStart) / 20.0) * 360
                 : 0
             ZStack {
-                vinylDisc(side: vinylSide)
+                vinylDisc(side: vinylSide, glitter: glitter)
 
                 Group {
                     if let artwork = store.artwork {
@@ -814,7 +968,7 @@ struct PlayerView: View {
     }
 
     /// 黑胶盘纹理：多层同心圆环 + 高光
-    private func vinylDisc(side: CGFloat) -> some View {
+    private func vinylDisc(side: CGFloat, glitter: Bool = false) -> some View {
         ZStack {
             // 底盘：深黑色
             Circle()
@@ -849,6 +1003,29 @@ struct PlayerView: View {
                 ], startPoint: .top, endPoint: .bottom),
                         lineWidth: 2)
                 .frame(width: side - 2, height: side - 2)
+
+            // 炫胶高光：彩虹角向渐变 + 强 specular（仅炫胶唱片主题）
+            if glitter {
+                Circle()
+                    .fill(AngularGradient(colors: [
+                        Color(red: 1.00, green: 0.25, blue: 0.45),
+                        Color(red: 1.00, green: 0.85, blue: 0.30),
+                        Color(red: 0.30, green: 0.95, blue: 0.65),
+                        Color(red: 0.30, green: 0.55, blue: 1.00),
+                        Color(red: 0.80, green: 0.35, blue: 1.00),
+                        Color(red: 1.00, green: 0.25, blue: 0.45)
+                    ], center: .center))
+                    .opacity(0.30)
+                    .blendMode(.screen)
+
+                Circle()
+                    .fill(AngularGradient(colors: [
+                        .clear, .white.opacity(0.55), .clear,
+                        .white.opacity(0.25), .clear
+                    ], center: .center))
+                    .opacity(0.8)
+                    .blendMode(.screen)
+            }
 
             // 中心挖空（放专辑封面）
             Circle()

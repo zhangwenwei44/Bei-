@@ -144,6 +144,9 @@ struct ProfileView: View {
                 Picker(selection: $playerTheme) {
                     Text("酷狗黑胶").tag("vinyl")
                     Text("经典封面").tag("classic")
+                    Text("炫胶唱片").tag("glitter")
+                    Text("沉浸封面").tag("immersive")
+                    Text("歌手写真").tag("singerPhoto")
                 } label: {
                     Label("播放器主题", systemImage: "opticaldisc")
                 }
