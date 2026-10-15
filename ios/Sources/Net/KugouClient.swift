@@ -196,7 +196,7 @@ final class KugouClient {
     // MARK: - 封面与歌手写真
 
     /// 专辑封面。榜单页的歌曲节点不带任何图片字段、只带 album_id，
-    /// 所以榜单里的小图要靠这个接口按专辑补。{size} 占位统一换成 300。
+    /// 所以榜单里的小图要靠这个接口按专辑补。{size} 占位统一换成 480（300 及以下尺寸酷狗 CDN 会合成左下角播放水印）。
     /// 用 https 的 mobiles 域名：http 在设备上会被 ATS 拦，
     /// 而 mobilecdn 这个老域名不支持 https，mobiles 是同一套 v3 接口的 https 入口。
     func albumCover(albumID: String) async -> URL? {
@@ -229,8 +229,8 @@ final class KugouClient {
                                             headers: [:]),
               let data = json["data"] as? [String: Any],
               let raw = KugouClient.string(data["imgurl"]) else { return nil }
-        let fixed = raw.replacingOccurrences(of: "{si}", with: "300")
-            .replacingOccurrences(of: "{size}", with: "300")
+        let fixed = raw.replacingOccurrences(of: "{si}", with: "480")
+            .replacingOccurrences(of: "{size}", with: "480")
         guard let url = URL(string: fixed) else { return nil }
         albumCoverCache.setObject(url as NSURL, forKey: albumID as NSString)
         return url
@@ -519,8 +519,8 @@ final class KugouClient {
                 ?? KugouClient.string(item["imgurl"])
             // 酷狗的封面地址带 {size} 占位
             if let raw = cover {
-                cover = raw.replacingOccurrences(of: "{si}", with: "300")
-                    .replacingOccurrences(of: "{size}", with: "300")
+                cover = raw.replacingOccurrences(of: "{si}", with: "480")
+                    .replacingOccurrences(of: "{size}", with: "480")
             }
             return Playlist(id: "kg-rank:\(rankID)",
                             name: name,
@@ -557,8 +557,8 @@ final class KugouClient {
             let name = KugouClient.string(item["specialname"]) ?? "精选歌单"
             var cover = KugouClient.string(item["imgurl"]) ?? ""
             if cover.hasPrefix("http://") { cover = "https://" + cover.dropFirst("http://".count) }
-            cover = cover.replacingOccurrences(of: "{si}", with: "300")
-                .replacingOccurrences(of: "{size}", with: "300")
+            cover = cover.replacingOccurrences(of: "{si}", with: "480")
+                .replacingOccurrences(of: "{size}", with: "480")
             let count = KugouClient.intValue(item["songcount"]) ?? 0
             let creator = KugouClient.string(item["username"]) ?? "酷狗音乐"
             return Playlist(id: "kg-special:\(specialID)",
@@ -1839,8 +1839,8 @@ final class KugouClient {
                 ?? Self.string(item["list_pic"])
                 ?? Self.string(item["album_sizable_cover"])
             let cover = rawCover?
-                .replacingOccurrences(of: "{size}", with: "240")
-                .replacingOccurrences(of: "{size}", with: "300")
+                .replacingOccurrences(of: "{size}", with: "480")
+                .replacingOccurrences(of: "{size}", with: "480")
             let coverURL = cover.flatMap { raw -> String? in
                 if raw.isEmpty { return nil }
                 // 有些接口返回协议相对路径（//imge.kugou.com/...）

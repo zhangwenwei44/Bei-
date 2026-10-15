@@ -247,6 +247,11 @@ enum CoverLoader {
             let alt2 = orig.replacingOccurrences(of: "singerimg.kugou.com", with: "mobi.kugou.com")
             if let u = URL(string: alt2) { urls.append(u) }
         }
+        // 酷狗 stdmusic 的 480 大图无水印；万一某张 480 不存在，回退 300（带水印也比占位图好）
+        if orig.contains("/stdmusic/480/") {
+            let small = orig.replacingOccurrences(of: "/stdmusic/480/", with: "/stdmusic/300/")
+            if let u = URL(string: small) { urls.append(u) }
+        }
         return urls
     }
 

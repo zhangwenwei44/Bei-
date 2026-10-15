@@ -137,8 +137,8 @@ extension Song {
                     "album_sizable_cover", "album_sizable_cover_1"]
         for key in coverKeys {
             if let raw = KugouClient.string(json[key]), !raw.isEmpty {
-                let fixed = raw.replacingOccurrences(of: "{si}", with: "300")
-                    .replacingOccurrences(of: "{size}", with: "300")
+                let fixed = raw.replacingOccurrences(of: "{si}", with: "480")
+                    .replacingOccurrences(of: "{size}", with: "480")
                     .replacingOccurrences(of: "{sizetype}", with: "4")
                 let finalURL: String
                 if fixed.hasPrefix("//") {
@@ -158,7 +158,7 @@ extension Song {
         if cover == nil, let trans = json["trans_param"] as? [String: Any] {
             for key in ["union_cover", "union_cover_url"] {
                 if let raw = KugouClient.string(trans[key]), !raw.isEmpty {
-                    let fixed = raw.replacingOccurrences(of: "{size}", with: "300")
+                    let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
                     let finalURL = fixed.hasPrefix("http://")
                         ? fixed.replacingOccurrences(of: "http://", with: "https://")
                         : fixed
@@ -176,8 +176,8 @@ extension Song {
                 // Log.debug("Catalog", "album子keys: \(album.keys.sorted())")
                 for key in coverKeys {
                     if let raw = KugouClient.string(album[key]), !raw.isEmpty {
-                        let fixed = raw.replacingOccurrences(of: "{si}", with: "300")
-                            .replacingOccurrences(of: "{size}", with: "300")
+                        let fixed = raw.replacingOccurrences(of: "{si}", with: "480")
+                            .replacingOccurrences(of: "{size}", with: "480")
                         let finalURL = fixed.hasPrefix("//") ? "https:" + fixed : fixed
                         if let u = URL(string: finalURL) { cover = u; break }
                     }
@@ -247,8 +247,8 @@ extension Playlist {
         let name = KugouClient.string(json["rankname"]) ?? "榜单"
         var cover = KugouClient.string(json["img9"]) ?? KugouClient.string(json["imgurl"])
         if let raw = cover {
-            cover = raw.replacingOccurrences(of: "{si}", with: "300")
-                .replacingOccurrences(of: "{size}", with: "300")
+            cover = raw.replacingOccurrences(of: "{si}", with: "480")
+                .replacingOccurrences(of: "{size}", with: "480")
         }
         self.init(id: "kg-rank:\(rankID)",
                   name: name,
