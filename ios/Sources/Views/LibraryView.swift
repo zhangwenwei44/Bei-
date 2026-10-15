@@ -15,9 +15,6 @@ struct LibraryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 🔴 顶栏 Tab 切换（和 DiscoverView 统一风格）
-            topBar
-
             // 🔴 用 if/else 代替 TabView(.page) —— TabView 会同时渲染两页导致卡顿！
             if topTab == .local {
                 LocalLibraryPage()
@@ -34,22 +31,20 @@ struct LibraryView: View {
         .navigationTitle("")  // 🔴 不要大字标题，保持顶栏简洁
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                kugouAvatarButton
-            }
+            // 🔴 「我的音乐 / 酷狗音乐」切换放到导航栏左侧，与右上角登录按钮同一行
+            // （用户要求：顶栏切换单独占一行太空，移到左上角与登录按钮齐平）
+            ToolbarItem(placement: .navigationBarLeading) { topBar }
+            ToolbarItem(placement: .navigationBarTrailing) { kugouAvatarButton }
         }
     }
 
-    // MARK: 顶栏
+    // MARK: 顶栏（导航栏 leading 位置）
 
     private var topBar: some View {
         HStack(spacing: 6) {
             topButton(title: "我的音乐", selected: topTab == .local) { topTab = .local }
             topButton(title: "酷狗音乐", selected: topTab == .kugou) { topTab = .kugou }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
     }
 
     private func topButton(title: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -126,6 +121,8 @@ private struct LocalLibraryPage: View {
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var downloads = DownloadManager.shared
     @State private var section: Section = .favorites
+    /// 二级页导航：nil = 板块入口列表页；非 nil = 该板块内容页
+    @State private var activeSection: Section?
     @State private var isCreatingPlaylist = false
     @State private var newPlaylistName = ""
     @State private var renamingID: String?
@@ -176,14 +173,16 @@ private struct LocalLibraryPage: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                statTiles
-                historyStrip
-                sectionHeader
-                content
+        Group {
+            if activeSection == nil {
+                // 列表页：收藏/专辑/歌手/下载/本地/歌单 以列表方式显示
+                sectionMenu
+            } else {
+                // 二级内容页：带返回按钮
+                sectionPage
             }
         }
+        .animation(.easeOut(duration: 0.18), value: activeSection)
         .alert("新建歌单", isPresented: $isCreatingPlaylist) {
             TextField("歌单名称", text: $newPlaylistName)
             Button("取消", role: .cancel) { newPlaylistName = "" }
@@ -203,25 +202,85 @@ private struct LocalLibraryPage: View {
         }
     }
 
-    private var statTiles: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(Section.allCases) { item in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.18)) { section = item }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: item.icon).font(.system(size: 12))
-                            Text(item.title).font(.system(size: 13, weight: section == item ? .semibold : .regular))
+    // MARK: 板块入口列表页（用户要求：列表方式显示，替代横向胶囊 chips）
+
+    private var sectionMenu: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                historyStrip
+                    .padding(.top, 6)
+                VStack(spacing: 0) {
+                    ForEach(Section.allCases) { item in
+                        sectionRow(item)
+                        if item != Section.allCases.last {
+                            Divider().padding(.leading, 52)
                         }
-                        .foregroundStyle(section == item ? .white : AppStyle.secondaryText)
-                        .padding(.horizontal, 12).padding(.vertical, 7)
-                        .background(section == item ? AppStyle.accent : AppStyle.surface, in: Capsule())
-                    }.buttonStyle(.plain)
+                    }
                 }
-            }.padding(.horizontal, 16)
+                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
+            }
         }
-        .padding(.top, 4).padding(.bottom, 10)
+    }
+
+    private func sectionRow(_ item: Section) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) { section = item; activeSection = item }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: item.icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AppStyle.accent)
+                    .frame(width: 28, height: 28)
+                    .background(AppStyle.accent.opacity(0.12),
+                                in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                Text(item.title)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(AppStyle.primaryText)
+                Spacer()
+                Text("\(count(for: item)) 项")
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppStyle.tertiaryText)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppStyle.tertiaryText)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: 二级内容页（某板块的具体内容，带返回）
+
+    private var sectionPage: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                HStack(spacing: 2) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) { activeSection = nil }
+                    } label: {
+                        HStack(spacing: 2) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 14, weight: .semibold))
+                            Text("我的音乐")
+                                .font(.system(size: 14))
+                        }
+                        .foregroundStyle(AppStyle.accent)
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 2)
+
+                sectionHeader
+                content
+            }
+        }
     }
 
     @ViewBuilder private var historyStrip: some View {
