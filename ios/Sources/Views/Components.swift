@@ -870,3 +870,26 @@ struct MarqueeText: View {
         }
     }
 }
+
+// MARK: - 酷狗音乐品牌登录图标（官方 Logo：蓝底白色圆环 K）
+
+/// 酷狗登录入口专用图标，替代通用 SF Symbol（music.mic.*）。
+/// 使用 Assets 里的官方 Logo 图（KugouLogo.imageset，用户提供）。
+/// style 仅保留 API 兼容（早期是自绘绿圆话筒的两种样式），现在两种样式渲染相同。
+struct KugouLogoIcon: View {
+    enum Style { case filled, ring }
+
+    var size: CGFloat = 24
+    var style: Style = .filled
+
+    var body: some View {
+        Image("KugouLogo")
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: size, height: size)
+            // 官方图标本身是方角，圆一点点更贴合 App 内圆角语言
+            .clipShape(RoundedRectangle(cornerRadius: size * 0.16, style: .continuous))
+            .accessibilityLabel("酷狗音乐")
+    }
+}

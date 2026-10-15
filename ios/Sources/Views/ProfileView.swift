@@ -67,9 +67,8 @@ struct ProfileView: View {
                         NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
                     } label: {
                         HStack {
-                            Image(systemName: "music.mic.circle")
-                                .font(.system(size: 44))
-                                .foregroundStyle(.green)
+                            // 酷狗品牌登录图标（绿实心圆 + 白色斜话筒）
+                            KugouLogoIcon(size: 44)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("酷狗音乐")
                                     .font(.system(size: 16, weight: .semibold))

@@ -105,13 +105,14 @@ struct LibraryView: View {
                 NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: "music.mic")
+                    // 酷狗品牌登录图标（绿圆白话筒），与主页/设置页登录入口一致
+                    KugouLogoIcon(size: 18)
                     Text("登录")
                 }
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.white)
+                .foregroundStyle(AppStyle.primaryText)
                 .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(AppStyle.accent, in: Capsule())
+                .background(AppStyle.surface, in: Capsule())
             }
             .buttonStyle(.plain)
         }
@@ -465,11 +466,9 @@ private struct KugouLibraryPage: View {
     private var kugouNotLoggedInView: some View {
         VStack(spacing: 0) {
             Spacer()
-            ZStack {
-                Circle().fill(AppStyle.accent.opacity(0.12)).frame(width: 88, height: 88)
-                Image(systemName: "music.mic.fill").font(.system(size: 40)).foregroundStyle(AppStyle.accent)
-            }
-            .padding(.bottom, 20)
+            // 酷狗品牌登录图标（绿环绿话筒），对齐酷狗 App 登录样式
+            KugouLogoIcon(size: 88, style: .ring)
+                .padding(.bottom, 20)
 
             Text("登录酷狗音乐")
                 .font(.system(size: 20, weight: .bold)).foregroundStyle(AppStyle.primaryText)
@@ -770,10 +769,8 @@ struct KugouDisclaimerView: View {
 
                 // 图标 + 标题
                 VStack(spacing: 14) {
-                    ZStack {
-                        Circle().fill(.white.opacity(0.18)).frame(width: 72, height: 72)
-                        Image(systemName: "music.mic.fill").font(.system(size: 38)).foregroundStyle(.white)
-                    }
+                    // 酷狗品牌登录图标（绿圆白话筒）
+                    KugouLogoIcon(size: 72)
                     Text("登录酷狗音乐")
                         .font(.system(size: 20, weight: .bold)).foregroundStyle(.white)
                     Text("扫码后会把你的酷狗歌单同步到这里 🎵")

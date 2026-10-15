@@ -24,9 +24,13 @@ struct KugouLoginSheet: View {
                     .ignoresSafeArea()
 
                 VStack(spacing: 24) {
-                    Text("酷狗音乐扫码登录")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(.white)
+                    // 酷狗品牌登录图标 + 标题
+                    VStack(spacing: 12) {
+                        KugouLogoIcon(size: 64)
+                        Text("酷狗音乐扫码登录")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(.white)
+                    }
 
                     if isSuccess {
                         Image(systemName: "checkmark.circle.fill")

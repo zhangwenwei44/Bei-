@@ -144,9 +144,8 @@ struct DiscoverView: View {
                 NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
             } label: {
                 HStack(spacing: 3) {
-                    Image(systemName: "music.mic.circle.fill")
-                        .font(.system(size: 22))  // 🔴 改大 16→22
-                        .foregroundStyle(.green)
+                    // 酷狗品牌登录图标（绿圆白话筒），替代通用 SF Symbol
+                    KugouLogoIcon(size: 22)
                     Text("登录")
                         .font(.system(size: 13, weight: .medium))  // 12→13
                         .foregroundStyle(AppStyle.secondaryText)
