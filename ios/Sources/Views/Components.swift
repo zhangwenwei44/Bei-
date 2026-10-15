@@ -368,9 +368,11 @@ struct PlayingBarsIndicator: View {
 
     var body: some View {
         HStack(spacing: height * 0.18) {
-            Bar(isPlaying: isPlaying, tint: tint, maxHeight: height, delay: 0)
-            Bar(isPlaying: isPlaying, tint: tint, maxHeight: height, delay: 0.16)
-            Bar(isPlaying: isPlaying, tint: tint, maxHeight: height, delay: 0.32)
+            // 三根竖条用不同周期（而非 delay），天然错相位，
+            // 避免 repeatForever + delay 组合在部分 SwiftUI 版本下不启动、导致「不动」。
+            Bar(isPlaying: isPlaying, tint: tint, maxHeight: height, speed: 0.5)
+            Bar(isPlaying: isPlaying, tint: tint, maxHeight: height, speed: 0.72)
+            Bar(isPlaying: isPlaying, tint: tint, maxHeight: height, speed: 0.94)
         }
         .frame(height: height)
     }
@@ -379,7 +381,7 @@ struct PlayingBarsIndicator: View {
         let isPlaying: Bool
         let tint: Color
         let maxHeight: CGFloat
-        let delay: Double
+        let speed: Double
         @State private var up = false
 
         private var minHeight: CGFloat { maxHeight * 0.32 }
@@ -388,10 +390,10 @@ struct PlayingBarsIndicator: View {
             Capsule()
                 .fill(tint)
                 .frame(width: max(1.5, maxHeight * 0.18),
-                       height: (isPlaying && up) ? maxHeight : minHeight)
+                       height: up ? maxHeight : minHeight)
                 .animation(
                     isPlaying
-                        ? .easeInOut(duration: 0.42).repeatForever(autoreverses: true).delay(delay)
+                        ? .easeInOut(duration: speed).repeatForever(autoreverses: true)
                         : .easeOut(duration: 0.18),
                     value: up
                 )
