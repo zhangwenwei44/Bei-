@@ -23,7 +23,42 @@ struct RootView: View {
                     isExpanded: $isPlayerExpanded
                 )
             }
+            // 🔴 播放页必须挂在【全屏宿主】的 overlay 上。
+            //
+            // 之前挂在 MiniPlayerOverlay 的 overlay 里 —— 而 MiniPlayerOverlay 是
+            // safeAreaInset 的内容，frame 只有播放条那么高，overlay 的 frame
+            // 跟随宿主，播放页被"锚"在底部一截，永远盖不满全屏（图1 的根因）。
+            //
+            // 这里的宿主是 MainTabs + safeAreaInset 的整体，frame = 全屏，
+            // 所以 PlayerView 才能真正铺满、盖住状态栏。
+            .overlay {
+                ExpandedPlayerLayer(store: store, isExpanded: $isPlayerExpanded)
+            }
             .ignoresSafeArea(.keyboard)
+    }
+}
+
+/// 展开态播放页 —— 挂在全屏 overlay 上的独立一层。
+///
+/// 订阅粒度与 MiniPlayerOverlay 相同：只订阅 mini（可见性/歌曲）与
+/// playback（进度），不订阅整个 PlayerStore，避免 4fps 歌词重算风暴。
+private struct ExpandedPlayerLayer: View {
+    @ObservedObject private var mini: MiniPlayerState
+    @ObservedObject private var playback: PlaybackProgress
+    @Binding var isExpanded: Bool
+
+    init(store: PlayerStore, isExpanded: Binding<Bool>) {
+        self.mini = store.mini
+        self.playback = store.playback
+        self._isExpanded = isExpanded
+    }
+
+    var body: some View {
+        if isExpanded, mini.isVisible {
+            PlayerView(playback: playback, isExpanded: $isExpanded)
+                .transition(.move(edge: .bottom))
+                .ignoresSafeArea()
+        }
     }
 }
 
@@ -104,16 +139,8 @@ private struct MiniPlayerOverlay: View {
             }
         }
         .background(.ultraThinMaterial)
-        // 播放页用 overlay 挂在播放条层上，展开时盖住整个屏幕。
-        // 用 ignoresSafeArea 让它能覆盖到状态栏，这是唯一需要浮层的场景
-        // （展开时本来就要吃掉全部触摸，不存在和 TabBar 冲突的问题）。
-        .overlay {
-            if isExpanded, mini.isVisible {
-                PlayerView(playback: playback, isExpanded: $isExpanded)
-                    .transition(.move(edge: .bottom))
-                    .ignoresSafeArea()
-            }
-        }
+        // 播放页已移到 RootView 的全屏 overlay（ExpandedPlayerLayer）——
+        // 挂在这里 frame 只有播放条高，永远盖不满全屏。
         .queueSheet()
     }
 }
@@ -193,13 +220,19 @@ struct MiniPlayer: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        // 🔴 关键：先 clipShape 裁住整个 MiniPlayer（含进度条 overlay）
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         // 🔴 进度条独立成子视图：播放时只重绘这 2pt 小条，
         // 不重建整个 MiniPlayer（material 背景 / CoverImage / 按钮都不动）→ 降低主线程负载
         .overlay(alignment: .bottom) {
             MiniPlayerProgressBar(playback: playback)
         }
+        // 🔴 关键：clipShape 必须写在进度条 overlay 【之后】。
+        //
+        // SwiftUI 的 clipShape 只裁剪它【之前】的内容，之后的 overlay 不受裁剪。
+        // 之前顺序是 clipShape → overlay(进度条)，进度条是全宽 GeometryReader，
+        // 左右两端直接伸出圆角矩形（图2 的根因）。
+        // 现在顺序是 overlay(进度条) → clipShape → overlay(描边)：
+        // 进度条先画进视图层级，再被圆角整体裁住，描边最后画在裁剪结果之上。
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(AppStyle.stroke, lineWidth: 1)
