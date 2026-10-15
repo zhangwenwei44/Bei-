@@ -700,7 +700,7 @@ struct DiscoverView: View {
         if guessSongs.isEmpty { await loadGuess() }
         if force || dailySongs.isEmpty { await loadDailySongs() }
         if force || hotArtists.isEmpty {
-            hotArtists = await KugouClient.shared.hotArtists(count: 20)
+            hotArtists = await KugouClient.shared.hotArtists(count: 50)
         }
         if recommendedPlaylists.isEmpty {
             let result = await KugouClient.shared.recommendedPlaylists(page: 1)
@@ -1048,7 +1048,7 @@ struct MoreArtistsView: View {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 LazyVStack(spacing: 0) {
-                    ForEach(Array(artists.enumerated()), id: \.element.id) { index, artist in
+                    ForEach(Array(artists.enumerated()), id: \.offset) { index, artist in
                         NavigationLink {
                             ArtistDetailView(artist: artist)
                         } label: {
