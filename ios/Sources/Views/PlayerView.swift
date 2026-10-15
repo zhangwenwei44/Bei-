@@ -109,10 +109,11 @@ struct PlayerView: View {
                     .frame(height: 44)
                     .padding(.top, win.safeTop)
 
-                // 主视觉：巨大炫彩唱片（酷狗实测约占屏宽 80%，垂直居中偏上）
+                // 主视觉：巨大炫彩唱片（酷狗实测约占屏宽 80%）
+                // 顶部加不对称 padding（72）让唱片在剩余空间里整体下移约 32pt
                 glitterDiscArea(width: screen.width)
                     .frame(maxHeight: .infinity)
-                    .padding(.top, 8)
+                    .padding(.top, 72)
 
                 // 底部暗区信息：歌词 + 动作行 + 进度 + 控件
                 meta(width: screen.width)
