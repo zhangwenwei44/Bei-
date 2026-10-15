@@ -197,25 +197,25 @@ struct MiniPlayer: View {
                        corner: 8)
 
             VStack(alignment: .leading, spacing: 2) {
-                // 第一行：歌手名 + 歌曲名（用户要求歌手名在前）；第二行：音质
-                HStack(spacing: 4) {
+                // 第一行：歌曲名；第二行：歌手名（排第一）+ 音质
+                Text(mini.song?.title ?? "")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(AppStyle.primaryText)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                HStack(spacing: 6) {
                     Text(mini.song?.artist ?? "")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 11))
                         .foregroundStyle(AppStyle.secondaryText)
                         .lineLimit(1)
                         .layoutPriority(1)
-                    Text(mini.song?.title ?? "")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(AppStyle.primaryText)
-                        .lineLimit(1)
-                        .layoutPriority(1)
-                }
-                if !mini.qualityName.isEmpty {
-                    Text(mini.qualityName)
-                        .font(.system(size: 9))
-                        .foregroundStyle(AppStyle.accent)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    if !mini.qualityName.isEmpty {
+                        Text(mini.qualityName)
+                            .font(.system(size: 9))
+                            .foregroundStyle(AppStyle.accent)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
             }
 

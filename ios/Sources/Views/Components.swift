@@ -412,17 +412,21 @@ struct SongRow: View {
     var isCurrent: Bool = false
     var isPlaying: Bool = false
     var showsCover: Bool = true
+    /// 歌手名字号（歌单页要求 11pt，其它列表默认 13pt）
+    var artistFontSize: CGFloat = 13
     var trailing: AnyView?
 
     init(song: Song,
          isCurrent: Bool = false,
          isPlaying: Bool = false,
          showsCover: Bool = true,
+         artistFontSize: CGFloat = 13,
          trailing: AnyView? = nil) {
         self.song = song
         self.isCurrent = isCurrent
         self.isPlaying = isPlaying
         self.showsCover = showsCover
+        self.artistFontSize = artistFontSize
         self.trailing = trailing
     }
 
@@ -464,7 +468,7 @@ struct SongRow: View {
                     }
                 }
                 Text(song.artist)
-                    .font(.system(size: 13))
+                    .font(.system(size: artistFontSize))
                     .foregroundStyle(AppStyle.secondaryText)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -529,6 +533,7 @@ extension SongRow: Equatable {
         && lhs.isCurrent == rhs.isCurrent
         && lhs.isPlaying == rhs.isPlaying
         && lhs.showsCover == rhs.showsCover
+        && lhs.artistFontSize == rhs.artistFontSize
     }
 }
 

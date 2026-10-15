@@ -137,7 +137,8 @@ struct PlaylistDetailView: View {
                                 }
                                 SongRow(song: song,
                                         isCurrent: store.current?.id == song.id,
-                                        isPlaying: store.isPlaying)
+                                        isPlaying: store.isPlaying,
+                                        artistFontSize: 11)
                                     .equatable()
                                     .songMenu(song)
                                     .padding(.horizontal, 16)
