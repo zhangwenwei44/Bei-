@@ -80,17 +80,19 @@ struct PlayerView: View {
 
     // MARK: - 炫胶唱片（暖金渐变 + 巨大炫彩唱片 + 底部暗区信息，对齐酷狗版式）
 
-    /// 炫胶背景：取色渐变铺满，中段透亮、顶部微压、底部沉黑
-    /// （酷狗实测：顶部 #565042 → 中部 #B29E7B → 底部 #0D0908 的纵向过渡）
+    /// 炫胶背景：取色渐变铺满（底段用封面暗色而非近黑），顶部微压、底部轻收
     private var glitterBackground: some View {
         ZStack {
-            LinearGradient(colors: store.currentPalette.gradient,
+            LinearGradient(colors: [store.currentPalette.light,
+                                    store.currentPalette.main,
+                                    store.currentPalette.dark,
+                                    store.currentPalette.dark],
                            startPoint: .top, endPoint: .bottom)
-            LinearGradient(colors: [.black.opacity(0.50),
-                                    .black.opacity(0.10),
+            LinearGradient(colors: [.black.opacity(0.30),
+                                    .black.opacity(0.06),
                                     .clear,
-                                    .black.opacity(0.55),
-                                    .black.opacity(0.97)],
+                                    .black.opacity(0.22),
+                                    .black.opacity(0.55)],
                            startPoint: .top, endPoint: .bottom)
         }
         .ignoresSafeArea()
@@ -110,10 +112,9 @@ struct PlayerView: View {
                     .padding(.top, win.safeTop)
 
                 // 主视觉：巨大炫彩唱片（酷狗实测约占屏宽 80%）
-                // 顶部加不对称 padding（72）让唱片在剩余空间里整体下移约 32pt
                 glitterDiscArea(width: screen.width)
                     .frame(maxHeight: .infinity)
-                    .padding(.top, 72)
+                    .padding(.top, 8)
 
                 // 底部暗区信息：歌词 + 动作行 + 进度 + 控件
                 meta(width: screen.width)
@@ -827,7 +828,11 @@ struct PlayerView: View {
 
     private var immersiveBackground: some View {
         ZStack {
-            LinearGradient(colors: store.currentPalette.gradient,
+            // 底段用封面暗色调（不用近黑的 near），避免底部发黑
+            LinearGradient(colors: [store.currentPalette.light,
+                                    store.currentPalette.main,
+                                    store.currentPalette.dark,
+                                    store.currentPalette.dark],
                            startPoint: .topLeading,
                            endPoint: .bottomTrailing)
             if let artwork = store.artwork {
@@ -839,11 +844,13 @@ struct PlayerView: View {
                     .scaleEffect(1.25)
                     .clipped()
             }
-            LinearGradient(colors: [.black.opacity(0.22),
-                                    .black.opacity(0.05),
+            // 压暗层：底部不再压成近黑，而是叠封面同色系的暗色调，
+            // 整体保持取色氛围（用户反馈纯黑部分不好看）
+            LinearGradient(colors: [.black.opacity(0.16),
+                                    .black.opacity(0.03),
                                     .clear,
-                                    store.currentPalette.scrim.opacity(0.4),
-                                    store.currentPalette.scrim.opacity(0.88)],
+                                    store.currentPalette.dark.opacity(0.45),
+                                    store.currentPalette.dark.opacity(0.85)],
                            startPoint: .top,
                            endPoint: .bottom)
         }
@@ -1159,7 +1166,7 @@ struct PlayerView: View {
                 .padding(.top, 14)
         }
         .frame(width: width - 36, alignment: .leading)
-        .padding(.bottom, 16)
+        .padding(.bottom, 4)
         .layoutPriority(1)
     }
 
@@ -1197,26 +1204,26 @@ struct PlayerView: View {
         }
     }
 
-    /// 双行歌词（酷狗 PC 风格）：上一条左对齐 + 当前行右对齐
+    /// 双行歌词（居中风格）：上一条居中、暗、小 + 当前行居中、亮、大
     private var currentLyricPill: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
         } label: {
             VStack(spacing: 4) {
-                // 第一行：上一条歌词 —— 左对齐、暗、小
+                // 第一行：上一条歌词 —— 居中、暗、小
                 if let prev = previousLyricText {
                     Text(prev)
                         .font(.system(size: 11))
                         .foregroundStyle(.white.opacity(0.35))
                         .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .center)
                 }
-                // 第二行：当前歌词 —— 右对齐、亮、大
+                // 第二行：当前歌词 —— 居中、亮、大
                 Text(currentLyricText)
                     .font(.system(size: 13, weight: .medium, design: .rounded))
                     .foregroundStyle(.white.opacity(0.9))
                     .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity)
