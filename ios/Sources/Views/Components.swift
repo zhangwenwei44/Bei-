@@ -427,8 +427,9 @@ struct SongRow: View {
                            seed: "\(song.artist)-\(song.title)",
                            size: 50)
                 .overlay(alignment: .bottomTrailing) {
-                    // 只在「这一行就是当前播放的歌，且正在播放」时显示，其余歌曲一律不显示
-                    if isCurrent && isPlaying {
+                    // 只有「当前播放的这首歌」才显示角标；其余歌曲一律不显示。
+                    // 播放时声波跳动，暂停时收拢静止（仍保留标识，表示这是当前曲）。
+                    if isCurrent {
                         PlayingBarsIndicator(isPlaying: isPlaying)
                             .padding(4)
                             .background(AppStyle.accent, in: Circle())
