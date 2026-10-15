@@ -5,7 +5,7 @@ struct PlayerView: View {
     @EnvironmentObject private var store: PlayerStore
     /// 播放进度独立订阅 —— currentTime 每 0.5s 变一次。
     /// 🔴 刻意不用 store.currentTime（那是转发计算属性，不触发刷新）：
-    /// 播放页确实需要跟着进度重绘，所以由调用方（ExpandedPlayerLayer）注入同一个实例。
+    /// 播放页确实需要跟着进度重绘，所以由调用方（RootView 的 fullScreenCover）注入同一个实例。
     @ObservedObject var playback: PlaybackProgress
     /// 歌词高亮独立订阅 —— currentLyricIndex 播放时 4fps 变一次。
     /// 🔴 同理：store.currentLyricIndex 是转发计算属性不触发刷新，
@@ -52,8 +52,10 @@ struct PlayerView: View {
         .ignoresSafeArea()
         .gesture(dragGesture)
         .overlay(alignment: .bottom) { toastLayer }
-        .onAppear(perform: animateIn)
-        .onDisappear(perform: animateOut)
+        // 🔴 不挂 onAppear/onDisappear 改 isExpanded：
+        // 播放页现在由 fullScreenCover 呈现，出现/消失由 isExpanded 驱动，
+        // 反过来在 onDisappear 里写 isExpanded 会在其上再弹 sheet（分享等）
+        // 时误关播放页。开/关动画由系统 presentation 动画负责。
     }
 
     /// 酷狗黑胶（当前默认）：黑胶封面 + 信息堆叠 + Spacer 推控制到底

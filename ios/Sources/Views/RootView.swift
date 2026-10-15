@@ -7,7 +7,7 @@ struct RootView: View {
     /// 整棵 TabView 树跟着任何 @Published 变化重算，TabBar 手势被持续打断。
     /// 改用单例引用传递：不建立任何订阅，TabView 树在播放期间结构静止。
     /// 子层各取所需：MiniPlayerOverlay 订 mini/playback，
-    /// ExpandedPlayerLayer 订 mini/playback/lyricState。
+    /// 播放页（fullScreenCover）注入 playback/lyricState。
     private var store: PlayerStore { PlayerStore.shared }
     @State private var isPlayerExpanded = false
 
@@ -25,38 +25,30 @@ struct RootView: View {
         //    底边就是 TabBar 上沿，播放条被布局钉在 TabBar 正上方，
         //    二者结构上不可能重叠，TabBar 由 TabView 正常渲染。
         MainTabs(store: store, isExpanded: $isPlayerExpanded)
-            // 播放页挂在【全屏宿主】的 overlay 上（MainTabs frame = 全屏），
-            // PlayerView 才能盖满整屏、罩住状态栏。
-            .overlay {
-                ExpandedPlayerLayer(store: store, isExpanded: $isPlayerExpanded)
+            // 🔴 播放页用系统 fullScreenCover 呈现（第六版方案，照搬 Beans）。
+            //
+            // ## 之前自定义 overlay 方案为什么被废弃（图1→「关闭后 TabBar 点不动」）
+            //
+            // 旧做法：RootView 上 `.overlay { if isExpanded { PlayerView()
+            //   .transition(.move(.bottom)).ignoresSafeArea() } }`。
+            // 症状：播放时打开再关闭播放页后，TabBar 点不动；暂停后恢复。
+            // 根因：自定义 transition 的移除动画收尾依赖 SwiftUI 树稳定，
+            //   而播放期间 PlayerView 的订阅（playback 2fps / lyricState）
+            //   不断打脏这棵子树，移除流程走不干净，残留在树里的
+            //   ignoresSafeArea 视图继续占据命中测试区；暂停后重算停止，
+            //   残留才被清掉。这个组合（overlay + transition + ignoresSafeArea
+            //   + 高频订阅）没有任何官方保证，属于踩不完的坑。
+            //
+            // fullScreenCover 是 UIKit 级 presentation：关闭即销毁 presented
+            // view controller，不存在任何 SwiftUI 树残留 / 命中拦截。
+            // Beans（同设备稳定运行的参考实现）用的就是这个方案。
+            .fullScreenCover(isPresented: $isPlayerExpanded) {
+                PlayerView(playback: store.playback,
+                           lyricState: store.lyricState,
+                           isExpanded: $isPlayerExpanded)
+                    // cover 内容不自动继承呈现方的 environmentObject，显式注入
+                    .environmentObject(store)
             }
-    }
-}
-
-/// 展开态播放页 —— 挂在全屏 overlay 上的独立一层。
-///
-/// 订阅粒度：mini（可见性/歌曲）/ playback（进度）/ lyricState（歌词高亮），
-/// 不订阅整个 PlayerStore —— 播放页是唯一需要 4fps 歌词刷新的地方，
-/// 重算被限制在播放页自己的子树里。
-private struct ExpandedPlayerLayer: View {
-    @ObservedObject private var mini: MiniPlayerState
-    @ObservedObject private var playback: PlaybackProgress
-    @ObservedObject private var lyricState: LyricState
-    @Binding var isExpanded: Bool
-
-    init(store: PlayerStore, isExpanded: Binding<Bool>) {
-        self.mini = store.mini
-        self.playback = store.playback
-        self.lyricState = store.lyricState
-        self._isExpanded = isExpanded
-    }
-
-    var body: some View {
-        if isExpanded, mini.isVisible {
-            PlayerView(playback: playback, lyricState: lyricState, isExpanded: $isExpanded)
-                .transition(.move(edge: .bottom))
-                .ignoresSafeArea()
-        }
     }
 }
 
@@ -178,8 +170,7 @@ private struct MiniPlayerOverlay: View {
         // 🔴 不加全宽材质背板：播放条自己是圆角胶囊 + ultraThinMaterial，
         // 外面再糊一条全宽色带会把它变成一根"粗条"（也盖住 TabBar 上沿的层次）。
         // 隐藏时 VStack 高度为 0，inset 自动消失。
-        // 播放页已移到 RootView 的全屏 overlay（ExpandedPlayerLayer）——
-        // 挂在这里 frame 只有播放条高，永远盖不满全屏。
+        // 播放页由 RootView 的 fullScreenCover 呈现（见 RootView.body）。
         .queueSheet()
     }
 }
@@ -299,8 +290,11 @@ struct MiniPlayer: View {
 /// 🔴 订阅 progress 而非 PlayerStore：后者每 0.5s 变一次 currentTime，
 /// 会连带触发四个主页面的整树重算（TabBar 卡死的根因）。
 private struct MiniPlayerProgressBar: View {
-    @EnvironmentObject private var store: PlayerStore
     /// 进度实例由 PlayerStore 持有并注入 —— 与播放页共用同一份状态。
+    /// 🔴 订阅 progress 而非 PlayerStore：后者每 0.5s 变一次 currentTime，
+    /// 会连带触发四个主页面的整树重算（TabBar 卡死的根因）。
+    /// （曾经这里还有一个从 environment 拿 store 的死订阅，从未读过却把
+    ///  整个 PlayerStore 订了个遍 —— 已删。）
     @ObservedObject var playback: PlaybackProgress
 
     var body: some View {
