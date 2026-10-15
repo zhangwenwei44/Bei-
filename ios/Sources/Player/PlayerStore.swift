@@ -66,6 +66,27 @@ final class PlayerStore: ObservableObject {
     /// 与 PlaybackProgress 一起构成完整的隔离层。
     let mini = MiniPlayerState()
 
+    /// 歌词高亮行 —— 第三个高频隔离对象。
+    ///
+    /// 🔴 currentLyricIndex 之前是 PlayerStore 的 @Published —— ObservableObject
+    /// 是**整对象粒度**通知，它一变，所有订阅 PlayerStore 的视图（RootView →
+    /// 整棵 TabView 树、四个主页面）全部 4fps 重建，UITabBar 手势识别被持续
+    /// 打断（「关闭播放页后 TabBar 点不动，暂停就能点」的根因）。
+    /// 拆出来后只有播放页的歌词视图订阅它。详见 LyricState 文档。
+    let lyricState = LyricState()
+
+    /// 兼容旧读取点：内部逻辑仍可用 `store.currentLyricIndex`。
+    /// 🔴 转发计算属性，不触发 PlayerStore 的订阅刷新 ——
+    /// 需要跟着歌词高亮刷新的 UI 必须订阅 `store.lyricState`。
+    var currentLyricIndex: Int? { lyricState.currentIndex }
+
+    /// 全局单例 —— RootView / App 用它取实例。
+    /// 🔴 存在的意义：RootView 若用 @EnvironmentObject 拿 store，body 里读一下
+    /// 就等于订阅了整个 PlayerStore（对象粒度），播放期间整棵 TabView 树跟着
+    /// PlayerStore 的任何 @Published 变化重算。用单例引用传递则完全不建立订阅，
+    /// TabView 树的结构在播放期间保持静止。App 的 @StateObject 也必须指向同一实例。
+    static let shared = PlayerStore()
+
     /// 网络状态：true=有网，false=断网。
     @Published private(set) var isNetworkAvailable = true
     /// true=弱网（cellular/expensive + high latency），UI 可以给个提示但不强制降级。
@@ -80,7 +101,7 @@ final class PlayerStore: ObservableObject {
     @Published private(set) var lyrics: [LyricLine] = []
     /// 从歌词剥离出来的词曲/编曲/制作人等元数据。
     @Published private(set) var lyricMetadata: [String: String] = [:]
-    @Published private(set) var currentLyricIndex: Int?
+    // 🔴 currentLyricIndex 已拆到 lyricState（4fps 高频，见 LyricState 文档）
     @Published private(set) var artwork: UIImage?
     /// 当前歌手的写真，播放页背景用。拿不到时界面自己兜底。
     @Published private(set) var artistPhoto: UIImage?
@@ -292,7 +313,7 @@ final class PlayerStore: ObservableObject {
         isBuffering = false
         playback.reset()
         lyrics = []
-        currentLyricIndex = nil
+        lyricState.currentIndex = nil
         playbackError = nil
         sourceName = ""
         artwork = nil
@@ -317,7 +338,7 @@ final class PlayerStore: ObservableObject {
         lastPrepareStart = Date().timeIntervalSince1970
 
         lyrics = []
-        currentLyricIndex = nil
+        lyricState.currentIndex = nil
         playback.reset(duration: song.duration)
         bitrateLabel = ""
         playbackError = nil
@@ -690,7 +711,7 @@ final class PlayerStore: ObservableObject {
     /// 因为 currentTime 被节流到 0.5s 一桶，内部的 0.05s 原始时间更准。
     private func refreshLyric(at time: Double) {
         let found = LRCParser.index(at: time, in: lyrics)
-        if found != currentLyricIndex { currentLyricIndex = found }
+        if found != lyricState.currentIndex { lyricState.currentIndex = found }
     }
 
     // MARK: - 封面与取色

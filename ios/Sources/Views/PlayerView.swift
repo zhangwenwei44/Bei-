@@ -5,8 +5,12 @@ struct PlayerView: View {
     @EnvironmentObject private var store: PlayerStore
     /// 播放进度独立订阅 —— currentTime 每 0.5s 变一次。
     /// 🔴 刻意不用 store.currentTime（那是转发计算属性，不触发刷新）：
-    /// 播放页确实需要跟着进度重绘，所以由调用方（MiniPlayerLayer）注入同一个实例。
+    /// 播放页确实需要跟着进度重绘，所以由调用方（ExpandedPlayerLayer）注入同一个实例。
     @ObservedObject var playback: PlaybackProgress
+    /// 歌词高亮独立订阅 —— currentLyricIndex 播放时 4fps 变一次。
+    /// 🔴 同理：store.currentLyricIndex 是转发计算属性不触发刷新，
+    /// 歌词高亮的重绘只应该发生在播放页（订阅这个对象），而不是全 App。
+    @ObservedObject var lyricState: LyricState
     @Binding var isExpanded: Bool
     @State private var isScrubbing = false
     @State private var scrubValue: Double = 0
@@ -17,9 +21,10 @@ struct PlayerView: View {
     @State private var vinylStart: Date = Date()
     @State private var dominantColor: Color = .white
 
-    /// 参数顺序必须与属性声明顺序一致：playback 在 isExpanded 之前。
-    init(playback: PlaybackProgress, isExpanded: Binding<Bool>) {
+    /// 参数顺序必须与属性声明顺序一致：playback / lyricState 在 isExpanded 之前。
+    init(playback: PlaybackProgress, lyricState: LyricState, isExpanded: Binding<Bool>) {
         self.playback = playback
+        self.lyricState = lyricState
         self._isExpanded = isExpanded
     }
 
@@ -307,7 +312,7 @@ struct PlayerView: View {
 
     private var classicLyricPreviewRows: [ClassicLyricPreviewRow] {
         guard !store.lyrics.isEmpty else { return [] }
-        let current = store.currentLyricIndex ?? 0
+        let current = lyricState.currentIndex ?? 0
 
         // 先过滤掉元数据行
         let filtered: [(idx: Int, text: String)] = store.lyrics.enumerated().compactMap { i, line in
@@ -1035,14 +1040,14 @@ struct PlayerView: View {
 
     private var currentLyricText: String {
         if store.isLoading { return "正在解析歌词…" }
-        if let index = store.currentLyricIndex, store.lyrics.indices.contains(index) {
+        if let index = lyricState.currentIndex, store.lyrics.indices.contains(index) {
             return store.lyrics[index].text
         }
         return store.lyrics.isEmpty ? "纯音乐 · 暂无歌词" : "点击查看完整歌词"
     }
 
     private var previousLyricText: String? {
-        guard let index = store.currentLyricIndex, index > 0,
+        guard let index = lyricState.currentIndex, index > 0,
               store.lyrics.indices.contains(index - 1) else { return nil }
         let text = store.lyrics[index - 1].text
         return text.isEmpty ? nil : text
@@ -1444,7 +1449,7 @@ struct LyricsPageView: View {
 
                 // 纯正文歌词滚动区
                 BigLyricsView(lyrics: store.lyrics,
-                              currentIndex: store.currentLyricIndex,
+                              currentIndex: lyricState.currentIndex,
                               showsTranslation: store.showTranslation)
                     .frame(maxHeight: .infinity)
                     .padding(.horizontal, 26)

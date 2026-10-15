@@ -1,9 +1,14 @@
 import SwiftUI
 
 struct RootView: View {
-    /// 仅用于把 store 实例传给子层 —— body 里不读它的任何属性，
-    /// 所以不会因此建立订阅（SwiftUI 只对 body 中实际访问的属性建依赖）。
-    @EnvironmentObject private var store: PlayerStore
+    /// 🔴 刻意不用 @EnvironmentObject 拿 store：ObservableObject 是**整对象粒度**
+    /// 订阅 —— body 里读一下（哪怕只是传引用给子层）就把 RootView 挂到了
+    /// PlayerStore 的 objectWillChange 上，播放期间 RootView → MainTabs →
+    /// 整棵 TabView 树跟着任何 @Published 变化重算，TabBar 手势被持续打断。
+    /// 改用单例引用传递：不建立任何订阅，TabView 树在播放期间结构静止。
+    /// 子层各取所需：MiniPlayerOverlay 订 mini/playback，
+    /// ExpandedPlayerLayer 订 mini/playback/lyricState。
+    private var store: PlayerStore { PlayerStore.shared }
     @State private var isPlayerExpanded = false
 
     var body: some View {
@@ -30,22 +35,25 @@ struct RootView: View {
 
 /// 展开态播放页 —— 挂在全屏 overlay 上的独立一层。
 ///
-/// 订阅粒度与 MiniPlayerOverlay 相同：只订阅 mini（可见性/歌曲）与
-/// playback（进度），不订阅整个 PlayerStore，避免 4fps 歌词重算风暴。
+/// 订阅粒度：mini（可见性/歌曲）/ playback（进度）/ lyricState（歌词高亮），
+/// 不订阅整个 PlayerStore —— 播放页是唯一需要 4fps 歌词刷新的地方，
+/// 重算被限制在播放页自己的子树里。
 private struct ExpandedPlayerLayer: View {
     @ObservedObject private var mini: MiniPlayerState
     @ObservedObject private var playback: PlaybackProgress
+    @ObservedObject private var lyricState: LyricState
     @Binding var isExpanded: Bool
 
     init(store: PlayerStore, isExpanded: Binding<Bool>) {
         self.mini = store.mini
         self.playback = store.playback
+        self.lyricState = store.lyricState
         self._isExpanded = isExpanded
     }
 
     var body: some View {
         if isExpanded, mini.isVisible {
-            PlayerView(playback: playback, isExpanded: $isExpanded)
+            PlayerView(playback: playback, lyricState: lyricState, isExpanded: $isExpanded)
                 .transition(.move(edge: .bottom))
                 .ignoresSafeArea()
         }

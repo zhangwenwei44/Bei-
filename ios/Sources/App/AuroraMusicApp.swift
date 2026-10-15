@@ -3,7 +3,10 @@ import SwiftUI
 
 @main
 struct AuroraMusicApp: App {
-    @StateObject private var store = PlayerStore()
+    /// 🔴 必须指向 PlayerStore.shared —— RootView/MainTabs 用单例引用拿 store
+    /// （避免 @EnvironmentObject 的整对象订阅把 TabView 树拖进重算风暴）。
+    /// 两处必须是同一个实例，environmentObject 注入仍照常供深层视图使用。
+    @StateObject private var store = PlayerStore.shared
     @StateObject private var auth = AuthService.shared
     @AppStorage("aurora.disclaimer.accepted") private var disclaimerAccepted = false
     @State private var showQQSheet = false
