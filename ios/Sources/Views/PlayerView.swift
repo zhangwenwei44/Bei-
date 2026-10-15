@@ -32,10 +32,6 @@ struct PlayerView: View {
         case vinyl, classic
         /// 炫胶唱片：黑胶版式 + 炫彩高光盘面
         case glitter
-        /// 沉浸封面：封面全屏铺满 + 底部信息浮层
-        case immersive
-        /// 歌手写真：以大图歌手写真为主视觉
-        case singerPhoto
     }
     private var currentTheme: Theme { Theme(rawValue: playerTheme) ?? .classic }
 
@@ -47,7 +43,7 @@ struct PlayerView: View {
         let contentHeight = screen.height - win.safeTop - win.safeBottom
 
         ZStack {
-            // 经典/黑胶沿用取色渐变背景；炫胶/沉浸/写真三主题各自自带全屏背景
+            // 经典/黑胶沿用取色渐变背景；炫胶自带全屏背景
             switch currentTheme {
             case .classic:
                 immersiveBackground.ignoresSafeArea()
@@ -55,9 +51,7 @@ struct PlayerView: View {
             case .vinyl:
                 immersiveBackground.ignoresSafeArea()
                 vinylBody(in: contentHeight, win: win, screen: screen)
-            case .glitter:     glitterBody(in: contentHeight, win: win, screen: screen)
-            case .immersive:   immersiveBody(in: contentHeight, win: win, screen: screen)
-            case .singerPhoto: singerPhotoBody(in: contentHeight, win: win, screen: screen)
+            case .glitter:    glitterBody(in: contentHeight, win: win, screen: screen)
             }
         }
         .frame(width: screen.width, height: screen.height)
@@ -237,125 +231,6 @@ struct PlayerView: View {
         }
         .compositingGroup()
         .frame(width: side, height: side)
-    }
-
-    // MARK: - 沉浸封面（封面全屏铺满 + 底部信息浮层）
-
-    private func immersiveBody(in contentHeight: CGFloat,
-                               win: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat),
-                               screen: CGRect) -> some View {
-        ZStack {
-            // 全屏封面：有封面铺满，无封面用主色渐变
-            Group {
-                if let artwork = store.artwork {
-                    Image(uiImage: artwork).resizable().scaledToFill()
-                } else {
-                    LinearGradient(colors: store.currentPalette.gradient,
-                                   startPoint: .topLeading, endPoint: .bottomTrailing)
-                }
-            }
-            .frame(width: screen.width, height: screen.height)
-            .clipped()
-
-            // 上下暗化 scrim：更贴近酷狗沉浸封面（顶部较浅，底部较深）
-            LinearGradient(colors: [.black.opacity(0.40),
-                                    .black.opacity(0.08),
-                                    .clear,
-                                    .black.opacity(0.40),
-                                    .black.opacity(0.92)],
-                           startPoint: .top, endPoint: .bottom)
-
-            VStack(spacing: 0) {
-                // 顶栏：更紧凑
-                topBar()
-                    .frame(height: 44)
-                    .padding(.top, win.safeTop)
-
-                Spacer(minLength: 0)
-
-                // 底部信息浮层：酷狗版式更窄的圆角卡片，控件更紧凑
-                immersiveDeck(width: screen.width)
-                    .padding(.bottom, win.safeBottom + 12)
-            }
-            .frame(width: screen.width, height: screen.height)
-        }
-        .frame(width: screen.width, height: screen.height)
-        .animation(.easeInOut(duration: 0.35), value: store.currentIndex)
-        .clipped()
-    }
-
-    /// 沉浸封面底部信息浮层：歌词胶囊 + 进度 + 控制键（毛玻璃卡片）
-    private func immersiveDeck(width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            currentLyricPill
-            progressSection()
-                .padding(.top, 16)
-            controls()
-                .padding(.top, 8)
-        }
-        .frame(width: width - 40, alignment: .leading)
-        .padding(16)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
-            .stroke(.white.opacity(0.12), lineWidth: 0.5))
-    }
-
-    // MARK: - 歌手写真（全屏歌手写真铺满 + 底部信息层，对齐酷狗版式）
-
-    private func singerPhotoBody(in contentHeight: CGFloat,
-                                 win: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat),
-                                 screen: CGRect) -> some View {
-        ZStack {
-            // 全屏歌手写真铺满（酷狗实测：写真占据 y0..~1750 的整个上中区）
-            // 缺省回退：封面模糊 → 取色渐变
-            Group {
-                if let photo = store.artistPhoto {
-                    Image(uiImage: photo).resizable().scaledToFill()
-                } else if let artwork = store.artwork {
-                    Image(uiImage: artwork).resizable().scaledToFill()
-                        .blur(radius: 30).opacity(0.8).scaleEffect(1.2)
-                } else {
-                    LinearGradient(colors: store.currentPalette.gradient,
-                                   startPoint: .topLeading, endPoint: .bottomTrailing)
-                }
-            }
-            .frame(width: screen.width, height: screen.height)
-            .clipped()
-
-            // 写真主体保持明亮，底部大面积压暗承载信息（酷狗：y1382 起渐暗，到底近黑蓝紫）
-            LinearGradient(colors: [.black.opacity(0.45),
-                                    .black.opacity(0.10),
-                                    .clear,
-                                    .black.opacity(0.15),
-                                    .black.opacity(0.60),
-                                    .black.opacity(0.94)],
-                           startPoint: .top, endPoint: .bottom)
-
-            VStack(spacing: 0) {
-                topBar()
-                    .frame(height: 44)
-                    .padding(.top, win.safeTop)
-
-                Spacer(minLength: 0)
-
-                // 底部信息层：歌词 + 动作行 + 进度 + 控件（直接叠在暗区上，无卡片）
-                VStack(alignment: .leading, spacing: 0) {
-                    currentLyricPill
-                    actionRow()
-                        .padding(.top, 16)
-                    progressSection()
-                        .padding(.top, 18)
-                    controls()
-                        .padding(.top, 10)
-                }
-                .frame(width: screen.width - 36, alignment: .leading)
-                .padding(.bottom, max(10, win.safeBottom))
-            }
-            .frame(width: screen.width, height: screen.height)
-        }
-        .frame(width: screen.width, height: screen.height)
-        .animation(.easeInOut(duration: 0.35), value: store.currentIndex)
-        .clipped()
     }
 
     // MARK: - 经典封面（参考 Beans ReferencePlaybackView · 紧凑版）
@@ -1266,11 +1141,12 @@ struct PlayerView: View {
 
     private func meta(width: CGFloat) -> some View {
         // VStack 外层 frame height = contentHeight（已扣 safeTop+safeBottom），
-        // 底部正好在 home indicator 顶部。用 Spacer 把 controls 推到底部，
-        // 确保无论屏幕多小，控制栏都紧贴 safe area 上方。
+        // 底部正好在 home indicator 顶部。Spacer 在最前，把 歌词+动作行+进度+控件
+        // 整块推到底部：信息区紧贴播放控件上方（用户要求酷狗黑胶版式）。
         VStack(alignment: .leading, spacing: 0) {
+            Spacer(minLength: 0)
+
             currentLyricPill
-                .padding(.top, 14)
 
             actionRow()
                 .padding(.top, 18)
@@ -1278,10 +1154,8 @@ struct PlayerView: View {
             progressSection()
                 .padding(.top, 20)
 
-            Spacer(minLength: 0)
-
             controls()
-                .padding(.top, 10)
+                .padding(.top, 14)
         }
         .frame(width: width - 36, alignment: .leading)
         .padding(.bottom, 16)
