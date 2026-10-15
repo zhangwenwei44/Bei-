@@ -47,13 +47,15 @@ struct PlayerView: View {
         let contentHeight = screen.height - win.safeTop - win.safeBottom
 
         ZStack {
-            immersiveBackground.ignoresSafeArea()
-
+            // 经典/黑胶沿用取色渐变背景；炫胶/沉浸/写真三主题各自自带全屏背景
             switch currentTheme {
-            case .classic:     classicBody(in: contentHeight, win: win, screen: screen)
-            case .vinyl:       vinylBody(in: contentHeight, win: win, screen: screen)
-            // 炫胶唱片复用黑胶版式，盘面差异在 artworkStage 里处理
-            case .glitter:     vinylBody(in: contentHeight, win: win, screen: screen)
+            case .classic:
+                immersiveBackground.ignoresSafeArea()
+                classicBody(in: contentHeight, win: win, screen: screen)
+            case .vinyl:
+                immersiveBackground.ignoresSafeArea()
+                vinylBody(in: contentHeight, win: win, screen: screen)
+            case .glitter:     glitterBody(in: contentHeight, win: win, screen: screen)
             case .immersive:   immersiveBody(in: contentHeight, win: win, screen: screen)
             case .singerPhoto: singerPhotoBody(in: contentHeight, win: win, screen: screen)
             }
@@ -82,6 +84,161 @@ struct PlayerView: View {
         .clipped()
     }
 
+    // MARK: - 炫胶唱片（暖金渐变 + 巨大炫彩唱片 + 底部暗区信息，对齐酷狗版式）
+
+    /// 炫胶背景：取色渐变铺满，中段透亮、顶部微压、底部沉黑
+    /// （酷狗实测：顶部 #565042 → 中部 #B29E7B → 底部 #0D0908 的纵向过渡）
+    private var glitterBackground: some View {
+        ZStack {
+            LinearGradient(colors: store.currentPalette.gradient,
+                           startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [.black.opacity(0.50),
+                                    .black.opacity(0.10),
+                                    .clear,
+                                    .black.opacity(0.55),
+                                    .black.opacity(0.97)],
+                           startPoint: .top, endPoint: .bottom)
+        }
+        .ignoresSafeArea()
+        .animation(.easeInOut(duration: 0.5), value: store.currentIndex)
+        .animation(.easeInOut(duration: 0.5), value: store.currentPalette)
+    }
+
+    private func glitterBody(in contentHeight: CGFloat,
+                             win: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat),
+                             screen: CGRect) -> some View {
+        ZStack(alignment: .top) {
+            glitterBackground
+
+            VStack(spacing: 0) {
+                topBar()
+                    .frame(height: 44)
+                    .padding(.top, win.safeTop)
+
+                // 主视觉：巨大炫彩唱片（酷狗实测约占屏宽 80%，垂直居中偏上）
+                glitterDiscArea(width: screen.width)
+                    .frame(maxHeight: .infinity)
+                    .padding(.top, 8)
+
+                // 底部暗区信息：歌词 + 动作行 + 进度 + 控件
+                meta(width: screen.width)
+            }
+            .frame(width: screen.width, height: contentHeight, alignment: .top)
+        }
+        .frame(width: screen.width, height: screen.height, alignment: .top)
+        .clipped()
+    }
+
+    private func glitterDiscArea(width: CGFloat) -> some View {
+        let side = max(250, min(width * 0.80, 330))
+        let coverSide = side * 0.44
+
+        return TimelineView(.animation(minimumInterval: 1/30)) { _ in
+            let angle = isSpinning
+                ? (Date().timeIntervalSince(vinylStart) / 20.0) * 360
+                : 0
+            ZStack {
+                glitterDisc(side: side)
+
+                Group {
+                    if let artwork = store.artwork {
+                        Image(uiImage: artwork).resizable().scaledToFill()
+                    } else {
+                        ZStack {
+                            LinearGradient(colors: [.gray.opacity(0.5), .gray.opacity(0.3)],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                            Image(systemName: "music.note")
+                                .font(.system(size: coverSide * 0.3, weight: .light))
+                                .foregroundStyle(.white.opacity(0.55))
+                        }
+                    }
+                }
+                .frame(width: coverSide, height: coverSide)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(.white.opacity(0.55), lineWidth: 2))
+                .overlay(alignment: .center) {
+                    Circle()
+                        .fill(.white.opacity(0.92))
+                        .frame(width: 10, height: 10)
+                }
+            }
+            .rotationEffect(.degrees(angle))
+        }
+        .frame(width: side, height: side)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+        .onChange(of: store.isPlaying) { playing in
+            if playing { vinylStart = Date() }
+        }
+        .onChange(of: store.currentIndex) { _ in
+            vinylStart = Date()
+            extractDominantColor()
+        }
+        .onAppear { extractDominantColor() }
+    }
+
+    /// 炫胶盘面：亮银底盘 + 彩虹角向炫彩 + 强白光扫过 + 细沟槽
+    /// （酷狗炫胶是亮色炫彩盘面，不是黑胶的深黑盘）
+    private func glitterDisc(side: CGFloat) -> some View {
+        ZStack {
+            // 亮银底盘
+            Circle()
+                .fill(RadialGradient(colors: [.white,
+                                              Color(white: 0.90),
+                                              Color(white: 0.74)],
+                                     center: .center,
+                                     startRadius: side * 0.05,
+                                     endRadius: side * 0.52))
+
+            // 彩虹角向炫彩
+            Circle()
+                .fill(AngularGradient(colors: [
+                    Color(red: 1.00, green: 0.30, blue: 0.45),
+                    Color(red: 1.00, green: 0.80, blue: 0.25),
+                    Color(red: 0.25, green: 0.90, blue: 0.60),
+                    Color(red: 0.25, green: 0.60, blue: 1.00),
+                    Color(red: 0.75, green: 0.35, blue: 1.00),
+                    Color(red: 1.00, green: 0.30, blue: 0.45)
+                ], center: .center))
+                .opacity(0.42)
+
+            // 白色高光扫光
+            Circle()
+                .fill(AngularGradient(colors: [.clear,
+                                               .white.opacity(0.85),
+                                               .clear,
+                                               .white.opacity(0.45),
+                                               .clear],
+                                      center: .center))
+
+            // 唱片沟槽
+            ForEach(0..<9, id: \.self) { i in
+                Circle()
+                    .stroke(.black.opacity(0.05), lineWidth: 1)
+                    .frame(width: side - CGFloat(i) * (side / 12),
+                           height: side - CGFloat(i) * (side / 12))
+            }
+
+            // 外圈金属边
+            Circle()
+                .stroke(LinearGradient(colors: [.white.opacity(0.9),
+                                                .black.opacity(0.15),
+                                                .white.opacity(0.7),
+                                                .black.opacity(0.12)],
+                                       startPoint: .top, endPoint: .bottom),
+                        lineWidth: 2.5)
+                .frame(width: side - 2, height: side - 2)
+
+            // 中心挖空（放专辑封面）
+            Circle()
+                .fill(.clear)
+                .frame(width: side * 0.44, height: side * 0.44)
+                .blendMode(.destinationOut)
+        }
+        .compositingGroup()
+        .frame(width: side, height: side)
+    }
+
     // MARK: - 沉浸封面（封面全屏铺满 + 底部信息浮层）
 
     private func immersiveBody(in contentHeight: CGFloat,
@@ -100,25 +257,25 @@ struct PlayerView: View {
             .frame(width: screen.width, height: screen.height)
             .clipped()
 
-            // 上下暗化 scrim：保证顶栏与底部浮层可读
-            LinearGradient(colors: [.black.opacity(0.55),
-                                    .black.opacity(0.12),
+            // 上下暗化 scrim：更贴近酷狗沉浸封面（顶部较浅，底部较深）
+            LinearGradient(colors: [.black.opacity(0.40),
+                                    .black.opacity(0.08),
                                     .clear,
-                                    .black.opacity(0.30),
-                                    .black.opacity(0.86)],
+                                    .black.opacity(0.40),
+                                    .black.opacity(0.92)],
                            startPoint: .top, endPoint: .bottom)
 
             VStack(spacing: 0) {
-                // topBar 内部 frame 是 maxHeight:.infinity（贪婪），这里给它定高，
-                // 否则它会吃掉所有剩余高度，把底部浮层信息挤没 / 写真无法居中。
+                // 顶栏：更紧凑
                 topBar()
                     .frame(height: 44)
                     .padding(.top, win.safeTop)
 
                 Spacer(minLength: 0)
 
+                // 底部信息浮层：酷狗版式更窄的圆角卡片，控件更紧凑
                 immersiveDeck(width: screen.width)
-                    .padding(.bottom, win.safeBottom + 10)
+                    .padding(.bottom, win.safeBottom + 12)
             }
             .frame(width: screen.width, height: screen.height)
         }
@@ -143,20 +300,20 @@ struct PlayerView: View {
             .stroke(.white.opacity(0.12), lineWidth: 0.5))
     }
 
-    // MARK: - 歌手写真（大图歌手写真主视觉 + 底部信息）
+    // MARK: - 歌手写真（全屏歌手写真铺满 + 底部信息层，对齐酷狗版式）
 
     private func singerPhotoBody(in contentHeight: CGFloat,
                                  win: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat),
                                  screen: CGRect) -> some View {
         ZStack {
-            // 背景：歌手写真（缺省回退封面）模糊铺满
+            // 全屏歌手写真铺满（酷狗实测：写真占据 y0..~1750 的整个上中区）
+            // 缺省回退：封面模糊 → 取色渐变
             Group {
                 if let photo = store.artistPhoto {
                     Image(uiImage: photo).resizable().scaledToFill()
-                        .blur(radius: 44).opacity(0.55).scaleEffect(1.25)
                 } else if let artwork = store.artwork {
                     Image(uiImage: artwork).resizable().scaledToFill()
-                        .blur(radius: 44).opacity(0.55).scaleEffect(1.25)
+                        .blur(radius: 30).opacity(0.8).scaleEffect(1.2)
                 } else {
                     LinearGradient(colors: store.currentPalette.gradient,
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -165,63 +322,40 @@ struct PlayerView: View {
             .frame(width: screen.width, height: screen.height)
             .clipped()
 
-            LinearGradient(colors: [.black.opacity(0.35),
+            // 写真主体保持明亮，底部大面积压暗承载信息（酷狗：y1382 起渐暗，到底近黑蓝紫）
+            LinearGradient(colors: [.black.opacity(0.45),
+                                    .black.opacity(0.10),
                                     .clear,
-                                    .black.opacity(0.30),
-                                    .black.opacity(0.88)],
+                                    .black.opacity(0.15),
+                                    .black.opacity(0.60),
+                                    .black.opacity(0.94)],
                            startPoint: .top, endPoint: .bottom)
 
             VStack(spacing: 0) {
                 topBar()
+                    .frame(height: 44)
                     .padding(.top, win.safeTop)
 
                 Spacer(minLength: 0)
 
-                singerPortrait
-
-                Spacer(minLength: 0)
-
+                // 底部信息层：歌词 + 动作行 + 进度 + 控件（直接叠在暗区上，无卡片）
                 VStack(alignment: .leading, spacing: 0) {
                     currentLyricPill
+                    actionRow()
+                        .padding(.top, 16)
                     progressSection()
-                        .padding(.top, 14)
+                        .padding(.top, 18)
                     controls()
-                        .padding(.top, 8)
+                        .padding(.top, 10)
                 }
                 .frame(width: screen.width - 36, alignment: .leading)
-                .padding(.bottom, win.safeBottom + 10)
+                .padding(.bottom, max(10, win.safeBottom))
             }
             .frame(width: screen.width, height: screen.height)
         }
         .frame(width: screen.width, height: screen.height)
         .animation(.easeInOut(duration: 0.35), value: store.currentIndex)
         .clipped()
-    }
-
-    /// 歌手写真主视觉：大幅圆角写真（缺省回退封面 / 渐变占位）
-    private var singerPortrait: some View {
-        let screen = UIScreen.main.bounds
-        let side = max(200, min(screen.width * 0.66, 320))
-        return Group {
-            if let photo = store.artistPhoto {
-                Image(uiImage: photo).resizable().scaledToFill()
-            } else if let artwork = store.artwork {
-                Image(uiImage: artwork).resizable().scaledToFill()
-            } else {
-                ZStack {
-                    LinearGradient(colors: store.currentPalette.gradient,
-                                   startPoint: .topLeading, endPoint: .bottomTrailing)
-                    Image(systemName: "person.fill")
-                        .font(.system(size: side * 0.3, weight: .light))
-                        .foregroundStyle(.white.opacity(0.5))
-                }
-            }
-        }
-        .frame(width: side, height: side)
-        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
-            .stroke(.white.opacity(0.18), lineWidth: 0.6))
-        .shadow(color: .black.opacity(0.5), radius: 22, y: 12)
     }
 
     // MARK: - 经典封面（参考 Beans ReferencePlaybackView · 紧凑版）
