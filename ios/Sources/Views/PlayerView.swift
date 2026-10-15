@@ -1166,7 +1166,7 @@ struct PlayerView: View {
                 .padding(.top, 14)
         }
         .frame(width: width - 36, alignment: .leading)
-        .padding(.bottom, 4)
+        .padding(.bottom, 2)
         .layoutPriority(1)
     }
 
@@ -1204,33 +1204,33 @@ struct PlayerView: View {
         }
     }
 
-    /// 双行歌词（居中风格）：上一条居中、暗、小 + 当前行居中、亮、大
+    /// 双行歌词（酷狗风格）：当前行在上、高亮；下一行在下、暗、小
     private var currentLyricPill: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
         } label: {
             VStack(spacing: 4) {
-                // 第一行：上一条歌词 —— 居中、暗、小
-                if let prev = previousLyricText {
-                    Text(prev)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.35))
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
-                // 第二行：当前歌词 —— 居中、亮、大
+                // 第一行：当前歌词 —— 高亮、大（用户要求高亮在上面）
                 Text(currentLyricText)
                     .font(.system(size: 13, weight: .medium, design: .rounded))
                     .foregroundStyle(.white.opacity(0.9))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .center)
+                // 第二行：下一句歌词 —— 暗、小
+                if let next = nextLyricText {
+                    Text(next)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.35))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
             }
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.25), value: currentLyricText)
-        .animation(.easeInOut(duration: 0.25), value: previousLyricText)
+        .animation(.easeInOut(duration: 0.25), value: nextLyricText)
     }
 
     private var currentLyricText: String {
@@ -1241,10 +1241,10 @@ struct PlayerView: View {
         return store.lyrics.isEmpty ? "纯音乐 · 暂无歌词" : "点击查看完整歌词"
     }
 
-    private var previousLyricText: String? {
-        guard let index = lyricState.currentIndex, index > 0,
-              store.lyrics.indices.contains(index - 1) else { return nil }
-        let text = store.lyrics[index - 1].text
+    private var nextLyricText: String? {
+        guard let index = lyricState.currentIndex,
+              store.lyrics.indices.contains(index + 1) else { return nil }
+        let text = store.lyrics[index + 1].text
         return text.isEmpty ? nil : text
     }
 

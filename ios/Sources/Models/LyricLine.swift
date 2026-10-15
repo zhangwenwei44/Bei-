@@ -41,7 +41,10 @@ enum LRCParser {
                                          "pye", "tlyric", "lyric"]
 
         for rawLine in text.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            // 🔴 必须 trim 换行符：酷狗 LRC 是 \r\n 换行，[id:xxx] 行结尾会带 \r，
+            // 只 trim 空格的话 hasSuffix("]") 失配，元数据行（如 [id:$00000000]）
+            // 会被当成歌词正文显示出来。
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !line.isEmpty else { continue }
 
             let ns = line as NSString
@@ -60,7 +63,7 @@ enum LRCParser {
             }
 
             let contentStart = first.range.upperBound
-            var content = ns.substring(from: contentStart).trimmingCharacters(in: .whitespaces)
+            var content = ns.substring(from: contentStart).trimmingCharacters(in: .whitespacesAndNewlines)
 
             // 清除酷狗/QQ音乐的 [d:$00000000] / [d:0] / [v:1] 等内嵌标签
             // 这些标签跟时间戳同行，如 [00:01.23][d:$00000000]童话
@@ -130,7 +133,7 @@ enum LRCParser {
                 result.removeSubrange(range)
             }
         }
-        return result.trimmingCharacters(in: .whitespaces)
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// 兼容旧调用方，只返回歌词行。
