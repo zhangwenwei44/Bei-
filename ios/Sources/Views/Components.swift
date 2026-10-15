@@ -447,7 +447,7 @@ struct SongRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(song.title)
+                    Text(song.cleanTitle)
                         .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(isCurrent ? AppStyle.accent : AppStyle.primaryText)
                         .lineLimit(1)

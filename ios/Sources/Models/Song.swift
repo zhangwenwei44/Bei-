@@ -89,6 +89,16 @@ struct Song: Identifiable, Hashable, Codable {
     var title: String
     var artist: String
     var album: String = ""
+
+    /// 展示用歌名：去掉结尾的 `.mp3` 后缀（酷狗部分歌单/搜索接口把文件名当歌名，
+    /// 例如「千千阙歌.MP3」）。仅展示用，不动原始 title。
+    var cleanTitle: String {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.lowercased().hasSuffix(".mp3") {
+            return String(t.dropLast(4)).trimmingCharacters(in: .whitespaces)
+        }
+        return t
+    }
     /// 已解析好的播放地址（在线解析或本地文件）。
     var url: URL?
     var tags: [String] = []

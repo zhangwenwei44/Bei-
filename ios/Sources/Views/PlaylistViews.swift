@@ -334,7 +334,7 @@ struct PlaylistDetailView: View {
             if displaySongs.count > 1 {
                 Menu {
                     ForEach(displaySongs.indices, id: \.self) { offset in
-                        Button(displaySongs[offset].title) { store.play(displaySongs, startAt: offset) }
+                        Button(displaySongs[offset].cleanTitle) { store.play(displaySongs, startAt: offset) }
                     }
                 } label: {
                     Image(systemName: "list.number")
