@@ -352,6 +352,52 @@ extension SectionHeader where Trailing == EmptyView {
     }
 }
 
+// MARK: - 正在播放的动态声波指示器
+
+/// 三根错相位跳动的竖条：播放时循环跳动，暂停时平滑收拢静止。
+struct PlayingBarsIndicator: View {
+    let isPlaying: Bool
+    var tint: Color = AppStyle.onAccent
+    /// 整体高度（也是圆内可用高度）
+    var height: CGFloat = 12
+
+    var body: some View {
+        HStack(spacing: height * 0.18) {
+            Bar(isPlaying: isPlaying, tint: tint, maxHeight: height, delay: 0)
+            Bar(isPlaying: isPlaying, tint: tint, maxHeight: height, delay: 0.16)
+            Bar(isPlaying: isPlaying, tint: tint, maxHeight: height, delay: 0.32)
+        }
+        .frame(height: height)
+    }
+
+    private struct Bar: View {
+        let isPlaying: Bool
+        let tint: Color
+        let maxHeight: CGFloat
+        let delay: Double
+        @State private var up = false
+
+        private var minHeight: CGFloat { maxHeight * 0.32 }
+
+        var body: some View {
+            Capsule()
+                .fill(tint)
+                .frame(width: max(1.5, maxHeight * 0.18),
+                       height: (isPlaying && up) ? maxHeight : minHeight)
+                .animation(
+                    isPlaying
+                        ? .easeInOut(duration: 0.42).repeatForever(autoreverses: true).delay(delay)
+                        : .easeOut(duration: 0.18),
+                    value: up
+                )
+                .onAppear { up = isPlaying }
+                .onChange(of: isPlaying) { playing in
+                    up = playing
+                }
+        }
+    }
+}
+
 // MARK: - 歌曲行
 
 struct SongRow: View {
@@ -381,11 +427,10 @@ struct SongRow: View {
                            seed: "\(song.artist)-\(song.title)",
                            size: 50)
                 .overlay(alignment: .bottomTrailing) {
-                    if isPlaying {
-                        Image(systemName: "waveform")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(AppStyle.onAccent)
-                            .padding(3)
+                    // 只在「这一行就是当前播放的歌，且正在播放」时显示，其余歌曲一律不显示
+                    if isCurrent && isPlaying {
+                        PlayingBarsIndicator(isPlaying: isPlaying)
+                            .padding(4)
                             .background(AppStyle.accent, in: Circle())
                             .offset(x: 4, y: 4)
                     }
