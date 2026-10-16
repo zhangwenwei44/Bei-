@@ -22,6 +22,9 @@ final class AppUpdater: ObservableObject {
         var body: String?
         var html_url: String
         var assets: [Asset]
+        /// GitHub 会把 draft / prerelease 也放进 /releases 列表，挑「最新」时要排除掉。
+        var draft: Bool?
+        var prerelease: Bool?
     }
 
     enum Phase: Equatable {
@@ -63,7 +66,10 @@ final class AppUpdater: ObservableObject {
         phase = .checking
         Log.info("更新", "开始检查更新，当前版本 \(versionText)")
 
-        guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else {
+        // 用 /releases 列表自己挑最高语义版本号，而不是只信 /releases/latest：
+        // 一旦 GitHub 没把新版本标成「Latest」、或新版本被打了 prerelease，/releases/latest
+        // 就会漏掉它，老用户永远收不到更新提示（表现就是「App 内没有更新」）。
+        guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases?per_page=100") else {
             phase = .failed("仓库地址无效")
             return
         }
@@ -79,7 +85,7 @@ final class AppUpdater: ObservableObject {
                 phase = .failed("网络异常")
                 return
             }
-            // 403/404 多半是 API 限流。GitHub 未认证请求每 IP 每小时只有 60 次，
+            // 403/429 多半是 API 限流。GitHub 未认证请求每 IP 每小时只有 60 次，
             // 移动网络下同 IP 共享，很容易撞上限。
             guard (200...299).contains(http.statusCode) else {
                 let remaining = http.value(forHTTPHeaderField: "X-RateLimit-Remaining")
@@ -87,19 +93,43 @@ final class AppUpdater: ObservableObject {
                 phase = .failed(Self.rateLimitMessage(http))
                 return
             }
-            let release = try JSONDecoder().decode(Release.self, from: data)
+            let releases = try JSONDecoder().decode([Release].self, from: data)
+            guard let newest = newestStableRelease(releases) else {
+                Log.warn("更新", "没有可用的稳定版 Release")
+                phase = .upToDate(current: currentVersion)
+                return
+            }
             lastCheckedAt = Date()
-            Log.info("更新", "远端最新 \(release.tag_name)，附件 \(release.assets.map(\.name).joined(separator: ", "))")
-            if isNewer(release.tag_name) {
-                phase = .available(release)
+            Log.info("更新", "远端最新稳定版 \(newest.tag_name)，附件 \(newest.assets.map(\.name).joined(separator: ", "))")
+            if isNewer(newest.tag_name) {
+                phase = .available(newest)
             } else {
-                Log.info("更新", "已是最新（远端 \(release.tag_name)）")
+                Log.info("更新", "已是最新（远端 \(newest.tag_name)）")
                 phase = .upToDate(current: currentVersion)
             }
         } catch {
             Log.error("更新", "检查失败：\(error.localizedDescription)")
             phase = .failed(error.localizedDescription)
         }
+    }
+
+    /// 从 release 列表里挑出版本号最高的稳定版（排除 draft / prerelease）。
+    private func newestStableRelease(_ releases: [Release]) -> Release? {
+        releases
+            .filter { !($0.draft ?? false) && !($0.prerelease ?? false) }
+            .max(by: { lhs, rhs in Self.compareVersions(lhs.tag_name, rhs.tag_name) < 0 })
+    }
+
+    /// 语义化版本比较：a < b 返回 -1，相等返回 0，a > b 返回 1。
+    private static func compareVersions(_ a: String, _ b: String) -> Int {
+        let la = parse(a), lb = parse(b)
+        let n = max(la.count, lb.count)
+        for i in 0..<n {
+            let x = i < la.count ? la[i] : 0
+            let y = i < lb.count ? lb[i] : 0
+            if x != y { return x < y ? -1 : 1 }
+        }
+        return 0
     }
 
     /// 限流和 404 的说法不一样，不能一律报「稍后再试」。
