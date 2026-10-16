@@ -8,6 +8,8 @@ struct ProfileView: View {
     @ObservedObject private var downloads = DownloadManager.shared
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var kugouAuth = KugouAuth.shared
+    /// 订阅迷你播放条可见性，只为在播放时给设置列表底部留出安全间距（见下方 List 的 bottom padding）。
+    @ObservedObject private var mini = PlayerStore.shared.mini
     @StateObject private var updater = AppUpdater.shared
     /// 自动预缓存下一首 —— 用户手动开关，优先级高于网络判断（默认开启）。
     @AppStorage("aurora.autoPrecache") private var autoPrecacheEnabled: Bool = true
@@ -321,6 +323,9 @@ struct ProfileView: View {
         .listStyle(.insetGrouped)
         .compatScrollContentBackground(.hidden)
         .background(AppStyle.background)
+        // 🔴 播放时迷你播放条占据底部安全区，给列表末尾（"关于 Aurora Music" 等）留出安全间距，
+        // 避免被播放条挡住。未播放时 mini 不显示，padding 为 0，不留多余空白。
+        .padding(.bottom, mini.isVisible ? 60 : 0)
         .navigationTitle("设置")
         .navigationBarTitleDisplayMode(.large)
         // 🔴 底部留白已由 RootView 的 .safeAreaInset(edge:.bottom) 统一处理

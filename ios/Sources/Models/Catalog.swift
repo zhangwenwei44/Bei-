@@ -47,6 +47,28 @@ struct Artist: Identifiable, Hashable, Codable {
     }
 }
 
+extension Artist {
+    /// 取歌手名首字母（A-Z），用于「热门歌手」右侧英文选择条。
+    /// 中文名用拼音首字母（周杰伦 → Z），数字/符号等非字母归到 #。
+    var initialLetter: String {
+        let name = self.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return "#" }
+        let upper = name.uppercased()
+        if let first = upper.first, first.isASCII, first.isLetter {
+            return String(first)
+        }
+        // 中文/日文等先转拉丁字母拼音，再取首字母
+        let cf = NSMutableString(string: name) as CFMutableString
+        CFStringTransform(cf, nil, kCFStringTransformToLatin, false)
+        CFStringTransform(cf, nil, kCFStringTransformStripCombiningMarks, false)
+        let latin = (cf as String).uppercased()
+        if let first = latin.first, first.isASCII, first.isLetter {
+            return String(first)
+        }
+        return "#"
+    }
+}
+
 /// 专辑。酷狗搜索结果里没有独立专辑实体，从歌曲的专辑名聚合。
 struct Album: Identifiable, Hashable, Codable {
     var id: String
@@ -116,7 +138,7 @@ extension Song {
             ?? KugouClient.string(json["filename"])
             ?? ""
         let titleRaw = !songName.isEmpty ? songName : rawName
-        let title = Song.stripHighlight(titleRaw)
+        var title = Song.stripHighlight(titleRaw)
         guard !title.isEmpty else { return nil }
 
         let rawArtist = KugouClient.string(json["singername"])
@@ -124,7 +146,20 @@ extension Song {
             ?? KugouClient.string(json["author_name"])
             ?? KugouClient.string(json["Singer"])
             ?? ""
-        let artist = Song.stripHighlight(rawArtist)
+        var artist = Song.stripHighlight(rawArtist)
+
+        // 🔴 兜底：special/song、部分榜单接口常常不给 singername，
+        // 而是把「歌手 - 歌名」塞在 filename / FileName 里。不拆出来就会显示「未知歌手」。
+        if !rawName.isEmpty {
+            let parts = rawName.components(separatedBy: " - ")
+            if parts.count >= 2 {
+                if artist.isEmpty { artist = parts[0].trimmingCharacters(in: .whitespaces) }
+                // 标题只拿到 filename（形如「歌手 - 歌名」）时，也一并拆干净
+                if title == rawName {
+                    title = parts.dropFirst().joined(separator: " - ").trimmingCharacters(in: .whitespaces)
+                }
+            }
+        }
         let album = Song.stripHighlight(
             KugouClient.string(json["album_name"])
                 ?? KugouClient.string(json["AlbumName"])

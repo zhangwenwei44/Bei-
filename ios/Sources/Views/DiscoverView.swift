@@ -274,17 +274,19 @@ struct DiscoverView: View {
     private var audiobookContent: some View {
         VStack {
             Spacer()
-            Image(systemName: "headphones")
+            Image(systemName: "hammer.fill")
                 .font(.system(size: 50))
                 .foregroundStyle(AppStyle.secondaryText)
             Text("听书板块")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(AppStyle.primaryText)
                 .padding(.top, 16)
-            Text("正在施工中，敬请期待")
+            Text("正在施工中！敬请期待！有什么好的建议请QQ群反馈！感谢！！")
                 .font(.system(size: 14))
                 .foregroundStyle(AppStyle.tertiaryText)
                 .padding(.top, 4)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1403,58 +1405,94 @@ struct MoreArtistsView: View {
     @State private var hasMore = true
 
     var body: some View {
-        ScrollView {
-            if artists.isEmpty {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                // 用 LazyVStack：只有滚到视口的行才构建，配合底部 onAppear 触发器
-                // 实现无限滚动（前面 VStack 全量渲染 50+ 行会越滚越卡）。
-                LazyVStack(spacing: 0) {
-                    ForEach(artists) { artist in
-                        artistRow(artist)
-                        if artist.id != artists.last?.id {
-                            Divider().padding(.leading, 68)
+        ScrollViewReader { proxy in
+            ScrollView {
+                if artists.isEmpty {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    // 用 LazyVStack：只有滚到视口的行才构建，配合底部 onAppear 触发器
+                    // 实现无限滚动（前面 VStack 全量渲染 50+ 行会越滚越卡）。
+                    LazyVStack(spacing: 0) {
+                        ForEach(artists) { artist in
+                            artistRow(artist)
+                                .id(artist.id)
+                            if artist.id != artists.last?.id {
+                                Divider().padding(.leading, 68)
+                            }
                         }
-                    }
 
-                    if hasMore {
-                        HStack(spacing: 8) {
-                            Spacer()
-                            ProgressView()
-                            Text("加载更多")
+                        if hasMore {
+                            HStack(spacing: 8) {
+                                Spacer()
+                                ProgressView()
+                                Text("加载更多")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(AppStyle.tertiaryText)
+                                Spacer()
+                            }
+                            .padding(.vertical, 16)
+                            // 🔴 滚到底部自动加载下一页；isLoadingMore / hasMore 双保险防重复触发
+                            .onAppear { Task { await loadMore() } }
+                        } else {
+                            Text("已经到底啦 ~")
                                 .font(.system(size: 12))
                                 .foregroundStyle(AppStyle.tertiaryText)
-                            Spacer()
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 16)
                         }
-                        .padding(.vertical, 16)
-                        // 🔴 滚到底部自动加载下一页；isLoadingMore / hasMore 双保险防重复触发
-                        .onAppear { Task { await loadMore() } }
-                    } else {
-                        Text("已经到底啦 ~")
-                            .font(.system(size: 12))
-                            .foregroundStyle(AppStyle.tertiaryText)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
                     }
+                    .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    // 🔴 给右侧英文选择条留白，避免挡住歌手名
+                    .padding(.trailing, 18)
                 }
-                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
+            }
+            .background(AppStyle.background)
+            .overlay(alignment: .trailing) { alphabetBar(proxy: proxy) }
+            .navigationTitle("热门歌手")
+            .navigationBarTitleDisplayMode(.inline)
+            // 顶部下拉刷新：清空后从第一页重新拉取
+            .refreshable { await reload() }
+            .task {
+                guard artists.isEmpty else { return }
+                artists = initial
+                // initial 已涵盖前 (initial.count/20) 页，接着往后翻
+                page = initial.isEmpty ? 1 : (initial.count / 20) + 1
+                await loadMore()
             }
         }
-        .background(AppStyle.background)
-        .navigationTitle("热门歌手")
-        .navigationBarTitleDisplayMode(.inline)
-        // 顶部下拉刷新：清空后从第一页重新拉取
-        .refreshable { await reload() }
-        .task {
-            guard artists.isEmpty else { return }
-            artists = initial
-            // initial 已涵盖前 (initial.count/20) 页，接着往后翻
-            page = initial.isEmpty ? 1 : (initial.count / 20) + 1
-            await loadMore()
+    }
+
+    /// 右侧英文选择条：A–Z + #，点击滚到该字母第一位歌手。
+    /// 只对已加载出的歌手生效（列表是无限滚动，未加载的字母点了也不跳）。
+    private func alphabetBar(proxy: ScrollViewProxy) -> some View {
+        let letters = ["#"] + Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        return VStack(spacing: 1) {
+            ForEach(letters, id: \.self) { letter in
+                Button {
+                    if let target = artists.first(where: { $0.initialLetter == letter }) {
+                        withAnimation { proxy.scrollTo(target.id, anchor: .top) }
+                    }
+                } label: {
+                    Text(letter)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(hasLetter(letter)
+                                        ? AppStyle.tertiaryText
+                                        : AppStyle.tertiaryText.opacity(0.25))
+                        .frame(width: 20)
+                }
+                .buttonStyle(.plain)
+                .disabled(!hasLetter(letter))
+            }
         }
+        .padding(.trailing, 3)
+        .padding(.vertical, 6)
+    }
+
+    private func hasLetter(_ letter: String) -> Bool {
+        artists.contains { $0.initialLetter == letter }
     }
 
     private func artistRow(_ artist: Artist) -> some View {

@@ -42,7 +42,8 @@ struct ThirdPartySource: Identifiable, Codable, Hashable {
          headers: [String: String] = [:],
          quality: String = MusicQuality.exHigh.sourceValue,
          script: String = "",
-         enabled: Bool = true) {
+         enabled: Bool = true,
+         isBundled: Bool = false) {
         self.id = id
         self.name = name
         self.kind = kind
@@ -52,6 +53,7 @@ struct ThirdPartySource: Identifiable, Codable, Hashable {
         self.quality = quality
         self.script = script
         self.enabled = enabled
+        self.isBundled = isBundled
     }
 
     /// 是否是脚本型（含 script 内容或 kind 标记）。
@@ -75,6 +77,9 @@ struct ThirdPartySource: Identifiable, Codable, Hashable {
         return keys.filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
+    /// 是否随安装包内置的音源（官方内置脚本）。列表里这类音源统一显示为「默认音源」，不暴露脚本名。
+    var isBundled: Bool = false
+
     var requiresAPIKey: Bool {
         ["{apiKey}", "{apikey}", "{key}"].contains { template.contains($0) }
     }
@@ -90,7 +95,7 @@ struct ThirdPartySource: Identifiable, Codable, Hashable {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, kind, template, url, urlPath, headers, quality, script, enabled
+        case id, name, kind, template, url, urlPath, headers, quality, script, enabled, isBundled
     }
 
     /// 导入的 JSON 常常缺字段（甚至用 url 代替 template），全部走默认值兜住。
@@ -117,6 +122,7 @@ struct ThirdPartySource: Identifiable, Codable, Hashable {
             ?? MusicQuality.exHigh.sourceValue
         script = try container.decodeIfPresent(String.self, forKey: .script) ?? ""
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        isBundled = try container.decodeIfPresent(Bool.self, forKey: .isBundled) ?? false
 
         // 有脚本内容就按脚本处理，和 isScript 的判断保持一致
         if !script.isEmpty { kind = .script }
@@ -135,6 +141,7 @@ struct ThirdPartySource: Identifiable, Codable, Hashable {
         try container.encode(quality, forKey: .quality)
         if !script.isEmpty { try container.encode(script, forKey: .script) }
         try container.encode(enabled, forKey: .enabled)
+        try container.encode(isBundled, forKey: .isBundled)
     }
 }
 

@@ -168,8 +168,9 @@ final class PlayerStore: ObservableObject {
 
     init() {
         player.actionAtItemEnd = .pause
-        // 🔴 关闭自动等待以最小化卡顿 —— 让 AVPlayer 播放更激进（有一点缓冲就播）
-        player.automaticallyWaitsToMinimizeStalling = false
+        // 🔴 开启自动等待以最小化卡顿：让 AVPlayer 先按 preferredForwardBufferDuration
+        // 攒够缓冲再开始播，弱网/锁屏下不会"有一点就播"然后频繁 rebuffer 卡顿。
+        player.automaticallyWaitsToMinimizeStalling = true
         installTimeObserver()
         installNotifications()
         installRemoteCommands()
@@ -365,8 +366,13 @@ final class PlayerStore: ObservableObject {
         // ⚠️ 用 detached + .high 优先级 —— 锁屏/后台时 iOS 可能降低默认 Task 优先级
         // 导致网络请求被大幅延迟或完全 suspend，下一首就接不上。
         // detached 不继承父 actor 的 executor，直接跑在全局 high-priority executor 上。
+        // 🔴 同时申请后台任务：锁屏/后台时系统会挂起普通异步网络请求，
+        // 导致「播几首就停」—— 下一首的 URL 解析一直不返回。后台任务保活让解析能跑完。
+        let bgTask = UIApplication.shared.beginBackgroundTask { }
         let task = Task.detached(priority: .high) { [weak self] in
-            guard let self else { return }
+            guard let self else { UIApplication.shared.endBackgroundTask(bgTask); return }
+            // 任何退出路径都结束后台任务，避免被系统回收
+            defer { UIApplication.shared.endBackgroundTask(bgTask) }
             // 解析结果在这里算完并冻结成 let，再交给后面的闭包。
             // 之前是一组 var 局部变量被 MainActor.run 闭包捕获，
             // 并发检查报「reference to captured var」，Swift 6 语言模式下直接是错误。
@@ -468,8 +474,8 @@ final class PlayerStore: ObservableObject {
             Log.info("预加载", "复用预加载好的 item，跳过新建")
         } else {
             item = AVPlayerItem(url: url)
-            // 🔴 前置缓冲 20 秒（之前 10 秒）—— 让 AVPlayer 攒够一段数据再开始播，弱网下不再频繁 stall
-            item.preferredForwardBufferDuration = 20
+            // 🔴 前置缓冲 30 秒（之前 20 秒）—— 让 AVPlayer 攒够一段数据再开始播，弱网/锁屏下不再频繁 stall
+            item.preferredForwardBufferDuration = 30
         }
 
         player.replaceCurrentItem(with: item)
@@ -562,7 +568,7 @@ final class PlayerStore: ObservableObject {
         // 有 URL 缓存直接用（CDN 分时 token 15 分钟内有效）
         if let cached = resolvedURLCache[next.id] {
             preloadedItem = AVPlayerItem(url: cached.url)
-            preloadedItem?.preferredForwardBufferDuration = 10  // 跟 attach 里一致，让 AVAsset 预建足够连接
+            preloadedItem?.preferredForwardBufferDuration = 30  // 跟 attach 里一致，让 AVAsset 预建足够连接
             preloadedForSongID = next.id
             Log.info("预加载", "命中缓存，下一首预热：\(next.title.prefix(20))")
             return
@@ -590,7 +596,7 @@ final class PlayerStore: ObservableObject {
                 guard self.currentIndex + 1 < self.queue.count,
                       self.queue[self.currentIndex + 1].id == next.id else { return }
                 self.preloadedItem = AVPlayerItem(url: assetURL)
-                self.preloadedItem?.preferredForwardBufferDuration = 10
+                self.preloadedItem?.preferredForwardBufferDuration = 30
                 self.preloadedForSongID = next.id
                 // 写入缓存方便下次 prepare/stall 恢复直接用
                 self.resolvedURLCache[next.id] = ResolvedEntry(url: assetURL, thirdParty: audio.isThirdParty, at: Date())

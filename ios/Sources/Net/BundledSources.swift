@@ -62,7 +62,9 @@ enum BundledSources {
     static func makeSource(_ preset: Preset) -> ThirdPartySource? {
         guard let script = script(named: preset.scriptName),
               !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return ThirdPartySource(name: preset.displayName, kind: .script, script: script)
+        var source = ThirdPartySource(name: preset.displayName, kind: .script, script: script)
+        source.isBundled = true
+        return source
     }
 
     /// 首次启动时把内置音源写进列表。已经导入过的不重复添加。
@@ -87,6 +89,15 @@ enum BundledSources {
                   let source = makeSource(preset) else { continue }
             store.upsert(source)
             added += 1
+        }
+        // 迁移：设备上已存的内置音源标记 isBundled（老版本没有这个字段，
+        // 否则列表里它们仍会显示脚本音乐名而非「默认音源」）。
+        for preset in available {
+            for index in store.sources.indices where store.sources[index].name == preset.displayName {
+                var marked = store.sources[index]
+                marked.isBundled = true
+                store.upsert(marked)
+            }
         }
         if added == 0, !existing.isEmpty {
             Log.info("内置音源", "没有新增（已有 \(existing.count) 个音源）")

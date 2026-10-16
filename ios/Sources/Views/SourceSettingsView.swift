@@ -42,28 +42,13 @@ struct SourceSettingsView: View {
                 if store.sources.isEmpty {
                     // 音源列表为空 = 所有歌都放不出来。这里必须直说，
                     // 之前只写「官方接口够用时可以不配」，会让人以为是正常状态。
+                    // 内置音源（官方随包脚本）会在首次启动自动加进列表，这里不再引导手动添加。
                     VStack(spacing: 10) {
                         EmptyStateView(icon: "antenna.radiowaves.left.and.right",
                                        title: "还没有添加音源",
                                        message: presets.isEmpty
-                                        ? "这版安装包不带内置音源。用下面「添加」区的「从文件导入」或「从剪贴板导入」，把音源 .js 脚本加进来即可"
-                                        : "下面有内置音源，点一下就能用")
-                        if !presets.isEmpty {
-                            Button {
-                                let added = BundledSources.installMissing()
-                                importMessage = added > 0
-                                    ? "已添加 \(added) 个内置音源，打开它们的开关即可播放"
-                                    : "内置音源已经都在列表里了"
-                            } label: {
-                                Text("一键添加全部内置音源")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
-                                    .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                    .foregroundStyle(AppStyle.onAccent)
-                            }
-                            .buttonStyle(.plain)
-                        }
+                                        ? "这版安装包不带内置音源。用下方「添加」区的「从文件导入」或「从网址导入」，把音源 .js 脚本加进来即可"
+                                        : "内置音源已随安装包自动添加；如需其它音源，用下方「添加」区的「从文件导入」或「从网址导入」")
                     }
                 } else {
                     ForEach(store.sources) { source in
@@ -98,58 +83,8 @@ struct SourceSettingsView: View {
                     .foregroundStyle(AppStyle.tertiaryText)
             }
 
-            // 安装包里没有任何内置脚本时整块隐藏：只留一个空标题会让人
-            // 以为包坏了。现在的 CI 包就是不带音源的，这是预期状态。
-            if !presets.isEmpty {
-                Section {
-                    ForEach(presets) { preset in
-                        HStack(spacing: 12) {
-                            Image(systemName: "shippingbox.fill")
-                                .font(.system(size: 15))
-                                .foregroundStyle(AppStyle.gold)
-                                .frame(width: 28)
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack(spacing: 6) {
-                                    Text(preset.displayName)
-                                        .font(.system(size: 15, weight: .medium))
-                                        .foregroundStyle(AppStyle.primaryText)
-                                    Text(preset.version)
-                                        .font(.system(size: 10, design: .monospaced))
-                                        .foregroundStyle(AppStyle.tertiaryText)
-                                }
-                                Text(presetLine(preset))
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(AppStyle.tertiaryText)
-                                    .lineLimit(2)
-                            }
-                            Spacer(minLength: 4)
-                            if isInstalled(preset) {
-                                Button("已添加") { }
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(AppStyle.accent)
-                                    .disabled(true)
-                            } else {
-                                Button {
-                                    add(preset)
-                                } label: {
-                                    Text("添加")
-                                        .font(.system(size: 12, weight: .medium))
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.vertical, 3)
-                    }
-                } header: {
-                    Text("内置音源")
-                        .font(.system(size: 12))
-                        .foregroundStyle(AppStyle.tertiaryText)
-                } footer: {
-                    Text("随包发布，不用再选文件。第三方脚本由原作者提供服务，可能随时失效；仅供个人学习使用。")
-                        .font(.system(size: 11))
-                        .foregroundStyle(AppStyle.tertiaryText)
-                }
-            }
+            // 🔴 内置音源（官方随包脚本）不再单独展示：它们会在首次启动时自动加进上面
+            // 的「音源列表」，并以「默认音源」显示，不暴露脚本音乐名。此区块整块隐藏。
 
             Section {
                 Button {
@@ -266,27 +201,6 @@ struct SourceSettingsView: View {
 
     private var presets: [BundledSources.Preset] {
         BundledSources.available
-    }
-
-    private func isInstalled(_ preset: BundledSources.Preset) -> Bool {
-        store.sources.contains { $0.name == preset.displayName }
-    }
-
-    private func presetLine(_ preset: BundledSources.Preset) -> String {
-        var parts: [String] = []
-        if let author = preset.author, !author.isEmpty { parts.append(author) }
-        if let license = preset.license, !license.isEmpty { parts.append(license) }
-        if let notes = preset.notes, !notes.isEmpty { parts.append(notes) }
-        return parts.isEmpty ? "洛雪脚本音源" : parts.joined(separator: " · ")
-    }
-
-    private func add(_ preset: BundledSources.Preset) {
-        guard let source = BundledSources.makeSource(preset) else {
-            importMessage = "内置音源 \(preset.displayName) 读取失败，包可能不完整"
-            return
-        }
-        store.upsert(source)
-        importMessage = "成功添加内置音源：\(preset.displayName)，到下面打开它的开关"
     }
 
     /// 从网址导入：下载音源文件直链，落到临时文件后复用整套文件导入逻辑
@@ -455,7 +369,7 @@ private struct SourceRow: View {
                 .frame(width: 28)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(source.name)
+                Text(source.isBundled ? "默认音源" : source.name)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(AppStyle.primaryText)
                     .lineLimit(1)
