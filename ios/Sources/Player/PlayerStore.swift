@@ -370,9 +370,15 @@ final class PlayerStore: ObservableObject {
         // 导致「播几首就停」—— 下一首的 URL 解析一直不返回。后台任务保活让解析能跑完。
         let bgTask = UIApplication.shared.beginBackgroundTask { }
         let task = Task.detached(priority: .high) { [weak self] in
-            guard let self else { UIApplication.shared.endBackgroundTask(bgTask); return }
+            // 🔴 UIApplication.shared 是 @MainActor 隔离的，detached 闭包里直接调会报
+            // 「expression is 'async' but is not marked with 'await'」，
+            // 统一用 DispatchQueue.main 跳回主线程结束后台任务。
+            guard let self else {
+                DispatchQueue.main.async { UIApplication.shared.endBackgroundTask(bgTask) }
+                return
+            }
             // 任何退出路径都结束后台任务，避免被系统回收
-            defer { UIApplication.shared.endBackgroundTask(bgTask) }
+            defer { DispatchQueue.main.async { UIApplication.shared.endBackgroundTask(bgTask) } }
             // 解析结果在这里算完并冻结成 let，再交给后面的闭包。
             // 之前是一组 var 局部变量被 MainActor.run 闭包捕获，
             // 并发检查报「reference to captured var」，Swift 6 语言模式下直接是错误。

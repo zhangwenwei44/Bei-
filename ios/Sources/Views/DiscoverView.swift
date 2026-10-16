@@ -1468,7 +1468,9 @@ struct MoreArtistsView: View {
     /// 右侧英文选择条：A–Z + #，点击滚到该字母第一位歌手。
     /// 只对已加载出的歌手生效（列表是无限滚动，未加载的字母点了也不跳）。
     private func alphabetBar(proxy: ScrollViewProxy) -> some View {
-        let letters = ["#"] + Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        // 🔴 两边都必须是 [String]：Array("ABC") 是 [Character]，[String]+[Character]
+        // 类型不匹配，会把 ForEach 的泛型推断带崩（CI 上 5 个 error 全是这一行连坐）。
+        let letters = ["#"] + "ABCDEFGHIJKLMNOPQRSTUVWXYZ".map { String($0) }
         return VStack(spacing: 1) {
             ForEach(letters, id: \.self) { letter in
                 Button {
