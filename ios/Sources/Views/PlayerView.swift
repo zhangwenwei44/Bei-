@@ -19,6 +19,8 @@ struct PlayerView: View {
     @State private var isLyricsPage = false
     /// 横屏播放器：跟踪当前是否处于横屏（由设备方向通知驱动重排布局）
     @State private var isLandscape = false
+    /// 横屏顶栏浮层（关闭/横屏按钮）：默认隐藏，点击屏幕任意处显隐切换
+    @State private var landscapeChromeVisible = false
     /// 音质切换弹层
     @State private var showQualityPicker = false
     @AppStorage("aurora.playerTheme") private var playerTheme: String = "glitter"
@@ -304,9 +306,10 @@ struct PlayerView: View {
         HStack(alignment: .center, spacing: 8) {
             Button { animateOut() } label: {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(.black.opacity(0.28)))
             }
 
             // 🔴 居中：歌名 + 歌手同一行（用户要求改在一行显示）
@@ -328,8 +331,9 @@ struct PlayerView: View {
             Button { toggleLandscape() } label: {
                 Image(systemName: "rectangle.landscape.rotate")
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.78))
-                    .frame(width: 44, height: 44)
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(.black.opacity(0.28)))
             }
         }
         .frame(height: 44)
@@ -1094,6 +1098,8 @@ struct PlayerView: View {
         if OrientationLock.shared.isLandscapePlayer {
             OrientationLock.shared.exitLandscape()
         } else {
+            // 进入横屏：顶栏浮层（关闭/横屏按钮）默认隐藏，点击屏幕任意处再显
+            landscapeChromeVisible = false
             OrientationLock.shared.enterLandscape()
         }
     }
@@ -1106,6 +1112,7 @@ struct PlayerView: View {
             let insets = geo.safeAreaInsets
             ZStack {
                 // 背景跟随主题（经典/黑胶取色渐变；炫胶自带全屏炫彩）
+                // 🔴 背景层挂点击手势：横屏顶栏浮层默认隐藏，点击任意空白区域显隐切换
                 Group {
                     if currentTheme == .classic {
                         immersiveBackground
@@ -1114,6 +1121,9 @@ struct PlayerView: View {
                     }
                 }
                 .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.2)) { landscapeChromeVisible.toggle() }
+                }
 
                 HStack(spacing: 0) {
                     // 左：大封面（垂直居中，约占屏宽 38%）
@@ -1140,34 +1150,43 @@ struct PlayerView: View {
                 }
                 .padding(.leading, insets.leading)
 
-                // 顶栏浮层：关闭（左）+ 横屏按钮（右），歌名不重复显示（标题行已有）
-                VStack(spacing: 0) {
-                    landscapeTopBar()
-                        .frame(height: 44)
-                        .padding(.top, insets.top)
-                    Spacer(minLength: 0)
+                // 顶栏浮层：默认隐藏，点击屏幕任意处显隐。关闭（左）+ 横屏按钮（右）。
+                if landscapeChromeVisible {
+                    VStack(spacing: 0) {
+                        landscapeTopBar()
+                            .frame(height: 44)
+                            .padding(.top, insets.top + 10)      // 关闭按钮往下移一点
+                            .padding(.leading, insets.leading + 8)
+                            .padding(.trailing, insets.trailing + 8)
+                        Spacer(minLength: 0)
+                    }
+                    .transition(.opacity)
                 }
             }
         }
         .ignoresSafeArea()
     }
 
-    /// 横屏顶栏：只留 关闭（左）+ 横屏切换（右）。
+    /// 横屏顶栏：只留 关闭（左）+ 横屏切换（右）。按钮带半透明深色圆底，
+    /// 既好按（大命中区、不贴边角）又在任何背景上都清晰可见。
     private func landscapeTopBar() -> some View {
         HStack(spacing: 0) {
             Button { animateOut() } label: {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 20, weight: .semibold))
-                    .frame(width: 44, height: 44, alignment: .center)
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(.black.opacity(0.35)))
             }
             Spacer(minLength: 0)
             Button { toggleLandscape() } label: {
                 Image(systemName: "rectangle.landscape.rotate")
-                    .font(.system(size: 19, weight: .medium))
-                    .frame(width: 44, height: 44, alignment: .center)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(.black.opacity(0.35)))
             }
         }
-        .foregroundStyle(.white)
         .buttonStyle(.plain)
     }
 
@@ -1241,8 +1260,10 @@ struct PlayerView: View {
 
             Button { store.step(-1) } label: {
                 Image(systemName: "backward.end.fill")
-                    .font(.system(size: 26))
-                    .frame(width: 52, height: 48)
+                    .font(.system(size: 24))
+                    .foregroundStyle(.white)
+                    .frame(width: 48, height: 48)
+                    .background(Circle().fill(.white.opacity(0.16)))
             }
 
             Spacer(minLength: 0)
@@ -1253,8 +1274,10 @@ struct PlayerView: View {
 
             Button { store.step(1) } label: {
                 Image(systemName: "forward.end.fill")
-                    .font(.system(size: 26))
-                    .frame(width: 52, height: 48)
+                    .font(.system(size: 24))
+                    .foregroundStyle(.white)
+                    .frame(width: 48, height: 48)
+                    .background(Circle().fill(.white.opacity(0.16)))
             }
 
             Spacer(minLength: 0)
@@ -1265,9 +1288,9 @@ struct PlayerView: View {
             } label: {
                 Text("词")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.85))
+                    .foregroundStyle(.white)
                     .frame(width: 34, height: 34)
-                    .overlay(Circle().strokeBorder(.white.opacity(0.45), lineWidth: 1))
+                    .background(Circle().fill(.white.opacity(0.16)))
                     .frame(width: 44, height: 48)
             }
         }
@@ -1293,8 +1316,10 @@ struct PlayerView: View {
         HStack(spacing: 0) {
             Button { animateOut() } label: {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 20, weight: .semibold))
-                    .frame(width: 44, height: 44, alignment: .center)
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(.black.opacity(0.28)))
             }
 
             // 歌名 + 歌手同一行（用户要求改在一行显示）
@@ -1316,11 +1341,13 @@ struct PlayerView: View {
 
             Button { toggleLandscape() } label: {
                 Image(systemName: "rectangle.landscape.rotate")
-                    .font(.system(size: 19, weight: .medium))
-                    .frame(width: 44, height: 44, alignment: .center)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(.black.opacity(0.28)))
             }
         }
-        // 关闭/分享按钮同为 44×44 居中对齐，两个图标齐平
+        // 关闭 / 横屏 按钮同为 40×40 圆形底，图标齐平，深色半透明底确保任意背景可见
         .frame(height: 44)
         .foregroundStyle(.white)
     }
@@ -1465,9 +1492,9 @@ struct PlayerView: View {
     }
 
     private func actionRow() -> some View {
-        // 居中簇：四项（收藏/下载/音质/歌词）整体居中，不铺满全宽；项间距 25
-        // 🔴 已移除「翻译」（用户要求）；间距 30 → 25。
-        HStack(spacing: 25) {
+        // 居中簇：四项（收藏/下载/音质/歌词）整体居中，不铺满全宽；项间距 35
+        // 🔴 已移除「翻译」（用户要求）；间距 30 → 25 → 35（加大）。
+        HStack(spacing: 35) {
             actionButton(icon: store.isLiked ? "heart.fill" : "heart",
                          label: "收藏",
                          tint: store.isLiked ? AppStyle.like : .white) {
@@ -1812,6 +1839,16 @@ struct LyricsPageView: View {
         return 50
     }
 
+    private var safeBottom: CGFloat {
+        for scene in UIApplication.shared.connectedScenes {
+            if let ws = scene as? UIWindowScene,
+               let w = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first {
+                return max(8, w.safeAreaInsets.bottom)
+            }
+        }
+        return 16
+    }
+
     var body: some View {
         ZStack {
             // 沉浸式取色背景（专辑图模糊 + 渐变）
@@ -1885,14 +1922,21 @@ struct LyricsPageView: View {
                     .padding(.top, 8)
                     .opacity(store.lyricMetadata.isEmpty ? 0 : 0.85)
 
-                // 纯正文歌词滚动区
+                // 纯正文歌词滚动区（flex 占满剩余高度，底部留给控制条）
                 BigLyricsView(lyrics: store.lyrics,
                               currentIndex: lyricState.currentIndex,
                               showsTranslation: store.showTranslation)
                     .frame(maxHeight: .infinity)
                     .padding(.horizontal, 26)
                     .padding(.top, 12)
+
+                // 底部播放控件条：进度 + 上一首/播放/下一首（固定高度，安全区内置，不挤出屏幕）
+                LyricsBottomBar()
+                    .padding(.horizontal, 26)
+                    .padding(.top, 8)
+                    .padding(.bottom, safeBottom + 6)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .ignoresSafeArea()
         .highPriorityGesture(
@@ -1958,6 +2002,88 @@ struct LyricsPageView: View {
     }
 }
 
+/// 全屏歌词页底部播放控件条：进度条 + 上一首 / 播放 / 下一首。
+/// 固定在歌词页底部，内置于安全区，永远不会被歌词滚动区挤出屏幕。
+private struct LyricsBottomBar: View {
+    @EnvironmentObject private var store: PlayerStore
+    /// 直接订阅同一个 PlaybackProgress 实例，保证进度条随播放实时刷新
+    @ObservedObject private var playback = PlayerStore.shared.playback
+    @State private var isScrubbing = false
+    @State private var scrubValue: Double = 0
+
+    private var displayTime: Double { isScrubbing ? scrubValue : playback.currentTime }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            // 进度条
+            GeometryReader { geo in
+                let w = geo.size.width
+                let pf = max(0, min(1, playback.progress))
+                let bf = max(0, min(1, playback.bufferedFraction))
+                let px = pf * w
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.22)).frame(height: 3)
+                    Capsule().fill(.white.opacity(0.32)).frame(width: bf * w, height: 3)
+                    Capsule().fill(.white).frame(width: px, height: 3)
+                    Circle().fill(.white)
+                        .frame(width: 12, height: 12)
+                        .offset(x: px - 6)
+                        .opacity(isScrubbing ? 1 : 0)
+                        .shadow(color: .black.opacity(0.4), radius: 4)
+                }
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0)
+                    .onChanged { v in
+                        guard playback.duration > 0, w > 0 else { return }
+                        if !isScrubbing {
+                            isScrubbing = true
+                            scrubValue = playback.currentTime
+                            Haptics.light()
+                        }
+                        scrubValue = min(1, max(0, v.location.x / w)) * playback.duration
+                    }
+                    .onEnded { _ in
+                        store.seek(to: scrubValue)
+                        isScrubbing = false
+                    })
+            }
+            .frame(height: 16)
+
+            HStack {
+                Text(displayTime.clockString)
+                    .font(.system(size: 11, design: .monospaced))
+                Spacer()
+                Text(playback.duration.clockString)
+                    .font(.system(size: 11, design: .monospaced))
+            }
+            .foregroundStyle(.white.opacity(0.7))
+
+            // 控制键：上一首 / 播放 / 下一首（与播放页同款 PlayButton，白字白圈，任意背景可见）
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                Button { store.step(-1) } label: {
+                    Image(systemName: "backward.end.fill")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.white)
+                        .frame(width: 56, height: 52)
+                }
+                Spacer(minLength: 0)
+                PlayButton()
+                Spacer(minLength: 0)
+                Button { store.step(1) } label: {
+                    Image(systemName: "forward.end.fill")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.white)
+                        .frame(width: 56, height: 52)
+                }
+                Spacer(minLength: 0)
+            }
+            .buttonStyle(.plain)
+        }
+        .foregroundStyle(.white)
+    }
+}
+
 /// 全屏歌词页专用大字歌词流。当前行 30pt 纯白垂直居中，其他行 20pt 浅灰，行间距拉大到 40pt。
 /// 性能关键：LazyVStack（只渲染可见行）+ index 直接比较（干掉 O(n²) firstIndex）+ 每行无 .animation（全局动画容器）。
 private struct BigLyricsView: View {
@@ -1970,7 +2096,7 @@ private struct BigLyricsView: View {
             ScrollView(showsIndicators: false) {
                 // LazyVStack：只渲染屏幕可见的几行 —— 100 行歌词 ≈ 同时渲染 8-10 行，
                 // 对比 VStack 全量渲染 100 行，滚动时 body 重建量直接砍到 1/10。
-                LazyVStack(spacing: 40) {
+                LazyVStack(alignment: .center, spacing: 40) {
                     if lyrics.isEmpty {
                         Text("纯音乐 · 暂无歌词")
                             .font(.system(size: 14))
@@ -1996,7 +2122,7 @@ private struct BigLyricsView: View {
                                 }
                             }
                             .lineSpacing(4)
-                            .frame(maxWidth: .infinity)
+                            .frame(maxWidth: .infinity, alignment: .center)
                             .id(line.id)
                             // 关键：每行不单独加 .animation —— 以前每行都 .animation(.easeInOut(0.3), value: isActive)
                             // 导致 currentIndex 一变 100 行全部做 transition 动画。
