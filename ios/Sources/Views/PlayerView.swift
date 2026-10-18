@@ -867,6 +867,20 @@ struct PlayerView: View {
         return (44, 34)
     }
 
+    /// 横屏布局专用：返回 key window 的【真实】安全区（含 leading/trailing/top/bottom），不做兜底。
+    /// 🔴 不能用 GeometryReader 的 safeAreaInsets（根部 ignoresSafeArea 下返回 0，会让左列顶进刘海、
+    /// 右列压进 home indicator）；也不能复用 safeAreaInsets 的 top=44/bottom=34 兜底（那是竖屏下巴/刘海用的，
+    /// 横屏 top/bottom 本就≈0，套上去反而把浮层顶得太靠下）。横屏要的是真实的 left/right 内缩来避开
+    /// 刘海与 home indicator。
+    private static var landscapeInsets: UIEdgeInsets {
+        for scene in UIApplication.shared.connectedScenes {
+            guard let ws = scene as? UIWindowScene,
+                  let w = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first else { continue }
+            return w.safeAreaInsets
+        }
+        return .zero
+    }
+
     // MARK: - 背景（封面取色渐变 + 封面虚化，酷狗风格）
 
     private var immersiveBackground: some View {
@@ -1139,7 +1153,9 @@ struct PlayerView: View {
     /// 单排控制键（收藏/上一首/播放/下一首/词）。顶栏只留 关闭+横屏按钮，浮在内容上。
     private func landscapeBody() -> some View {
         GeometryReader { geo in
-            let insets = geo.safeAreaInsets
+            // 🔴 横屏安全区必须用 key window 真实值：geo.safeAreaInsets 在 ignoresSafeArea 下全返回 0，
+            // 会让左列顶进刘海（XS 直接挡住唱片）、右列压进 home indicator（列表按钮点不动）。
+            let insets = Self.landscapeInsets
             ZStack {
                 // 背景跟随主题（经典/黑胶取色渐变；炫胶自带全屏炫彩）
                 // 🔴 背景层挂点击手势：横屏顶栏浮层默认隐藏，点击任意空白区域显隐切换
@@ -1174,22 +1190,25 @@ struct PlayerView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     .padding(.leading, 28)
-                    .padding(.trailing, insets.trailing + 28)
-                    .padding(.top, insets.top + 50)   // 给浮层顶栏让位
+                    .padding(.trailing, insets.right + 28)   // 真实右安全区：避开 home indicator
+                    .padding(.top, insets.top + 50)          // 给浮层顶栏让位
                     .padding(.bottom, max(insets.bottom, 14))
                 }
-                .padding(.leading, insets.leading)
+                .padding(.leading, insets.left)              // 真实左安全区：避开刘海（XS 不再遮唱片）
 
                 // 顶栏浮层：默认隐藏，点击屏幕任意处显隐。关闭（左）+ 横屏按钮（右）。
+                // 🔴 浮层 VStack 必须撑满并 alignment:.top —— 否则它在 ZStack 里被居中，
+                // 关闭/横屏按钮跑到屏幕正中、顶部反而空着，点顶部"返回"自然没反应。
                 if landscapeChromeVisible {
                     VStack(spacing: 0) {
                         landscapeTopBar()
                             .frame(height: 44)
                             .padding(.top, insets.top + 18)      // 不贴顶，往下留呼吸空间
-                            .padding(.leading, insets.leading + 8)
-                            .padding(.trailing, insets.trailing + 8)
+                            .padding(.leading, insets.left + 8)
+                            .padding(.trailing, insets.right + 8)
                         Spacer(minLength: 0)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
                 }
             }
@@ -1232,34 +1251,35 @@ struct PlayerView: View {
         }
     }
 
-    /// 横屏三行歌词：上一句（暗）/ 当前句（大、高亮）/ 下一句（暗）。点击进全屏歌词页。
+    /// 横屏歌词块：四行（上句暗 / 当前句大高亮 / 下句暗 / 下下句更暗），纯展示。
+    /// 🔴 不再可点击跳转 —— 用户要求横屏点歌词就不要进歌词页（避免旋转打架/重复）。
     private var landscapeLyricsBlock: some View {
-        Button {
-            openLyricsPage()
-        } label: {
-            VStack(alignment: .leading, spacing: 12) {
-                if let prev = prevLyricText {
-                    Text(prev)
-                        .font(.system(size: 14))
-                        .foregroundStyle(.white.opacity(0.38))
-                        .lineLimit(1)
-                }
-                Text(currentLyricText)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                if let next = nextLyricText {
-                    Text(next)
-                        .font(.system(size: 14))
-                        .foregroundStyle(.white.opacity(0.38))
-                        .lineLimit(1)
-                }
+        VStack(alignment: .leading, spacing: 10) {
+            if let prev = prevLyricText {
+                Text(prev)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white.opacity(0.38))
+                    .lineLimit(1)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            Text(currentLyricText)
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+            if let next = nextLyricText {
+                Text(next)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white.opacity(0.38))
+                    .lineLimit(1)
+            }
+            if let nextNext = nextNextLyricText {
+                Text(nextNext)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.22))
+                    .lineLimit(1)
+            }
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.easeInOut(duration: 0.25), value: currentLyricText)
         .animation(.easeInOut(duration: 0.25), value: nextLyricText)
     }
@@ -1268,6 +1288,14 @@ struct PlayerView: View {
         guard let index = lyricState.currentIndex,
               index > 0, store.lyrics.indices.contains(index - 1) else { return nil }
         let text = store.lyrics[index - 1].text
+        return text.isEmpty ? nil : text
+    }
+
+    /// 横屏第四行（更暗）：当前句的"下下一句"。
+    private var nextNextLyricText: String? {
+        guard let index = lyricState.currentIndex,
+              store.lyrics.indices.contains(index + 2) else { return nil }
+        let text = store.lyrics[index + 2].text
         return text.isEmpty ? nil : text
     }
 
