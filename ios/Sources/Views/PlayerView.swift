@@ -17,6 +17,8 @@ struct PlayerView: View {
 
     @State private var showToast: String?
     @State private var isLyricsPage = false
+    /// 横屏播放器：跟踪当前是否处于横屏（由设备方向通知驱动重排布局）
+    @State private var isLandscape = false
     /// 音质切换弹层
     @State private var showQualityPicker = false
     @AppStorage("aurora.playerTheme") private var playerTheme: String = "glitter"
@@ -45,25 +47,39 @@ struct PlayerView: View {
         let contentHeight = screen.height - win.safeTop - win.safeBottom
 
         ZStack {
-            // 经典/黑胶沿用取色渐变背景；炫胶自带全屏背景
-            switch currentTheme {
-            case .classic:
-                immersiveBackground.ignoresSafeArea()
-                classicBody(in: contentHeight, win: win, screen: screen)
-            case .vinyl:
-                immersiveBackground.ignoresSafeArea()
-                vinylBody(in: contentHeight, win: win, screen: screen)
-            case .glitter:    glitterBody(in: contentHeight, win: win, screen: screen)
+            if isLandscape {
+                // 横屏播放器：右上角按钮强制旋转后接管（唱片在左、信息在右）
+                landscapeBody()
+            } else {
+                // 经典/黑胶沿用取色渐变背景；炫胶自带全屏背景
+                switch currentTheme {
+                case .classic:
+                    immersiveBackground.ignoresSafeArea()
+                    classicBody(in: contentHeight, win: win, screen: screen)
+                case .vinyl:
+                    immersiveBackground.ignoresSafeArea()
+                    vinylBody(in: contentHeight, win: win, screen: screen)
+                case .glitter:    glitterBody(in: contentHeight, win: win, screen: screen)
+                }
             }
         }
         .frame(width: screen.width, height: screen.height)
         .ignoresSafeArea()
         .gesture(dragGesture)
         .overlay(alignment: .bottom) { toastLayer }
-        // 🔴 不挂 onAppear/onDisappear 改 isExpanded：
-        // 播放页现在由 fullScreenCover 呈现，出现/消失由 isExpanded 驱动，
-        // 反过来在 onDisappear 里写 isExpanded 会在其上再弹 sheet（分享等）
-        // 时误关播放页。开/关动画由系统 presentation 动画负责。
+        // 🔴 歌词页：全屏歌词（LyricsPageView）—— 动作行/歌词预览点击进入。
+        // 用系统 fullScreenCover 呈现（UIKit 级，关闭即销毁，无 SwiftUI 树残留）。
+        .fullScreenCover(isPresented: $isLyricsPage) {
+            LyricsPageView(isShown: $isLyricsPage)
+                .environmentObject(store)
+        }
+        // 🔴 跟踪设备方向：横屏播放器靠强制旋转 + 这里更新 isLandscape 重排布局
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            isLandscape = UIScreen.main.bounds.width > UIScreen.main.bounds.height
+        }
+        .onAppear { isLandscape = UIScreen.main.bounds.width > UIScreen.main.bounds.height }
+        // 🔴 关闭播放页时恢复竖屏（避免退出后整 App 卡在横屏）
+        .onDisappear { OrientationLock.shared.resetToPortrait() }
     }
 
     /// 酷狗黑胶（当前默认）：黑胶封面 + 信息堆叠 + Spacer 推控制到底
@@ -297,8 +313,8 @@ struct PlayerView: View {
             }
             .frame(maxWidth: .infinity)
 
-            Button { presentShare() } label: {
-                Image(systemName: "square.and.arrow.up")
+            Button { toggleLandscape() } label: {
+                Image(systemName: "rectangle.landscape.rotate")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(.white.opacity(0.78))
                     .frame(width: 44, height: 44)
@@ -1059,6 +1075,79 @@ struct PlayerView: View {
 
     private var isSpinning: Bool { store.isPlaying && !store.isLoading && !store.isBuffering }
 
+    // MARK: - 横屏播放器（参考酷狗：右上角「横屏」按钮进入）
+
+    /// 进入/退出横屏播放器的切换：由顶栏的「横屏」按钮调用。
+    private func toggleLandscape() {
+        if OrientationLock.shared.isLandscapePlayer {
+            OrientationLock.shared.exitLandscape()
+        } else {
+            OrientationLock.shared.enterLandscape()
+        }
+    }
+
+    /// 横屏布局：左侧大唱片，右侧信息列（歌词 + 动作行 + 进度 + 控件）。
+    private func landscapeBody() -> some View {
+        GeometryReader { geo in
+            let insets = geo.safeAreaInsets
+            ZStack {
+                // 背景跟随主题（经典/黑胶取色渐变；炫胶自带全屏炫彩）
+                Group {
+                    if currentTheme == .classic {
+                        immersiveBackground
+                    } else {
+                        glitterBackground
+                    }
+                }
+                .ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    // 顶栏：关闭（左）+ 横屏按钮（右）
+                    topBar()
+                        .frame(height: 44)
+                        .padding(.top, insets.top)
+
+                    HStack(alignment: .center, spacing: 30) {
+                        // 左：唱片
+                        discViewForLandscape(maxSide: min(geo.size.height - insets.top - insets.bottom,
+                                                         geo.size.width * 0.42))
+                            .frame(maxWidth: geo.size.width * 0.45, maxHeight: .infinity)
+
+                        // 右：信息列
+                        VStack(spacing: 0) {
+                            currentLyricPill
+                            actionRow()
+                                .padding(.top, 18)
+                            progressSection()
+                                .padding(.top, 20)
+                                .padding(.horizontal, 6)
+                            controls()
+                                .padding(.top, 14)
+                        }
+                        .frame(maxWidth: geo.size.width * 0.5, maxHeight: .infinity)
+                    }
+                    .frame(maxHeight: .infinity)
+                    .padding(.horizontal, insets.leading + 24)
+                }
+                .padding(.bottom, insets.bottom)
+            }
+        }
+        .ignoresSafeArea()
+    }
+
+    /// 横屏下的唱片：跟随主题选择黑胶 / 炫胶 / 普通圆角封面。
+    @ViewBuilder
+    private func discViewForLandscape(maxSide: CGFloat) -> some View {
+        switch currentTheme {
+        case .glitter:
+            glitterDiscArea(width: maxSide)
+        case .vinyl:
+            vinylArtwork(width: maxSide, height: maxSide)
+        case .classic:
+            roundedArtwork(width: maxSide, height: maxSide)
+        }
+    }
+
     // MARK: - 顶栏
 
     private func topBar() -> some View {
@@ -1086,8 +1175,8 @@ struct PlayerView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 8)
 
-            Button { presentShare() } label: {
-                Image(systemName: "square.and.arrow.up")
+            Button { toggleLandscape() } label: {
+                Image(systemName: "rectangle.landscape.rotate")
                     .font(.system(size: 19, weight: .medium))
                     .frame(width: 44, height: 44, alignment: .center)
             }
@@ -1095,23 +1184,6 @@ struct PlayerView: View {
         // 关闭/分享按钮同为 44×44 居中对齐，两个图标齐平
         .frame(height: 44)
         .foregroundStyle(.white)
-    }
-
-    private var shareText: String {
-        let song = store.current
-        return "\(song?.title ?? "") - \(song?.artist ?? "")"
-    }
-
-    private func presentShare() {
-        let items = [shareText] as [Any]
-        let ac = UIActivityViewController(activityItems: items, applicationActivities: nil)
-        for scene in UIApplication.shared.connectedScenes {
-            guard let ws = scene as? UIWindowScene,
-                  let vc = ws.windows.first?.rootViewController else { continue }
-            ac.popoverPresentationController?.sourceView = vc.view
-            ac.popoverPresentationController?.sourceRect = CGRect(x: vc.view.bounds.midX, y: vc.view.bounds.midY, width: 0, height: 0)
-            vc.present(ac, animated: true); break
-        }
     }
 
     /// 顶栏中间显示的专辑名（优先歌曲专辑，fallback 源名）
@@ -1217,14 +1289,14 @@ struct PlayerView: View {
             VStack(spacing: 4) {
                 // 第一行：当前歌词 —— 高亮、大（用户要求高亮在上面）
                 Text(currentLyricText)
-                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .font(.system(size: 16, weight: .medium, design: .rounded))
                     .foregroundStyle(.white.opacity(0.9))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .center)
                 // 第二行：下一句歌词 —— 暗、小
                 if let next = nextLyricText {
                     Text(next)
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(.white.opacity(0.35))
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .center)
@@ -1254,9 +1326,9 @@ struct PlayerView: View {
     }
 
     private func actionRow() -> some View {
-        // 居中簇：五项整体居中，不铺满全宽；项间距 30
-        // 排序（用户要求）：收藏、下载、音质、翻译、歌词
-        HStack(spacing: 30) {
+        // 居中簇：四项（收藏/下载/音质/歌词）整体居中，不铺满全宽；项间距 25
+        // 🔴 已移除「翻译」（用户要求）；间距 30 → 25。
+        HStack(spacing: 25) {
             actionButton(icon: store.isLiked ? "heart.fill" : "heart",
                          label: "收藏",
                          tint: store.isLiked ? AppStyle.like : .white) {
@@ -1268,9 +1340,6 @@ struct PlayerView: View {
                          label: qualityShortTitle,
                          tint: AppStyle.gold) {
                 showQualityPicker = true
-            }
-            actionButton(icon: "character.bubble", label: "翻译") {
-                store.showTranslation.toggle()
             }
             actionButton(icon: "text.quote", label: "歌词") {
                 withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }

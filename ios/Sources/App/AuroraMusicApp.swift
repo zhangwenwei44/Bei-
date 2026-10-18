@@ -10,6 +10,9 @@ struct AuroraMusicApp: App {
     @StateObject private var auth = AuthService.shared
     @AppStorage("aurora.disclaimer.accepted") private var disclaimerAccepted = false
     @State private var showQQSheet = false
+    /// 🔴 注入 AppDelegate：接管 supportedInterfaceOrientations，配合 OrientationLock
+    /// 实现「平时锁竖屏、横屏播放器时强制横屏」。
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
         // 必须最先装：播放闪退时全靠它把现场写进运行日志
