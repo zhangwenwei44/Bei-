@@ -1201,45 +1201,44 @@ struct PlayerView: View {
                 withAnimation(.easeInOut(duration: 0.2)) { landscapeChromeVisible.toggle() }
             }
 
-                HStack(spacing: 0) {
-                    // 左：大封面（垂直居中，约占屏宽 38%）
-                    discViewForLandscape(maxSide: min(size.height - insets.top - insets.bottom - 40,
-                                                      size.width * 0.38))
-                        .frame(maxWidth: size.width * 0.42, maxHeight: .infinity)
+            HStack(spacing: 0) {
+                // 左：大封面（垂直居中，约占屏宽 38%）
+                discViewForLandscape(maxSide: min(size.height - insets.top - insets.bottom - 40,
+                                                  size.width * 0.38))
+                    .frame(maxWidth: size.width * 0.42, maxHeight: .infinity)
 
-                    // 右：信息列
-                    VStack(alignment: .leading, spacing: 0) {
-                        landscapeTitleRow
-                        landscapeLyricsBlock
-                            .padding(.top, 16)
-                        Spacer(minLength: 10)
-                        progressSection()
-                            .padding(.horizontal, 2)
-                        landscapeControls()
-                            .padding(.top, 10)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    .padding(.leading, 28)
-                    .padding(.trailing, insets.right + 28)   // 真实右安全区：避开 home indicator
-                    .padding(.top, insets.top + 50)          // 给浮层顶栏让位
-                    .padding(.bottom, max(insets.bottom, 14))
+                // 右：信息列
+                VStack(alignment: .leading, spacing: 0) {
+                    landscapeTitleRow
+                    landscapeLyricsBlock
+                        .padding(.top, 16)
+                    Spacer(minLength: 10)
+                    progressSection()
+                        .padding(.horizontal, 2)
+                    landscapeControls()
+                        .padding(.top, 10)
                 }
-                .padding(.leading, insets.left)              // 真实左安全区：避开刘海（XS 不再遮唱片）
-
-                // 顶栏浮层：默认隐藏，点击屏幕任意处显隐。只有关闭按钮。
-                // 🔴 浮层必须只包住顶栏自身（无 Spacer、无 maxHeight:infinity）：
-                // 撑满全屏的不可见层会吞掉下方内容的触摸（横屏按钮点不到的元凶之一）。
-                if landscapeChromeVisible {
-                    VStack(spacing: 0) {
-                        landscapeTopBar()
-                            .frame(height: 44)
-                            .padding(.top, insets.top + 18)      // 不贴顶，往下留呼吸空间
-                            .padding(.leading, insets.left + 8)
-                            .padding(.trailing, insets.right + 8)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .top)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .padding(.leading, 28)
+                .padding(.trailing, insets.right + 28)   // 真实右安全区：避开 home indicator
+                .padding(.top, insets.top + 50)          // 给浮层顶栏让位
+                .padding(.bottom, max(insets.bottom, 14))
+            }
+            .padding(.leading, insets.left)              // 真实左安全区：避开刘海（XS 不再遮唱片）
+        }
+        // 🔴 顶栏浮层用 overlay(alignment:.top) 钉在顶部：
+        // - 放 ZStack 里不带 alignment 会被居中（实测关闭按钮浮在唱片中间）；
+        // - 带全屏 frame 又可能吞下方触摸；
+        // overlay 只在自身内容处可点击，两个问题都没有。
+        .overlay(alignment: .top) {
+            if landscapeChromeVisible {
+                landscapeTopBar()
+                    .frame(height: 44)
+                    .padding(.top, insets.top + 18)      // 不贴顶，往下留呼吸空间
+                    .padding(.leading, insets.left + 8)
+                    .padding(.trailing, insets.right + 8)
                     .transition(.opacity)
-                }
+            }
         }
     }
 
@@ -2031,6 +2030,24 @@ struct LyricsPageView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(width: sz.width, height: sz.height)
+        .overlay(alignment: .topLeading) {
+            // 🔍 临时调试浮层（定位歌词页布局偏移后删除）：
+            // geo = 容器实测尺寸 / sz = 几何权威尺寸 / safe = 上下安全区 / win = 每个场景的窗口数
+            VStack(alignment: .leading, spacing: 2) {
+                Text("geo \(Int(geo.size.width))x\(Int(geo.size.height))")
+                Text("sz  \(Int(sz.width))x\(Int(sz.height))")
+                Text("safe \(Int(safeTop))/\(Int(safeBottom))")
+                Text("win  " + UIApplication.shared.connectedScenes
+                    .compactMap { ($0 as? UIWindowScene)?.windows.count }
+                    .map(String.init).joined(separator: ","))
+            }
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundStyle(.yellow)
+            .padding(6)
+            .background(.black.opacity(0.55))
+            .padding(.top, 110)
+            .padding(.leading, 6)
+        }
         }
         .ignoresSafeArea()
         .clipped()
