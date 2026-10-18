@@ -1806,7 +1806,15 @@ struct PlayerView: View {
     }
 
     private func animateOut() {
+        // 🔴 双保险关闭（横屏「退出点不到」的最终修复）：
+        // 此前只回写 isExpanded 绑定，靠 RootView.onChange 间接调 PlayerPresenter.dismiss()
+        // —— 实测在横屏 + 强制旋转组合下这条间接链没有生效（点退出毫无反应）。
+        // 现在两路并发：
+        // 1) isExpanded = false：维持 SwiftUI 状态一致（迷你条恢复显示等）；
+        // 2) 直接调 PlayerPresenter.dismiss()：UIKit 层立刻销毁 presented VC，必然生效。
+        // dismiss() 幂等（currentVC 已置空时是 no-op），两条路不会重复销毁。
         withAnimation(.spring(response: 0.42, dampingFraction: 0.9)) { isExpanded = false }
+        PlayerPresenter.shared.dismiss()
     }
 
     private func show(_ message: String) {
@@ -1950,22 +1958,16 @@ struct LyricsPageView: View {
         GeometryReader { geo in
             let sz = PlayerView.interfaceSize(fallback: geo.size)
         ZStack {
-            // 沉浸式取色背景（专辑图模糊 + 渐变）
+            // 沉浸式取色背景
+            // 🔴 改为完全不透明：①渐变不再打折（原 0.96 会透出底下播放页）；
+            // ②删掉模糊专辑图浮层 —— 它在歌词正后方形成一团"幽灵唱片"，
+            // 用户误以为是播放页透出来（实测截图可见盘面轮廓）。底部再垫纯色。
             ZStack {
+                Color(store.currentPalette.dark)
+
                 LinearGradient(colors: store.currentPalette.gradient,
                                startPoint: .topLeading,
                                endPoint: .bottomTrailing)
-                    .opacity(0.96)
-
-                if let artwork = store.artwork {
-                    Image(uiImage: artwork)
-                        .resizable()
-                        .scaledToFill()
-                        .blur(radius: 72)
-                        .opacity(0.42)
-                        .scaleEffect(1.3)
-                        .clipped()
-                }
 
                 LinearGradient(colors: [.black.opacity(0.35),
                                         .black.opacity(0.18),
@@ -1974,6 +1976,17 @@ struct LyricsPageView: View {
                                startPoint: .top, endPoint: .bottom)
             }
             .ignoresSafeArea()
+            // 🔴 下滑关闭手势挂背景层（普通 .gesture，不是整页 highPriorityGesture）：
+            // 之前整页 highPriorityGesture 会把歌词页进度条的拖动手势抢掉
+            // （父级高优先级手势压过子级 → 进度条拖不动的根因）。
+            // 挂背景后：空白处可下滑关闭；进度条/歌词滚动区各自的手势正常优先。
+            .gesture(
+                DragGesture(minimumDistance: 24).onEnded { value in
+                    if value.translation.height > 60 {
+                        withAnimation(.easeInOut(duration: 0.3)) { isShown = false }
+                    }
+                }
+            )
 
             VStack(spacing: 0) {
                 // 顶栏：降低存在感
@@ -2047,13 +2060,8 @@ struct LyricsPageView: View {
         }
         .ignoresSafeArea()
         .clipped()
-        .highPriorityGesture(
-            DragGesture(minimumDistance: 24).onEnded { value in
-                if value.translation.height > 60 {
-                    withAnimation(.easeInOut(duration: 0.3)) { isShown = false }
-                }
-            }
-        )
+        // 🔴 整页下滑关闭手势已移到背景层（.gesture）：highPriorityGesture 会把
+        // 进度条的拖动手势整个吃掉（进度条拖不动的根因），不能再挂在这。
     }
 
     // MARK: - 折叠简介
@@ -2169,7 +2177,9 @@ private struct LyricsBottomBar: View {
                         isScrubbing = false
                     })
             }
-            .frame(height: 16)
+            // 🔴 触摸区高 28pt（视觉仍是 3pt 细条，contentShape 撑满整行）：
+            // 16pt 太窄，手指很难按准进度条
+            .frame(height: 28)
 
             HStack {
                 Text(displayTime.clockString)
