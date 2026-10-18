@@ -19,8 +19,6 @@ struct PlayerView: View {
     @State private var isLyricsPage = false
     /// 横屏播放器：跟踪当前是否处于横屏（由方向锁权威驱动）
     @State private var isLandscape = false
-    /// 横屏顶栏浮层（关闭/横屏按钮）：默认隐藏，点击屏幕任意处显隐切换
-    @State private var landscapeChromeVisible = false
     /// 音质切换弹层
     @State private var showQualityPicker = false
     @AppStorage("aurora.playerTheme") private var playerTheme: String = "glitter"
@@ -1143,8 +1141,6 @@ struct PlayerView: View {
             isLandscape = false
             UIApplication.shared.isIdleTimerDisabled = false
         } else {
-            // 进入横屏：顶栏浮层（关闭按钮）默认隐藏，点击屏幕任意处再显
-            landscapeChromeVisible = false
             OrientationLock.shared.enterLandscape()
             // 🔴 立即置 isLandscape = true（由方向锁权威驱动），不等方向通知 ——
             // 强制旋转瞬间通知是滞后的，等它会把横屏当成竖屏布局而裁切。
@@ -1189,16 +1185,14 @@ struct PlayerView: View {
     private func landscapeContent(size: CGSize, insets: UIEdgeInsets) -> some View {
         ZStack {
             // 背景跟随主题（经典/黑胶取色渐变；炫胶自带全屏炫彩）
-            // 🔴 背景层挂点击手势：横屏顶栏浮层默认隐藏，点击任意空白区域显隐切换
+            // 🔴 背景层不再挂任何点击手势：以前点背景才能"显出"顶栏关闭按钮，
+            // 用户第一次点关闭的位置其实是空白背景 → "点了没反应"。改为常驻显示。
             Group {
                 if currentTheme == .classic {
                     immersiveBackground
                 } else {
                     glitterBackground
                 }
-            }
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.2)) { landscapeChromeVisible.toggle() }
             }
 
             HStack(spacing: 0) {
@@ -1230,32 +1224,34 @@ struct PlayerView: View {
         // - 放 ZStack 里不带 alignment 会被居中（实测关闭按钮浮在唱片中间）；
         // - 带全屏 frame 又可能吞下方触摸；
         // overlay 只在自身内容处可点击，两个问题都没有。
+        // 🔴 常驻显示（不再依赖 landscapeChromeVisible）：隐藏时用户点的其实是背景。
         .overlay(alignment: .top) {
-            if landscapeChromeVisible {
-                landscapeTopBar()
-                    .frame(height: 44)
-                    .padding(.top, insets.top + 18)      // 不贴顶，往下留呼吸空间
-                    .padding(.leading, insets.left + 8)
-                    .padding(.trailing, insets.right + 8)
-                    .transition(.opacity)
-            }
+            landscapeTopBar(insets: insets)
         }
     }
 
     /// 横屏顶栏：只留 关闭（左）。
     /// 🔴 用户要求移除右上角旋转按钮（竖屏顶栏的横屏入口保留，横屏内不需要再切）。
-    private func landscapeTopBar() -> some View {
+    private func landscapeTopBar(insets: UIEdgeInsets) -> some View {
         HStack(spacing: 0) {
             Button { animateOut() } label: {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 19, weight: .semibold))
+                    .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(.black.opacity(0.22)))
                     .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
             }
+            // 🔴 显式命中区 + contentShape：保证 44×44 全覆盖可点（不受图标自身 bounds 限制）
+            .contentShape(Rectangle())
             Spacer(minLength: 0)
         }
         .buttonStyle(.plain)
+        .frame(height: 44)
+        // 🔴 不在极顶部：往下留出余量，避开设备悬浮窗/手势条占用的最上沿条带
+        .padding(.top, max(insets.top, 10) + 30)
+        .padding(.leading, insets.left + 14)
+        .padding(.trailing, insets.right + 8)
     }
 
     /// 横屏标题行：歌名大字 + 歌手小字（酷狗横屏同款排布）
@@ -1320,9 +1316,21 @@ struct PlayerView: View {
         return text.isEmpty ? nil : text
     }
 
-    /// 横屏控制键单排（酷狗式）：收藏 / 上一首 / 播放 / 下一首 / 词
+    /// 横屏控制键单排（酷狗式）：退出 / 收藏 / 上一首 / 播放 / 下一首 / 列表
     private func landscapeControls() -> some View {
         HStack(spacing: 0) {
+            // 🔴 兜底「退出」：放在底部控制排（本机实测这一排的触摸全部正常），
+            // 万一顶部那条被设备悬浮窗/手势条挡住，用户仍有必点的退出入口。
+            Button { animateOut() } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 48)
+            }
+            .contentShape(Rectangle())
+
+            Spacer(minLength: 0)
+
             Button {
                 store.toggleFavorite()
                 Haptics.light()
@@ -1339,7 +1347,7 @@ struct PlayerView: View {
                 Image(systemName: "backward.end.fill")
                     .font(.system(size: 24))
                     .foregroundStyle(.white)
-                    .frame(width: 48, height: 48)
+                    .frame(width: 44, height: 48)
                     .background(Circle().fill(.white.opacity(0.16)))
             }
 
@@ -1353,7 +1361,7 @@ struct PlayerView: View {
                 Image(systemName: "forward.end.fill")
                     .font(.system(size: 24))
                     .foregroundStyle(.white)
-                    .frame(width: 48, height: 48)
+                    .frame(width: 44, height: 48)
                     .background(Circle().fill(.white.opacity(0.16)))
             }
 
@@ -1977,6 +1985,7 @@ struct LyricsPageView: View {
                             .font(.system(size: 20, weight: .semibold))
                             .frame(width: 44, height: 44)
                     }
+                    .contentShape(Rectangle())
 
                     Spacer()
 
@@ -2014,40 +2023,27 @@ struct LyricsPageView: View {
                     .opacity(store.lyricMetadata.isEmpty ? 0 : 0.85)
 
                 // 纯正文歌词滚动区（flex 占满剩余高度，底部留给控制条）
+                // 🔴 显式宽度：超长歌词行会把 LazyVStack 的理想宽度撑到 570pt+，
+                // 整个 VStack 跟着超宽（控制条同属一个 VStack → 进度条贴穿屏幕、
+                // 上一首/下一首被挤出屏幕）。显式 frame 强制约束，不依赖提案链。
                 BigLyricsView(lyrics: store.lyrics,
                               currentIndex: lyricState.currentIndex,
                               showsTranslation: store.showTranslation)
+                    .frame(width: sz.width - 52)
                     .frame(maxHeight: .infinity)
-                    .padding(.horizontal, 26)
+                    .frame(maxWidth: .infinity)
                     .padding(.top, 12)
 
                 // 底部播放控件条：进度 + 上一首/播放/下一首（固定高度，安全区内置，不挤出屏幕）
                 LyricsBottomBar()
-                    .padding(.horizontal, 26)
+                    .frame(width: sz.width - 52)
+                    .frame(maxWidth: .infinity)
                     .padding(.top, 8)
                     .padding(.bottom, safeBottom + 6)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(width: sz.width, height: sz.height)
-        .overlay(alignment: .topLeading) {
-            // 🔍 临时调试浮层（定位歌词页布局偏移后删除）：
-            // geo = 容器实测尺寸 / sz = 几何权威尺寸 / safe = 上下安全区 / win = 每个场景的窗口数
-            VStack(alignment: .leading, spacing: 2) {
-                Text("geo \(Int(geo.size.width))x\(Int(geo.size.height))")
-                Text("sz  \(Int(sz.width))x\(Int(sz.height))")
-                Text("safe \(Int(safeTop))/\(Int(safeBottom))")
-                Text("win  " + UIApplication.shared.connectedScenes
-                    .compactMap { ($0 as? UIWindowScene)?.windows.count }
-                    .map(String.init).joined(separator: ","))
-            }
-            .font(.system(size: 10, design: .monospaced))
-            .foregroundStyle(.yellow)
-            .padding(6)
-            .background(.black.opacity(0.55))
-            .padding(.top, 110)
-            .padding(.leading, 6)
-        }
         }
         .ignoresSafeArea()
         .clipped()
