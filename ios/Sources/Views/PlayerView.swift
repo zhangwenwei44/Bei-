@@ -1963,7 +1963,9 @@ struct LyricsPageView: View {
             // ②删掉模糊专辑图浮层 —— 它在歌词正后方形成一团"幽灵唱片"，
             // 用户误以为是播放页透出来（实测截图可见盘面轮廓）。底部再垫纯色。
             ZStack {
-                Color(store.currentPalette.dark)
+                // dark 本身就是 Color，不能再包一层 Color(:) —— 那是 iOS 17 才有的
+                // Color.init(_:) 重载，iOS 15 部署目标直接编译失败（run #385）。
+                store.currentPalette.dark
 
                 LinearGradient(colors: store.currentPalette.gradient,
                                startPoint: .topLeading,
