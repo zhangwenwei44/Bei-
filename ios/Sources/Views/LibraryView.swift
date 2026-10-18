@@ -358,12 +358,31 @@ private struct LocalLibraryPage: View {
     private var songList: some View {
         LazyVStack(spacing: 0) {
             ForEach(songs) { song in
-                SongRow(song: song, isCurrent: store.current?.id == song.id, isPlaying: store.isPlaying)
-                    .equatable().songMenu(song).padding(.horizontal, 16)
-                    .onTapGesture {
-                        guard let index = songs.firstIndex(where: { $0.id == song.id }) else { return }
-                        store.play(songs, startAt: index); Haptics.soft()
+                if section == .downloads {
+                    // 🔴 我的下载：支持左滑单独删除（删本地文件 + 移出下载列表）。
+                    // 其余板块保持原样。
+                    SwipeToDeleteRow {
+                        downloads.delete(song)
+                        Haptics.light()
+                    } content: {
+                        SongRow(song: song, isCurrent: store.current?.id == song.id, isPlaying: store.isPlaying)
+                            .equatable().songMenu(song)
+                            .onTapGesture {
+                                guard let index = songs.firstIndex(where: { $0.id == song.id }) else { return }
+                                store.play(songs, startAt: index); Haptics.soft()
+                            }
+                            // 不透明底：盖住身后的红色删除按钮（页面背景同色）
+                            .background(AppStyle.background)
                     }
+                    .padding(.horizontal, 16)
+                } else {
+                    SongRow(song: song, isCurrent: store.current?.id == song.id, isPlaying: store.isPlaying)
+                        .equatable().songMenu(song).padding(.horizontal, 16)
+                        .onTapGesture {
+                            guard let index = songs.firstIndex(where: { $0.id == song.id }) else { return }
+                            store.play(songs, startAt: index); Haptics.soft()
+                        }
+                }
             }
         }.padding(.bottom, 24)
     }
@@ -881,6 +900,59 @@ struct KugouDisclaimerView: View {
             Image(systemName: icon).font(.system(size: 12)).foregroundStyle(.white.opacity(0.7))
                 .frame(width: 18, height: 18)
             Text(text).font(.system(size: 13)).foregroundStyle(.white.opacity(0.93))
+        }
+    }
+}
+
+// MARK: - 左滑删除行（ScrollView + LazyVStack 里用；List 的 onDelete 只适用 List）
+
+/// 左滑露出红色删除按钮的行容器。
+/// 拖动超过阈值吸附显示按钮，点按钮执行 onDelete；再点行内容或往右滑回收。
+/// 不用 List/onDelete：本地音乐页是 ScrollView + LazyVStack 自绘列表。
+private struct SwipeToDeleteRow<Content: View>: View {
+    let onDelete: () -> Void
+    @ViewBuilder let content: Content
+
+    /// 按钮宽度 + 余量 = 最大左滑距离
+    private let revealWidth: CGFloat = 76
+    @State private var offsetX: CGFloat = 0
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            Button {
+                withAnimation(.easeOut(duration: 0.22)) { offsetX = 0 }
+                onDelete()
+            } label: {
+                VStack(spacing: 4) {
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("删除").font(.system(size: 10, weight: .medium))
+                }
+                .foregroundStyle(.white)
+                .frame(width: 60, height: 56)
+                .background(Color.red, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            // 未滑动时完全不出现（也不占命中区）
+            .opacity(offsetX < -6 ? 1 : 0)
+            .allowsHitTesting(offsetX < -6)
+
+            content
+                .offset(x: offsetX)
+                // 🔴 横向优先：|dx| > |dy| 才跟手，避免和页面纵向滚动打架
+                .gesture(
+                    DragGesture(minimumDistance: 18)
+                        .onChanged { v in
+                            guard abs(v.translation.width) > abs(v.translation.height) else { return }
+                            offsetX = min(0, max(-revealWidth, v.translation.width))
+                        }
+                        .onEnded { v in
+                            withAnimation(.easeOut(duration: 0.22)) {
+                                offsetX = (v.translation.width < -40 || v.predictedEndTranslation.width < -60)
+                                    ? -revealWidth : 0
+                            }
+                        }
+                )
         }
     }
 }

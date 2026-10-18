@@ -1248,8 +1248,8 @@ struct PlayerView: View {
         }
         .buttonStyle(.plain)
         .frame(height: 44)
-        // 🔴 不在极顶部：往下留出余量，避开设备悬浮窗/手势条占用的最上沿条带
-        .padding(.top, max(insets.top, 10) + 30)
+        // 🔴 用户要求上调：只留少量呼吸空间，位置更高（横屏已验证可关闭）
+        .padding(.top, max(insets.top, 10) + 14)
         .padding(.leading, insets.left + 14)
         .padding(.trailing, insets.right + 8)
     }
@@ -1316,21 +1316,10 @@ struct PlayerView: View {
         return text.isEmpty ? nil : text
     }
 
-    /// 横屏控制键单排（酷狗式）：退出 / 收藏 / 上一首 / 播放 / 下一首 / 列表
+    /// 横屏控制键单排（酷狗式）：收藏 / 上一首 / 播放 / 下一首 / 列表
+    /// （退出只保留左上角一处 —— 用户要求移除收藏旁的关闭按钮）
     private func landscapeControls() -> some View {
         HStack(spacing: 0) {
-            // 🔴 兜底「退出」：放在底部控制排（本机实测这一排的触摸全部正常），
-            // 万一顶部那条被设备悬浮窗/手势条挡住，用户仍有必点的退出入口。
-            Button { animateOut() } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 48)
-            }
-            .contentShape(Rectangle())
-
-            Spacer(minLength: 0)
-
             Button {
                 store.toggleFavorite()
                 Haptics.light()
@@ -1939,7 +1928,6 @@ struct LyricsPageView: View {
     /// 这个视图没有注入链，直接从单例取同一个实例。
     @ObservedObject private var lyricState = PlayerStore.shared.lyricState
     @Binding var isShown: Bool
-    @State private var isMetaExpanded = false
 
     private var safeTop: CGFloat {
         // 🔴 复用 PlayerView.safeAreaInsets（过滤第三方注入窗口），不再直接读 keyWindow
@@ -2031,12 +2019,6 @@ struct LyricsPageView: View {
                 .padding(.top, safeTop)
                 .opacity(0.5)  // 顶栏低存在感
 
-                // 折叠简介模块（只在有 metadata 时显示）
-                metaSection
-                    .padding(.horizontal, 24)
-                    .padding(.top, 8)
-                    .opacity(store.lyricMetadata.isEmpty ? 0 : 0.85)
-
                 // 纯正文歌词滚动区（flex 占满剩余高度，底部留给控制条）
                 // 🔴 显式宽度：超长歌词行会把 LazyVStack 的理想宽度撑到 570pt+，
                 // 整个 VStack 跟着超宽（控制条同属一个 VStack → 进度条贴穿屏幕、
@@ -2064,59 +2046,6 @@ struct LyricsPageView: View {
         .clipped()
         // 🔴 整页下滑关闭手势已移到背景层（.gesture）：highPriorityGesture 会把
         // 进度条的拖动手势整个吃掉（进度条拖不动的根因），不能再挂在这。
-    }
-
-    // MARK: - 折叠简介
-
-    private var metaSection: some View {
-        let meta = store.lyricMetadata
-        let orderedKeys: [(String, String)] = [
-            ("演唱", "演唱"), ("作词", "作词"), ("作曲", "作曲"), ("编曲", "编曲"),
-            ("原唱", "原唱"), ("制作人", "制作人"), ("监制", "监制"), ("混音", "混音"),
-            ("录音", "录音"), ("和声", "和声"), ("艺人统筹", "艺人统筹"), ("统筹", "统筹"),
-            ("出品", "出品"), ("企划", "企划"), ("发行", "发行")
-        ]
-        .filter { meta[$0.1] != nil }
-
-        return VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.25)) { isMetaExpanded.toggle() }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 11))
-                    Text("词曲编曲")
-                        .font(.system(size: 11))
-                    Spacer()
-                    Image(systemName: isMetaExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 10, weight: .semibold))
-                }
-                .foregroundStyle(.white.opacity(0.5))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-            }
-            .buttonStyle(.plain)
-
-            if isMetaExpanded && !orderedKeys.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(orderedKeys, id: \.0) { pair in
-                        HStack(alignment: .top, spacing: 0) {
-                            Text(pair.1 + "：")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.white.opacity(0.45))
-                                .frame(width: 48, alignment: .leading)
-                            Text(meta[pair.1] ?? "")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.white.opacity(0.8))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
     }
 }
 
@@ -2243,14 +2172,15 @@ private struct BigLyricsView: View {
                             let isActive = activeIdx == idx
                             let isNear = activeIdx != nil && abs(idx - activeIdx!) <= 1
                             VStack(spacing: 7) {
+                                // 🔴 用户要求字号调小：当前句 30→26，其他行 20→17
                                 Text(line.text)
-                                    .font(.system(size: isActive ? 30 : 20,
+                                    .font(.system(size: isActive ? 26 : 17,
                                                   weight: isActive ? .bold : .medium))
                                     .foregroundStyle(isActive ? .white : .white.opacity(isNear ? 0.45 : 0.28))
                                     .multilineTextAlignment(.center)
                                 if showsTranslation, let translation = line.translation, !translation.isEmpty {
                                     Text(translation)
-                                        .font(.system(size: isActive ? 15 : 12))
+                                        .font(.system(size: isActive ? 14 : 11))
                                         .foregroundStyle(isActive ? .white.opacity(0.78) : .white.opacity(0.3))
                                         .multilineTextAlignment(.center)
                                 }
