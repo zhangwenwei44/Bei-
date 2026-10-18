@@ -50,9 +50,10 @@ struct PlayerView: View {
         // 旋转完成时 GeometryReader 也会自动用新尺寸重排，无需靠方向通知猜。
         GeometryReader { geo in
             let screen = CGRect(origin: .zero, size: geo.size)
-            let win = (size: geo.size,
-                       safeTop: geo.safeAreaInsets.top,
-                       safeBottom: geo.safeAreaInsets.bottom)
+            // 尺寸用 geo.size（真实容器，防裁切）；安全区顶/底用 key window（geo.safeAreaInsets
+            // 在 .ignoresSafeArea() 下是 0，会让顶栏贴到状态栏 —— 用户截图实测）。
+            let insets = Self.safeAreaInsets
+            let win = (size: geo.size, safeTop: insets.top, safeBottom: insets.bottom)
             let contentHeight = geo.size.height - win.safeTop - win.safeBottom
 
             ZStack {
@@ -71,17 +72,21 @@ struct PlayerView: View {
                     case .glitter:    glitterBody(in: contentHeight, win: win, screen: screen)
                     }
                 }
+
+                // 🔴 歌词页：改为"播放页内就地覆盖层"，共用播放页这个尺寸永远正确的容器。
+                // （之前用独立 fullScreenCover，强制旋转时按旧横屏尺寸弹出且不随旋转重排 →
+                // 歌词两侧被裁出屏幕。）条件渲染，关闭即彻底移出视图树，无残留命中。
+                if isLyricsPage {
+                    LyricsPageView(isShown: $isLyricsPage)
+                        .environmentObject(store)
+                        .transition(.opacity)
+                        .zIndex(10)
+                }
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .gesture(dragGesture)
             .overlay(alignment: .bottom) { toastLayer }
-            // 🔴 歌词页：全屏歌词（LyricsPageView）—— 动作行/歌词预览点击进入。
-            // 用系统 fullScreenCover 呈现（UIKit 级，关闭即销毁，无 SwiftUI 树残留）。
-            .fullScreenCover(isPresented: $isLyricsPage) {
-                LyricsPageView(isShown: $isLyricsPage)
-                    .environmentObject(store)
-            }
-            // 🔴 进入/退出全屏歌词页时接管方向：
+            // 🔴 进入/退出歌词页时接管方向：
             // 进歌词页 → 临时强制竖屏；退歌词页 → 延迟 0.4s 恢复（避免动画打架）。
             .onChange(of: isLyricsPage) { presented in
                 if presented {
@@ -848,6 +853,20 @@ struct PlayerView: View {
     /// 设备窗口尺寸 + safeAreaInsets
     /// 从 UIWindowScene.keyWindow 读 + 强制兜底（bottom 不能小于 34）
     /// 之前 window.safeAreaInsets.bottom 在 overlay 呈现时曾返回 0 → contentHeight 算大 34pt
+    /// 从 key window 读真实安全区（顶/底）。
+    /// 🔴 不能用 GeometryReader 的 safeAreaInsets：根部套了 .ignoresSafeArea() 后它返回 0，
+    /// 会让顶栏贴到状态栏（用户截图实测）。key window 的 safeAreaInsets 始终可靠。
+    private static var safeAreaInsets: (top: CGFloat, bottom: CGFloat) {
+        for scene in UIApplication.shared.connectedScenes {
+            guard let ws = scene as? UIWindowScene,
+                  let w = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first else { continue }
+            let top = w.safeAreaInsets.top > 0 ? w.safeAreaInsets.top : 44
+            let bottom = w.safeAreaInsets.bottom >= 20 ? w.safeAreaInsets.bottom : 34
+            return (top, bottom)
+        }
+        return (44, 34)
+    }
+
     // MARK: - 背景（封面取色渐变 + 封面虚化，酷狗风格）
 
     private var immersiveBackground: some View {
@@ -1861,7 +1880,8 @@ struct LyricsPageView: View {
         for scene in UIApplication.shared.connectedScenes {
             if let ws = scene as? UIWindowScene,
                let w = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first {
-                return max(12, w.safeAreaInsets.top + 6)
+                // 🔴 兜底 44：保证顶栏在状态栏之下（部分场景读到 0 会贴顶）
+                return max(44, w.safeAreaInsets.top + 6)
             }
         }
         return 50
