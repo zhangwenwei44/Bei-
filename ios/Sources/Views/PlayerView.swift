@@ -90,10 +90,21 @@ struct PlayerView: View {
         // 🔴 跟踪设备方向：横屏播放器靠强制旋转 + 这里更新 isLandscape 重排布局
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             isLandscape = UIScreen.main.bounds.width > UIScreen.main.bounds.height
+            // 🔴 横屏播放时屏幕常亮（看歌词不用老点亮屏）；回竖屏恢复自动熄屏
+            UIApplication.shared.isIdleTimerDisabled = isLandscape
         }
-        .onAppear { isLandscape = UIScreen.main.bounds.width > UIScreen.main.bounds.height }
-        // 🔴 关闭播放页时恢复竖屏（避免退出后整 App 卡在横屏）
-        .onDisappear { OrientationLock.shared.resetToPortrait() }
+        .onAppear {
+            isLandscape = UIScreen.main.bounds.width > UIScreen.main.bounds.height
+            UIApplication.shared.isIdleTimerDisabled = isLandscape
+        }
+        // 🔴 关闭播放页时恢复竖屏 + 恢复自动熄屏（避免退出后整 App 卡横屏/永远不熄屏）
+        .onDisappear {
+            OrientationLock.shared.resetToPortrait()
+            UIApplication.shared.isIdleTimerDisabled = false
+        }
+        // 🔴 播放列表 sheet：必须挂在播放页自己身上。此前只挂在 RootView 迷你条上，
+        // 它在播放页 fullScreenCover 之下 —— 播放页打开时 sheet 弹不出来（点了没反应）。
+        .queueSheet()
     }
 
     /// 酷狗黑胶（当前默认）：黑胶封面 + 信息堆叠 + Spacer 推控制到底
@@ -309,7 +320,7 @@ struct PlayerView: View {
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
-                    .background(Circle().fill(.black.opacity(0.28)))
+                    .background(TopBarButtonSurface())
             }
 
             // 🔴 居中：歌名 + 歌手同一行（用户要求改在一行显示）
@@ -329,11 +340,9 @@ struct PlayerView: View {
             .frame(maxWidth: .infinity)
 
             Button { toggleLandscape() } label: {
-                Image(systemName: "rectangle.landscape.rotate")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(.white)
+                LandscapeToggleIcon()
                     .frame(width: 40, height: 40)
-                    .background(Circle().fill(.black.opacity(0.28)))
+                    .background(TopBarButtonSurface())
             }
         }
         .frame(height: 44)
@@ -397,7 +406,7 @@ struct PlayerView: View {
     /// 纯函数：黑胶封面按钮（不跑动画/手势）
     private func classicVinylButton(side vinylSide: CGFloat, coverSide: CGFloat, angle: Double) -> some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+            openLyricsPage()
         } label: {
             ZStack {
                 vinylDisc(side: vinylSide)
@@ -449,11 +458,11 @@ struct PlayerView: View {
             }
             // ③ 翻译
             classicActionButton(icon: "textformat", label: "翻译") {
-                withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+                openLyricsPage()
             }
             // ④ 歌词
             classicActionButton(icon: "music.note.list", label: "歌词") {
-                withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+                openLyricsPage()
             }
             // ⑤ 评论
             classicActionButton(icon: "bubble.left.and.bubble.right", label: "评论") {
@@ -566,7 +575,7 @@ struct PlayerView: View {
         .padding(.horizontal, 32)
         .contentShape(Rectangle())
         .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+            openLyricsPage()
         }
     }
 
@@ -1104,6 +1113,21 @@ struct PlayerView: View {
         }
     }
 
+    /// 打开全屏歌词页。
+    /// 🔴 从横屏播放器进入时不能立刻 present：fullScreenCover 会按当下（横屏）
+    /// 尺寸布局，随后强制转竖屏时内容仍按横宽渲染 → 歌词/控件两侧被裁出屏幕。
+    /// 先强制转竖屏，等旋转稳定（0.45s）再弹歌词页，保证 cover 按竖屏尺寸布局。
+    private func openLyricsPage() {
+        if isLandscape {
+            OrientationLock.shared.presentPortraitForLyrics()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+            }
+        } else {
+            withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+        }
+    }
+
     /// 横屏布局（酷狗式，参考用户截图）：
     /// 左侧大封面垂直居中；右侧 标题行 → 三行歌词（上一句/当前高亮/下一句）→ 进度 →
     /// 单排控制键（收藏/上一首/播放/下一首/词）。顶栏只留 关闭+横屏按钮，浮在内容上。
@@ -1155,7 +1179,7 @@ struct PlayerView: View {
                     VStack(spacing: 0) {
                         landscapeTopBar()
                             .frame(height: 44)
-                            .padding(.top, insets.top + 10)      // 关闭按钮往下移一点
+                            .padding(.top, insets.top + 18)      // 不贴顶，往下留呼吸空间
                             .padding(.leading, insets.leading + 8)
                             .padding(.trailing, insets.trailing + 8)
                         Spacer(minLength: 0)
@@ -1167,8 +1191,8 @@ struct PlayerView: View {
         .ignoresSafeArea()
     }
 
-    /// 横屏顶栏：只留 关闭（左）+ 横屏切换（右）。按钮带半透明深色圆底，
-    /// 既好按（大命中区、不贴边角）又在任何背景上都清晰可见。
+    /// 横屏顶栏：只留 关闭（左）+ 横屏切换（右）。按钮带半透明圆底 + 细描边，
+    /// 不贴顶（top padding +18），任何背景都清晰好看。
     private func landscapeTopBar() -> some View {
         HStack(spacing: 0) {
             Button { animateOut() } label: {
@@ -1176,15 +1200,13 @@ struct PlayerView: View {
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
-                    .background(Circle().fill(.black.opacity(0.35)))
+                    .background(TopBarButtonSurface())
             }
             Spacer(minLength: 0)
             Button { toggleLandscape() } label: {
-                Image(systemName: "rectangle.landscape.rotate")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(.white)
+                LandscapeToggleIcon()
                     .frame(width: 40, height: 40)
-                    .background(Circle().fill(.black.opacity(0.35)))
+                    .background(TopBarButtonSurface())
             }
         }
         .buttonStyle(.plain)
@@ -1207,7 +1229,7 @@ struct PlayerView: View {
     /// 横屏三行歌词：上一句（暗）/ 当前句（大、高亮）/ 下一句（暗）。点击进全屏歌词页。
     private var landscapeLyricsBlock: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+            openLyricsPage()
         } label: {
             VStack(alignment: .leading, spacing: 12) {
                 if let prev = prevLyricText {
@@ -1283,14 +1305,13 @@ struct PlayerView: View {
             Spacer(minLength: 0)
 
             Button {
-                withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+                // 「词」改「列表」：点击弹出播放列表（酷狗横屏同款）
+                store.isQueuePresented = true
                 Haptics.light()
             } label: {
-                Text("词")
-                    .font(.system(size: 15, weight: .semibold))
+                Image(systemName: "list.bullet")
+                    .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(.white)
-                    .frame(width: 34, height: 34)
-                    .background(Circle().fill(.white.opacity(0.16)))
                     .frame(width: 44, height: 48)
             }
         }
@@ -1319,7 +1340,7 @@ struct PlayerView: View {
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
-                    .background(Circle().fill(.black.opacity(0.28)))
+                    .background(TopBarButtonSurface())
             }
 
             // 歌名 + 歌手同一行（用户要求改在一行显示）
@@ -1340,14 +1361,12 @@ struct PlayerView: View {
             .padding(.horizontal, 8)
 
             Button { toggleLandscape() } label: {
-                Image(systemName: "rectangle.landscape.rotate")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(.white)
+                LandscapeToggleIcon()
                     .frame(width: 40, height: 40)
-                    .background(Circle().fill(.black.opacity(0.28)))
+                    .background(TopBarButtonSurface())
             }
         }
-        // 关闭 / 横屏 按钮同为 40×40 圆形底，图标齐平，深色半透明底确保任意背景可见
+        // 关闭 / 横屏 按钮同为 40×40 圆形底，图标齐平
         .frame(height: 44)
         .foregroundStyle(.white)
     }
@@ -1450,7 +1469,7 @@ struct PlayerView: View {
     /// 双行歌词（酷狗风格）：当前行在上、高亮；下一行在下、暗、小
     private var currentLyricPill: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+            openLyricsPage()
         } label: {
             VStack(spacing: 4) {
                 // 第一行：当前歌词 —— 高亮、大（用户要求高亮在上面）
@@ -1508,7 +1527,7 @@ struct PlayerView: View {
                 showQualityPicker = true
             }
             actionButton(icon: "text.quote", label: "歌词") {
-                withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+                openLyricsPage()
             }
         }
         .frame(maxWidth: .infinity)
@@ -1783,6 +1802,33 @@ private struct GlowDot: View {
     }
 }
 
+/// 横屏切换图标：横放屏幕 + 左右展开箭头。
+/// 🔴 自绘组合而非用 `rectangle.landscape.rotate` —— 该 SF Symbol 在部分系统版本
+/// 缺字不渲染，按钮变成一个"空圆圈"（用户截图实测）。chevron/形状 100% 可用。
+private struct LandscapeToggleIcon: View {
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 9, weight: .bold))
+            RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                .strokeBorder(.white, lineWidth: 1.5)
+                .frame(width: 15, height: 11)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .bold))
+        }
+        .foregroundStyle(.white)
+    }
+}
+
+/// 顶栏圆形按钮底：半透明深色 + 细白描边，任何背景（含炫胶亮色顶部）都清晰好看。
+private struct TopBarButtonSurface: View {
+    var body: some View {
+        Circle()
+            .fill(.black.opacity(0.25))
+            .overlay(Circle().strokeBorder(.white.opacity(0.22), lineWidth: 0.8))
+    }
+}
+
 private struct PlayButton: View {
     @EnvironmentObject private var store: PlayerStore
     @State private var pulse = false
@@ -1939,6 +1985,11 @@ struct LyricsPageView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .ignoresSafeArea()
+        // 🔴 硬性钳制到当前屏幕尺寸并裁掉溢出：兜底"从横屏进歌词页时 cover 按旧
+        // 横屏尺寸布局、内容两侧被裁出屏幕"的问题（openLyricsPage 已先转竖屏再弹）。
+        .frame(width: UIScreen.main.bounds.width,
+               height: UIScreen.main.bounds.height)
+        .clipped()
         .highPriorityGesture(
             DragGesture(minimumDistance: 24).onEnded { value in
                 if value.translation.height > 60 {
