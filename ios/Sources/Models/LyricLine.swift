@@ -15,12 +15,19 @@ enum LRCParser {
     }()
 
     /// 词曲元数据关键词——这些行出现在歌词时间戳后面，但不是歌词正文。
+    /// 🔴 不再限制时间戳位置逐行前缀匹配（旧版只在 ≤1.5s 时识别，部分源的
+    /// 元数据行时间戳靠后，导致歌词页首屏全是「演唱：xxx」）。
     private static let metadataKeywords: Set<String> = [
-        "词", "曲", "作曲", "编曲", "制作", "制作人", "演奏", "混音",
-        "母带", "母", "监制", "出品", "发行", "和声", "配唱", "录音",
-        "吉他", "钢琴", "贝斯", "鼓", "弦乐", "中阮", "编曲",
-        "改编", "cover", "Cover", "词：", "曲：", "编曲：",
-        "制作人：", "监制：", "录音：", "混音："
+        "词", "曲", "作词", "作曲", "编曲", "填词", "谱曲",
+        "制作", "制作人", "联合制作", "监制", "出品", "出品人", "发行",
+        "演奏", "演唱", "原唱", "主唱", "和声", "和音", "伴唱", "合唱",
+        "混音", "缩混", "母带", "录音", "录音师", "音效", "配唱",
+        "统筹", "艺人统筹", "企划", "策划", "宣传", "宣发", "推广", "推广营销", "营销",
+        "文案", "编辑", "顾问", "指导", "总监", "音乐总监",
+        "改编词", "改编曲", "改编", "cover",
+        "吉他", "钢琴", "贝斯", "鼓", "弦乐", "中阮", "键盘", "萨克斯",
+        "小提琴", "大提琴", "二胡", "琵琶", "古筝", "笛子", "唢呐", "长笛",
+        "版权", "厂牌", "唱片", "op", "sp", "isrc"
     ]
 
     /// 解析结果：歌词正文 + 词曲编曲等元数据（从正文剥离出来的）。
@@ -60,6 +67,11 @@ enum LRCParser {
                 }
                 // 裸元数据行（无方括号也无时间戳）：如 id:00000000 / id$00000000
                 if Self.isKugouMetadata(line) { continue }
+                // 无时间戳的词曲信息行（演唱：xxx / 作词：xxx）也归入 metadata，不进正文
+                if let hit = Self.metadataKeyword(for: line) {
+                    Self.storeMeta(hit, content: line, into: &meta)
+                    continue
+                }
                 result.append(LyricLine(time: 0, text: line))
                 continue
             }
@@ -78,25 +90,12 @@ enum LRCParser {
             // 颜色标签清除后可能为空
             if content.isEmpty { continue }
 
-            let firstMin = Double(ns.substring(with: first.range(at: 1))) ?? 0
-            let firstSec = Double(ns.substring(with: first.range(at: 2))) ?? 0
-            if firstMin == 0, firstSec <= 1.5 {
-                let lower = content.lowercased()
-                if let hit = Self.metadataKeywords.first(where: { kw in
-                    let k = kw.lowercased()
-                    return lower.hasPrefix(k + ":") || lower.hasPrefix(k + "：") || lower == k
-                }) {
-                    // 提取 "词" / "曲" 等短标签 + 值
-                    let cleaned = content.replacingOccurrences(of: "\(hit)：", with: "")
-                                         .replacingOccurrences(of: "\(hit):", with: "")
-                                         .trimmingCharacters(in: .whitespaces)
-                    let key = hit.replacingOccurrences(of: "：", with: "")
-                                 .replacingOccurrences(of: ":", with: "")
-                    if meta[key] == nil, !cleaned.isEmpty {
-                        meta[key] = cleaned
-                    }
-                    continue
-                }
+            // 🔴 词曲元数据行（演唱：/作词：/制作人：…）不再限制时间戳位置：
+            // 旧版只在 ≤1.5s 时识别，部分源的元数据行时间戳靠后，全被当成歌词
+            // 正文滚出来。现在逐行前缀匹配，命中即归入 metadata（歌词页顶部折叠简介）。
+            if let hit = Self.metadataKeyword(for: content) {
+                Self.storeMeta(hit, content: content, into: &meta)
+                continue
             }
 
             for stamp in stamps {
@@ -117,6 +116,31 @@ enum LRCParser {
         }
 
         return ParseResult(lines: result.sorted { $0.time < $1.time }, metadata: meta)
+    }
+
+    /// 识别词曲元数据行前缀：返回命中的关键词。
+    /// 🔴 长词优先（「作词」不能被「词」抢走、「制作人」不能被「制作」抢走）；
+    /// 单字关键词只匹配 "词：" 形式，不匹配整行等于单字（避免误伤正常歌词）。
+    private static func metadataKeyword(for content: String) -> String? {
+        let lower = content.lowercased()
+        for kw in metadataKeywords.sorted(by: { $0.count > $1.count }) {
+            let k = kw.lowercased()
+            if lower.hasPrefix(k + ":") || lower.hasPrefix(k + "：") { return kw }
+            if k.count >= 2, lower == k { return kw }
+        }
+        return nil
+    }
+
+    /// 从 "制作人：欧华成" 剥出 key="制作人"、value="欧华成"，塞进 metadata（同名只取第一条）。
+    private static func storeMeta(_ hit: String, content: String, into meta: inout [String: String]) {
+        let cleaned = content.replacingOccurrences(of: "\(hit)：", with: "")
+                             .replacingOccurrences(of: "\(hit):", with: "")
+                             .trimmingCharacters(in: .whitespaces)
+        let key = hit.replacingOccurrences(of: "：", with: "")
+                     .replacingOccurrences(of: ":", with: "")
+        if meta[key] == nil, !cleaned.isEmpty {
+            meta[key] = cleaned
+        }
     }
 
     /// 判断是否为酷狗内嵌元数据（如 id:00000000 / id$00000000 / id$AARRGGBB / 纯 "id"）。

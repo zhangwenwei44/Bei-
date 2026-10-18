@@ -1098,7 +1098,9 @@ struct PlayerView: View {
         }
     }
 
-    /// 横屏布局：左侧大唱片，右侧信息列（歌词 + 动作行 + 进度 + 控件）。
+    /// 横屏布局（酷狗式，参考用户截图）：
+    /// 左侧大封面垂直居中；右侧 标题行 → 三行歌词（上一句/当前高亮/下一句）→ 进度 →
+    /// 单排控制键（收藏/上一首/播放/下一首/词）。顶栏只留 关闭+横屏按钮，浮在内容上。
     private func landscapeBody() -> some View {
         GeometryReader { geo in
             let insets = geo.safeAreaInsets
@@ -1113,38 +1115,163 @@ struct PlayerView: View {
                 }
                 .ignoresSafeArea()
 
+                HStack(spacing: 0) {
+                    // 左：大封面（垂直居中，约占屏宽 38%）
+                    discViewForLandscape(maxSide: min(geo.size.height - insets.top - insets.bottom - 40,
+                                                      geo.size.width * 0.38))
+                        .frame(maxWidth: geo.size.width * 0.42, maxHeight: .infinity)
+
+                    // 右：信息列
+                    VStack(alignment: .leading, spacing: 0) {
+                        landscapeTitleRow
+                        landscapeLyricsBlock
+                            .padding(.top, 16)
+                        Spacer(minLength: 10)
+                        progressSection()
+                            .padding(.horizontal, 2)
+                        landscapeControls()
+                            .padding(.top, 10)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .padding(.leading, 28)
+                    .padding(.trailing, insets.trailing + 28)
+                    .padding(.top, insets.top + 50)   // 给浮层顶栏让位
+                    .padding(.bottom, max(insets.bottom, 14))
+                }
+                .padding(.leading, insets.leading)
+
+                // 顶栏浮层：关闭（左）+ 横屏按钮（右），歌名不重复显示（标题行已有）
                 VStack(spacing: 0) {
-                    // 顶栏：关闭（左）+ 横屏按钮（右）
-                    topBar()
+                    landscapeTopBar()
                         .frame(height: 44)
                         .padding(.top, insets.top)
-
-                    HStack(alignment: .center, spacing: 30) {
-                        // 左：唱片
-                        discViewForLandscape(maxSide: min(geo.size.height - insets.top - insets.bottom,
-                                                         geo.size.width * 0.42))
-                            .frame(maxWidth: geo.size.width * 0.45, maxHeight: .infinity)
-
-                        // 右：信息列
-                        VStack(spacing: 0) {
-                            currentLyricPill
-                            actionRow()
-                                .padding(.top, 18)
-                            progressSection()
-                                .padding(.top, 20)
-                                .padding(.horizontal, 6)
-                            controls()
-                                .padding(.top, 14)
-                        }
-                        .frame(maxWidth: geo.size.width * 0.5, maxHeight: .infinity)
-                    }
-                    .frame(maxHeight: .infinity)
-                    .padding(.horizontal, insets.leading + 24)
+                    Spacer(minLength: 0)
                 }
-                .padding(.bottom, insets.bottom)
             }
         }
         .ignoresSafeArea()
+    }
+
+    /// 横屏顶栏：只留 关闭（左）+ 横屏切换（右）。
+    private func landscapeTopBar() -> some View {
+        HStack(spacing: 0) {
+            Button { animateOut() } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 20, weight: .semibold))
+                    .frame(width: 44, height: 44, alignment: .center)
+            }
+            Spacer(minLength: 0)
+            Button { toggleLandscape() } label: {
+                Image(systemName: "rectangle.landscape.rotate")
+                    .font(.system(size: 19, weight: .medium))
+                    .frame(width: 44, height: 44, alignment: .center)
+            }
+        }
+        .foregroundStyle(.white)
+        .buttonStyle(.plain)
+    }
+
+    /// 横屏标题行：歌名大字 + 歌手小字（酷狗横屏同款排布）
+    private var landscapeTitleRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(store.current?.title ?? "未播放")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+            Text(store.current?.artist ?? "")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.white.opacity(0.65))
+                .lineLimit(1)
+        }
+    }
+
+    /// 横屏三行歌词：上一句（暗）/ 当前句（大、高亮）/ 下一句（暗）。点击进全屏歌词页。
+    private var landscapeLyricsBlock: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+        } label: {
+            VStack(alignment: .leading, spacing: 12) {
+                if let prev = prevLyricText {
+                    Text(prev)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white.opacity(0.38))
+                        .lineLimit(1)
+                }
+                Text(currentLyricText)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                if let next = nextLyricText {
+                    Text(next)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white.opacity(0.38))
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .animation(.easeInOut(duration: 0.25), value: currentLyricText)
+        .animation(.easeInOut(duration: 0.25), value: nextLyricText)
+    }
+
+    private var prevLyricText: String? {
+        guard let index = lyricState.currentIndex,
+              index > 0, store.lyrics.indices.contains(index - 1) else { return nil }
+        let text = store.lyrics[index - 1].text
+        return text.isEmpty ? nil : text
+    }
+
+    /// 横屏控制键单排（酷狗式）：收藏 / 上一首 / 播放 / 下一首 / 词
+    private func landscapeControls() -> some View {
+        HStack(spacing: 0) {
+            Button {
+                store.toggleFavorite()
+                Haptics.light()
+            } label: {
+                Image(systemName: store.isLiked ? "heart.fill" : "heart")
+                    .font(.system(size: 22))
+                    .foregroundStyle(store.isLiked ? AppStyle.like : .white)
+                    .frame(width: 44, height: 48)
+            }
+
+            Spacer(minLength: 0)
+
+            Button { store.step(-1) } label: {
+                Image(systemName: "backward.end.fill")
+                    .font(.system(size: 26))
+                    .frame(width: 52, height: 48)
+            }
+
+            Spacer(minLength: 0)
+
+            PlayButton()
+
+            Spacer(minLength: 0)
+
+            Button { store.step(1) } label: {
+                Image(systemName: "forward.end.fill")
+                    .font(.system(size: 26))
+                    .frame(width: 52, height: 48)
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+                Haptics.light()
+            } label: {
+                Text("词")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 34, height: 34)
+                    .overlay(Circle().strokeBorder(.white.opacity(0.45), lineWidth: 1))
+                    .frame(width: 44, height: 48)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     /// 横屏下的唱片：跟随主题选择黑胶 / 炫胶 / 普通圆角封面。
@@ -1782,9 +1909,10 @@ struct LyricsPageView: View {
     private var metaSection: some View {
         let meta = store.lyricMetadata
         let orderedKeys: [(String, String)] = [
-            ("词", "词"), ("曲", "曲"), ("作曲", "作曲"), ("编曲", "编曲"),
-            ("制作人", "制作人"), ("监制", "监制"), ("混音", "混音"),
-            ("录音", "录音"), ("和声", "和声"), ("发行", "发行")
+            ("演唱", "演唱"), ("作词", "作词"), ("作曲", "作曲"), ("编曲", "编曲"),
+            ("原唱", "原唱"), ("制作人", "制作人"), ("监制", "监制"), ("混音", "混音"),
+            ("录音", "录音"), ("和声", "和声"), ("艺人统筹", "艺人统筹"), ("统筹", "统筹"),
+            ("出品", "出品"), ("企划", "企划"), ("发行", "发行")
         ]
         .filter { meta[$0.1] != nil }
 
