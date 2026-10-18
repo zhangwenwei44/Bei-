@@ -44,57 +44,63 @@ struct PlayerView: View {
     private var displayTime: Double { isScrubbing ? scrubValue : playback.currentTime }
 
     var body: some View {
-        let win = Self.windowInfo
-        let screen = UIScreen.main.bounds
-        let contentHeight = screen.height - win.safeTop - win.safeBottom
+        // 🔴 用 GeometryReader 实测"容器真实尺寸"，不再用 UIScreen.main.bounds：
+        // 强制横竖屏旋转的瞬间 UIScreen 是滞后的（可能还停在旧方向），按它布局
+        // 内容会被裁出屏幕（"横屏/歌词页挤出屏幕"的根因）。geo.size 永远=真实可见尺寸，
+        // 旋转完成时 GeometryReader 也会自动用新尺寸重排，无需靠方向通知猜。
+        GeometryReader { geo in
+            let screen = CGRect(origin: .zero, size: geo.size)
+            let win = (size: geo.size,
+                       safeTop: geo.safeAreaInsets.top,
+                       safeBottom: geo.safeAreaInsets.bottom)
+            let contentHeight = geo.size.height - win.safeTop - win.safeBottom
 
-        ZStack {
-            if isLandscape {
-                // 横屏播放器：右上角按钮强制旋转后接管（唱片在左、信息在右）
-                landscapeBody()
-            } else {
-                // 经典/黑胶沿用取色渐变背景；炫胶自带全屏背景
-                switch currentTheme {
-                case .classic:
-                    immersiveBackground.ignoresSafeArea()
-                    classicBody(in: contentHeight, win: win, screen: screen)
-                case .vinyl:
-                    immersiveBackground.ignoresSafeArea()
-                    vinylBody(in: contentHeight, win: win, screen: screen)
-                case .glitter:    glitterBody(in: contentHeight, win: win, screen: screen)
+            ZStack {
+                if isLandscape {
+                    // 横屏播放器：右上角按钮强制旋转后接管（唱片在左、信息在右）
+                    landscapeBody()
+                } else {
+                    // 经典/黑胶沿用取色渐变背景；炫胶自带全屏背景
+                    switch currentTheme {
+                    case .classic:
+                        immersiveBackground.ignoresSafeArea()
+                        classicBody(in: contentHeight, win: win, screen: screen)
+                    case .vinyl:
+                        immersiveBackground.ignoresSafeArea()
+                        vinylBody(in: contentHeight, win: win, screen: screen)
+                    case .glitter:    glitterBody(in: contentHeight, win: win, screen: screen)
+                    }
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .gesture(dragGesture)
+            .overlay(alignment: .bottom) { toastLayer }
+            // 🔴 歌词页：全屏歌词（LyricsPageView）—— 动作行/歌词预览点击进入。
+            // 用系统 fullScreenCover 呈现（UIKit 级，关闭即销毁，无 SwiftUI 树残留）。
+            .fullScreenCover(isPresented: $isLyricsPage) {
+                LyricsPageView(isShown: $isLyricsPage)
+                    .environmentObject(store)
+            }
+            // 🔴 进入/退出全屏歌词页时接管方向：
+            // 进歌词页 → 临时强制竖屏；退歌词页 → 延迟 0.4s 恢复（避免动画打架）。
+            .onChange(of: isLyricsPage) { presented in
+                if presented {
+                    OrientationLock.shared.presentPortraitForLyrics()
+                } else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        OrientationLock.shared.restoreOrientationAfterLyrics()
+                    }
                 }
             }
         }
-        .frame(width: screen.width, height: screen.height)
         .ignoresSafeArea()
-        .gesture(dragGesture)
-        .overlay(alignment: .bottom) { toastLayer }
-        // 🔴 歌词页：全屏歌词（LyricsPageView）—— 动作行/歌词预览点击进入。
-        // 用系统 fullScreenCover 呈现（UIKit 级，关闭即销毁，无 SwiftUI 树残留）。
-        .fullScreenCover(isPresented: $isLyricsPage) {
-            LyricsPageView(isShown: $isLyricsPage)
-                .environmentObject(store)
-        }
-        // 🔴 进入/退出全屏歌词页时接管方向：
-        // 进歌词页 → 临时强制竖屏（避免继承横屏播放器的横屏 mask 把歌词页拉伸成横宽）；
-        // 退歌词页 → 延迟 0.4s 恢复（等 dismiss 动画结束再旋转，避免动画打架）。
-        .onChange(of: isLyricsPage) { presented in
-            if presented {
-                OrientationLock.shared.presentPortraitForLyrics()
-            } else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    OrientationLock.shared.restoreOrientationAfterLyrics()
-                }
-            }
-        }
-        // 🔴 跟踪设备方向：横屏播放器靠强制旋转 + 这里更新 isLandscape 重排布局
+        // 🔴 isLandscape 由方向锁权威驱动（enterLandscape/exitLandscape 同步设置），
+        // 不再靠方向通知 + UIScreen 尺寸猜测（那在强制旋转瞬间是滞后的 → 横屏被当成竖屏布局）。
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
-            isLandscape = UIScreen.main.bounds.width > UIScreen.main.bounds.height
-            // 🔴 横屏播放时屏幕常亮（看歌词不用老点亮屏）；回竖屏恢复自动熄屏
-            UIApplication.shared.isIdleTimerDisabled = isLandscape
+            isLandscape = OrientationLock.shared.isLandscapePlayer
         }
         .onAppear {
-            isLandscape = UIScreen.main.bounds.width > UIScreen.main.bounds.height
+            isLandscape = OrientationLock.shared.isLandscapePlayer
             UIApplication.shared.isIdleTimerDisabled = isLandscape
         }
         // 🔴 关闭播放页时恢复竖屏 + 恢复自动熄屏（避免退出后整 App 卡横屏/永远不熄屏）
@@ -320,7 +326,7 @@ struct PlayerView: View {
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
-                    .background(TopBarButtonSurface())
+                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
             }
 
             // 🔴 居中：歌名 + 歌手同一行（用户要求改在一行显示）
@@ -342,7 +348,7 @@ struct PlayerView: View {
             Button { toggleLandscape() } label: {
                 LandscapeToggleIcon()
                     .frame(width: 40, height: 40)
-                    .background(TopBarButtonSurface())
+                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
             }
         }
         .frame(height: 44)
@@ -842,32 +848,6 @@ struct PlayerView: View {
     /// 设备窗口尺寸 + safeAreaInsets
     /// 从 UIWindowScene.keyWindow 读 + 强制兜底（bottom 不能小于 34）
     /// 之前 window.safeAreaInsets.bottom 在 overlay 呈现时曾返回 0 → contentHeight 算大 34pt
-    private static var windowInfo: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat) {
-        // iOS 16+ 优先从 WSScreen
-        for scene in UIApplication.shared.connectedScenes {
-            guard let ws = scene as? UIWindowScene else { continue }
-            // 先试 window（最常见方式）
-            if let w = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first {
-                let size = w.bounds.size
-                let insets = w.safeAreaInsets
-                // 强制兜底：bottom < 20 说明拿到了 0 → 用物理屏标准值
-                let top = insets.top > 0 ? insets.top : 44
-                let bottom = insets.bottom >= 20 ? insets.bottom : 34
-                return (size, top, bottom)
-            }
-            // 再试 screen level
-            if let screen = ws.windows.first?.screen {
-                let size = screen.bounds.size
-                // iOS 16 deprecated UIScreen.safeAreaInsets, 但 WSScreen 有
-                let top: CGFloat = 44
-                let bottom: CGFloat = 34
-                return (size, top, bottom)
-            }
-        }
-        // 最终兜底：iPhone XS 标准
-        return (CGSize(width: 375, height: 812), 44, 34)
-    }
-
     // MARK: - 背景（封面取色渐变 + 封面虚化，酷狗风格）
 
     private var immersiveBackground: some View {
@@ -1106,10 +1086,17 @@ struct PlayerView: View {
     private func toggleLandscape() {
         if OrientationLock.shared.isLandscapePlayer {
             OrientationLock.shared.exitLandscape()
+            isLandscape = false
+            UIApplication.shared.isIdleTimerDisabled = false
         } else {
             // 进入横屏：顶栏浮层（关闭/横屏按钮）默认隐藏，点击屏幕任意处再显
             landscapeChromeVisible = false
             OrientationLock.shared.enterLandscape()
+            // 🔴 立即置 isLandscape = true（由方向锁权威驱动），不等方向通知 ——
+            // 强制旋转瞬间 UIScreen/通知都是滞后的，等它会把横屏当成竖屏布局而裁切。
+            isLandscape = true
+            // 横屏播放屏幕常亮
+            UIApplication.shared.isIdleTimerDisabled = true
         }
     }
 
@@ -1200,13 +1187,13 @@ struct PlayerView: View {
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
-                    .background(TopBarButtonSurface())
+                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
             }
             Spacer(minLength: 0)
             Button { toggleLandscape() } label: {
                 LandscapeToggleIcon()
                     .frame(width: 40, height: 40)
-                    .background(TopBarButtonSurface())
+                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
             }
         }
         .buttonStyle(.plain)
@@ -1319,11 +1306,13 @@ struct PlayerView: View {
     }
 
     /// 横屏下的唱片：跟随主题选择黑胶 / 炫胶 / 普通圆角封面。
+    /// 🔴 glitterDiscArea 内部会再乘 0.80（竖屏版式），横屏要"左大封面"，
+    /// 传入 maxSide/0.8 抵消这个二次缩小，让唱片真正用满给定的 maxSide。
     @ViewBuilder
     private func discViewForLandscape(maxSide: CGFloat) -> some View {
         switch currentTheme {
         case .glitter:
-            glitterDiscArea(width: maxSide)
+            glitterDiscArea(width: maxSide / 0.8)
         case .vinyl:
             vinylArtwork(width: maxSide, height: maxSide)
         case .classic:
@@ -1340,7 +1329,7 @@ struct PlayerView: View {
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
-                    .background(TopBarButtonSurface())
+                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
             }
 
             // 歌名 + 歌手同一行（用户要求改在一行显示）
@@ -1363,7 +1352,7 @@ struct PlayerView: View {
             Button { toggleLandscape() } label: {
                 LandscapeToggleIcon()
                     .frame(width: 40, height: 40)
-                    .background(TopBarButtonSurface())
+                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
             }
         }
         // 关闭 / 横屏 按钮同为 40×40 圆形底，图标齐平
@@ -1802,30 +1791,23 @@ private struct GlowDot: View {
     }
 }
 
-/// 横屏切换图标：横放屏幕 + 左右展开箭头。
+/// 横屏切换图标：竖放手机 + 右上角顺时针旋转箭头（照用户参考图）。
 /// 🔴 自绘组合而非用 `rectangle.landscape.rotate` —— 该 SF Symbol 在部分系统版本
-/// 缺字不渲染，按钮变成一个"空圆圈"（用户截图实测）。chevron/形状 100% 可用。
+/// 缺字不渲染，按钮变成一个"空圆圈"（用户截图实测）。arrow.clockwise 100% 可用。
 private struct LandscapeToggleIcon: View {
     var body: some View {
-        HStack(spacing: 3) {
-            Image(systemName: "chevron.left")
-                .font(.system(size: 9, weight: .bold))
+        ZStack {
+            // 竖放手机轮廓
             RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                .strokeBorder(.white, lineWidth: 1.5)
-                .frame(width: 15, height: 11)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 9, weight: .bold))
+                .strokeBorder(.white, lineWidth: 1.6)
+                .frame(width: 12, height: 17)
+            // 右上角旋转箭头（提示把手机旋成横屏）
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white)
+                .offset(x: 8.5, y: -6.5)
         }
-        .foregroundStyle(.white)
-    }
-}
-
-/// 顶栏圆形按钮底：半透明深色 + 细白描边，任何背景（含炫胶亮色顶部）都清晰好看。
-private struct TopBarButtonSurface: View {
-    var body: some View {
-        Circle()
-            .fill(.black.opacity(0.25))
-            .overlay(Circle().strokeBorder(.white.opacity(0.22), lineWidth: 0.8))
+        .frame(width: 24, height: 22)
     }
 }
 
@@ -1896,6 +1878,11 @@ struct LyricsPageView: View {
     }
 
     var body: some View {
+        // 🔴 用 GeometryReader 实测 cover 真实尺寸来约束布局：
+        // 之前用 UIScreen.main.bounds 钳制，但强制旋转瞬间 UIScreen 可能还停在横屏
+        // (852 宽) 而窗口已是竖屏(393) → 内容被钳成 852 宽、两侧被裁出屏幕（实测）。
+        // 改用容器自身尺寸（永远正确），任何方向竞态都不会再溢出裁切。
+        GeometryReader { geo in
         ZStack {
             // 沉浸式取色背景（专辑图模糊 + 渐变）
             ZStack {
@@ -1984,11 +1971,9 @@ struct LyricsPageView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+        .frame(width: geo.size.width, height: geo.size.height)
+        }
         .ignoresSafeArea()
-        // 🔴 硬性钳制到当前屏幕尺寸并裁掉溢出：兜底"从横屏进歌词页时 cover 按旧
-        // 横屏尺寸布局、内容两侧被裁出屏幕"的问题（openLyricsPage 已先转竖屏再弹）。
-        .frame(width: UIScreen.main.bounds.width,
-               height: UIScreen.main.bounds.height)
         .clipped()
         .highPriorityGesture(
             DragGesture(minimumDistance: 24).onEnded { value in
