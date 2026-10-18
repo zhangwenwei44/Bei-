@@ -40,6 +40,25 @@ final class OrientationLock: ObservableObject {
         forceRotate(to: .portrait)
     }
 
+    /// 进入全屏歌词页：无论当前是不是横屏播放器，都临时把全局方向放宽成竖屏
+    /// 并把设备强制转回竖屏，让歌词页始终以竖屏竖排呈现（否则会继承横屏播放器的
+    /// 横屏 mask，导致「横屏状态下点歌词」歌词页被拉伸成横宽）。
+    func presentPortraitForLyrics() {
+        mask = .portrait
+        forceRotate(to: .portrait)
+    }
+
+    /// 退出全屏歌词页：恢复进入前的方向状态。
+    /// 之前是横屏播放器就把设备转回横屏；否则保持竖屏（无需旋转）。
+    func restoreOrientationAfterLyrics() {
+        if isLandscapePlayer {
+            mask = .landscape
+            forceRotate(to: .landscapeRight)
+        } else {
+            mask = .portrait
+        }
+    }
+
     // 🔴 必须先改 mask 允许目标方向，再 setValue 强制旋转，否则系统会因
     // 目标方向不在允许列表里而忽略这次旋转请求。
     private func forceRotate(to orientation: UIInterfaceOrientation) {

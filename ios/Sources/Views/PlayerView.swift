@@ -73,6 +73,18 @@ struct PlayerView: View {
             LyricsPageView(isShown: $isLyricsPage)
                 .environmentObject(store)
         }
+        // 🔴 进入/退出全屏歌词页时接管方向：
+        // 进歌词页 → 临时强制竖屏（避免继承横屏播放器的横屏 mask 把歌词页拉伸成横宽）；
+        // 退歌词页 → 延迟 0.4s 恢复（等 dismiss 动画结束再旋转，避免动画打架）。
+        .onChange(of: isLyricsPage) { presented in
+            if presented {
+                OrientationLock.shared.presentPortraitForLyrics()
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    OrientationLock.shared.restoreOrientationAfterLyrics()
+                }
+            }
+        }
         // 🔴 跟踪设备方向：横屏播放器靠强制旋转 + 这里更新 isLandscape 重排布局
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             isLandscape = UIScreen.main.bounds.width > UIScreen.main.bounds.height
