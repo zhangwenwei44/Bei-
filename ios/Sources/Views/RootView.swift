@@ -39,13 +39,11 @@ struct RootView: View {
             .onChange(of: isPlayerExpanded) { expanded in
                 if expanded {
                     PlayerPresenter.shared.present(
-                        UIHostingController(
-                            rootView: PlayerView(playback: store.playback,
-                                                 lyricState: store.lyricState,
-                                                 isExpanded: $isPlayerExpanded)
-                                // cover 内容不自动继承呈现方的 environmentObject，显式注入
-                                .environmentObject(store)
-                        )
+                        rootView: PlayerView(playback: store.playback,
+                                             lyricState: store.lyricState,
+                                             isExpanded: $isPlayerExpanded)
+                            // cover 内容不自动继承呈现方的 environmentObject，显式注入
+                            .environmentObject(store)
                     )
                 } else {
                     PlayerPresenter.shared.dismiss()
@@ -55,12 +53,10 @@ struct RootView: View {
                 // 极小概率：启动即处于展开态（如进程被杀后恢复），补齐呈现
                 if isPlayerExpanded {
                     PlayerPresenter.shared.present(
-                        UIHostingController(
-                            rootView: PlayerView(playback: store.playback,
-                                                 lyricState: store.lyricState,
-                                                 isExpanded: $isPlayerExpanded)
-                                .environmentObject(store)
-                        )
+                        rootView: PlayerView(playback: store.playback,
+                                             lyricState: store.lyricState,
+                                             isExpanded: $isPlayerExpanded)
+                            .environmentObject(store)
                     )
                 }
             }
@@ -74,7 +70,7 @@ struct RootView: View {
 /// 绝不能拿它的 rootViewController 来 present。
 final class PlayerPresenter {
     static let shared = PlayerPresenter()
-    private weak var currentVC: UIHostingController<PlayerView>?
+    private weak var currentVC: UIViewController?
     private init() {}
 
     /// 尺寸等于物理屏幕的主窗口（过滤注入悬浮窗）。
@@ -94,12 +90,15 @@ final class PlayerPresenter {
         mainWindow?.rootViewController
     }
 
-    func present(_ vc: UIHostingController<PlayerView>) {
+    /// 泛型入口：接受任意 SwiftUI 根视图（.environmentObject 会擦成不透明类型，
+    /// 不能用 UIHostingController<PlayerView> 的具体泛型收编）。
+    func present<Content: View>(rootView: Content) {
         guard currentVC == nil, let root = rootViewController,
               root.presentedViewController == nil else { return }
-        currentVC = vc
+        let vc = UIHostingController(rootView: rootView)
         vc.modalPresentationStyle = .fullScreen
         vc.modalTransitionStyle = .coverVertical
+        currentVC = vc
         root.present(vc, animated: true, completion: nil)
     }
 
