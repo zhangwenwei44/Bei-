@@ -43,18 +43,34 @@ struct PlayerView: View {
 
     private var displayTime: Double { isScrubbing ? scrubValue : playback.currentTime }
 
+    /// key window bounds = 真实可见屏幕尺寸（几何权威）。
+    /// 🔴 强制旋转 + fullScreenCover 组合下 GeometryReader 可能给出"脏"尺寸
+    /// （实测歌词页容器比屏幕宽 ~52pt → 进度条贴穿屏幕、按钮被边缘裁掉）。
+    /// window.bounds 永远等于用户眼前的屏幕，用它在根部钳制，所有子页面受益。
+    fileprivate static func interfaceSize(fallback: CGSize) -> CGSize {
+        for scene in UIApplication.shared.connectedScenes {
+            if let ws = scene as? UIWindowScene,
+               let w = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first,
+               w.bounds.width > 0, w.bounds.height > 0 {
+                return w.bounds.size
+            }
+        }
+        return fallback
+    }
+
     var body: some View {
         // 🔴 用 GeometryReader 实测"容器真实尺寸"，不再用 UIScreen.main.bounds：
         // 强制横竖屏旋转的瞬间 UIScreen 是滞后的（可能还停在旧方向），按它布局
         // 内容会被裁出屏幕（"横屏/歌词页挤出屏幕"的根因）。geo.size 永远=真实可见尺寸，
         // 旋转完成时 GeometryReader 也会自动用新尺寸重排，无需靠方向通知猜。
         GeometryReader { geo in
-            let screen = CGRect(origin: .zero, size: geo.size)
+            let size = Self.interfaceSize(fallback: geo.size)
+            let screen = CGRect(origin: .zero, size: size)
             // 尺寸用 geo.size（真实容器，防裁切）；安全区顶/底用 key window（geo.safeAreaInsets
             // 在 .ignoresSafeArea() 下是 0，会让顶栏贴到状态栏 —— 用户截图实测）。
             let insets = Self.safeAreaInsets
-            let win = (size: geo.size, safeTop: insets.top, safeBottom: insets.bottom)
-            let contentHeight = geo.size.height - win.safeTop - win.safeBottom
+            let win = (size: size, safeTop: insets.top, safeBottom: insets.bottom)
+            let contentHeight = size.height - win.safeTop - win.safeBottom
 
             ZStack {
                 if isLandscape {
@@ -83,7 +99,7 @@ struct PlayerView: View {
                         .zIndex(10)
                 }
             }
-            .frame(width: geo.size.width, height: geo.size.height)
+            .frame(width: size.width, height: size.height)
             .gesture(dragGesture)
             .overlay(alignment: .bottom) { toastLayer }
             // 🔴 进入/退出歌词页时接管方向：
@@ -1156,6 +1172,8 @@ struct PlayerView: View {
             // 🔴 横屏安全区必须用 key window 真实值：geo.safeAreaInsets 在 ignoresSafeArea 下全返回 0，
             // 会让左列顶进刘海（XS 直接挡住唱片）、右列压进 home indicator（列表按钮点不动）。
             let insets = Self.landscapeInsets
+            // 尺寸同样以 window bounds 为权威（防脏容器几何）
+            let size = Self.interfaceSize(fallback: geo.size)
             ZStack {
                 // 背景跟随主题（经典/黑胶取色渐变；炫胶自带全屏炫彩）
                 // 🔴 背景层挂点击手势：横屏顶栏浮层默认隐藏，点击任意空白区域显隐切换
@@ -1173,9 +1191,9 @@ struct PlayerView: View {
 
                 HStack(spacing: 0) {
                     // 左：大封面（垂直居中，约占屏宽 38%）
-                    discViewForLandscape(maxSide: min(geo.size.height - insets.top - insets.bottom - 40,
-                                                      geo.size.width * 0.38))
-                        .frame(maxWidth: geo.size.width * 0.42, maxHeight: .infinity)
+                    discViewForLandscape(maxSide: min(size.height - insets.top - insets.bottom - 40,
+                                                      size.width * 0.38))
+                        .frame(maxWidth: size.width * 0.42, maxHeight: .infinity)
 
                     // 右：信息列
                     VStack(alignment: .leading, spacing: 0) {
@@ -1216,8 +1234,8 @@ struct PlayerView: View {
         .ignoresSafeArea()
     }
 
-    /// 横屏顶栏：只留 关闭（左）+ 横屏切换（右）。按钮带半透明圆底 + 细描边，
-    /// 不贴顶（top padding +18），任何背景都清晰好看。
+    /// 横屏顶栏：只留 关闭（左）。
+    /// 🔴 用户要求移除右上角旋转按钮（竖屏顶栏的横屏入口保留，横屏内不需要再切）。
     private func landscapeTopBar() -> some View {
         HStack(spacing: 0) {
             Button { animateOut() } label: {
@@ -1228,11 +1246,6 @@ struct PlayerView: View {
                     .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
             }
             Spacer(minLength: 0)
-            Button { toggleLandscape() } label: {
-                LandscapeToggleIcon()
-                    .frame(width: 40, height: 40)
-                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-            }
         }
         .buttonStyle(.plain)
     }
@@ -1931,6 +1944,7 @@ struct LyricsPageView: View {
         // (852 宽) 而窗口已是竖屏(393) → 内容被钳成 852 宽、两侧被裁出屏幕（实测）。
         // 改用容器自身尺寸（永远正确），任何方向竞态都不会再溢出裁切。
         GeometryReader { geo in
+            let sz = PlayerView.interfaceSize(fallback: geo.size)
         ZStack {
             // 沉浸式取色背景（专辑图模糊 + 渐变）
             ZStack {
@@ -2019,7 +2033,7 @@ struct LyricsPageView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .frame(width: geo.size.width, height: geo.size.height)
+        .frame(width: sz.width, height: sz.height)
         }
         .ignoresSafeArea()
         .clipped()

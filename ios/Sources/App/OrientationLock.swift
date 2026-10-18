@@ -59,9 +59,28 @@ final class OrientationLock: ObservableObject {
         }
     }
 
-    // 🔴 必须先改 mask 允许目标方向，再 setValue 强制旋转，否则系统会因
+    // 🔴 必须先改 mask 允许目标方向，再触发旋转，否则系统会因
     // 目标方向不在允许列表里而忽略这次旋转请求。
+    //
+    // 🔴 iOS 16+ 必须走 requestGeometryUpdate 正规几何更新：
+    // 只用 UIDevice.setValue 私有 KVC 骗旋转时，SwiftUI 会跟着重绘（视觉看似正常），
+    // 但 fullScreenCover 等 UIKit presentation 容器不重做几何布局 ——
+    // 命中测试区还是旧方向的（实测：横屏里返回/收藏/列表按钮全部点不到，
+    // 歌词页容器几何错乱整体偏移被裁）。requestGeometryUpdate 才是系统正解。
     private func forceRotate(to orientation: UIInterfaceOrientation) {
+        let target = mask
+        if #available(iOS 16.0, *) {
+            UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .forEach { scene in
+                    scene.requestGeometryUpdate(.iOS(interfaceOrientations: target))
+                    scene.windows.forEach {
+                        $0.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+                    }
+                }
+            UIViewController.attemptRotationToDeviceOrientation()
+        }
+        // iOS 15 及以下（以及 requestGeometryUpdate 未生效时的兜底）：
         // KVC 改 UIDevice.orientation 是业界通用做法（App Store 安全）。
         // UIInterfaceOrientation 与 UIDeviceOrientation 在 portrait/landscape*
         // 上的 rawValue 一致，直接传 rawValue 即可。
