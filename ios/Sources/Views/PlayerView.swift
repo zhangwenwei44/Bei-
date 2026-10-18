@@ -48,18 +48,36 @@ struct PlayerView: View {
     private var displayTime: Double { isScrubbing ? scrubValue : playback.currentTime }
 
     /// key window bounds = 真实可见屏幕尺寸（几何权威）。
-    /// 🔴 强制旋转 + fullScreenCover 组合下 GeometryReader 可能给出"脏"尺寸
-    /// （实测歌词页容器比屏幕宽 ~52pt → 进度条贴穿屏幕、按钮被边缘裁掉）。
-    /// window.bounds 永远等于用户眼前的屏幕，用它在根部钳制，所有子页面受益。
+    /// 🔴 不再读任何 window 的 bounds：设备上的第三方注入悬浮窗（如网速悬浮球）
+    /// 会创建自己的 UIWindow 且可能成为 key window，其 bounds 不是屏幕尺寸
+    /// （实测读到 ~427pt 宽的脏值 → 歌词页控制条整体偏移、进度条贴穿屏幕）。
+    /// 改用 UIWindowScene.screen.bounds —— scene 级物理屏幕尺寸，不受任何注入窗口影响。
+    /// （系统界面已永不旋转，屏幕尺寸恒定，无需担心旋转瞬间的滞后问题。）
     fileprivate static func interfaceSize(fallback: CGSize) -> CGSize {
         for scene in UIApplication.shared.connectedScenes {
-            if let ws = scene as? UIWindowScene,
-               let w = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first,
-               w.bounds.width > 0, w.bounds.height > 0 {
-                return w.bounds.size
-            }
+            guard let ws = scene as? UIWindowScene else { continue }
+            let s = ws.screen.bounds.size
+            if s.width > 0, s.height > 0 { return s }
         }
         return fallback
+    }
+
+    /// 竖屏语义的顶/底安全区（top=刘海侧，bottom=home indicator 侧）。
+    /// 🔴 只认"尺寸=物理屏幕"的主窗口：第三方注入的悬浮窗可能成为 key window，
+    /// 读它的 safeAreaInsets 会得到垃圾值。
+    fileprivate static var safeAreaInsets: (top: CGFloat, bottom: CGFloat) {
+        for scene in UIApplication.shared.connectedScenes {
+            guard let ws = scene as? UIWindowScene else { continue }
+            let screen = ws.screen.bounds.size
+            let mainWindows = ws.windows.filter {
+                abs($0.bounds.width - screen.width) < 1 && abs($0.bounds.height - screen.height) < 1
+            }
+            guard let w = mainWindows.first(where: { $0.isKeyWindow }) ?? mainWindows.first else { continue }
+            let top = w.safeAreaInsets.top > 0 ? w.safeAreaInsets.top : 44
+            let bottom = w.safeAreaInsets.bottom >= 20 ? w.safeAreaInsets.bottom : 34
+            return (top, bottom)
+        }
+        return (44, 34)
     }
 
     var body: some View {
@@ -127,6 +145,9 @@ struct PlayerView: View {
             UIDevice.current.beginGeneratingDeviceOrientationNotifications()
             UIApplication.shared.isIdleTimerDisabled = isLandscape
         }
+        // 🔴 横屏时隐藏系统状态栏（内容自转方案下系统界面仍竖屏，状态栏会叠在
+        // 自转内容上 —— 用户实测"横屏播放器显示了通知栏"）。iOS 16+ 用新 API。
+        .modifier(LandscapeStatusBarHider(hidden: isLandscape))
         // 🔴 关闭播放页时恢复竖屏 + 恢复自动熄屏（避免退出后整 App 卡横屏/永远不熄屏）
         .onDisappear {
             OrientationLock.shared.resetToPortrait()
@@ -869,44 +890,18 @@ struct PlayerView: View {
         .frame(width: size, height: size)
     }
 
-    /// 设备窗口尺寸 + safeAreaInsets
-    /// 从 UIWindowScene.keyWindow 读 + 强制兜底（bottom 不能小于 34）
-    /// 之前 window.safeAreaInsets.bottom 在 overlay 呈现时曾返回 0 → contentHeight 算大 34pt
-    /// 从 key window 读真实安全区（顶/底）。
-    /// 🔴 不能用 GeometryReader 的 safeAreaInsets：根部套了 .ignoresSafeArea() 后它返回 0，
-    /// 会让顶栏贴到状态栏（用户截图实测）。key window 的 safeAreaInsets 始终可靠。
-    private static var safeAreaInsets: (top: CGFloat, bottom: CGFloat) {
-        for scene in UIApplication.shared.connectedScenes {
-            guard let ws = scene as? UIWindowScene,
-                  let w = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first else { continue }
-            let top = w.safeAreaInsets.top > 0 ? w.safeAreaInsets.top : 44
-            let bottom = w.safeAreaInsets.bottom >= 20 ? w.safeAreaInsets.bottom : 34
-            return (top, bottom)
-        }
-        return (44, 34)
-    }
-
-    /// 横屏布局专用：返回 key window 的【真实】安全区（含 leading/trailing/top/bottom），不做兜底。
-    /// 🔴 不能用 GeometryReader 的 safeAreaInsets（根部 ignoresSafeArea 下返回 0，会让左列顶进刘海、
-    /// 右列压进 home indicator）；也不能复用 safeAreaInsets 的 top=44/bottom=34 兜底（那是竖屏下巴/刘海用的，
-    /// 横屏 top/bottom 本就≈0，套上去反而把浮层顶得太靠下）。横屏要的是真实的 left/right 内缩来避开
-    /// 刘海与 home indicator。
-    /// 横屏内容空间的"虚拟安全区"。
+    /// 横屏布局专用：横屏内容空间的"虚拟安全区"。
     /// 🔴 内容自转 ±90° 后，内容左/右边缘分别对应竖屏窗口的 刘海侧(top) /
     /// home indicator 侧(bottom)，方向随自转角镜像；内容上/下边缘无系统 UI，留小常量即可。
+    /// 安全区数值复用 safeAreaInsets（已过滤第三方注入窗口，读的是主窗口真实值）。
     private static func landscapeInsets(forAngle angle: Double) -> UIEdgeInsets {
-        for scene in UIApplication.shared.connectedScenes {
-            guard let ws = scene as? UIWindowScene,
-                  let w = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first else { continue }
-            let win = w.safeAreaInsets          // 竖屏语义：top=刘海侧、bottom=home indicator 侧
-            if angle < 0 {
-                // -90°（刘海在右握持）：内容左=home 侧，内容右=刘海侧
-                return UIEdgeInsets(top: 6, left: win.bottom, bottom: 6, right: win.top)
-            }
-            // +90°（刘海在左握持，默认）：内容左=刘海侧，内容右=home 侧
-            return UIEdgeInsets(top: 6, left: win.top, bottom: 6, right: win.bottom)
+        let win = safeAreaInsets            // 竖屏语义：top=刘海侧、bottom=home indicator 侧
+        if angle < 0 {
+            // -90°（刘海在右握持）：内容左=home 侧，内容右=刘海侧
+            return UIEdgeInsets(top: 6, left: win.bottom, bottom: 6, right: win.top)
         }
-        return UIEdgeInsets(top: 6, left: 44, bottom: 6, right: 34)
+        // +90°（刘海在左握持，默认）：内容左=刘海侧，内容右=home 侧
+        return UIEdgeInsets(top: 6, left: win.top, bottom: 6, right: win.bottom)
     }
 
     // MARK: - 背景（封面取色渐变 + 封面虚化，酷狗风格）
@@ -1158,6 +1153,10 @@ struct PlayerView: View {
             withAnimation(.easeInOut(duration: 0.3)) {
                 OrientationLock.shared.enterLandscape()
                 isLandscape = true
+            }
+            // 内容已自转为横屏，但系统界面仍竖屏 —— 提示用户横持手机获得正确视角
+            if !UIDevice.current.orientation.isLandscape {
+                show("请横持手机，横屏内容会自动转向")
             }
             // 横屏播放屏幕常亮
             UIApplication.shared.isIdleTimerDisabled = true
@@ -1937,24 +1936,12 @@ struct LyricsPageView: View {
     @State private var isMetaExpanded = false
 
     private var safeTop: CGFloat {
-        for scene in UIApplication.shared.connectedScenes {
-            if let ws = scene as? UIWindowScene,
-               let w = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first {
-                // 🔴 兜底 44：保证顶栏在状态栏之下（部分场景读到 0 会贴顶）
-                return max(44, w.safeAreaInsets.top + 6)
-            }
-        }
-        return 50
+        // 🔴 复用 PlayerView.safeAreaInsets（过滤第三方注入窗口），不再直接读 keyWindow
+        max(44, PlayerView.safeAreaInsets.top + 6)
     }
 
     private var safeBottom: CGFloat {
-        for scene in UIApplication.shared.connectedScenes {
-            if let ws = scene as? UIWindowScene,
-               let w = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first {
-                return max(8, w.safeAreaInsets.bottom)
-            }
-        }
-        return 16
+        max(8, PlayerView.safeAreaInsets.bottom)
     }
 
     var body: some View {
@@ -2121,6 +2108,20 @@ struct LyricsPageView: View {
 
 /// 全屏歌词页底部播放控件条：进度条 + 上一首 / 播放 / 下一首。
 /// 固定在歌词页底部，内置于安全区，永远不会被歌词滚动区挤出屏幕。
+/// 横屏播放器时隐藏系统状态栏。
+/// iOS 16+ 的 statusBarHidden(_:)；iOS 15 不处理（旧 statusBar(hidden:) 已弃用，
+/// 直接调用会触发弃用警告 → CI 的 warning-as-error 会挂）。
+private struct LandscapeStatusBarHider: ViewModifier {
+    let hidden: Bool
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            content.statusBarHidden(hidden)
+        } else {
+            content
+        }
+    }
+}
+
 private struct LyricsBottomBar: View {
     @EnvironmentObject private var store: PlayerStore
     /// 直接订阅同一个 PlaybackProgress 实例，保证进度条随播放实时刷新
