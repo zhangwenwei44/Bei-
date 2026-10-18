@@ -1,3 +1,4 @@
+import UIKit
 import SwiftUI
 
 struct RootView: View {
@@ -7,7 +8,7 @@ struct RootView: View {
     /// 整棵 TabView 树跟着任何 @Published 变化重算，TabBar 手势被持续打断。
     /// 改用单例引用传递：不建立任何订阅，TabView 树在播放期间结构静止。
     /// 子层各取所需：MiniPlayerOverlay 订 mini/playback，
-    /// 播放页（fullScreenCover）注入 playback/lyricState。
+    /// 播放页（UIKit present 的 UIHostingController）注入 playback/lyricState。
     private var store: PlayerStore { PlayerStore.shared }
     @State private var isPlayerExpanded = false
 
@@ -25,30 +26,87 @@ struct RootView: View {
         //    底边就是 TabBar 上沿，播放条被布局钉在 TabBar 正上方，
         //    二者结构上不可能重叠，TabBar 由 TabView 正常渲染。
         MainTabs(store: store, isExpanded: $isPlayerExpanded)
-            // 🔴 播放页用系统 fullScreenCover 呈现（第六版方案，照搬 Beans）。
+            // 🔴 播放页改用 **UIKit 级 present()** 呈现（UIHostingController +
+            // modalPresentationStyle=.fullScreen），替代 SwiftUI fullScreenCover。
             //
-            // ## 之前自定义 overlay 方案为什么被废弃（图1→「关闭后 TabBar 点不动」）
-            //
-            // 旧做法：RootView 上 `.overlay { if isExpanded { PlayerView()
-            //   .transition(.move(.bottom)).ignoresSafeArea() } }`。
-            // 症状：播放时打开再关闭播放页后，TabBar 点不动；暂停后恢复。
-            // 根因：自定义 transition 的移除动画收尾依赖 SwiftUI 树稳定，
-            //   而播放期间 PlayerView 的订阅（playback 2fps / lyricState）
-            //   不断打脏这棵子树，移除流程走不干净，残留在树里的
-            //   ignoresSafeArea 视图继续占据命中测试区；暂停后重算停止，
-            //   残留才被清掉。这个组合（overlay + transition + ignoresSafeArea
-            //   + 高频订阅）没有任何官方保证，属于踩不完的坑。
-            //
-            // fullScreenCover 是 UIKit 级 presentation：关闭即销毁 presented
-            // view controller，不存在任何 SwiftUI 树残留 / 命中拦截。
-            // Beans（同设备稳定运行的参考实现）用的就是这个方案。
-            .fullScreenCover(isPresented: $isPlayerExpanded) {
-                PlayerView(playback: store.playback,
-                           lyricState: store.lyricState,
-                           isExpanded: $isPlayerExpanded)
-                    // cover 内容不自动继承呈现方的 environmentObject，显式注入
-                    .environmentObject(store)
+            // ## 为什么废弃 fullScreenCover（第七版）
+            // 横屏播放器需要强制旋转界面（enterLandscape → mask + 强制旋转）。
+            // SwiftUI fullScreenCover 的 presentation 容器在强制旋转后命中测试区
+            // 不随旋转更新 —— 视觉正常但按钮点不到（实测：返回/收藏/列表全灭，
+            // 连换 scene.screen/window bounds 几何钳制都治不好）。
+            // UIKit present() 是业界标准横屏播放器方案，旋转与命中测试都由
+            // UIKit 正确处理。关闭即销毁 presented VC，同样无 SwiftUI 树残留。
+            .onChange(of: isPlayerExpanded) { expanded in
+                if expanded {
+                    PlayerPresenter.shared.present(
+                        UIHostingController(
+                            rootView: PlayerView(playback: store.playback,
+                                                 lyricState: store.lyricState,
+                                                 isExpanded: $isPlayerExpanded)
+                                // cover 内容不自动继承呈现方的 environmentObject，显式注入
+                                .environmentObject(store)
+                        )
+                    )
+                } else {
+                    PlayerPresenter.shared.dismiss()
+                }
             }
+            .onAppear {
+                // 极小概率：启动即处于展开态（如进程被杀后恢复），补齐呈现
+                if isPlayerExpanded {
+                    PlayerPresenter.shared.present(
+                        UIHostingController(
+                            rootView: PlayerView(playback: store.playback,
+                                                 lyricState: store.lyricState,
+                                                 isExpanded: $isPlayerExpanded)
+                                .environmentObject(store)
+                        )
+                    )
+                }
+            }
+    }
+}
+
+/// 播放页的 UIKit 呈现器（RootView 私有）。
+///
+/// 🔴 主窗口按「bounds == screen 尺寸」过滤：设备上的第三方注入悬浮窗
+/// （如网速悬浮球）会创建自己的 UIWindow 且可能成为 key window，
+/// 绝不能拿它的 rootViewController 来 present。
+final class PlayerPresenter {
+    static let shared = PlayerPresenter()
+    private weak var currentVC: UIHostingController<PlayerView>?
+    private init() {}
+
+    /// 尺寸等于物理屏幕的主窗口（过滤注入悬浮窗）。
+    private var mainWindow: UIWindow? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { w in
+                let s = w.screen.bounds
+                return w.bounds.width > 0
+                    && abs(w.bounds.width - s.width) < 1
+                    && abs(w.bounds.height - s.height) < 1
+            }
+    }
+
+    private var rootViewController: UIViewController? {
+        mainWindow?.rootViewController
+    }
+
+    func present(_ vc: UIHostingController<PlayerView>) {
+        guard currentVC == nil, let root = rootViewController,
+              root.presentedViewController == nil else { return }
+        currentVC = vc
+        vc.modalPresentationStyle = .fullScreen
+        vc.modalTransitionStyle = .coverVertical
+        root.present(vc, animated: true, completion: nil)
+    }
+
+    func dismiss() {
+        guard let vc = currentVC else { return }
+        currentVC = nil
+        vc.dismiss(animated: true, completion: nil)
     }
 }
 

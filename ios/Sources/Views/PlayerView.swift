@@ -17,12 +17,8 @@ struct PlayerView: View {
 
     @State private var showToast: String?
     @State private var isLyricsPage = false
-    /// 横屏播放器：跟踪当前是否处于横屏（由设备方向通知驱动重排布局）
+    /// 横屏播放器：跟踪当前是否处于横屏（由方向锁权威驱动）
     @State private var isLandscape = false
-    /// 🔴 横屏内容的自转角：方向锁永远竖屏，横屏内容用 rotationEffect 自转 90° 渲染
-    /// （SwiftUI 对旋转内容的命中测试保证正确，彻底绕开「强制系统旋转 + fullScreenCover」
-    /// 的命中区错乱/容器几何变脏问题）。±90 由设备物理握持方向决定（刘海在左=+90）。
-    @State private var landscapeRotationAngle: Double = 90
     /// 横屏顶栏浮层（关闭/横屏按钮）：默认隐藏，点击屏幕任意处显隐切换
     @State private var landscapeChromeVisible = false
     /// 音质切换弹层
@@ -124,29 +120,28 @@ struct PlayerView: View {
             .frame(width: size.width, height: size.height)
             .gesture(dragGesture)
             .overlay(alignment: .bottom) { toastLayer }
+            // 🔴 进入/退出歌词页时接管方向：
+            // 进歌词页 → 临时强制竖屏；退歌词页 → 延迟 0.4s 恢复（避免动画打架）。
+            .onChange(of: isLyricsPage) { presented in
+                if presented {
+                    OrientationLock.shared.presentPortraitForLyrics()
+                } else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        OrientationLock.shared.restoreOrientationAfterLyrics()
+                    }
+                }
+            }
         }
         .ignoresSafeArea()
-        // 🔴 设备物理方向 → 横屏内容自转角：用户怎么握就怎么转（刘海在左=+90°，在右=-90°）。
-        // 系统界面永远竖屏，这里只影响 SwiftUI 内容的旋转方向。
+        // 🔴 isLandscape 由方向锁权威驱动（enterLandscape/exitLandscape 同步设置）
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             isLandscape = OrientationLock.shared.isLandscapePlayer
-            switch UIDevice.current.orientation {
-            case .landscapeLeft:
-                landscapeRotationAngle = 90
-            case .landscapeRight:
-                landscapeRotationAngle = -90
-            default:
-                break   // 竖屏/平放：保持上次的横屏角
-            }
         }
         .onAppear {
             isLandscape = OrientationLock.shared.isLandscapePlayer
-            // 让 UIDevice.orientation 在界面锁定竖屏时也能实时上报物理旋转
-            UIDevice.current.beginGeneratingDeviceOrientationNotifications()
             UIApplication.shared.isIdleTimerDisabled = isLandscape
         }
-        // 🔴 横屏时隐藏系统状态栏（内容自转方案下系统界面仍竖屏，状态栏会叠在
-        // 自转内容上 —— 用户实测"横屏播放器显示了通知栏"）。iOS 16+ 用新 API。
+        // 🔴 横屏播放器时隐藏系统状态栏（沉浸播放）；退出横屏自动恢复
         .modifier(LandscapeStatusBarHider(hidden: isLandscape))
         // 🔴 关闭播放页时恢复竖屏 + 恢复自动熄屏（避免退出后整 App 卡横屏/永远不熄屏）
         .onDisappear {
@@ -890,18 +885,21 @@ struct PlayerView: View {
         .frame(width: size, height: size)
     }
 
-    /// 横屏布局专用：横屏内容空间的"虚拟安全区"。
-    /// 🔴 内容自转 ±90° 后，内容左/右边缘分别对应竖屏窗口的 刘海侧(top) /
-    /// home indicator 侧(bottom)，方向随自转角镜像；内容上/下边缘无系统 UI，留小常量即可。
-    /// 安全区数值复用 safeAreaInsets（已过滤第三方注入窗口，读的是主窗口真实值）。
-    private static func landscapeInsets(forAngle angle: Double) -> UIEdgeInsets {
-        let win = safeAreaInsets            // 竖屏语义：top=刘海侧、bottom=home indicator 侧
-        if angle < 0 {
-            // -90°（刘海在右握持）：内容左=home 侧，内容右=刘海侧
-            return UIEdgeInsets(top: 6, left: win.bottom, bottom: 6, right: win.top)
+    /// 横屏布局专用：返回【主窗口】的横屏语义真实安全区（left/right=刘海/home 侧）。
+    /// 🔴 只认「尺寸=物理屏幕」的主窗口：设备上的第三方注入悬浮窗（网速悬浮球）
+    /// 可能成为 key window，读它的 safeAreaInsets 会得到垃圾值。
+    private static var landscapeInsets: UIEdgeInsets {
+        for scene in UIApplication.shared.connectedScenes {
+            guard let ws = scene as? UIWindowScene else { continue }
+            let screen = ws.screen.bounds.size
+            let mainWindows = ws.windows.filter {
+                abs($0.bounds.width - screen.width) < 1 && abs($0.bounds.height - screen.height) < 1
+            }
+            guard let w = mainWindows.first(where: { $0.isKeyWindow }) ?? mainWindows.first else { continue }
+            return w.safeAreaInsets
         }
-        // +90°（刘海在左握持，默认）：内容左=刘海侧，内容右=home 侧
-        return UIEdgeInsets(top: 6, left: win.top, bottom: 6, right: win.bottom)
+        // 兜底（竖屏语义值近似横屏）：刘海侧 44、home 侧 34
+        return UIEdgeInsets(top: 0, left: 44, bottom: 21, right: 0)
     }
 
     // MARK: - 背景（封面取色渐变 + 封面虚化，酷狗风格）
@@ -1139,59 +1137,53 @@ struct PlayerView: View {
     // MARK: - 横屏播放器（参考酷狗：右上角「横屏」按钮进入）
 
     /// 进入/退出横屏播放器的切换：由顶栏的「横屏」按钮调用。
-    /// 🔴 只切 UI 状态（内容自转渲染），不再旋转系统界面。
     private func toggleLandscape() {
         if OrientationLock.shared.isLandscapePlayer {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                OrientationLock.shared.exitLandscape()
-                isLandscape = false
-            }
+            OrientationLock.shared.exitLandscape()
+            isLandscape = false
             UIApplication.shared.isIdleTimerDisabled = false
         } else {
             // 进入横屏：顶栏浮层（关闭按钮）默认隐藏，点击屏幕任意处再显
             landscapeChromeVisible = false
-            withAnimation(.easeInOut(duration: 0.3)) {
-                OrientationLock.shared.enterLandscape()
-                isLandscape = true
-            }
-            // 内容已自转为横屏，但系统界面仍竖屏 —— 提示用户横持手机获得正确视角
-            if !UIDevice.current.orientation.isLandscape {
-                show("请横持手机，横屏内容会自动转向")
-            }
+            OrientationLock.shared.enterLandscape()
+            // 🔴 立即置 isLandscape = true（由方向锁权威驱动），不等方向通知 ——
+            // 强制旋转瞬间通知是滞后的，等它会把横屏当成竖屏布局而裁切。
+            isLandscape = true
             // 横屏播放屏幕常亮
             UIApplication.shared.isIdleTimerDisabled = true
         }
     }
 
     /// 打开全屏歌词页。
-    /// 竖屏直接进。横屏播放页内的歌词块是纯展示（用户要求点歌词不跳转），
-    /// 此入口实际只在竖屏可达；万一在横屏调用则先退横屏再进，避免歌词页
-    /// 渲染在自转布局之上出现方向错乱。
+    /// 🔴 从横屏播放器进入时不能立刻 present：播放页会按当下（横屏）
+    /// 尺寸布局，随后强制转竖屏时内容仍按横宽渲染 → 歌词/控件两侧被裁出屏幕。
+    /// 先强制转竖屏，等旋转稳定（0.45s）再弹歌词页，保证按竖屏尺寸布局。
     private func openLyricsPage() {
         if isLandscape {
-            toggleLandscape()   // 退出横屏（内容自转回竖屏），系统界面本来就竖屏无需协调
+            OrientationLock.shared.presentPortraitForLyrics()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
+            }
+        } else {
+            withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
         }
-        withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = true }
     }
 
     /// 横屏布局（酷狗式，参考用户截图）。
-    /// 🔴 内容自转方案：系统界面永远竖屏，横屏内容在竖屏窗口内用 rotationEffect
-    /// 自转 ±90° 渲染（SwiftUI 对旋转内容的命中测试保证正确 —— 返回/收藏/列表
-    /// 按钮恢复可点；fullScreenCover 容器不再经历旋转，几何永远干净）。
+    /// 🔴 播放页由 UIKit present() 呈现 + 系统强制旋转（见 RootView），
+    /// 窗口尺寸/安全区就是横屏语义的真实值，直接布局即可。
     private func landscapeBody() -> some View {
         GeometryReader { geo in
-            let size = Self.interfaceSize(fallback: geo.size)                 // 竖屏窗口 375×812
-            let virtual = CGSize(width: size.height, height: size.width)      // 横屏内容空间 812×375
-            landscapeContent(size: virtual,
-                             insets: Self.landscapeInsets(forAngle: landscapeRotationAngle))
-                .frame(width: virtual.width, height: virtual.height)
-                .rotationEffect(.degrees(landscapeRotationAngle))
-                .position(x: size.width / 2, y: size.height / 2)
+            // 尺寸用 scene.screen（不受第三方注入悬浮窗污染）；geo 仅兜底
+            let size = Self.interfaceSize(fallback: geo.size)
+            let insets = Self.landscapeInsets
+            landscapeContent(size: size, insets: insets)
+                .frame(width: size.width, height: size.height)
         }
         .ignoresSafeArea()
     }
 
-    /// 横屏内容（在 812×375 的虚拟横屏空间里布局）：
+    /// 横屏内容（酷狗式版式，由系统旋转到横屏后真实横屏窗口里布局）：
     /// 左侧大封面垂直居中；右侧 标题行 → 四行歌词 → 进度 →
     /// 单排控制键（收藏/上一首/播放/下一首/列表）。顶栏浮层只留关闭。
     private func landscapeContent(size: CGSize, insets: UIEdgeInsets) -> some View {
@@ -1234,9 +1226,9 @@ struct PlayerView: View {
                 }
                 .padding(.leading, insets.left)              // 真实左安全区：避开刘海（XS 不再遮唱片）
 
-                // 顶栏浮层：默认隐藏，点击屏幕任意处显隐。关闭（左）+ 横屏按钮（右）。
-                // 🔴 浮层 VStack 必须撑满并 alignment:.top —— 否则它在 ZStack 里被居中，
-                // 关闭/横屏按钮跑到屏幕正中、顶部反而空着，点顶部"返回"自然没反应。
+                // 顶栏浮层：默认隐藏，点击屏幕任意处显隐。只有关闭按钮。
+                // 🔴 浮层必须只包住顶栏自身（无 Spacer、无 maxHeight:infinity）：
+                // 撑满全屏的不可见层会吞掉下方内容的触摸（横屏按钮点不到的元凶之一）。
                 if landscapeChromeVisible {
                     VStack(spacing: 0) {
                         landscapeTopBar()
@@ -1244,9 +1236,8 @@ struct PlayerView: View {
                             .padding(.top, insets.top + 18)      // 不贴顶，往下留呼吸空间
                             .padding(.leading, insets.left + 8)
                             .padding(.trailing, insets.right + 8)
-                        Spacer(minLength: 0)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .frame(maxWidth: .infinity, alignment: .top)
                     .transition(.opacity)
                 }
         }
