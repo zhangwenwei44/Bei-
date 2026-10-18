@@ -19,6 +19,8 @@ struct PlayerView: View {
     @State private var isLyricsPage = false
     /// 横屏播放器：跟踪当前是否处于横屏（由方向锁权威驱动）
     @State private var isLandscape = false
+    /// 横屏浮层显隐（关闭按钮 + 底部横条）：默认隐藏，点击屏幕切换
+    @State private var landscapeChromeVisible = false
     /// 音质切换弹层
     @State private var showQualityPicker = false
     @AppStorage("aurora.playerTheme") private var playerTheme: String = "glitter"
@@ -140,7 +142,8 @@ struct PlayerView: View {
             UIApplication.shared.isIdleTimerDisabled = isLandscape
         }
         // 🔴 横屏播放器时隐藏系统状态栏（沉浸播放）；退出横屏自动恢复
-        .modifier(LandscapeStatusBarHider(hidden: isLandscape))
+        .modifier(LandscapeStatusBarHider(hidden: isLandscape,
+                                          hideHomeIndicator: isLandscape && !landscapeChromeVisible))
         // 🔴 关闭播放页时恢复竖屏 + 恢复自动熄屏（避免退出后整 App 卡横屏/永远不熄屏）
         .onDisappear {
             OrientationLock.shared.resetToPortrait()
@@ -1145,6 +1148,8 @@ struct PlayerView: View {
             // 🔴 立即置 isLandscape = true（由方向锁权威驱动），不等方向通知 ——
             // 强制旋转瞬间通知是滞后的，等它会把横屏当成竖屏布局而裁切。
             isLandscape = true
+            // 浮层（关闭按钮 + 底部横条）默认隐藏，点击屏幕显出
+            landscapeChromeVisible = false
             // 横屏播放屏幕常亮
             UIApplication.shared.isIdleTimerDisabled = true
         }
@@ -1185,14 +1190,16 @@ struct PlayerView: View {
     private func landscapeContent(size: CGSize, insets: UIEdgeInsets) -> some View {
         ZStack {
             // 背景跟随主题（经典/黑胶取色渐变；炫胶自带全屏炫彩）
-            // 🔴 背景层不再挂任何点击手势：以前点背景才能"显出"顶栏关闭按钮，
-            // 用户第一次点关闭的位置其实是空白背景 → "点了没反应"。改为常驻显示。
+            // 🔴 背景层挂点击手势：浮层默认隐藏，点击任意空白处 显隐切换
             Group {
                 if currentTheme == .classic {
                     immersiveBackground
                 } else {
                     glitterBackground
                 }
+            }
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.2)) { landscapeChromeVisible.toggle() }
             }
 
             HStack(spacing: 0) {
@@ -1224,23 +1231,25 @@ struct PlayerView: View {
         // - 放 ZStack 里不带 alignment 会被居中（实测关闭按钮浮在唱片中间）；
         // - 带全屏 frame 又可能吞下方触摸；
         // overlay 只在自身内容处可点击，两个问题都没有。
-        // 🔴 常驻显示（不再依赖 landscapeChromeVisible）：隐藏时用户点的其实是背景。
+        // 🔴 默认隐藏（用户要求）：点击屏幕任意空白处显隐切换（背景层 onTapGesture）。
         .overlay(alignment: .top) {
-            landscapeTopBar(insets: insets)
+            if landscapeChromeVisible {
+                landscapeTopBar(insets: insets)
+                    .transition(.opacity)
+            }
         }
     }
 
     /// 横屏顶栏：只留 关闭（左）。
-    /// 🔴 用户要求移除右上角旋转按钮（竖屏顶栏的横屏入口保留，横屏内不需要再切）。
+    /// 🔴 用户要求：不要圆圈底、图标改为向左的箭头（返回语义）。
     private func landscapeTopBar(insets: UIEdgeInsets) -> some View {
         HStack(spacing: 0) {
             Button { animateOut() } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 20, weight: .semibold))
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 21, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
-                    .background(Circle().fill(.black.opacity(0.22)))
-                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+                    .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
             }
             // 🔴 显式命中区 + contentShape：保证 44×44 全覆盖可点（不受图标自身 bounds 限制）
             .contentShape(Rectangle())
@@ -1248,7 +1257,6 @@ struct PlayerView: View {
         }
         .buttonStyle(.plain)
         .frame(height: 44)
-        // 🔴 用户要求上调：只留少量呼吸空间，位置更高（横屏已验证可关闭）
         .padding(.top, max(insets.top, 10) + 14)
         .padding(.leading, insets.left + 14)
         .padding(.trailing, insets.right + 8)
@@ -1864,23 +1872,40 @@ private struct GlowDot: View {
     }
 }
 
-/// 横屏切换图标：竖放手机 + 右上角顺时针旋转箭头（照用户参考图）。
+/// 横屏切换图标（v2.5.22 重新设计）：横放手机轮廓 + 环绕手机的顺时针旋转箭头。
 /// 🔴 自绘组合而非用 `rectangle.landscape.rotate` —— 该 SF Symbol 在部分系统版本
-/// 缺字不渲染，按钮变成一个"空圆圈"（用户截图实测）。arrow.clockwise 100% 可用。
+/// 缺字不渲染，按钮变成一个"空圆圈"（用户截图实测）。Circle trim / 自绘路径 100% 可用。
 private struct LandscapeToggleIcon: View {
     var body: some View {
         ZStack {
-            // 竖放手机轮廓
+            // 横放手机轮廓（提示旋转后的目标姿态）
             RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                .strokeBorder(.white, lineWidth: 1.6)
-                .frame(width: 12, height: 17)
-            // 右上角旋转箭头（提示把手机旋成横屏）
-            Image(systemName: "arrow.clockwise")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.white)
-                .offset(x: 8.5, y: -6.5)
+                .strokeBorder(.white, lineWidth: 1.5)
+                .frame(width: 13, height: 9.5)
+            // 环绕手机的顺时针旋转弧线（留 1/4 缺口给箭头）
+            Circle()
+                .trim(from: 0.04, to: 0.76)
+                .stroke(.white, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                .frame(width: 20, height: 20)
+            // 弧线末端三角箭头（顺时针切向：顶部处朝右）
+            ArrowTipShape()
+                .fill(.white)
+                .frame(width: 6.5, height: 6.5)
+                .offset(x: 1, y: -10)
         }
-        .frame(width: 24, height: 22)
+        .frame(width: 30, height: 30)
+    }
+}
+
+/// 小三角箭头（尖端朝右），配合旋转弧线使用
+private struct ArrowTipShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: 0, y: 0))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+        p.addLine(to: CGPoint(x: 0, y: rect.maxY))
+        p.closeSubpath()
+        return p
     }
 }
 
@@ -2056,9 +2081,13 @@ struct LyricsPageView: View {
 /// 直接调用会触发弃用警告 → CI 的 warning-as-error 会挂）。
 private struct LandscapeStatusBarHider: ViewModifier {
     let hidden: Bool
+    /// 用户要求：横屏浮层隐藏时，底部 home 横条也一并隐藏；点击屏幕显出浮层时恢复
+    var hideHomeIndicator: Bool = false
     func body(content: Content) -> some View {
         if #available(iOS 16.0, *) {
-            content.statusBarHidden(hidden)
+            content
+                .statusBarHidden(hidden)
+                .persistentSystemOverlays(hideHomeIndicator ? .hidden : .automatic)
         } else {
             content
         }
