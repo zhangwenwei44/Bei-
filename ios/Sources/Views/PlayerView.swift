@@ -493,26 +493,29 @@ struct PlayerView: View {
     /// 经典封面功能按钮行：收藏① | 下载② | 翻译③ | 歌词④ | 评论⑤
     private var classicActionRow: some View {
         HStack(spacing: 28) {  // 🔴 间距加大到 28
-            // ① 收藏
-            classicActionButton(icon: store.isLiked ? "heart.fill" : "heart", label: "收藏") {
+            // ① 收藏（激活时实心红心）
+            classicActionButton(glyph: .favorite,
+                                label: "收藏",
+                                active: store.isLiked,
+                                tint: store.isLiked ? AppStyle.like : .white) {
                 store.toggleFavorite()
             }
             // ② 下载
-            classicActionButton(icon: "arrow.down.circle", label: "下载") {
+            classicActionButton(glyph: .download, label: "下载") {
                 if let song = store.current {
                     Task { _ = try? await DownloadManager.shared.download(song) }
                 }
             }
             // ③ 翻译
-            classicActionButton(icon: "textformat", label: "翻译") {
+            classicActionButton(glyph: .translate, label: "翻译") {
                 openLyricsPage()
             }
             // ④ 歌词
-            classicActionButton(icon: "music.note.list", label: "歌词") {
+            classicActionButton(glyph: .lyric, label: "歌词") {
                 openLyricsPage()
             }
             // ⑤ 评论
-            classicActionButton(icon: "bubble.left.and.bubble.right", label: "评论") {
+            classicActionButton(glyph: .comment, label: "评论") {
                 if let song = store.current {
                     let albumID = song.kugouAlbumID
                     let hash = song.kugouHash
@@ -527,17 +530,21 @@ struct PlayerView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func classicActionButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
+    /// 经典主题动作按钮：同样走自绘图标集，与炫胶/黑胶动作行风格一致
+    private func classicActionButton(glyph: PlayerActionGlyph,
+                                     label: String,
+                                     active: Bool = false,
+                                     tint: Color = .white,
+                                     action: @escaping () -> Void) -> some View {
         Button { action(); Haptics.light() } label: {
             VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 22, weight: .regular))
-                    .foregroundStyle(.white)
+                PlayerActionIcon(glyph: glyph, active: active, tint: tint, size: 22)
                     .frame(width: 44, height: 44)
                 Text(label)
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.55))
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -1576,19 +1583,20 @@ struct PlayerView: View {
         // 居中簇：四项（收藏/下载/音质/歌词）整体居中，不铺满全宽；项间距 35
         // 🔴 已移除「翻译」（用户要求）；间距 30 → 25 → 35（加大）。
         HStack(spacing: 35) {
-            actionButton(icon: store.isLiked ? "heart.fill" : "heart",
+            actionButton(glyph: .favorite,
                          label: "收藏",
+                         active: store.isLiked,
                          tint: store.isLiked ? AppStyle.like : .white) {
                 store.toggleFavorite()
             }
-            actionButton(icon: "arrow.down.to.line", label: downloadLabel) { download() }
+            actionButton(glyph: .download, label: downloadLabel) { download() }
             // 音质切换：点了弹确认框选档位，选完 SourceStore 自动用新音质重新解析当前歌
-            actionButton(icon: "waveform",
+            actionButton(glyph: .quality,
                          label: qualityShortTitle,
                          tint: AppStyle.gold) {
                 showQualityPicker = true
             }
-            actionButton(icon: "text.quote", label: "歌词") {
+            actionButton(glyph: .lyric, label: "歌词") {
                 openLyricsPage()
             }
         }
@@ -1633,17 +1641,18 @@ struct PlayerView: View {
         return DownloadManager.shared.isDownloaded(song) ? "已下" : "下载"
     }
 
-    private func actionButton(icon: String,
+    /// 动作行按钮：图标统一走自绘图标集 PlayerActionIcon（线宽/画布/圆角一致）
+    private func actionButton(glyph: PlayerActionGlyph,
                               label: String,
+                              active: Bool = false,
                               tint: Color = .white,
                               action: @escaping () -> Void) -> some View {
         Button {
             action()
             Haptics.light()
         } label: {
-            VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 21, weight: .regular))
+            VStack(spacing: 5) {
+                PlayerActionIcon(glyph: glyph, active: active, tint: tint, size: 22)
                     .frame(width: 34, height: 30)
                 if !label.isEmpty {
                     Text(label)
@@ -1653,7 +1662,6 @@ struct PlayerView: View {
                         .minimumScaleFactor(0.75)
                 }
             }
-            .foregroundStyle(tint)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
