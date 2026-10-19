@@ -1958,11 +1958,16 @@ private struct KaraokeLine: View {
     }
 
     var body: some View {
-        // 播放中走逐帧时间线（平滑）；暂停/纯音乐退化为静态视图，不跑时间线省电。
-        if isPlaying {
-            TimelineView(.animation) { _ in line }
-        } else {
-            line
+        // 🔴 必须包一层 Group：裸 if/else 作为 body 顶层表达式再链 .onAppear，
+        // 会被推断成 any View 存在体 → "type 'any View' cannot conform to 'View" 编译失败（run #396）。
+        // Group 让 if/else 变成具体的 _ConditionalContent，才能继续挂修饰符。
+        Group {
+            // 播放中走逐帧时间线（平滑）；暂停/纯音乐退化为静态视图，不跑时间线省电。
+            if isPlaying {
+                TimelineView(.animation) { _ in line }
+            } else {
+                line
+            }
         }
         .onAppear { syncBase() }
         .onChange(of: playback.currentTime) { _ in syncBase() }
