@@ -1132,14 +1132,10 @@ struct PlayerView: View {
     private func landscapeContent(size: CGSize, insets: UIEdgeInsets) -> some View {
         ZStack {
             // 背景跟随主题（经典/黑胶取色渐变；炫胶自带全屏炫彩）
-            // 🔴 背景层挂点击手势：浮层默认隐藏，点击任意空白处 显隐切换
-            Group {
-                if currentTheme == .classic {
-                    immersiveBackground
-                } else {
-                    glitterBackground
-                }
-            }
+            // 🔴 用户要求"参考炫胶唱片主题的横屏"：横屏背景统一用炫胶的纯取色渐变。
+            // 经典原先在横屏用 immersiveBackground（多一层 0.38 模糊封面图），实测会导致
+            // 右列信息区显示异常/对比度糊掉，故横屏一律改用无模糊图的 glitterBackground。
+            glitterBackground
             .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.2)) { landscapeChromeVisible.toggle() }
             }
