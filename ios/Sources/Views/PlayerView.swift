@@ -53,6 +53,17 @@ struct PlayerView: View {
     fileprivate static func interfaceSize(fallback: CGSize) -> CGSize {
         for scene in UIApplication.shared.connectedScenes {
             guard let ws = scene as? UIWindowScene else { continue }
+            // 🔴 优先用「key 窗口 bounds」——它随当前方向实时正确（横屏就是横屏尺寸）。
+            // UIScreen.bounds 在强制旋转 / 部分机型上可能滞后成竖屏尺寸，令横屏播放器被按
+            // 竖屏宽度布局 → 两侧巨大留白 / 内容挤压的显示异常（用户实测）。
+            // 只信「面积接近全屏」的 key 窗口：第三方注入的小悬浮窗（网速球）面积很小，
+            // 会被 0.6 阈值挡掉并回退到 screen.bounds；key 窗口异常时也安全回退，绝不比原来差。
+            let screenArea = ws.screen.bounds.width * ws.screen.bounds.height
+            if let key = ws.windows.first(where: { $0.isKeyWindow }),
+               key.bounds.width * key.bounds.height >= screenArea * 0.6,
+               key.bounds.width > 0, key.bounds.height > 0 {
+                return key.bounds.size
+            }
             let s = ws.screen.bounds.size
             if s.width > 0, s.height > 0 { return s }
         }
@@ -336,29 +347,25 @@ struct PlayerView: View {
     /// 流光进度条：游动光点相位（0→1 往返，仅播放时动画）
     @State private var classicFlowPhase: CGFloat = 0
 
-    // MARK: classicBody — Header + Cover + Track + Lyrics + Progress + Controls
-    // 三段式 VStack：header 固定顶 / body 紧凑封面区 / deck 固定底
+    // MARK: classicBody — Header + Cover(弹性) + Deck(内容自适应) + Controls
+    // header 固定顶 / 封面弹性填充 / deck 内容自适应（不再用固定高度硬裁歌词）
     private func classicBody(in contentHeight: CGFloat,
                              win: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat),
                              screen: CGRect) -> some View {
         let headerH: CGFloat = 56
-        // 🔴 deckH 加大：歌词(~46) + 动作行(~63) + 进度条(50) + 控制按钮(56) + 间距/padding
-        let deckH: CGFloat = 240
-        let bodyH = max(160, contentHeight - headerH - deckH)
 
         return VStack(spacing: 0) {
             classicHeaderBar
                 .frame(height: headerH)
 
-            classicCoverArea(height: bodyH)
-                .frame(height: bodyH)
+            classicCoverArea          // 弹性：GeometryReader 吃掉剩余高度
 
-            classicDeck(bottomInset: win.safeBottom)
-                .frame(height: deckH)
+            classicDeck               // 内容自适应：歌词+动作行+进度+控件，绝不裁切
         }
-        .frame(width: screen.width, height: contentHeight)
-        // 🔴 去掉 padding(.top, win.safeTop) —— 让 headerBar 从屏幕顶部（y=0）开始！
-        // PlayerView 整体已经 ignoresSafeArea，classicBody 在全屏幕坐标系里
+        .frame(width: screen.width, height: contentHeight, alignment: .top)
+        .padding(.top, win.safeTop)                          // 整块下移到状态栏下方
+        .frame(width: screen.width, height: screen.height, alignment: .top)  // 铺满全屏、顶对齐
+        .clipped()
     }
 
     private var classicHeaderBar: some View {
@@ -397,44 +404,47 @@ struct PlayerView: View {
         .padding(.horizontal, 10)
     }
 
-    // MARK: 封面区：专辑封面方图 + 双行歌词（与炫胶同款，紧凑，高度固定 bodyH）
+    // MARK: 封面区：专辑封面方图（弹性填充，歌词已移到底部 deck）
 
-    private func classicCoverArea(height: CGFloat) -> some View {
-        // 🔴 用户要求：黑胶唱片 → 直接展示专辑封面方图（原来只是唱片中心的小圆图）
-        let side = max(200, min(height * 0.58, UIScreen.main.bounds.width * 0.78))
+    // MARK: 封面区：专辑封面方图（点进歌词页）+ 左右滑切歌；歌词已移到底部 deck
+    private var classicCoverArea: some View {
+        // 🔴 用 GeometryReader 实测剩余空间，封面随容器自适应（deck 内容高度变化也不会互相挤压/裁切）。
+        GeometryReader { geo in
+            let h = geo.size.height
+            let w = geo.size.width
+            // 🔴 封面改大：占可用高度 66%、屏宽 82%；圆角改小（classicCoverArt 内 side*0.04）。
+            let side = max(180, min(h * 0.66, w * 0.82))
 
-        return VStack(spacing: 0) {
-            Spacer(minLength: 0)
-
-            classicCoverArt(side: side)
-                .offset(x: classicSwipeOffset)
-                .opacity(CGFloat(1) - min(abs(classicSwipeOffset) / 260, 0.35))
-                .animation(.spring(response: 0.34, dampingFraction: 0.86), value: classicSwipeOffset)
-                .padding(.top, 14)
-                .gesture(
-                DragGesture(minimumDistance: 15)
-                    .onChanged { value in
-                        classicCoverOffset = value.translation
-                        if abs(value.translation.width) > abs(value.translation.height) {
-                            classicSwipeOffset = value.translation.width
+            VStack(spacing: 0) {
+                classicCoverArt(side: side)
+                    .offset(x: classicSwipeOffset)
+                    .opacity(CGFloat(1) - min(abs(classicSwipeOffset) / 260, 0.35))
+                    .animation(.spring(response: 0.34, dampingFraction: 0.86), value: classicSwipeOffset)
+                    .padding(.top, 10)   // 🔴 封面上移：贴顶（留 10pt 呼吸），下方留白由 Spacer 吸收
+                    .gesture(
+                    DragGesture(minimumDistance: 15)
+                        .onChanged { value in
+                            classicCoverOffset = value.translation
+                            if abs(value.translation.width) > abs(value.translation.height) {
+                                classicSwipeOffset = value.translation.width
+                            }
                         }
-                    }
-                    .onEnded { value in
-                        classicCoverOffset = .zero
-                        if abs(value.translation.width) > 120
-                            && abs(value.translation.width) > abs(value.translation.height) {
-                            Haptics.soft()
-                            if value.translation.width < 0 { store.step(1) } else { store.step(-1) }
+                        .onEnded { value in
+                            classicCoverOffset = .zero
+                            if abs(value.translation.width) > 120
+                                && abs(value.translation.width) > abs(value.translation.height) {
+                                Haptics.soft()
+                                if value.translation.width < 0 { store.step(1) } else { store.step(-1) }
+                            }
+                            classicSwipeOffset = 0
                         }
-                        classicSwipeOffset = 0
-                    }
-            )
+                )
 
-            // 🔴 歌词已移到经典底部 deck 的动作行上方（用户要求"改在动作行上方显示"）
-
-            Spacer(minLength: 0)
+                // 🔴 歌词已移到经典底部 deck 的动作行上方（用户要求"改在动作行上方显示"）
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: store.isPlaying) { _ in classicUpdateCoverSpin() }
         .onChange(of: store.currentIndex) { _ in classicUpdateCoverSpin(); extractDominantColor() }
         .onAppear { classicUpdateCoverSpin(); extractDominantColor() }
@@ -459,9 +469,9 @@ struct PlayerView: View {
                 }
             }
             .frame(width: side, height: side)
-            .clipShape(RoundedRectangle(cornerRadius: side * 0.075, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: side * 0.04, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: side * 0.075, style: .continuous)
+                RoundedRectangle(cornerRadius: side * 0.04, style: .continuous)
                     .stroke(.white.opacity(0.28), lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.3), radius: 18, y: 8)
@@ -543,7 +553,7 @@ struct PlayerView: View {
 
     // MARK: 播放控件（Beans 直接搬：accent=dominantColor 渐变 + 发光 + 玻璃描边）
 
-    private func classicDeck(bottomInset: CGFloat) -> some View {
+    private var classicDeck: some View {
         VStack(spacing: 4) {
             // 🔴 歌词移到动作行上方：白色 + 卡拉OK逐字（用户要求"改在动作行上方显示"）
             lyricPill()
@@ -562,7 +572,9 @@ struct PlayerView: View {
         }
         .padding(.horizontal, 15)
         .padding(.top, 2)
-        .padding(.bottom, max(10, bottomInset))
+        // 🔴 classicBody 已在内容高度里扣除底部安全区（deck 底部正好落在 home 指示条上方），
+        // 这里只留少量呼吸，不再重复加 safeBottom（否则内容会被 fixed height 裁掉 → 歌词被"移除"）。
+        .padding(.bottom, 8)
     }
 
     /// 流光进度条（Beans SeekBar default case 完整搬：accent 渐变 + ultraThinMaterial 轨道 + 顶部高光 + 游动光点 + 发光滑块）
@@ -812,11 +824,21 @@ struct PlayerView: View {
         for scene in UIApplication.shared.connectedScenes {
             guard let ws = scene as? UIWindowScene else { continue }
             let screen = ws.screen.bounds.size
+            let screenArea = screen.width * screen.height
+            // 优先：面积接近全屏的 key 窗口（=横屏播放窗口）—— 方向实时正确，
+            // 不受 UIScreen.bounds 方向滞后影响（滞后会让下面的 screen 尺寸过滤匹配不到
+            // 横屏窗口 → 回退到错误的兜底安全区 → 横屏内容被错误缩进/遮挡）。
+            if let key = ws.windows.first(where: { $0.isKeyWindow }),
+               key.bounds.width * key.bounds.height >= screenArea * 0.6 {
+                return key.safeAreaInsets
+            }
+            // 退而求其次：尺寸=物理屏幕的窗口里挑 key/第一个（原逻辑，第三方小悬浮窗已被面积挡掉）。
             let mainWindows = ws.windows.filter {
                 abs($0.bounds.width - screen.width) < 1 && abs($0.bounds.height - screen.height) < 1
             }
-            guard let w = mainWindows.first(where: { $0.isKeyWindow }) ?? mainWindows.first else { continue }
-            return w.safeAreaInsets
+            if let w = mainWindows.first(where: { $0.isKeyWindow }) ?? mainWindows.first {
+                return w.safeAreaInsets
+            }
         }
         // 兜底（竖屏语义值近似横屏）：刘海侧 44、home 侧 34
         return UIEdgeInsets(top: 0, left: 44, bottom: 21, right: 0)
@@ -1457,10 +1479,20 @@ struct PlayerView: View {
         } label: {
             VStack(spacing: 4) {
                 // 第一行：当前歌词 —— 高亮、大，卡拉OK逐字填充（用户要求白色 + 逐字）
-                karaokeText(currentLyricText, progress: currentLineProgress)
-                    .font(.system(size: 16, weight: .medium, design: .rounded))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                if let span = currentLineSpan {
+                    KaraokeLine(text: currentLyricText,
+                                start: span.start,
+                                end: span.end,
+                                isPlaying: store.isPlaying,
+                                playback: playback)
+                } else {
+                    // 纯音乐 / 解析中 / 无当前行：静态半透白
+                    Text(currentLyricText)
+                        .font(.system(size: 16, weight: .medium, design: .rounded))
+                        .foregroundStyle(dim)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
                 // 第二行：下一句歌词 —— 暗、小
                 if let next = nextLyricText {
                     Text(next)
@@ -1478,30 +1510,11 @@ struct PlayerView: View {
         .animation(.easeInOut(duration: 0.25), value: nextLyricText)
     }
 
-    /// 卡拉OK逐字填充：用横向线性渐变做文字前景色，已唱部分纯白、未唱部分半透白。
-    /// 渐变在 Text 自身固有宽度内映射，因此即便外层居中也能正确从左到右填充。
-    private func karaokeText(_ text: String, progress: Double) -> some View {
-        let p = max(0, min(progress, 1))
-        return Text(text)
-            .foregroundStyle(
-                LinearGradient(
-                    stops: [
-                        .init(color: .white, location: 0),
-                        .init(color: .white, location: p),
-                        .init(color: .white.opacity(0.4), location: p),
-                        .init(color: .white.opacity(0.4), location: 1)
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
-    }
-
-    /// 当前歌词行已唱进度（0→1）：用当前播放时间与下一句起始时间之差 / 本行时长。
-    /// 末行用整曲时长兜底；进度随播放时间实时变化，驱动卡拉OK逐字填充。
-    private var currentLineProgress: Double {
+    /// 当前歌词行的起止时间（供卡拉OK逐字用）：start=本句 time，end=下一句 time。
+    /// 末行用整曲时长兜底；没有当前行（纯音乐/解析中）返回 nil。
+    private var currentLineSpan: (start: Double, end: Double)? {
         guard let index = lyricState.currentIndex,
-              store.lyrics.indices.contains(index) else { return 0 }
+              store.lyrics.indices.contains(index) else { return nil }
         let start = store.lyrics[index].time
         let end: Double
         if store.lyrics.indices.contains(index + 1) {
@@ -1509,9 +1522,8 @@ struct PlayerView: View {
         } else {
             end = playback.duration > start ? playback.duration : start + 5
         }
-        let cur = playback.currentTime
-        guard end > start else { return 1 }
-        return min(max((cur - start) / (end - start), 0), 1)
+        guard end > start else { return (start, start + 1) }
+        return (start, end)
     }
 
     private var currentLyricText: String {
@@ -1901,6 +1913,67 @@ private struct PlayButton: View {
 }
 
 // MARK: - 全屏歌词页
+
+/// 卡拉OK单行歌词：已唱部分纯白、未唱部分半透白，用横向渐变做前景色。
+///
+/// 🔴 为什么用 TimelineView 墙钟插值：
+/// `PlaybackProgress.currentTime` 只有 2Hz（每 0.5s 一跳），直接拿它驱动渐变，
+/// 逐字填充就会一跳一跳的 = 卡顿。这里在两次 currentTime 更新之间按墙钟时间线性
+/// 插值出一个平滑的"当前秒"，交给 TimelineView(.animation) 每帧重绘 —— 达到 60fps
+/// 顺滑，且每帧重算只发生在这一个极小的 Text 上，不会带着整个播放页整树重算。
+/// 暂停时不插值（冻结），也顺带省电。
+private struct KaraokeLine: View {
+    let text: String
+    let start: Double
+    let end: Double
+    let isPlaying: Bool
+    @ObservedObject var playback: PlaybackProgress
+
+    @State private var baseTime: Double = 0
+    @State private var baseStamp: Date = Date()
+
+    private var progress: Double {
+        guard end > start else { return 1 }
+        let now = isPlaying ? baseTime + Date().timeIntervalSince(baseStamp) : baseTime
+        return min(max((now - start) / (end - start), 0), 1)
+    }
+
+    private var line: some View {
+        Text(text)
+            .foregroundStyle(
+                LinearGradient(
+                    stops: [
+                        .init(color: .white, location: 0),
+                        .init(color: .white, location: progress),
+                        .init(color: .white.opacity(0.4), location: progress),
+                        .init(color: .white.opacity(0.4), location: 1)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .font(.system(size: 16, weight: .medium, design: .rounded))
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    var body: some View {
+        // 播放中走逐帧时间线（平滑）；暂停/纯音乐退化为静态视图，不跑时间线省电。
+        if isPlaying {
+            TimelineView(.animation) { _ in line }
+        } else {
+            line
+        }
+        .onAppear { syncBase() }
+        .onChange(of: playback.currentTime) { _ in syncBase() }
+        .onChange(of: start) { _ in syncBase() }   // 切到下一句时立即对齐基准
+    }
+
+    private func syncBase() {
+        baseTime = playback.currentTime
+        baseStamp = Date()
+    }
+}
 
 /// 深色沉浸式全屏歌词，背景与播放页同款取色 + 专辑图模糊。
 /// 词曲/编曲/制作人等简介信息独立为顶部折叠模块，滚动区只保留正文歌词。
