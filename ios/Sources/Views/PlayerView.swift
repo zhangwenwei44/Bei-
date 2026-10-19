@@ -1190,45 +1190,70 @@ struct PlayerView: View {
         .padding(.trailing, insets.right + 8)
     }
 
-    /// 横屏标题行：歌名大字 + 歌手小字（酷狗横屏同款排布）
+    /// 横屏标题区：「歌名 - 歌手」单行 + 金色会员试听条（对齐酷狗横屏版式，用户参考图）。
     private var landscapeTitleRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(store.current?.title ?? "未播放")
-                .font(.system(size: 22, weight: .bold))
+        VStack(alignment: .leading, spacing: 12) {
+            Text(landscapeTitleText)
+                .font(.system(size: 23, weight: .bold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
-            Text(store.current?.artist ?? "")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(.white.opacity(0.65))
-                .lineLimit(1)
+
+            // 会员试听条（金色药丸）：💎 会员歌曲限时免费试听 ¥1开会员畅听 ›
+            HStack(spacing: 5) {
+                Image(systemName: "crown.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.gold)
+                Text("会员歌曲限时免费试听")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(AppStyle.gold)
+                Text("¥1开会员畅听")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.95))
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.6))
+            }
         }
     }
 
-    /// 横屏歌词块：四行（上句暗 / 当前句大高亮 / 下句暗 / 下下句更暗），纯展示。
+    /// 横屏标题文本：歌名 - 歌手（单行，酷狗横屏同款）。
+    private var landscapeTitleText: String {
+        let title = store.current?.title ?? "未播放"
+        let artist = store.current?.artist ?? ""
+        return artist.isEmpty ? title : "\(title) - \(artist)"
+    }
+
+    /// 横屏歌词块：三行（上句暗 / 当前句大 + 卡拉OK逐字 / 下句暗），纯展示。
     /// 🔴 不再可点击跳转 —— 用户要求横屏点歌词就不要进歌词页（避免旋转打架/重复）。
     private var landscapeLyricsBlock: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             if let prev = prevLyricText {
                 Text(prev)
-                    .font(.system(size: 14))
-                    .foregroundStyle(.white.opacity(0.38))
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white.opacity(0.4))
                     .lineLimit(1)
             }
-            Text(currentLyricText)
-                .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(.white)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
+            // 当前句：卡拉OK逐字填充（与播放页/歌词页同款）
+            if let span = currentLineSpan {
+                KaraokeLine(text: currentLyricText,
+                            start: span.start,
+                            end: span.end,
+                            isPlaying: store.isPlaying,
+                            font: .system(size: 23, weight: .bold),
+                            lineLimit: 2,
+                            align: .leading,
+                            playback: playback)
+            } else {
+                Text(currentLyricText)
+                    .font(.system(size: 23, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
             if let next = nextLyricText {
                 Text(next)
-                    .font(.system(size: 14))
-                    .foregroundStyle(.white.opacity(0.38))
-                    .lineLimit(1)
-            }
-            if let nextNext = nextNextLyricText {
-                Text(nextNext)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.22))
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white.opacity(0.4))
                     .lineLimit(1)
             }
         }
@@ -1241,14 +1266,6 @@ struct PlayerView: View {
         guard let index = lyricState.currentIndex,
               index > 0, store.lyrics.indices.contains(index - 1) else { return nil }
         let text = store.lyrics[index - 1].text
-        return text.isEmpty ? nil : text
-    }
-
-    /// 横屏第四行（更暗）：当前句的"下下一句"。
-    private var nextNextLyricText: String? {
-        guard let index = lyricState.currentIndex,
-              store.lyrics.indices.contains(index + 2) else { return nil }
-        let text = store.lyrics[index + 2].text
         return text.isEmpty ? nil : text
     }
 
@@ -1914,6 +1931,12 @@ private struct KaraokeLine: View {
     let start: Double
     let end: Double
     let isPlaying: Bool
+    /// 字号/字重（播放页迷你条 16pt；歌词页当前句 26pt bold）。
+    var font: Font = .system(size: 16, weight: .medium, design: .rounded)
+    /// 行数限制：播放页迷你条 1 行；歌词页当前句允许换行传 nil。
+    var lineLimit: Int? = 1
+    /// 水平对齐：播放页/歌词页居中；横屏播放器左对齐。
+    var align: Alignment = .center
     @ObservedObject var playback: PlaybackProgress
 
     @State private var baseTime: Double = 0
@@ -1939,9 +1962,10 @@ private struct KaraokeLine: View {
                     endPoint: .trailing
                 )
             )
-            .font(.system(size: 16, weight: .medium, design: .rounded))
-            .lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: .center)
+            .font(font)
+            .lineLimit(lineLimit)
+            .multilineTextAlignment(align.horizontal == .leading ? .leading : .center)
+            .frame(maxWidth: .infinity, alignment: align)
     }
 
     var body: some View {
@@ -2075,7 +2099,9 @@ struct LyricsPageView: View {
                 // 上一首/下一首被挤出屏幕）。显式 frame 强制约束，不依赖提案链。
                 BigLyricsView(lyrics: store.lyrics,
                               currentIndex: lyricState.currentIndex,
-                              showsTranslation: store.showTranslation)
+                              showsTranslation: store.showTranslation,
+                              playback: PlayerStore.shared.playback,
+                              isPlaying: store.isPlaying)
                     .frame(width: sz.width - 52)
                     .frame(maxHeight: .infinity)
                     .frame(maxWidth: .infinity)
@@ -2207,6 +2233,9 @@ private struct BigLyricsView: View {
     let lyrics: [LyricLine]
     let currentIndex: Int?
     var showsTranslation: Bool
+    /// 驱动当前句卡拉OK逐字填充：播放进度 + 播放状态。
+    @ObservedObject var playback: PlaybackProgress
+    var isPlaying: Bool
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -2227,11 +2256,22 @@ private struct BigLyricsView: View {
                             let isNear = activeIdx != nil && abs(idx - activeIdx!) <= 1
                             VStack(spacing: 7) {
                                 // 🔴 用户要求字号调小：当前句 30→26，其他行 20→17
-                                Text(line.text)
-                                    .font(.system(size: isActive ? 26 : 17,
-                                                  weight: isActive ? .bold : .medium))
-                                    .foregroundStyle(isActive ? .white : .white.opacity(isNear ? 0.45 : 0.28))
-                                    .multilineTextAlignment(.center)
+                                if isActive {
+                                    // 当前句：卡拉OK逐字填充（已唱纯白 / 未唱半透白），与播放页迷你条同款
+                                    let end = (idx + 1 < lyrics.count) ? lyrics[idx + 1].time : (line.time + 5)
+                                    KaraokeLine(text: line.text,
+                                                start: line.time,
+                                                end: end,
+                                                isPlaying: isPlaying,
+                                                font: .system(size: 26, weight: .bold),
+                                                lineLimit: nil,
+                                                playback: playback)
+                                } else {
+                                    Text(line.text)
+                                        .font(.system(size: 17, weight: .medium))
+                                        .foregroundStyle(.white.opacity(isNear ? 0.45 : 0.28))
+                                        .multilineTextAlignment(.center)
+                                }
                                 if showsTranslation, let translation = line.translation, !translation.isEmpty {
                                     Text(translation)
                                         .font(.system(size: isActive ? 14 : 11))

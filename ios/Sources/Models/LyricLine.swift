@@ -30,6 +30,40 @@ enum LRCParser {
         "版权", "厂牌", "唱片", "op", "sp", "isrc"
     ]
 
+    /// 英文词曲元数据关键词（酷狗/QQ 英文歌 LRC 常见，如 "Lyrics by: …"、"Composed by: …"）。
+    /// 🔴 这些行常带时间戳（[00:00.00]Lyrics by: xxx），绕过无时间戳分支，之前的
+    /// 中文关键词过滤漏掉它们 → 歌词页首屏混入英文制作信息（用户截图实测）。
+    private static let englishMetaKeywords: [String] = [
+        "lyrics by", "lyric by", "lyricist", "words by",
+        "composed by", "composer", "written by", "writer",
+        "produced by", "producer", "arranged by", "arranger", "arrangement",
+        "vocals by", "vocal by", "vocal", "sung by", "performed by", "performer",
+        "mixed by", "mastered by", "engineered by", "recorded by", "recording",
+        "music by", "melody by", "translated by", "translation"
+    ]
+
+    /// 兜底元数据行判定：整行仍是「[key:value]」括号元数据（如残留的 [id:$00000000]、[ar:…]），
+    /// 或以英文元数据关键词开头（Lyrics by: … / Composed by: …）。命中即不进正文歌词。
+    private static func isMetadataLine(_ text: String) -> Bool {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return true }
+        // 整行是 [key:value] 且 key 为字母数字 → 元数据（时间戳已在前面剥掉，正文不会长这样）
+        if t.hasPrefix("["), t.hasSuffix("]") {
+            let inside = String(t.dropFirst().dropLast())
+            if let key = inside.split(separator: ":", maxSplits: 1).first {
+                let k = String(key)
+                if !k.isEmpty, k.allSatisfy({ $0.isLetter || $0.isNumber }) { return true }
+            }
+        }
+        // 英文元数据关键词（大小写不敏感，支持中英文冒号）
+        let lower = t.lowercased()
+        for kw in englishMetaKeywords
+            where lower.hasPrefix(kw + ":") || lower.hasPrefix(kw + "：") {
+            return true
+        }
+        return false
+    }
+
     /// 解析结果：歌词正文 + 词曲编曲等元数据（从正文剥离出来的）。
     struct ParseResult {
         let lines: [LyricLine]
@@ -114,6 +148,10 @@ enum LRCParser {
                                         text: content.isEmpty ? "♪" : content))
             }
         }
+
+        // 🔴 兜底过滤：酷狗英文歌 LRC 常把 [id:$00000000]、Lyrics by: …、Composed by: …
+        // 写成带时间戳的行，绕过上面的关键词分支混进正文。这里对成品再做一遍元数据剔除。
+        result.removeAll { Self.isMetadataLine($0.text) }
 
         return ParseResult(lines: result.sorted { $0.time < $1.time }, metadata: meta)
     }
