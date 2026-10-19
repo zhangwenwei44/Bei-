@@ -22,7 +22,8 @@ struct PlayerView: View {
     /// 横屏浮层显隐（关闭按钮 + 底部横条）：默认隐藏，点击屏幕切换
     @State private var landscapeChromeVisible = false
     /// 音质切换弹层
-    @State private var showQualityPicker = false
+    /// 「更多」弹层：音质档位 / 完整歌词 / 歌词翻译
+    @State private var showMoreMenu = false
     @AppStorage("aurora.playerTheme") private var playerTheme: String = "glitter"
     @State private var vinylStart: Date = Date()
     @State private var dominantColor: Color = .white
@@ -490,12 +491,12 @@ struct PlayerView: View {
         .buttonStyle(.plain)
     }
 
-    /// 经典封面功能按钮行：收藏① | 下载② | 翻译③ | 歌词④ | 评论⑤
+    /// 经典主题动作行：与炫胶/黑胶一致，酷狗同款四项（喜欢 / 下载 / 评论 / 更多）
     private var classicActionRow: some View {
         HStack(spacing: 28) {  // 🔴 间距加大到 28
-            // ① 收藏（激活时实心红心）
+            // ① 喜欢（激活时实心红心）
             classicActionButton(glyph: .favorite,
-                                label: "收藏",
+                                label: "喜欢",
                                 active: store.isLiked,
                                 tint: store.isLiked ? AppStyle.like : .white) {
                 store.toggleFavorite()
@@ -506,28 +507,28 @@ struct PlayerView: View {
                     Task { _ = try? await DownloadManager.shared.download(song) }
                 }
             }
-            // ③ 翻译
-            classicActionButton(glyph: .translate, label: "翻译") {
-                openLyricsPage()
-            }
-            // ④ 歌词
-            classicActionButton(glyph: .lyric, label: "歌词") {
-                openLyricsPage()
-            }
-            // ⑤ 评论
-            classicActionButton(glyph: .comment, label: "评论") {
-                if let song = store.current {
-                    let albumID = song.kugouAlbumID
-                    let hash = song.kugouHash
-                    if !albumID.isEmpty {
-                        if let url = URL(string: "https://www.kugou.com/album/\(albumID).html") { UIApplication.shared.open(url) }
-                    } else if !hash.isEmpty {
-                        if let url = URL(string: "https://www.kugou.com/song/#\(hash)") { UIApplication.shared.open(url) }
+            // ③ 评论
+            classicActionButton(glyph: .comment, label: "评论") { openComments() }
+            // ④ 更多（音质 / 完整歌词 / 歌词翻译）
+            classicActionButton(glyph: .more, label: "更多") { showMoreMenu = true }
+        }
+        .frame(maxWidth: .infinity)
+        .confirmationDialog("更多", isPresented: $showMoreMenu, titleVisibility: .visible) {
+            ForEach(MusicQuality.allCases) { q in
+                Button(q == SourceStore.shared.quality ? "✓ \(q.title)音质" : "\(q.title)音质") {
+                    if q != SourceStore.shared.quality {
+                        SourceStore.shared.quality = q
+                        show("已切换到\(q.title)")
                     }
                 }
             }
+            Button("完整歌词") { openLyricsPage() }
+            Button(store.showTranslation ? "关闭歌词翻译" : "开启歌词翻译") {
+                store.showTranslation.toggle()
+                Haptics.light()
+            }
+            Button("取消", role: .cancel) {}
         }
-        .frame(maxWidth: .infinity)
     }
 
     /// 经典主题动作按钮：同样走自绘图标集，与炫胶/黑胶动作行风格一致
@@ -1579,49 +1580,48 @@ struct PlayerView: View {
         return text.isEmpty ? nil : text
     }
 
+    /// 酷狗同款动作行：喜欢 / 下载 / 评论 / 更多
+    /// 🔴 音质与歌词入口挪进「更多」弹层（歌词区本身点一下也能进歌词页）
     private func actionRow() -> some View {
-        // 居中簇：四项（收藏/下载/音质/歌词）整体居中，不铺满全宽；项间距 35
-        // 🔴 已移除「翻译」（用户要求）；间距 30 → 25 → 35（加大）。
         HStack(spacing: 35) {
             actionButton(glyph: .favorite,
-                         label: "收藏",
+                         label: "喜欢",
                          active: store.isLiked,
                          tint: store.isLiked ? AppStyle.like : .white) {
                 store.toggleFavorite()
             }
             actionButton(glyph: .download, label: downloadLabel) { download() }
-            // 音质切换：点了弹确认框选档位，选完 SourceStore 自动用新音质重新解析当前歌
-            actionButton(glyph: .quality,
-                         label: qualityShortTitle,
-                         tint: AppStyle.gold) {
-                showQualityPicker = true
-            }
-            actionButton(glyph: .lyric, label: "歌词") {
-                openLyricsPage()
-            }
+            actionButton(glyph: .comment, label: "评论") { openComments() }
+            actionButton(glyph: .more, label: "更多") { showMoreMenu = true }
         }
         .frame(maxWidth: .infinity)
-        .confirmationDialog("选择音质", isPresented: $showQualityPicker, titleVisibility: .visible) {
+        .confirmationDialog("更多", isPresented: $showMoreMenu, titleVisibility: .visible) {
             ForEach(MusicQuality.allCases) { q in
-                Button(q == SourceStore.shared.quality ? "✓ \(q.title)" : q.title) {
+                Button(q == SourceStore.shared.quality ? "✓ \(q.title)音质" : "\(q.title)音质") {
                     if q != SourceStore.shared.quality {
                         SourceStore.shared.quality = q
                         show("已切换到\(q.title)")
                     }
                 }
             }
+            Button("完整歌词") { openLyricsPage() }
+            Button(store.showTranslation ? "关闭歌词翻译" : "开启歌词翻译") {
+                store.showTranslation.toggle()
+                Haptics.light()
+            }
             Button("取消", role: .cancel) {}
         }
     }
 
-    /// 音质按钮的短标签（动作行空间有限，用两字/Hi-Res）
-    private var qualityShortTitle: String {
-        switch SourceStore.shared.quality {
-        case .standard: return "标准"
-        case .higher: return "较高"
-        case .exHigh: return "极高"
-        case .lossless: return "无损"
-        case .hires: return "Hi-Res"
+    /// 评论：跳到酷狗该歌曲/专辑的 Web 页（与经典主题一致）
+    private func openComments() {
+        guard let song = store.current else { return }
+        let albumID = song.kugouAlbumID
+        let hash = song.kugouHash
+        if !albumID.isEmpty {
+            if let url = URL(string: "https://www.kugou.com/album/\(albumID).html") { UIApplication.shared.open(url) }
+        } else if !hash.isEmpty {
+            if let url = URL(string: "https://www.kugou.com/song/#\(hash)") { UIApplication.shared.open(url) }
         }
     }
 

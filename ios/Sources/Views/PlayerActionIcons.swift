@@ -7,12 +7,13 @@ import SwiftUI
 /// 四个符号的线宽、留白、重心各不相同，凑在一行里显得杂乱。
 /// 这里全部自绘：同一 24×24 画布、同一线宽、同一圆头圆角 —— 视觉重量一致。
 enum PlayerActionGlyph {
-    case favorite   // 收藏（心形；激活时填充）
+    case favorite   // 喜欢（心形；激活时填充红）
     case download   // 下载（向下箭头 + 底部托盘横线）
     case quality    // 音质（波形竖条）
     case lyric      // 歌词（三行文本，中间行为当前句）
     case translate  // 翻译（「文」字骨架）
     case comment    // 评论（圆角气泡 + 尾巴）
+    case more       // 更多（三个实心圆点）
 }
 
 /// 统一规格的动作图标：24×24 画布坐标 → 实际 size，线宽随 size 等比缩放。
@@ -45,6 +46,8 @@ struct PlayerActionIcon: View {
                 TranslateGlyph().stroke(tint, style: stroke)
             case .comment:
                 CommentGlyph().stroke(tint, style: stroke)
+            case .more:
+                MoreGlyph().fill(tint)
             }
         }
         .frame(width: size, height: size)
@@ -128,6 +131,20 @@ private struct TranslateGlyph: Shape {
         p.move(to: b.p(6.0, 6.8));  p.addLine(to: b.p(18.0, 6.8))    // 横
         p.move(to: b.p(12.4, 6.6)); p.addLine(to: b.p(6.8, 18.4))    // 撇
         p.move(to: b.p(8.4, 12.4)); p.addLine(to: b.p(17.4, 18.4))   // 捺
+        return p
+    }
+}
+
+/// 更多：三个实心圆点（横排，酷狗同款「…」）
+private struct MoreGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        let b = GlyphBox(rect: rect)
+        let r = 1.7 * rect.width / 24           // 半径取与线宽同量级，视觉重量一致
+        var p = Path()
+        for vx in [5.4, 12.0, 18.6] {
+            p.addEllipse(in: CGRect(x: b.x(vx) - r, y: b.y(12) - r,
+                                    width: r * 2, height: r * 2))
+        }
         return p
     }
 }
