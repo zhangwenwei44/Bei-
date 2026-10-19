@@ -53,12 +53,23 @@ struct PlayerView: View {
     fileprivate static func interfaceSize(fallback: CGSize) -> CGSize {
         for scene in UIApplication.shared.connectedScenes {
             guard let ws = scene as? UIWindowScene else { continue }
-            // 🔴 用 UIScreen.bounds（v2.5.26 及以前一直用它，歌词页/横屏都正常）。
-            // v2.5.27 曾改成"优先 key 窗口 bounds"，结果歌词页正文变空白、横屏错乱——
-            // 强制旋转/覆盖层场景下 keyWindow 未必是播放窗口、尺寸会和真实容器对不上。
-            // 改回 screen.bounds；歌词页另用其自身 GeometryReader 的 geo.size 兜底更稳。
-            let s = ws.screen.bounds.size
-            if s.width > 0, s.height > 0 { return s }
+            let screen = ws.screen.bounds.size
+            let sMax = max(screen.width, screen.height)
+            let sMin = min(screen.width, screen.height)
+            // 🔴 取【全屏窗口】的实时 bounds：窗口随旋转实时变化，比 UIScreen.bounds / geo.size 可靠——
+            // 强制旋转后 screen.bounds 与 GeometryReader 都可能滞留旧方向（竖屏），导致横屏播放器
+            // 按竖屏宽度布局 → 封面居左、右侧大片空白（用户实测 v2.5.29）。
+            // 用 max/min 与屏幕最大/最小边比对 → 不管屏幕当前报横报竖都能认出全屏窗口（免疫方向滞后）；
+            // 第三方注入的小悬浮窗边太小，匹配不上，天然被排除。优先 key 的全屏窗口（= 当前播放窗口）。
+            let fullScreen = ws.windows.filter { w in
+                let b = w.bounds.size
+                return abs(max(b.width, b.height) - sMax) < 1 && abs(min(b.width, b.height) - sMin) < 1
+            }
+            if let win = fullScreen.first(where: { $0.isKeyWindow }) ?? fullScreen.first {
+                let s = win.bounds.size
+                if s.width > 0, s.height > 0 { return s }
+            }
+            if screen.width > 0, screen.height > 0 { return screen }
         }
         return fallback
     }
@@ -812,18 +823,21 @@ struct PlayerView: View {
         .frame(width: size, height: size)
     }
 
-    /// 横屏布局专用：返回【主窗口】的横屏语义真实安全区（left/right=刘海/home 侧）。
-    /// 🔴 只认「尺寸=物理屏幕」的主窗口：设备上的第三方注入悬浮窗（网速悬浮球）
-    /// 可能成为 key window，读它的 safeAreaInsets 会得到垃圾值。
+    /// 横屏布局专用：返回【全屏播放窗口】的横屏语义真实安全区（left/right=刘海/home 侧）。
+    /// 🔴 用 max/min 与屏幕最大/最小边认全屏窗口（免疫 screen.bounds 方向滞后）；第三方小悬浮窗匹配不上，天然排除。
     private static var landscapeInsets: UIEdgeInsets {
         for scene in UIApplication.shared.connectedScenes {
             guard let ws = scene as? UIWindowScene else { continue }
             let screen = ws.screen.bounds.size
-            let mainWindows = ws.windows.filter {
-                abs($0.bounds.width - screen.width) < 1 && abs($0.bounds.height - screen.height) < 1
+            let sMax = max(screen.width, screen.height)
+            let sMin = min(screen.width, screen.height)
+            let fullScreen = ws.windows.filter { w in
+                let b = w.bounds.size
+                return abs(max(b.width, b.height) - sMax) < 1 && abs(min(b.width, b.height) - sMin) < 1
             }
-            guard let w = mainWindows.first(where: { $0.isKeyWindow }) ?? mainWindows.first else { continue }
-            return w.safeAreaInsets
+            if let w = fullScreen.first(where: { $0.isKeyWindow }) ?? fullScreen.first {
+                return w.safeAreaInsets
+            }
         }
         // 兜底（竖屏语义值近似横屏）：刘海侧 44、home 侧 34
         return UIEdgeInsets(top: 0, left: 44, bottom: 21, right: 0)
