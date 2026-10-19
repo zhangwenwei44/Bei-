@@ -397,29 +397,19 @@ struct PlayerView: View {
         .padding(.horizontal, 10)
     }
 
-    // MARK: 封面区：圆形封面 + 光晕 + 歌名 + 歌手 + 歌词预览（紧凑，高度固定 bodyH）
+    // MARK: 封面区：专辑封面方图 + 双行歌词（与炫胶同款，紧凑，高度固定 bodyH）
 
     private func classicCoverArea(height: CGFloat) -> some View {
-        let vinylSide = max(220, min(height * 0.50, UIScreen.main.bounds.width * 0.72))
-        let coverSide = vinylSide * 0.56
+        // 🔴 用户要求：黑胶唱片 → 直接展示专辑封面方图（原来只是唱片中心的小圆图）
+        let side = max(200, min(height * 0.58, UIScreen.main.bounds.width * 0.78))
 
         return VStack(spacing: 0) {
-            // 🔴 TimelineView 只负责每帧更新旋转 angle（最低 20fps，省 CPU）
-            // 其他所有手势/动画都在 TimelineView 外面，避免每帧重建
-            TimelineView(.animation(minimumInterval: 1/20)) { timeline in
-                let playing = store.isPlaying && !store.isLoading && !store.isBuffering
-                let angle = playing
-                    ? (Date().timeIntervalSince(classicCoverStart) / 24.0) * 360
-                    : classicCoverAngle
-
-                classicVinylButton(side: vinylSide, coverSide: coverSide, angle: angle)
-            }
-            .compositingGroup()
-            .offset(x: classicSwipeOffset)
-            .opacity(CGFloat(1) - min(abs(classicSwipeOffset) / 260, 0.35))
-            .animation(.spring(response: 0.34, dampingFraction: 0.86), value: classicSwipeOffset)
-            .padding(.top, 11)  // 🔴 黑胶往下移 11pt
-            .gesture(
+            classicCoverArt(side: side)
+                .offset(x: classicSwipeOffset)
+                .opacity(CGFloat(1) - min(abs(classicSwipeOffset) / 260, 0.35))
+                .animation(.spring(response: 0.34, dampingFraction: 0.86), value: classicSwipeOffset)
+                .padding(.top, 14)
+                .gesture(
                 DragGesture(minimumDistance: 15)
                     .onChanged { value in
                         classicCoverOffset = value.translation
@@ -438,9 +428,10 @@ struct PlayerView: View {
                     }
             )
 
-            // 7 行歌词预览
-            classicLyricPreviewBox
-                .padding(.top, 8)  // 🔴 歌词下移 20→8
+            // 🔴 歌词与炫胶唱片同款：当前句在上、下一句在下（经典主题背景偏浅 → 黑字）
+            lyricPill(onDark: false)
+                .padding(.top, 14)
+                .padding(.horizontal, 30)
 
             Spacer(minLength: 0)
         }
@@ -451,42 +442,30 @@ struct PlayerView: View {
         .onChange(of: store.artwork) { _ in extractDominantColor() }
     }
 
-    /// 纯函数：黑胶封面按钮（不跑动画/手势）
-    private func classicVinylButton(side vinylSide: CGFloat, coverSide: CGFloat, angle: Double) -> some View {
-        Button {
-            openLyricsPage()
-        } label: {
-            ZStack {
-                vinylDisc(side: vinylSide)
-                Group {
-                    if let artwork = store.artwork {
-                        Image(uiImage: artwork).resizable().scaledToFill()
-                    } else {
-                        ZStack {
-                            LinearGradient(colors: [.gray.opacity(0.5), .gray.opacity(0.3)],
-                                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                            Image(systemName: "music.note")
-                                .font(.system(size: coverSide * 0.3, weight: .light))
-                                .foregroundStyle(.white.opacity(0.55))
-                        }
+    /// 专辑封面方图（圆角 + 描边 + 投影）：点一下进歌词页。
+    /// 🔴 经典主题原本是「黑胶唱片中心嵌小圆图」，用户要求直接展示完整专辑封面。
+    private func classicCoverArt(side: CGFloat) -> some View {
+        Button { openLyricsPage() } label: {
+            Group {
+                if let artwork = store.artwork {
+                    Image(uiImage: artwork).resizable().scaledToFill()
+                } else {
+                    ZStack {
+                        LinearGradient(colors: [.gray.opacity(0.5), .gray.opacity(0.3)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+                        Image(systemName: "music.note")
+                            .font(.system(size: side * 0.26, weight: .light))
+                            .foregroundStyle(.white.opacity(0.6))
                     }
                 }
-                .frame(width: coverSide, height: coverSide)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1.5))
-                .overlay(alignment: .center) {
-                    Circle().fill(.black.opacity(0.8))
-                        .frame(width: 10, height: 10)
-                        .overlay(Circle().stroke(.white.opacity(0.4), lineWidth: 0.5))
-                }
             }
-            .frame(width: vinylSide, height: vinylSide)
-            .rotationEffect(.degrees(angle))
-            .rotation3DEffect(.degrees(Double(classicCoverOffset.height / -18)),
-                              axis: (x: 1, y: 0, z: 0), perspective: 0.55)
-            .rotation3DEffect(.degrees(Double(classicCoverOffset.width / 18)),
-                              axis: (x: 0, y: 1, z: 0), perspective: 0.55)
-            .offset(x: classicCoverOffset.width * 0.05, y: classicCoverOffset.height * 0.05)
+            .frame(width: side, height: side)
+            .clipShape(RoundedRectangle(cornerRadius: side * 0.075, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: side * 0.075, style: .continuous)
+                    .stroke(.white.opacity(0.28), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.3), radius: 18, y: 8)
         }
         .buttonStyle(.plain)
     }
@@ -560,77 +539,6 @@ struct PlayerView: View {
             let elapsed = Date().timeIntervalSince(classicCoverStart)
             classicCoverPausedAngle += elapsed * (360.0 / 24.0)
             classicCoverAngle = classicCoverPausedAngle
-        }
-    }
-
-    // MARK: 歌词预览（4 行 + 过滤元数据）
-
-    private struct ClassicLyricPreviewRow { let text: String; let isCurrent: Bool }
-
-    /// 过滤：元数据关键词 + 过短 + 全标点
-    private static let classicLyricMetaKeywords: Set<String> = [
-        "词", "曲", "作曲", "编曲", "制作", "制作人", "监制", "录音", "混音",
-        "发行", "出品", "和声", "配唱", "演奏", "吉他", "钢琴", "贝斯", "鼓",
-        "弦乐", "母带", "改编", "cover", "Cover"
-    ]
-
-    private var classicLyricPreviewRows: [ClassicLyricPreviewRow] {
-        guard !store.lyrics.isEmpty else { return [] }
-        let current = lyricState.currentIndex ?? 0
-
-        // 先过滤掉元数据行
-        let filtered: [(idx: Int, text: String)] = store.lyrics.enumerated().compactMap { i, line in
-            let t = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !t.isEmpty else { return nil }
-            let hasKw = Self.classicLyricMetaKeywords.contains { kw in
-                t.hasPrefix(kw + "：") || t.hasPrefix(kw + ":") || t == kw
-            }
-            return hasKw ? nil : (i, t)
-        }
-        guard !filtered.isEmpty else { return [] }
-
-        // 在过滤后的数组里找 current 位置，展示 current 前后共 2 行（🔴 改少）
-        let currentIdxInFiltered = filtered.firstIndex { $0.idx == current } ?? 0
-        let start = max(0, currentIdxInFiltered - 1)
-        var rows: [ClassicLyricPreviewRow] = []
-        for j in start..<min(filtered.count, start + 2) {
-            let item = filtered[j]
-            rows.append(ClassicLyricPreviewRow(text: item.text,
-                                               isCurrent: item.idx == current))
-        }
-        return rows
-    }
-
-    private var classicLyricPreviewBox: some View {
-        let rows = classicLyricPreviewRows
-        return VStack(spacing: 3) {
-            if rows.isEmpty {
-                Text("暂无歌词，点击封面查看完整歌词")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.black.opacity(0.38))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity)
-            } else {
-                ForEach(Array(rows.enumerated()), id: \.offset) { _, item in
-                    HStack(spacing: 6) {
-                        Text(item.isCurrent ? "●" : "·")
-                            .font(.system(size: 8))
-                            .foregroundStyle(item.isCurrent ? dominantColor : .black.opacity(0.22))
-                        Text(item.text)
-                            .font(.system(size: 12, weight: item.isCurrent ? .semibold : .regular))
-                            .foregroundStyle(item.isCurrent ? .black : .black.opacity(0.55))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.65)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-            }
-        }
-        .frame(height: 7 * 16 + 6 * 3) // 固定 130pt（7 行 16pt + 6 gap ×3pt）
-        .padding(.horizontal, 32)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            openLyricsPage()
         }
     }
 
@@ -1485,7 +1393,7 @@ struct PlayerView: View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer(minLength: 0)
 
-            currentLyricPill
+            lyricPill()
 
             actionRow()
                 .padding(.top, 18)
@@ -1536,23 +1444,28 @@ struct PlayerView: View {
         }
     }
 
-    /// 双行歌词（酷狗风格）：当前行在上、高亮；下一行在下、暗、小
-    private var currentLyricPill: some View {
-        Button {
+    /// 双行歌词（酷狗风格）：当前行在上、高亮；下一行在下、暗、小。
+    /// 🔴 经典/黑胶与炫胶共用同一份：onDark = 深色区用白字（炫胶/黑胶），
+    /// 经典主题上半屏是取色浅色区 → 传 false 用黑字，否则白字看不见。
+    private func lyricPill(onDark: Bool = true) -> some View {
+        let primaryColor: Color = onDark ? .white.opacity(0.9) : .black.opacity(0.86)
+        let secondaryColor: Color = onDark ? .white.opacity(0.35) : .black.opacity(0.38)
+
+        return Button {
             openLyricsPage()
         } label: {
             VStack(spacing: 4) {
                 // 第一行：当前歌词 —— 高亮、大（用户要求高亮在上面）
                 Text(currentLyricText)
                     .font(.system(size: 16, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.9))
+                    .foregroundStyle(primaryColor)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .center)
                 // 第二行：下一句歌词 —— 暗、小
                 if let next = nextLyricText {
                     Text(next)
                         .font(.system(size: 13))
-                        .foregroundStyle(.white.opacity(0.35))
+                        .foregroundStyle(secondaryColor)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
