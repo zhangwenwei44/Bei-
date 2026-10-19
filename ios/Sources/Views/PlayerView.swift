@@ -1162,6 +1162,9 @@ struct PlayerView: View {
                         .padding(.top, 10)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                // 🔴 layoutPriority(1)：HStack 分配宽度时右列优先，绝不被左侧封面槽挤没
+                // （用户实测横屏右侧信息区整片空白，排查 size 无误后加这道保险）。
+                .layoutPriority(1)
                 .padding(.leading, 28)
                 .padding(.trailing, insets.right + 28)   // 真实右安全区：避开 home indicator
                 .padding(.top, insets.top + 50)          // 给浮层顶栏让位
