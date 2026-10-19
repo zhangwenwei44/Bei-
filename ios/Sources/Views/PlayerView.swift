@@ -980,9 +980,10 @@ struct PlayerView: View {
     }
 
     /// 普通版：圆角矩形封面（原始样式）
-    private func roundedArtwork(width: CGFloat, height: CGFloat) -> some View {
-        // 和黑胶一致：屏宽的 65%，最小 180 最大 300
-        let side = max(180, min(width * 0.65, 300))
+    private func roundedArtwork(width: CGFloat, height: CGFloat,
+                                ratio: CGFloat = 0.65, maxCap: CGFloat = 300) -> some View {
+        // 和黑胶一致：屏宽的 65%，最小 180 最大 300（横屏封面可传更大 ratio/maxCap 放大）
+        let side = max(180, min(width * ratio, maxCap))
         return Group {
             if let artwork = store.artwork {
                 Image(uiImage: artwork).resizable().scaledToFill()
@@ -1141,10 +1142,10 @@ struct PlayerView: View {
             }
 
             HStack(spacing: 0) {
-                // 左：大封面（垂直居中，约占屏宽 38%）
-                discViewForLandscape(maxSide: min(size.height - insets.top - insets.bottom - 40,
-                                                  size.width * 0.38))
-                    .frame(maxWidth: size.width * 0.42, maxHeight: .infinity)
+                // 左：大封面（垂直居中，约占屏宽 44%）
+                discViewForLandscape(maxSide: min(size.height - insets.top - insets.bottom - 24,
+                                                  size.width * 0.44))
+                    .frame(maxWidth: size.width * 0.46, maxHeight: .infinity)
 
                 // 右：信息列
                 VStack(alignment: .leading, spacing: 0) {
@@ -1172,20 +1173,27 @@ struct PlayerView: View {
         // - 放 ZStack 里不带 alignment 会被居中（实测关闭按钮浮在唱片中间）；
         // - 带全屏 frame 又可能吞下方触摸；
         // overlay 只在自身内容处可点击，两个问题都没有。
-        // 🔴 默认隐藏（用户要求）：点击屏幕任意空白处显隐切换（背景层 onTapGesture）。
+        // 🔴 顶栏（关闭按钮）改为始终可见：用户反馈"退出按钮有时能按到有时按不到"，
+        // 旧逻辑默认隐藏、要点空白处才弹出，容易点不到。现在常驻，稳定可点。
         .overlay(alignment: .top) {
-            if landscapeChromeVisible {
-                landscapeTopBar(insets: insets)
-                    .transition(.opacity)
-            }
+            landscapeTopBar(insets: insets)
         }
     }
 
     /// 横屏顶栏：只留 关闭（左）。
     /// 🔴 用户要求：不要圆圈底、图标改为向左的箭头（返回语义）。
+    /// 🔴 退出横屏 → 回【竖屏播放页】，不再 dismiss 到主页（用户要求"退出不要退到主页"）。
     private func landscapeTopBar(insets: UIEdgeInsets) -> some View {
         HStack(spacing: 0) {
-            Button { animateOut() } label: {
+            Button {
+                // 🔴 退出横屏 → 回竖屏播放页（不 dismiss 到主页）：恢复系统旋转 +
+                // 置 isLandscape=false 让根布局切回竖屏主题；播放页本身不消失。
+                OrientationLock.shared.exitLandscape()
+                isLandscape = false
+                // 离开横屏取消屏幕常亮
+                UIApplication.shared.isIdleTimerDisabled = false
+                Haptics.light()
+            } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 21, weight: .semibold))
                     .foregroundStyle(.white)
@@ -1203,30 +1211,12 @@ struct PlayerView: View {
         .padding(.trailing, insets.right + 8)
     }
 
-    /// 横屏标题区：「歌名 - 歌手」单行 + 金色会员试听条（对齐酷狗横屏版式，用户参考图）。
+    /// 横屏标题：「歌名 - 歌手」单行（用户要求移除会员试听条）。
     private var landscapeTitleRow: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(landscapeTitleText)
-                .font(.system(size: 23, weight: .bold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-
-            // 会员试听条（金色药丸）：💎 会员歌曲限时免费试听 ¥1开会员畅听 ›
-            HStack(spacing: 5) {
-                Image(systemName: "crown.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(AppStyle.gold)
-                Text("会员歌曲限时免费试听")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(AppStyle.gold)
-                Text("¥1开会员畅听")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.95))
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.6))
-            }
-        }
+        Text(landscapeTitleText)
+            .font(.system(size: 23, weight: .bold))
+            .foregroundStyle(.white)
+            .lineLimit(1)
     }
 
     /// 横屏标题文本：歌名 - 歌手（单行，酷狗横屏同款）。
@@ -1269,6 +1259,13 @@ struct PlayerView: View {
                     .foregroundStyle(.white.opacity(0.4))
                     .lineLimit(1)
             }
+            // 第四行（更暗）：当前句的"下下一句"（用户要求歌词改 4 行显示）
+            if let nextNext = nextNextLyricText {
+                Text(nextNext)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white.opacity(0.22))
+                    .lineLimit(1)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.easeInOut(duration: 0.25), value: currentLyricText)
@@ -1279,6 +1276,14 @@ struct PlayerView: View {
         guard let index = lyricState.currentIndex,
               index > 0, store.lyrics.indices.contains(index - 1) else { return nil }
         let text = store.lyrics[index - 1].text
+        return text.isEmpty ? nil : text
+    }
+
+    /// 横屏第四行（更暗）：当前句的"下下一句"。
+    private var nextNextLyricText: String? {
+        guard let index = lyricState.currentIndex,
+              store.lyrics.indices.contains(index + 2) else { return nil }
+        let text = store.lyrics[index + 2].text
         return text.isEmpty ? nil : text
     }
 
@@ -1347,7 +1352,8 @@ struct PlayerView: View {
         case .vinyl:
             vinylArtwork(width: maxSide, height: maxSide)
         case .classic:
-            roundedArtwork(width: maxSide, height: maxSide)
+            // 横屏封面改大：ratio 0.82、上限 340（竖屏仍用默认 0.65/300，不受影响）
+            roundedArtwork(width: maxSide, height: maxSide, ratio: 0.82, maxCap: 340)
         }
     }
 
@@ -1982,20 +1988,15 @@ private struct KaraokeLine: View {
     }
 
     var body: some View {
-        // 🔴 必须包一层 Group：裸 if/else 作为 body 顶层表达式再链 .onAppear，
-        // 会被推断成 any View 存在体 → "type 'any View' cannot conform to 'View" 编译失败（run #396）。
-        // Group 让 if/else 变成具体的 _ConditionalContent，才能继续挂修饰符。
-        Group {
-            // 播放中走逐帧时间线（平滑）；暂停/纯音乐退化为静态视图，不跑时间线省电。
-            if isPlaying {
-                TimelineView(.animation) { _ in line }
-            } else {
-                line
-            }
-        }
-        .onAppear { syncBase() }
-        .onChange(of: playback.currentTime) { _ in syncBase() }
-        .onChange(of: start) { _ in syncBase() }   // 切到下一句时立即对齐基准
+        // 🔴 始终用 TimelineView，不在播放/暂停时切换视图结构。
+        // 旧写法 `if isPlaying { TimelineView } else { line }` 在暂停瞬间会把 TimelineView
+        // 换成静态 Text（视图类型/结构突变），实测导致横屏播放/暂停按钮点了卡住、命中抖动。
+        // 现在暂停只是让 progress 冻结（见 progress：暂停用 baseTime），结构稳定、点击正常。
+        // 单行 Text 的 TimelineView 开销可忽略；歌词页/播放页关闭即移除，不常驻耗电。
+        TimelineView(.animation) { _ in line }
+            .onAppear { syncBase() }
+            .onChange(of: playback.currentTime) { _ in syncBase() }
+            .onChange(of: start) { _ in syncBase() }   // 切到下一句时立即对齐基准
     }
 
     private func syncBase() {

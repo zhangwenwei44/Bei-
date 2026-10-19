@@ -73,6 +73,10 @@ enum LRCParser {
 
     static func parse(_ text: String) -> ParseResult {
         guard let pattern else { return ParseResult(lines: [], metadata: [:]) }
+        // 🔴 必须剥掉 UTF-8 BOM(\u{feff})：酷狗 LRC 首行常是 "\u{feff}[id:$00000000]"，
+        // BOM 不在 .whitespacesAndNewlines 里、trim 不掉 → hasPrefix("[") 失配 →
+        // 元数据过滤被绕过，[id:$00000000] 当成歌词正文显示（用户截图实测）。
+        let text = text.replacingOccurrences(of: "\u{feff}", with: "")
         var result: [LyricLine] = []
         var meta: [String: String] = [:]
 
@@ -95,7 +99,12 @@ enum LRCParser {
                 if line.hasPrefix("["), line.hasSuffix("]") {
                     let inside = String(line.dropFirst().dropLast())
                     let key = inside.split(separator: ":", maxSplits: 1).first.map(String.init) ?? inside
-                    if lrcMetaKeys.contains(key.lowercased()) { continue }
+                    if lrcMetaKeys.contains(key.lowercased()) {
+                        // 顺带把 [ti:歌名] / [ar:歌手] / [al:专辑] 存进 meta ——
+                        // 供下面剔除酷狗首句「[00:00.02]青花瓷 - 周杰伦」（歌名 - 歌手）。
+                        Self.storeHeaderMeta(key: key.lowercased(), inside: inside, into: &meta)
+                        continue
+                    }
                     // 如果 key 全字母但不在已知集合里，也跳过（保险）
                     if !key.isEmpty, key.allSatisfy({ $0.isLetter }) { continue }
                 }
@@ -131,6 +140,11 @@ enum LRCParser {
                 Self.storeMeta(hit, content: content, into: &meta)
                 continue
             }
+
+            // 🔴 歌名行：酷狗 LRC 首句常是「[00:00.02]青花瓷 - 周杰伦」（歌名 - 歌手），
+            // 带时间戳、绕过头信息过滤，会被当成歌词正文显示在歌词页/播放条首屏。
+            // 与 [ti:]/[ar:] 头信息精确匹配才剔除，避免误伤真歌词。
+            if Self.isTitleLine(content, meta: meta) { continue }
 
             for stamp in stamps {
                 let m = ns.substring(with: stamp.range(at: 1))
@@ -179,6 +193,28 @@ enum LRCParser {
         if meta[key] == nil, !cleaned.isEmpty {
             meta[key] = cleaned
         }
+    }
+
+    /// 把头信息 [ti:歌名] / [ar:歌手] / [al:专辑] / [by:…] 的值存进 metadata，
+    /// 供 isTitleLine 剔除「歌名 - 歌手」首句用。key 统一小写。
+    private static func storeHeaderMeta(key: String, inside: String, into meta: inout [String: String]) {
+        guard ["ti", "ar", "al", "by"].contains(key) else { return }
+        let value = inside.split(separator: ":", maxSplits: 1).last.map(String.init) ?? ""
+        let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !v.isEmpty, meta[key] == nil { meta[key] = v }
+    }
+
+    /// 判定「歌名 - 歌手」首句：与 [ti:] + [ar:] 头信息精确匹配（归一化空白后比较）。
+    /// 酷狗 LRC 标准格式首句即标题行（如 [00:00.02]青花瓷 - 周杰伦），混进歌词首屏很违和。
+    /// 必须同时有 ti 和 ar 才判，避免误伤真歌词行。
+    private static func isTitleLine(_ content: String, meta: [String: String]) -> Bool {
+        let ti = (meta["ti"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let ar = (meta["ar"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !ti.isEmpty, !ar.isEmpty else { return false }
+        // 归一化：去掉所有空白，分隔符统一成 "-"
+        let norm = content.replacingOccurrences(of: " ", with: "")
+                         .replacingOccurrences(of: "\t", with: "")
+        return norm == "\(ti)-\(ar)"
     }
 
     /// 判断是否为酷狗内嵌元数据（如 id:00000000 / id$00000000 / id$AARRGGBB / 纯 "id"）。
