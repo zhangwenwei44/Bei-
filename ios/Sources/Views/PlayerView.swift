@@ -53,17 +53,10 @@ struct PlayerView: View {
     fileprivate static func interfaceSize(fallback: CGSize) -> CGSize {
         for scene in UIApplication.shared.connectedScenes {
             guard let ws = scene as? UIWindowScene else { continue }
-            // 🔴 优先用「key 窗口 bounds」——它随当前方向实时正确（横屏就是横屏尺寸）。
-            // UIScreen.bounds 在强制旋转 / 部分机型上可能滞后成竖屏尺寸，令横屏播放器被按
-            // 竖屏宽度布局 → 两侧巨大留白 / 内容挤压的显示异常（用户实测）。
-            // 只信「面积接近全屏」的 key 窗口：第三方注入的小悬浮窗（网速球）面积很小，
-            // 会被 0.6 阈值挡掉并回退到 screen.bounds；key 窗口异常时也安全回退，绝不比原来差。
-            let screenArea = ws.screen.bounds.width * ws.screen.bounds.height
-            if let key = ws.windows.first(where: { $0.isKeyWindow }),
-               key.bounds.width * key.bounds.height >= screenArea * 0.6,
-               key.bounds.width > 0, key.bounds.height > 0 {
-                return key.bounds.size
-            }
+            // 🔴 用 UIScreen.bounds（v2.5.26 及以前一直用它，歌词页/横屏都正常）。
+            // v2.5.27 曾改成"优先 key 窗口 bounds"，结果歌词页正文变空白、横屏错乱——
+            // 强制旋转/覆盖层场景下 keyWindow 未必是播放窗口、尺寸会和真实容器对不上。
+            // 改回 screen.bounds；歌词页另用其自身 GeometryReader 的 geo.size 兜底更稳。
             let s = ws.screen.bounds.size
             if s.width > 0, s.height > 0 { return s }
         }
@@ -103,7 +96,17 @@ struct PlayerView: View {
             let contentHeight = size.height - win.safeTop - win.safeBottom
 
             ZStack {
-                if isLandscape {
+                // 🔴 歌词页优先级最高：打开歌词页时【只】显示歌词页，绝不再叠横屏播放器。
+                // 旧结构是 `if isLandscape { landscapeBody } ... if isLyricsPage { LyricsPageView }` 两个并列条件，
+                // 从横屏进歌词页时 presentPortraitForLyrics() 只改 mask+旋转、不会把 isLandscapePlayer 置回 false，
+                // 于是 isLandscape 仍为 true → 横屏播放器和竖屏歌词页同时渲染、左右错乱拼接（实测截图）。
+                // 改成 else-if 链：isLyricsPage 一开，横屏播放器整棵移出视图树，从根上消除拼接。
+                if isLyricsPage {
+                    LyricsPageView(isShown: $isLyricsPage)
+                        .environmentObject(store)
+                        .transition(.opacity)
+                        .zIndex(10)
+                } else if isLandscape {
                     // 横屏播放器：右上角按钮强制旋转后接管（唱片在左、信息在右）
                     landscapeBody()
                 } else {
@@ -117,16 +120,6 @@ struct PlayerView: View {
                         vinylBody(in: contentHeight, win: win, screen: screen)
                     case .glitter:    glitterBody(in: contentHeight, win: win, screen: screen)
                     }
-                }
-
-                // 🔴 歌词页：改为"播放页内就地覆盖层"，共用播放页这个尺寸永远正确的容器。
-                // （之前用独立 fullScreenCover，强制旋转时按旧横屏尺寸弹出且不随旋转重排 →
-                // 歌词两侧被裁出屏幕。）条件渲染，关闭即彻底移出视图树，无残留命中。
-                if isLyricsPage {
-                    LyricsPageView(isShown: $isLyricsPage)
-                        .environmentObject(store)
-                        .transition(.opacity)
-                        .zIndex(10)
                 }
             }
             .frame(width: size.width, height: size.height)
@@ -153,9 +146,11 @@ struct PlayerView: View {
             isLandscape = OrientationLock.shared.isLandscapePlayer
             UIApplication.shared.isIdleTimerDisabled = isLandscape
         }
-        // 🔴 横屏播放器时隐藏系统状态栏（沉浸播放）；退出横屏自动恢复
-        .modifier(LandscapeStatusBarHider(hidden: isLandscape,
-                                          hideHomeIndicator: isLandscape && !landscapeChromeVisible))
+        // 🔴 横屏播放器时隐藏系统状态栏（沉浸播放）；退出横屏自动恢复。
+        // 🔴 加 !isLyricsPage：从横屏进歌词页时 isLandscapePlayer 不会置回 false，isLandscape 仍为 true，
+        // 若不排除会把竖屏歌词页的状态栏也误藏。歌词页自己管理 safeTop。
+        .modifier(LandscapeStatusBarHider(hidden: isLandscape && !isLyricsPage,
+                                          hideHomeIndicator: isLandscape && !isLyricsPage && !landscapeChromeVisible))
         // 🔴 关闭播放页时恢复竖屏 + 恢复自动熄屏（避免退出后整 App 卡横屏/永远不熄屏）
         .onDisappear {
             OrientationLock.shared.resetToPortrait()
@@ -824,21 +819,11 @@ struct PlayerView: View {
         for scene in UIApplication.shared.connectedScenes {
             guard let ws = scene as? UIWindowScene else { continue }
             let screen = ws.screen.bounds.size
-            let screenArea = screen.width * screen.height
-            // 优先：面积接近全屏的 key 窗口（=横屏播放窗口）—— 方向实时正确，
-            // 不受 UIScreen.bounds 方向滞后影响（滞后会让下面的 screen 尺寸过滤匹配不到
-            // 横屏窗口 → 回退到错误的兜底安全区 → 横屏内容被错误缩进/遮挡）。
-            if let key = ws.windows.first(where: { $0.isKeyWindow }),
-               key.bounds.width * key.bounds.height >= screenArea * 0.6 {
-                return key.safeAreaInsets
-            }
-            // 退而求其次：尺寸=物理屏幕的窗口里挑 key/第一个（原逻辑，第三方小悬浮窗已被面积挡掉）。
             let mainWindows = ws.windows.filter {
                 abs($0.bounds.width - screen.width) < 1 && abs($0.bounds.height - screen.height) < 1
             }
-            if let w = mainWindows.first(where: { $0.isKeyWindow }) ?? mainWindows.first {
-                return w.safeAreaInsets
-            }
+            guard let w = mainWindows.first(where: { $0.isKeyWindow }) ?? mainWindows.first else { continue }
+            return w.safeAreaInsets
         }
         // 兜底（竖屏语义值近似横屏）：刘海侧 44、home 侧 34
         return UIEdgeInsets(top: 0, left: 44, bottom: 21, right: 0)
@@ -1117,7 +1102,9 @@ struct PlayerView: View {
     private func landscapeBody() -> some View {
         GeometryReader { geo in
             // 尺寸用 scene.screen（不受第三方注入悬浮窗污染）；geo 仅兜底
-            let size = Self.interfaceSize(fallback: geo.size)
+            // 🔴 用容器自身尺寸（geo.size）：横屏播放器此刻就在真实横屏窗口里，geo.size 就是横屏尺寸，
+            // 比 screen.bounds/keyWindow 更可靠（后两者在强制旋转瞬间可能滞后）。
+            let size = geo.size
             let insets = Self.landscapeInsets
             landscapeContent(size: size, insets: insets)
                 .frame(width: size.width, height: size.height)
@@ -2004,7 +1991,10 @@ struct LyricsPageView: View {
         // (852 宽) 而窗口已是竖屏(393) → 内容被钳成 852 宽、两侧被裁出屏幕（实测）。
         // 改用容器自身尺寸（永远正确），任何方向竞态都不会再溢出裁切。
         GeometryReader { geo in
-            let sz = PlayerView.interfaceSize(fallback: geo.size)
+            // 🔴 用容器自身尺寸（geo.size）—— 歌词页是播放页内的覆盖层，它的容器就是播放页
+            // 根 ZStack，尺寸永远等于真实窗口。之前用 interfaceSize(screen/keyWindow) 会在
+            // 强制旋转/覆盖层场景拿到和真实容器对不上的尺寸 → 歌词被排到屏幕外变成空白（实测）。
+            let sz = geo.size
         ZStack {
             // 沉浸式取色背景
             // 🔴 改为完全不透明：①渐变不再打折（原 0.96 会透出底下播放页）；
