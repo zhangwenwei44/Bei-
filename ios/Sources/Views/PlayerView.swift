@@ -342,8 +342,8 @@ struct PlayerView: View {
                              win: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat),
                              screen: CGRect) -> some View {
         let headerH: CGFloat = 56
-        // 🔴 deckH 加大：经典控件行(约44) + 进度条(50) + 控制按钮(56) + padding
-        let deckH: CGFloat = 200
+        // 🔴 deckH 加大：歌词(~46) + 动作行(~63) + 进度条(50) + 控制按钮(56) + 间距/padding
+        let deckH: CGFloat = 240
         let bodyH = max(160, contentHeight - headerH - deckH)
 
         return VStack(spacing: 0) {
@@ -404,6 +404,8 @@ struct PlayerView: View {
         let side = max(200, min(height * 0.58, UIScreen.main.bounds.width * 0.78))
 
         return VStack(spacing: 0) {
+            Spacer(minLength: 0)
+
             classicCoverArt(side: side)
                 .offset(x: classicSwipeOffset)
                 .opacity(CGFloat(1) - min(abs(classicSwipeOffset) / 260, 0.35))
@@ -428,10 +430,7 @@ struct PlayerView: View {
                     }
             )
 
-            // 🔴 歌词与炫胶唱片同款：当前句在上、下一句在下（经典主题背景偏浅 → 黑字）
-            lyricPill(onDark: false)
-                .padding(.top, 14)
-                .padding(.horizontal, 30)
+            // 🔴 歌词已移到经典底部 deck 的动作行上方（用户要求"改在动作行上方显示"）
 
             Spacer(minLength: 0)
         }
@@ -545,8 +544,12 @@ struct PlayerView: View {
     // MARK: 播放控件（Beans 直接搬：accent=dominantColor 渐变 + 发光 + 玻璃描边）
 
     private func classicDeck(bottomInset: CGFloat) -> some View {
-        VStack(spacing: 6) {
-            // 🔴 进度条上面一行：下载 / 收藏 / 翻译 / 歌词（移到这里！）
+        VStack(spacing: 4) {
+            // 🔴 歌词移到动作行上方：白色 + 卡拉OK逐字（用户要求"改在动作行上方显示"）
+            lyricPill()
+                .padding(.bottom, 2)
+
+            // 进度条上面一行：下载 / 收藏 / 评论 / 更多
             classicActionRow
                 .padding(.top, 2)
                 .padding(.bottom, 2)
@@ -1444,28 +1447,25 @@ struct PlayerView: View {
         }
     }
 
-    /// 双行歌词（酷狗风格）：当前行在上、高亮；下一行在下、暗、小。
-    /// 🔴 经典/黑胶与炫胶共用同一份：onDark = 深色区用白字（炫胶/黑胶），
-    /// 经典主题上半屏是取色浅色区 → 传 false 用黑字，否则白字看不见。
-    private func lyricPill(onDark: Bool = true) -> some View {
-        let primaryColor: Color = onDark ? .white.opacity(0.9) : .black.opacity(0.86)
-        let secondaryColor: Color = onDark ? .white.opacity(0.35) : .black.opacity(0.38)
+    /// 双行歌词（酷狗风格 + 卡拉OK逐字）：当前行在上、随播放进度从左到右逐字变白；
+    /// 下一行在下、暗。整体白色，适配沉浸式深色背景（炫胶 / 黑胶 / 经典三主题共用）。
+    private func lyricPill() -> some View {
+        let dim: Color = .white.opacity(0.4)
 
         return Button {
             openLyricsPage()
         } label: {
             VStack(spacing: 4) {
-                // 第一行：当前歌词 —— 高亮、大（用户要求高亮在上面）
-                Text(currentLyricText)
+                // 第一行：当前歌词 —— 高亮、大，卡拉OK逐字填充（用户要求白色 + 逐字）
+                karaokeText(currentLyricText, progress: currentLineProgress)
                     .font(.system(size: 16, weight: .medium, design: .rounded))
-                    .foregroundStyle(primaryColor)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .center)
                 // 第二行：下一句歌词 —— 暗、小
                 if let next = nextLyricText {
                     Text(next)
                         .font(.system(size: 13))
-                        .foregroundStyle(secondaryColor)
+                        .foregroundStyle(dim)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
@@ -1476,6 +1476,42 @@ struct PlayerView: View {
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.25), value: currentLyricText)
         .animation(.easeInOut(duration: 0.25), value: nextLyricText)
+    }
+
+    /// 卡拉OK逐字填充：用横向线性渐变做文字前景色，已唱部分纯白、未唱部分半透白。
+    /// 渐变在 Text 自身固有宽度内映射，因此即便外层居中也能正确从左到右填充。
+    private func karaokeText(_ text: String, progress: Double) -> some View {
+        let p = max(0, min(progress, 1))
+        return Text(text)
+            .foregroundStyle(
+                LinearGradient(
+                    stops: [
+                        .init(color: .white, location: 0),
+                        .init(color: .white, location: p),
+                        .init(color: .white.opacity(0.4), location: p),
+                        .init(color: .white.opacity(0.4), location: 1)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+    }
+
+    /// 当前歌词行已唱进度（0→1）：用当前播放时间与下一句起始时间之差 / 本行时长。
+    /// 末行用整曲时长兜底；进度随播放时间实时变化，驱动卡拉OK逐字填充。
+    private var currentLineProgress: Double {
+        guard let index = lyricState.currentIndex,
+              store.lyrics.indices.contains(index) else { return 0 }
+        let start = store.lyrics[index].time
+        let end: Double
+        if store.lyrics.indices.contains(index + 1) {
+            end = store.lyrics[index + 1].time
+        } else {
+            end = playback.duration > start ? playback.duration : start + 5
+        }
+        let cur = playback.currentTime
+        guard end > start else { return 1 }
+        return min(max((cur - start) / (end - start), 0), 1)
     }
 
     private var currentLyricText: String {
