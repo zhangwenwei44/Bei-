@@ -3,17 +3,17 @@ import UIKit
 
 struct PlayerView: View {
     @EnvironmentObject private var store: PlayerStore
-    /// 播放进度独立订阅 —— currentTime 每 0.5s 变一次。
-    /// 🔴 刻意不用 store.currentTime（那是转发计算属性，不触发刷新）：
-    /// 播放页确实需要跟着进度重绘，所以由调用方（RootView 的 fullScreenCover）注入同一个实例。
-    @ObservedObject var playback: PlaybackProgress
-    /// 歌词高亮独立订阅 —— currentLyricIndex 播放时 4fps 变一次。
-    /// 🔴 同理：store.currentLyricIndex 是转发计算属性不触发刷新，
-    /// 歌词高亮的重绘只应该发生在播放页（订阅这个对象），而不是全 App。
-    @ObservedObject var lyricState: LyricState
+    /// 🔴 刻意用 `let` 不用 @ObservedObject（v2.5.35 关键修复）：
+    /// playback.currentTime 播放时 4fps 变化，若 PlayerView 订阅它，整棵播放页树
+    /// （含横屏全部按钮/进度/歌词）每秒被重建 4 次 —— SwiftUI 在持续 re-diff 期间
+    /// 会丢触摸事件，实测表现为横屏返回按钮「要点几下才有反应」、暂停后再按播放没反应。
+    /// 现在这里只是快照读取（不订阅、不触发重建），真正需要实时进度的小块 UI
+    /// （进度条/歌词条）拆成独立子视图自行订阅 playback，高频刷新被限制在局部。
+    let playback: PlaybackProgress
+    /// 同上：歌词高亮 currentIndex 的订阅也收归子视图（LyricPill/LandscapeLyricsBlock），
+    /// PlayerView 本体只保留切歌/播放暂停等低频刷新。
+    let lyricState: LyricState
     @Binding var isExpanded: Bool
-    @State private var isScrubbing = false
-    @State private var scrubValue: Double = 0
 
     @State private var showToast: String?
     @State private var isLyricsPage = false
@@ -41,8 +41,6 @@ struct PlayerView: View {
         case glitter
     }
     private var currentTheme: Theme { Theme(rawValue: playerTheme) ?? .classic }
-
-    private var displayTime: Double { isScrubbing ? scrubValue : playback.currentTime }
 
     /// key window bounds = 真实可见屏幕尺寸（几何权威）。
     /// 🔴 不再读任何 window 的 bounds：设备上的第三方注入悬浮窗（如网速悬浮球）
@@ -353,8 +351,8 @@ struct PlayerView: View {
     @State private var classicCoverPausedAngle: Double = 0
     @State private var classicCoverOffset: CGSize = .zero
     @State private var classicSwipeOffset: CGFloat = 0
-    /// 流光进度条：游动光点相位（0→1 往返，仅播放时动画）
-    @State private var classicFlowPhase: CGFloat = 0
+    // 🔴 classicFlowPhase 已随 classicProgressBlock 拆到独立子视图 ClassicProgressBlock
+    //（高频进度刷新不再牵动 PlayerView 本体，见 playback 属性注释）。
 
     // MARK: classicBody — Header + Cover(弹性) + Deck(内容自适应) + Controls
     // header 固定顶 / 封面弹性填充 / deck 内容自适应（不再用固定高度硬裁歌词）
@@ -586,132 +584,10 @@ struct PlayerView: View {
         .padding(.bottom, 8)
     }
 
-    /// 流光进度条（Beans SeekBar default case 完整搬：accent 渐变 + ultraThinMaterial 轨道 + 顶部高光 + 游动光点 + 发光滑块）
+    /// 流光进度条 —— 已拆到独立子视图 ClassicProgressBlock（见其注释）：
+    /// 4fps 实时进度刷新被限制在这一小块，不再整树重建（横屏按钮吞点击的根因）。
     private var classicProgressBlock: some View {
-        let progressFrac = max(0, min(1, playback.progress))
-
-        return GeometryReader { geo in
-            let gWidth = geo.size.width
-            let thumbX = min(max(progressFrac * gWidth, 10), max(gWidth - 10, 10))
-            let trackH: CGFloat = 5
-
-            ZStack(alignment: .leading) {
-                // 清透轨道 + 玻璃材质覆盖 + 细边描边（Beans 流光）
-                Capsule()
-                    .fill(.white.opacity(0.55))
-                    .frame(height: trackH)
-                Capsule()
-                    .fill(.ultraThinMaterial)
-                    .frame(height: trackH)
-                    .overlay { Capsule().strokeBorder(.white.opacity(0.2), lineWidth: 0.5) }
-
-                // 已播放段：accent 渐变 + shadow 发光 + 顶部高光
-                Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [dominantColor, dominantColor.opacity(0.6), .white.opacity(0.85)],
-                            startPoint: .leading, endPoint: .trailing
-                        )
-                    )
-                    .frame(width: thumbX, height: trackH)
-                    .shadow(color: dominantColor.opacity(0.45), radius: 4, y: 1)
-                    .overlay(alignment: .top) {
-                        LinearGradient(colors: [.white.opacity(0.55), .clear],
-                                       startPoint: .top, endPoint: .bottom)
-                            .frame(height: trackH / 2).clipShape(Capsule())
-                    }
-
-                // 游动光点（仅播放时往返游动，Beans 流光的灵魂）
-                if store.isPlaying {
-                    ZStack {
-                        // 外层柔光晕
-                        Circle()
-                            .fill(.white.opacity(0.35))
-                            .blur(radius: 4)
-                            .frame(width: 14, height: 14)
-                        // 内层实白点
-                        Circle()
-                            .fill(.white.opacity(0.95))
-                            .frame(width: 5, height: 5)
-                            .shadow(color: .white.opacity(0.7), radius: 2)
-                    }
-                    .offset(x: max(2, thumbX - 5) * classicFlowPhase)
-                    .animation(.linear(duration: 2.4).repeatForever(autoreverses: true),
-                               value: classicFlowPhase)
-                }
-
-                // 发光滑块（白底 + stroke + accent shadow）
-                Circle()
-                    .fill(.white)
-                    .frame(width: isScrubbing ? 22 : 14, height: isScrubbing ? 22 : 14)
-                    .overlay { Circle().strokeBorder(.white.opacity(0.95), lineWidth: 0.8) }
-                    .shadow(color: dominantColor.opacity(0.7),
-                            radius: isScrubbing ? 10 : 3.5, y: isScrubbing ? 3 : 1)
-                    .offset(x: thumbX - (isScrubbing ? 11 : 7))
-                    .animation(.spring(response: 0.24, dampingFraction: 0.76), value: isScrubbing)
-            }
-            .frame(width: gWidth, height: 34)
-            .contentShape(Rectangle())
-            .highPriorityGesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        if !isScrubbing { scrubValue = playback.currentTime; Haptics.soft() }
-                        isScrubbing = true
-                        scrubValue = min(max(value.location.x / max(gWidth, 1), 0), 1) * playback.duration
-                    }
-                    .onEnded { _ in
-                        store.seek(to: scrubValue); isScrubbing = false; Haptics.light()
-                    }
-            )
-            .overlay(alignment: .topLeading) {
-                if isScrubbing {
-                    Text(displayTime.clockString)
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 9).padding(.vertical, 5)
-                        .background {
-                            Capsule().fill(.black.opacity(0.48))
-                                .overlay { Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 0.7) }
-                        }
-                        .shadow(color: dominantColor.opacity(0.35), radius: 10, y: 4)
-                        .offset(x: min(max(thumbX - 31, 0), max(gWidth - 62, 0)), y: -25)
-                        .transition(.scale(scale: 0.92).combined(with: .opacity))
-                }
-            }
-            .onAppear {
-                if store.isPlaying, classicFlowPhase == 0 { classicFlowPhase = 1 }
-            }
-            .onChange(of: store.isPlaying) { playing in
-                classicFlowPhase = playing ? 1 : 0
-            }
-
-            HStack(spacing: 6) {
-                seekPillButton("gobackward.15") { store.seek(to: max(0, playback.currentTime - 15)) }
-                Text(displayTime.clockString)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.56))
-                    .frame(minWidth: 34, alignment: .leading)
-                Spacer(minLength: 0)
-                Text(playback.duration.clockString)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.56))
-                    .frame(minWidth: 34, alignment: .trailing)
-                seekPillButton("goforward.15") { store.seek(to: max(0, min(playback.duration, playback.currentTime + 15))) }
-            }
-            .offset(y: 26)
-        }
-        .frame(height: 60)
-        .animation(.spring(response: 0.24, dampingFraction: 0.82), value: isScrubbing)
-    }
-
-    private func seekPillButton(_ icon: String, action: @escaping () -> Void) -> some View {
-        Button { Haptics.light(); action() } label: {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.72))
-                .frame(width: 30, height: 22)
-        }
-        .buttonStyle(.plain)
+        ClassicProgressBlock(playback: store.playback, dominantColor: dominantColor)
     }
 
     // MARK: 控件行：循环 ← 上一曲/播放/下一曲 → 队列（Beans deckRow 复刻）
@@ -1229,65 +1105,10 @@ struct PlayerView: View {
         return artist.isEmpty ? title : "\(title) - \(artist)"
     }
 
-    /// 横屏歌词块：三行（上句暗 / 当前句大 + 卡拉OK逐字 / 下句暗），纯展示。
-    /// 🔴 不再可点击跳转 —— 用户要求横屏点歌词就不要进歌词页（避免旋转打架/重复）。
+    /// 横屏歌词块 —— 已拆到独立子视图 LandscapeLyricsBlock（见其注释）：
+    /// 歌词高亮 + 进度的 4fps 订阅收进小块，横屏控制按钮不再被整树重建吞掉点击。
     private var landscapeLyricsBlock: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let prev = prevLyricText {
-                Text(prev)
-                    .font(.system(size: 15))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .lineLimit(1)
-            }
-            // 当前句：卡拉OK逐字填充（与播放页/歌词页同款）
-            if let span = currentLineSpan {
-                KaraokeLine(text: currentLyricText,
-                            start: span.start,
-                            end: span.end,
-                            isPlaying: store.isPlaying,
-                            font: .system(size: 23, weight: .bold),
-                            lineLimit: 2,
-                            align: .leading,
-                            playback: playback)
-            } else {
-                Text(currentLyricText)
-                    .font(.system(size: 23, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-            }
-            if let next = nextLyricText {
-                Text(next)
-                    .font(.system(size: 15))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .lineLimit(1)
-            }
-            // 第四行（更暗）：当前句的"下下一句"（用户要求歌词改 4 行显示）
-            if let nextNext = nextNextLyricText {
-                Text(nextNext)
-                    .font(.system(size: 14))
-                    .foregroundStyle(.white.opacity(0.22))
-                    .lineLimit(1)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .animation(.easeInOut(duration: 0.25), value: currentLyricText)
-        .animation(.easeInOut(duration: 0.25), value: nextLyricText)
-    }
-
-    private var prevLyricText: String? {
-        guard let index = lyricState.currentIndex,
-              index > 0, store.lyrics.indices.contains(index - 1) else { return nil }
-        let text = store.lyrics[index - 1].text
-        return text.isEmpty ? nil : text
-    }
-
-    /// 横屏第四行（更暗）：当前句的"下下一句"。
-    private var nextNextLyricText: String? {
-        guard let index = lyricState.currentIndex,
-              store.lyrics.indices.contains(index + 2) else { return nil }
-        let text = store.lyrics[index + 2].text
-        return text.isEmpty ? nil : text
+        LandscapeLyricsBlock()
     }
 
     /// 横屏控制键单排（酷狗式）：收藏 / 上一首 / 播放 / 下一首 / 列表
@@ -1495,76 +1316,10 @@ struct PlayerView: View {
         }
     }
 
-    /// 双行歌词（酷狗风格 + 卡拉OK逐字）：当前行在上、随播放进度从左到右逐字变白；
-    /// 下一行在下、暗。整体白色，适配沉浸式深色背景（炫胶 / 黑胶 / 经典三主题共用）。
+    /// 双行歌词 —— 已拆到独立子视图 LyricPill（见其注释）：
+    /// 歌词高亮 + 进度的 4fps 订阅收进小块，不再整树重建。
     private func lyricPill() -> some View {
-        let dim: Color = .white.opacity(0.4)
-
-        return Button {
-            openLyricsPage()
-        } label: {
-            VStack(spacing: 4) {
-                // 第一行：当前歌词 —— 高亮、大，卡拉OK逐字填充（用户要求白色 + 逐字）
-                if let span = currentLineSpan {
-                    KaraokeLine(text: currentLyricText,
-                                start: span.start,
-                                end: span.end,
-                                isPlaying: store.isPlaying,
-                                playback: playback)
-                } else {
-                    // 纯音乐 / 解析中 / 无当前行：静态半透白
-                    Text(currentLyricText)
-                        .font(.system(size: 16, weight: .medium, design: .rounded))
-                        .foregroundStyle(dim)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
-                // 第二行：下一句歌词 —— 暗、小
-                if let next = nextLyricText {
-                    Text(next)
-                        .font(.system(size: 13))
-                        .foregroundStyle(dim)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
-            }
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.plain)
-        .animation(.easeInOut(duration: 0.25), value: currentLyricText)
-        .animation(.easeInOut(duration: 0.25), value: nextLyricText)
-    }
-
-    /// 当前歌词行的起止时间（供卡拉OK逐字用）：start=本句 time，end=下一句 time。
-    /// 末行用整曲时长兜底；没有当前行（纯音乐/解析中）返回 nil。
-    private var currentLineSpan: (start: Double, end: Double)? {
-        guard let index = lyricState.currentIndex,
-              store.lyrics.indices.contains(index) else { return nil }
-        let start = store.lyrics[index].time
-        let end: Double
-        if store.lyrics.indices.contains(index + 1) {
-            end = store.lyrics[index + 1].time
-        } else {
-            end = playback.duration > start ? playback.duration : start + 5
-        }
-        guard end > start else { return (start, start + 1) }
-        return (start, end)
-    }
-
-    private var currentLyricText: String {
-        if store.isLoading { return "正在解析歌词…" }
-        if let index = lyricState.currentIndex, store.lyrics.indices.contains(index) {
-            return store.lyrics[index].text
-        }
-        return store.lyrics.isEmpty ? "纯音乐 · 暂无歌词" : "点击查看完整歌词"
-    }
-
-    private var nextLyricText: String? {
-        guard let index = lyricState.currentIndex,
-              store.lyrics.indices.contains(index + 1) else { return nil }
-        let text = store.lyrics[index + 1].text
-        return text.isEmpty ? nil : text
+        LyricPill(onOpen: { openLyricsPage() })
     }
 
     /// 酷狗同款动作行：喜欢 / 下载 / 评论 / 更多
@@ -1656,73 +1411,10 @@ struct PlayerView: View {
 
     // MARK: - 进度
 
+    /// 进度条 —— 已拆到独立子视图 PlayerProgressSection（见其注释）：
+    /// 4fps 实时进度刷新被限制在这一小块，横屏控制按钮不再被整树重建吞掉点击。
     private func progressSection() -> some View {
-        let progressFrac = max(0, min(1, playback.progress))
-        let bufferedFrac = max(0, min(1, playback.bufferedFraction))
-
-        return VStack(spacing: 6) {
-            GeometryReader { geo in
-                let trackWidth = geo.size.width
-                let progressX = progressFrac * trackWidth
-
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(.white.opacity(0.22))
-                        .frame(height: 3)
-
-                    Capsule()
-                        .fill(.white.opacity(0.3))
-                        .frame(width: bufferedFrac * trackWidth, height: 3)
-
-                    Capsule()
-                        .fill(LinearGradient(colors: [
-                            dominantColor,
-                            dominantColor.opacity(0.7)
-                        ], startPoint: .leading, endPoint: .trailing))
-                        .frame(width: progressX, height: 3)
-                        .animation(.easeInOut(duration: 0.3), value: dominantColor)
-
-                    if store.isPlaying {
-                        GlowDot()
-                            .frame(width: 10, height: 10)
-                            .offset(x: progressX - 5)
-                            .animation(.linear(duration: 0.2), value: progressX)
-                    }
-
-                    Circle()
-                        .fill(dominantColor)
-                        .frame(width: 14, height: 14)
-                        .offset(x: progressX - 7)
-                        .opacity(isScrubbing ? 1 : 0)
-                        .shadow(color: dominantColor.opacity(0.6), radius: 8)
-                        .animation(.easeInOut(duration: 0.3), value: dominantColor)
-                }
-                .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        guard playback.duration > 0, trackWidth > 0 else { return }
-                        if !isScrubbing {
-                            isScrubbing = true
-                            scrubValue = playback.currentTime
-                            Haptics.light()
-                        }
-                        scrubValue = min(1, max(0, value.location.x / trackWidth)) * playback.duration
-                    }
-                    .onEnded { _ in
-                        store.seek(to: scrubValue)
-                        isScrubbing = false
-                    })
-            }
-            .frame(height: 16)
-
-            HStack {
-                Text(displayTime.clockString)
-                Spacer()
-                Text(playback.duration.clockString)
-            }
-            .font(.system(size: 11, design: .monospaced))
-            .foregroundStyle(.white.opacity(0.7))
-        }
+        PlayerProgressSection(playback: store.playback, dominantColor: dominantColor)
     }
 
     // MARK: - 控制
@@ -1959,6 +1651,9 @@ private struct KaraokeLine: View {
     var lineLimit: Int? = 1
     /// 水平对齐：播放页/歌词页居中；横屏播放器左对齐。
     var align: Alignment = .center
+    /// 🔴 精确播放头（AVPlayer 实时值）：注入后逐帧直读，填充与演唱严格同步，
+    /// 根治「逐字跟不上」。未注入时退回 墙钟插值 兜底。
+    var liveTime: (() -> Double)? = nil
     @ObservedObject var playback: PlaybackProgress
 
     @State private var baseTime: Double = 0
@@ -1966,7 +1661,13 @@ private struct KaraokeLine: View {
 
     private var progress: Double {
         guard end > start else { return 1 }
-        let now = isPlaying ? baseTime + Date().timeIntervalSince(baseStamp) : baseTime
+        // 🔴 优先精确播放头：每帧直读 AVPlayer，暂停时播放头静止 → 填充自然冻结。
+        let now: Double
+        if let liveTime {
+            now = liveTime()
+        } else {
+            now = isPlaying ? baseTime + Date().timeIntervalSince(baseStamp) : baseTime
+        }
         return min(max((now - start) / (end - start), 0), 1)
     }
 
@@ -1995,8 +1696,9 @@ private struct KaraokeLine: View {
         // 旧写法 `if isPlaying { TimelineView } else { line }` 在暂停瞬间会把 TimelineView
         // 换成静态 Text（视图类型/结构突变），实测导致横屏播放/暂停按钮点了卡住、命中抖动。
         // 现在暂停只是让 progress 冻结（见 progress：暂停用 baseTime），结构稳定、点击正常。
-        // 单行 Text 的 TimelineView 开销可忽略；歌词页/播放页关闭即移除，不常驻耗电。
-        TimelineView(.animation) { _ in line }
+        // 🔴 minimumInterval 1/30：文字渐变填充 30fps 足够顺滑，渲染负载减半 ——
+        // 高频重绘也是横屏按钮「要点几下」的帮凶，能省则省。
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { _ in line }
             .onAppear { syncBase() }
             .onChange(of: playback.currentTime) { _ in syncBase() }
             .onChange(of: start) { _ in syncBase() }   // 切到下一句时立即对齐基准
@@ -2109,7 +1811,8 @@ struct LyricsPageView: View {
                               currentIndex: lyricState.currentIndex,
                               showsTranslation: store.showTranslation,
                               playback: PlayerStore.shared.playback,
-                              isPlaying: store.isPlaying)
+                              isPlaying: store.isPlaying,
+                              liveTime: { store.preciseTime })
                     .frame(width: sz.width - 52)
                     .frame(maxHeight: .infinity)
                     .frame(maxWidth: .infinity)
@@ -2244,6 +1947,8 @@ private struct BigLyricsView: View {
     /// 驱动当前句卡拉OK逐字填充：播放进度 + 播放状态。
     @ObservedObject var playback: PlaybackProgress
     var isPlaying: Bool
+    /// 精确播放头（AVPlayer 实时值）：逐帧直读，根治「逐字跟不上」。
+    var liveTime: (() -> Double)? = nil
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -2271,6 +1976,7 @@ private struct BigLyricsView: View {
                                                 start: line.time,
                                                 end: end,
                                                 isPlaying: isPlaying,
+                                                liveTime: liveTime,
                                                 font: .system(size: 26, weight: .bold),
                                                 lineLimit: nil,
                                                 playback: playback)
@@ -2331,5 +2037,412 @@ private struct BigLyricsView: View {
     private var activeId: UUID? {
         guard let index = currentIndex, lyrics.indices.contains(index) else { return nil }
         return lyrics[index].id
+    }
+}
+
+// MARK: - 高频状态隔离子视图（v2.5.35）
+//
+// 🔴 为什么这四个视图存在：playback.currentTime 播放时 4fps 变化、歌词高亮
+// currentIndex 逐行变化。旧结构里 PlayerView 本体 @ObservedObject 直接订阅它们，
+// 导致整棵播放页树（横屏返回/播放/暂停按钮、收藏、列表…）每秒被整树重建 4 次
+// —— SwiftUI 在持续 re-diff 期间会丢触摸事件，实测表现为横屏返回按钮
+// 「要点几下才有反应」、暂停后再按播放没反应（v2.5.34 用户实测）。
+// 拆分后：需要实时进度/歌词高亮的小块 UI 自己订阅，PlayerView 本体只随
+// 切歌/播放暂停等低频状态重建，按钮所在的树保持稳定，点击必中。
+
+/// 经典主题流光进度条（accent 渐变 + ultraThinMaterial 轨道 + 顶部高光 + 游动光点 + 发光滑块）。
+private struct ClassicProgressBlock: View {
+    @EnvironmentObject private var store: PlayerStore
+    @ObservedObject var playback: PlaybackProgress
+    let dominantColor: Color
+    @State private var isScrubbing = false
+    @State private var scrubValue: Double = 0
+    /// 游动光点相位（0→1 往返，仅播放时动画）
+    @State private var classicFlowPhase: CGFloat = 0
+
+    private var displayTime: Double { isScrubbing ? scrubValue : playback.currentTime }
+
+    var body: some View {
+        let progressFrac = max(0, min(1, playback.progress))
+
+        return GeometryReader { geo in
+            let gWidth = geo.size.width
+            let thumbX = min(max(progressFrac * gWidth, 10), max(gWidth - 10, 10))
+            let trackH: CGFloat = 5
+
+            ZStack(alignment: .leading) {
+                // 清透轨道 + 玻璃材质覆盖 + 细边描边（Beans 流光）
+                Capsule()
+                    .fill(.white.opacity(0.55))
+                    .frame(height: trackH)
+                Capsule()
+                    .fill(.ultraThinMaterial)
+                    .frame(height: trackH)
+                    .overlay { Capsule().strokeBorder(.white.opacity(0.2), lineWidth: 0.5) }
+
+                // 已播放段：accent 渐变 + shadow 发光 + 顶部高光
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [dominantColor, dominantColor.opacity(0.6), .white.opacity(0.85)],
+                            startPoint: .leading, endPoint: .trailing
+                        )
+                    )
+                    .frame(width: thumbX, height: trackH)
+                    .shadow(color: dominantColor.opacity(0.45), radius: 4, y: 1)
+                    .overlay(alignment: .top) {
+                        LinearGradient(colors: [.white.opacity(0.55), .clear],
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: trackH / 2).clipShape(Capsule())
+                    }
+
+                // 游动光点（仅播放时往返游动，Beans 流光的灵魂）
+                if store.isPlaying {
+                    ZStack {
+                        // 外层柔光晕
+                        Circle()
+                            .fill(.white.opacity(0.35))
+                            .blur(radius: 4)
+                            .frame(width: 14, height: 14)
+                        // 内层实白点
+                        Circle()
+                            .fill(.white.opacity(0.95))
+                            .frame(width: 5, height: 5)
+                            .shadow(color: .white.opacity(0.7), radius: 2)
+                    }
+                    .offset(x: max(2, thumbX - 5) * classicFlowPhase)
+                    .animation(.linear(duration: 2.4).repeatForever(autoreverses: true),
+                               value: classicFlowPhase)
+                }
+
+                // 发光滑块（白底 + stroke + accent shadow）
+                Circle()
+                    .fill(.white)
+                    .frame(width: isScrubbing ? 22 : 14, height: isScrubbing ? 22 : 14)
+                    .overlay { Circle().strokeBorder(.white.opacity(0.95), lineWidth: 0.8) }
+                    .shadow(color: dominantColor.opacity(0.7),
+                            radius: isScrubbing ? 10 : 3.5, y: isScrubbing ? 3 : 1)
+                    .offset(x: thumbX - (isScrubbing ? 11 : 7))
+                    .animation(.spring(response: 0.24, dampingFraction: 0.76), value: isScrubbing)
+            }
+            .frame(width: gWidth, height: 34)
+            .contentShape(Rectangle())
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        if !isScrubbing { scrubValue = playback.currentTime; Haptics.soft() }
+                        isScrubbing = true
+                        scrubValue = min(max(value.location.x / max(gWidth, 1), 0), 1) * playback.duration
+                    }
+                    .onEnded { _ in
+                        store.seek(to: scrubValue); isScrubbing = false; Haptics.light()
+                    }
+            )
+            .overlay(alignment: .topLeading) {
+                if isScrubbing {
+                    Text(displayTime.clockString)
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 9).padding(.vertical, 5)
+                        .background {
+                            Capsule().fill(.black.opacity(0.48))
+                                .overlay { Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 0.7) }
+                        }
+                        .shadow(color: dominantColor.opacity(0.35), radius: 10, y: 4)
+                        .offset(x: min(max(thumbX - 31, 0), max(gWidth - 62, 0)), y: -25)
+                        .transition(.scale(scale: 0.92).combined(with: .opacity))
+                }
+            }
+            .onAppear {
+                if store.isPlaying, classicFlowPhase == 0 { classicFlowPhase = 1 }
+            }
+            .onChange(of: store.isPlaying) { playing in
+                classicFlowPhase = playing ? 1 : 0
+            }
+
+            HStack(spacing: 6) {
+                seekPillButton("gobackward.15") { store.seek(to: max(0, playback.currentTime - 15)) }
+                Text(displayTime.clockString)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.56))
+                    .frame(minWidth: 34, alignment: .leading)
+                Spacer(minLength: 0)
+                Text(playback.duration.clockString)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.56))
+                    .frame(minWidth: 34, alignment: .trailing)
+                seekPillButton("goforward.15") { store.seek(to: max(0, min(playback.duration, playback.currentTime + 15))) }
+            }
+            .offset(y: 26)
+        }
+        .frame(height: 60)
+        .animation(.spring(response: 0.24, dampingFraction: 0.82), value: isScrubbing)
+    }
+
+    private func seekPillButton(_ icon: String, action: @escaping () -> Void) -> some View {
+        Button { Haptics.light(); action() } label: {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.72))
+                .frame(width: 30, height: 22)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// 细进度条（横屏播放器 / 炫胶·黑胶竖屏共用）：轨道 + 缓冲 + 已播 + 光点 + 拖动。
+private struct PlayerProgressSection: View {
+    @EnvironmentObject private var store: PlayerStore
+    @ObservedObject var playback: PlaybackProgress
+    let dominantColor: Color
+    @State private var isScrubbing = false
+    @State private var scrubValue: Double = 0
+
+    private var displayTime: Double { isScrubbing ? scrubValue : playback.currentTime }
+
+    var body: some View {
+        let progressFrac = max(0, min(1, playback.progress))
+        let bufferedFrac = max(0, min(1, playback.bufferedFraction))
+
+        return VStack(spacing: 6) {
+            GeometryReader { geo in
+                let trackWidth = geo.size.width
+                let progressX = progressFrac * trackWidth
+
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(.white.opacity(0.22))
+                        .frame(height: 3)
+
+                    Capsule()
+                        .fill(.white.opacity(0.3))
+                        .frame(width: bufferedFrac * trackWidth, height: 3)
+
+                    Capsule()
+                        .fill(LinearGradient(colors: [
+                            dominantColor,
+                            dominantColor.opacity(0.7)
+                        ], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: progressX, height: 3)
+                        .animation(.easeInOut(duration: 0.3), value: dominantColor)
+
+                    if store.isPlaying {
+                        GlowDot()
+                            .frame(width: 10, height: 10)
+                            .offset(x: progressX - 5)
+                            .animation(.linear(duration: 0.2), value: progressX)
+                    }
+
+                    Circle()
+                        .fill(dominantColor)
+                        .frame(width: 14, height: 14)
+                        .offset(x: progressX - 7)
+                        .opacity(isScrubbing ? 1 : 0)
+                        .shadow(color: dominantColor.opacity(0.6), radius: 8)
+                        .animation(.easeInOut(duration: 0.3), value: dominantColor)
+                }
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard playback.duration > 0, trackWidth > 0 else { return }
+                        if !isScrubbing {
+                            isScrubbing = true
+                            scrubValue = playback.currentTime
+                            Haptics.light()
+                        }
+                        scrubValue = min(1, max(0, value.location.x / trackWidth)) * playback.duration
+                    }
+                    .onEnded { _ in
+                        store.seek(to: scrubValue)
+                        isScrubbing = false
+                    })
+            }
+            .frame(height: 16)
+
+            HStack {
+                Text(displayTime.clockString)
+                Spacer()
+                Text(playback.duration.clockString)
+            }
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.7))
+        }
+    }
+}
+
+/// 双行歌词条（酷狗风格 + 卡拉OK逐字）：当前行卡拉OK填充 + 下一行暗显。
+/// 炫胶 / 黑胶 / 经典三主题竖屏共用；点击进歌词页。
+private struct LyricPill: View {
+    @EnvironmentObject private var store: PlayerStore
+    /// 独立订阅歌词高亮 + 进度（与注入的是同一单例实例，见 LyricsPageView 同款写法）
+    @ObservedObject private var lyricState = PlayerStore.shared.lyricState
+    @ObservedObject private var playback = PlayerStore.shared.playback
+    var onOpen: () -> Void
+
+    private var dim: Color { .white.opacity(0.4) }
+
+    var body: some View {
+        Button {
+            onOpen()
+        } label: {
+            VStack(spacing: 4) {
+                // 第一行：当前歌词 —— 高亮、大，卡拉OK逐字填充
+                if let span = currentLineSpan {
+                    KaraokeLine(text: currentLyricText,
+                                start: span.start,
+                                end: span.end,
+                                isPlaying: store.isPlaying,
+                                liveTime: { store.preciseTime },
+                                playback: playback)
+                } else {
+                    // 纯音乐 / 解析中 / 无当前行：静态半透白
+                    Text(currentLyricText)
+                        .font(.system(size: 16, weight: .medium, design: .rounded))
+                        .foregroundStyle(dim)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+                // 第二行：下一句歌词 —— 暗、小
+                if let next = nextLyricText {
+                    Text(next)
+                        .font(.system(size: 13))
+                        .foregroundStyle(dim)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+            }
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+        .animation(.easeInOut(duration: 0.25), value: currentLyricText)
+        .animation(.easeInOut(duration: 0.25), value: nextLyricText)
+    }
+
+    /// 当前歌词行的起止时间：start=本句 time，end=下一句 time；末行用整曲时长兜底。
+    private var currentLineSpan: (start: Double, end: Double)? {
+        guard let index = lyricState.currentIndex,
+              store.lyrics.indices.contains(index) else { return nil }
+        let start = store.lyrics[index].time
+        let end: Double
+        if store.lyrics.indices.contains(index + 1) {
+            end = store.lyrics[index + 1].time
+        } else {
+            end = playback.duration > start ? playback.duration : start + 5
+        }
+        guard end > start else { return (start, start + 1) }
+        return (start, end)
+    }
+
+    private var currentLyricText: String {
+        if store.isLoading { return "正在解析歌词…" }
+        if let index = lyricState.currentIndex, store.lyrics.indices.contains(index) {
+            return store.lyrics[index].text
+        }
+        return store.lyrics.isEmpty ? "纯音乐 · 暂无歌词" : "点击查看完整歌词"
+    }
+
+    private var nextLyricText: String? {
+        guard let index = lyricState.currentIndex,
+              store.lyrics.indices.contains(index + 1) else { return nil }
+        let text = store.lyrics[index + 1].text
+        return text.isEmpty ? nil : text
+    }
+}
+
+/// 横屏播放器四行歌词块：上句暗 / 当前句大（卡拉OK逐字）/ 下句 / 下下句，纯展示。
+/// 🔴 不可点击跳转 —— 用户要求横屏点歌词不要进歌词页（避免旋转打架/重复）。
+private struct LandscapeLyricsBlock: View {
+    @EnvironmentObject private var store: PlayerStore
+    @ObservedObject private var lyricState = PlayerStore.shared.lyricState
+    @ObservedObject private var playback = PlayerStore.shared.playback
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let prev = prevLyricText {
+                Text(prev)
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .lineLimit(1)
+            }
+            // 当前句：卡拉OK逐字填充（与播放页/歌词页同款）
+            if let span = currentLineSpan {
+                KaraokeLine(text: currentLyricText,
+                            start: span.start,
+                            end: span.end,
+                            isPlaying: store.isPlaying,
+                            liveTime: { store.preciseTime },
+                            font: .system(size: 23, weight: .bold),
+                            lineLimit: 2,
+                            align: .leading,
+                            playback: playback)
+            } else {
+                Text(currentLyricText)
+                    .font(.system(size: 23, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
+            if let next = nextLyricText {
+                Text(next)
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .lineLimit(1)
+            }
+            // 第四行（更暗）：当前句的"下下一句"（用户要求歌词改 4 行显示）
+            if let nextNext = nextNextLyricText {
+                Text(nextNext)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white.opacity(0.22))
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.easeInOut(duration: 0.25), value: currentLyricText)
+        .animation(.easeInOut(duration: 0.25), value: nextLyricText)
+    }
+
+    private var currentLineSpan: (start: Double, end: Double)? {
+        guard let index = lyricState.currentIndex,
+              store.lyrics.indices.contains(index) else { return nil }
+        let start = store.lyrics[index].time
+        let end: Double
+        if store.lyrics.indices.contains(index + 1) {
+            end = store.lyrics[index + 1].time
+        } else {
+            end = playback.duration > start ? playback.duration : start + 5
+        }
+        guard end > start else { return (start, start + 1) }
+        return (start, end)
+    }
+
+    private var currentLyricText: String {
+        if store.isLoading { return "正在解析歌词…" }
+        if let index = lyricState.currentIndex, store.lyrics.indices.contains(index) {
+            return store.lyrics[index].text
+        }
+        return store.lyrics.isEmpty ? "纯音乐 · 暂无歌词" : ""
+    }
+
+    private var prevLyricText: String? {
+        guard let index = lyricState.currentIndex,
+              index > 0, store.lyrics.indices.contains(index - 1) else { return nil }
+        let text = store.lyrics[index - 1].text
+        return text.isEmpty ? nil : text
+    }
+
+    private var nextLyricText: String? {
+        guard let index = lyricState.currentIndex,
+              store.lyrics.indices.contains(index + 1) else { return nil }
+        let text = store.lyrics[index + 1].text
+        return text.isEmpty ? nil : text
+    }
+
+    /// 第四行（更暗）：当前句的"下下一句"。
+    private var nextNextLyricText: String? {
+        guard let index = lyricState.currentIndex,
+              store.lyrics.indices.contains(index + 2) else { return nil }
+        let text = store.lyrics[index + 2].text
+        return text.isEmpty ? nil : text
     }
 }

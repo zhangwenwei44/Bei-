@@ -56,6 +56,16 @@ final class PlayerStore: ObservableObject {
     var bufferedFraction: Double { playback.bufferedFraction }
     var progress: Double { playback.progress }
 
+    /// 🔴 卡拉OK逐字专用：实时精确播放头（直接读 AVPlayer，完全绕开 0.25s
+    /// 时间观察器与 @Published 发布链路的延迟）。KaraokeLine 在 TimelineView
+    /// 每帧读它，填充位置与实际唱到的字严格同步 —— 「逐字跟不上」的根治方案。
+    /// 暂停时 AVPlayer 播放头静止 → 逐字填充自然冻结，无需额外状态。
+    /// 每帧读 1-4 次 currentTime() 开销可忽略（微秒级属性读取）。
+    var preciseTime: Double {
+        let t = player.currentTime().seconds
+        return (t.isFinite && t >= 0) ? t : playback.currentTime
+    }
+
     /// 迷你播放条专用状态 —— 第二个高频隔离对象。
     ///
     /// 🔴 为什么还需要它：只拆 currentTime 是不够的。PlayerStore 里还有
