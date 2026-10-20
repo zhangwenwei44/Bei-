@@ -1649,7 +1649,14 @@ private struct KaraokeLine: View {
     /// "无默认值的参数"排在"有默认值的参数"前面，若 playback 落在 font/lineLimit/align/
     /// liveTime 这些默认值之后，调用时就会报 "argument 'font' must precede argument
     /// 'liveTime'"。这里把它放到 isPlaying 之后、所有默认值之前，调用顺序就对了。
-    @ObservedObject var playback: PlaybackProgress
+    /// 🔴 用 let 而非 @ObservedObject（v2.5.38 关键修复）：liveTime 已直接读
+    /// player.currentTime() 驱动逐字填充，playback 仅作 syncBase 兜底读取，
+    /// 不再需要订阅。旧写法 @ObservedObject 会让 KaraokeLine 在播放时随
+    /// playback.currentTime(4fps) 每秒重建 4 次 → 其 TimelineView 被反复销毁重建，
+    /// 逐字填充卡顿（"歌词慢了"）+ 主线程被 4Hz 重建+30fps TimelineView 双重占用，
+    /// 横屏播放/暂停按钮触摸被吞（"按一次就卡住"）。改为 let 后，KaraokeLine 只靠
+    /// 自己的 TimelineView 更新，整棵歌词视图不再随 4fps 进度抖动。
+    let playback: PlaybackProgress
     /// 字号/字重（播放页迷你条 16pt；歌词页当前句 26pt bold）。
     var font: Font = .system(size: 16, weight: .medium, design: .rounded)
     /// 行数限制：播放页迷你条 1 行；歌词页当前句允许换行传 nil。
@@ -1704,8 +1711,7 @@ private struct KaraokeLine: View {
         // 高频重绘也是横屏按钮「要点几下」的帮凶，能省则省。
         TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { _ in line }
             .onAppear { syncBase() }
-            .onChange(of: playback.currentTime) { _ in syncBase() }
-            .onChange(of: start) { _ in syncBase() }   // 切到下一句时立即对齐基准
+            .onChange(of: start) { _ in syncBase() }   // 切到下一句时立即对齐基准（兜底路径用）
     }
 
     private func syncBase() {
@@ -1948,8 +1954,9 @@ private struct BigLyricsView: View {
     let lyrics: [LyricLine]
     let currentIndex: Int?
     var showsTranslation: Bool
-    /// 驱动当前句卡拉OK逐字填充：播放进度 + 播放状态。
-    @ObservedObject var playback: PlaybackProgress
+    /// 🔴 let 不订阅（v2.5.38）：BigLyricsView 的逐字填充交给子 KaraokeLine 的
+    /// TimelineView + liveTime 驱动，本体无需随 4fps 进度重建（避免整页歌词 4Hz 抖动）。
+    let playback: PlaybackProgress
     var isPlaying: Bool
     /// 精确播放头（AVPlayer 实时值）：逐帧直读，根治「逐字跟不上」。
     var liveTime: (() -> Double)? = nil
@@ -2287,7 +2294,9 @@ private struct LyricPill: View {
     @EnvironmentObject private var store: PlayerStore
     /// 独立订阅歌词高亮 + 进度（与注入的是同一单例实例，见 LyricsPageView 同款写法）
     @ObservedObject private var lyricState = PlayerStore.shared.lyricState
-    @ObservedObject private var playback = PlayerStore.shared.playback
+    /// 🔴 let 不订阅（v2.5.38）：LyricPill 的逐字填充由 KaraokeLine 的 TimelineView
+    /// + liveTime 驱动，无需随 4fps 进度重建（否则迷你歌词条每秒抖 4 次）。
+    private let playback = PlayerStore.shared.playback
     var onOpen: () -> Void
 
     private var dim: Color { .white.opacity(0.4) }
@@ -2366,7 +2375,11 @@ private struct LyricPill: View {
 private struct LandscapeLyricsBlock: View {
     @EnvironmentObject private var store: PlayerStore
     @ObservedObject private var lyricState = PlayerStore.shared.lyricState
-    @ObservedObject private var playback = PlayerStore.shared.playback
+    /// 🔴 let 不订阅（v2.5.38）：横屏歌词块的逐字填充由 KaraokeLine 的 TimelineView
+    /// + liveTime 驱动，LandscapeLyricsBlock 本体无需随 4fps 进度重建 —— 否则它的
+    /// TimelineView 每 0.25s 被销毁重建一次，逐字填充卡顿（"歌词慢了"），同时主线程
+    /// 被 4Hz 重建+30fps TimelineView 双重占用，横屏播放/暂停按钮触摸被吞（"按一次就卡住"）。
+    private let playback = PlayerStore.shared.playback
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
