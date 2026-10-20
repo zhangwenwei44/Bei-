@@ -25,6 +25,8 @@ struct ProfileView: View {
     }
 
     @State private var sheet: Sheet?
+    /// QQ 交流群弹层（v2.5.41：启动公告取消后，入口改为设置页这一行）
+    @State private var showQQGroup = false
     /// 酷狗分享链接 / specialid 输入框。
     @State private var kugouCodeInput = ""
     @State private var kugouImporting = false
@@ -310,7 +312,27 @@ struct ProfileView: View {
                     }
                     .foregroundStyle(AppStyle.primaryText)
                 }
+
+                // 🔴 v2.5.41：QQ 群入口从「启动公告弹窗」挪到设置页（启动时不再弹任何公告）
+                Button {
+                    showQQGroup = true
+                } label: {
+                    HStack {
+                        Label("加入 QQ 交流群", systemImage: "person.3.fill")
+                        Spacer()
+                        Text(QQAnnouncementView.groupNumber)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                    }
+                    .foregroundStyle(AppStyle.primaryText)
+                }
             }
+        }
+        .sheet(isPresented: $showQQGroup) {
+            QQAnnouncementView()
         }
         .listStyle(.insetGrouped)
         .compatScrollContentBackground(.hidden)

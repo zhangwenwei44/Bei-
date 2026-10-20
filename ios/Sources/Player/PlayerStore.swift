@@ -539,7 +539,13 @@ final class PlayerStore: ObservableObject {
         itemObservers.append(item.observe(\.isPlaybackBufferEmpty, options: [.new]) { [weak self] item, _ in
             guard let self else { return }
             Task { @MainActor in
-                self.isBuffering = item.isPlaybackBufferEmpty || !(item.isPlaybackLikelyToKeepUp)
+                // 🔴 v2.5.41 关键修复（横屏「播放/暂停按一下就卡住」的真凶）：
+                // 暂停时 AVPlayerItem 的 isPlaybackLikelyToKeepUp 会变成 false（rate==0，
+                // 系统不再为"继续播放"做预读），旧代码无条件把 isBuffering 置 true →
+                // 播放按钮从此一直显示 ProgressView 转圈、永远回不到图标，用户体感就是
+                // "按一下就卡住"。只有**正在播放**时等待网络数据才算 buffering。
+                let waiting = item.isPlaybackBufferEmpty || !(item.isPlaybackLikelyToKeepUp)
+                self.isBuffering = waiting && self.isPlaying
             }
         })
         itemObservers.append(item.observe(\.isPlaybackLikelyToKeepUp, options: [.new]) { [weak self] item, _ in
@@ -651,12 +657,18 @@ final class PlayerStore: ObservableObject {
         }
         player.play()
         isPlaying = true
+        // 🔴 乐观清掉缓冲态：真实缺数据会由上面的 KVO 立刻重新置位，
+        // 但不会再出现"暂停留下的旧 buffering 一直挂着"的情况。
+        isBuffering = false
         updateNowPlaying()
     }
 
     func pause() {
         player.pause()
         isPlaying = false
+        // 🔴 必须主动清：暂停后 isPlaybackLikelyToKeepUp 会转 false，
+        // 若沿用旧值，播放按钮会一直卡在转圈（详见 isPlaybackBufferEmpty 观察器注释）。
+        isBuffering = false
         updateNowPlaying()
     }
 
@@ -811,7 +823,9 @@ final class PlayerStore: ObservableObject {
             url = await CoverResolver.shared.resolveCover(for: song.coverFallbackKeys)
         }
         if let url {
-            return await CoverLoader.download(url)
+            // 🔴 播放页是全场最大的封面（~320pt@3x ≈ 960px），必须取高清：
+            // 旧代码走默认 300px 解码 → 放大后模糊（用户反馈"专辑图片模糊"）。
+            return await CoverLoader.downloadHiRes(url)
         }
         guard let url = DownloadManager.shared.localURL(for: song) else { return nil }
         let asset = AVURLAsset(url: url)

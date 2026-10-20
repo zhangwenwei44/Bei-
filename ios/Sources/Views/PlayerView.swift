@@ -147,8 +147,7 @@ struct PlayerView: View {
         // 🔴 横屏播放器时隐藏系统状态栏（沉浸播放）；退出横屏自动恢复。
         // 🔴 加 !isLyricsPage：从横屏进歌词页时 isLandscapePlayer 不会置回 false，isLandscape 仍为 true，
         // 若不排除会把竖屏歌词页的状态栏也误藏。歌词页自己管理 safeTop。
-        .modifier(LandscapeStatusBarHider(hidden: isLandscape && !isLyricsPage,
-                                          hideHomeIndicator: isLandscape && !isLyricsPage && !landscapeChromeVisible))
+        .modifier(LandscapeStatusBarHider(hidden: isLandscape && !isLyricsPage))
         // 🔴 关闭播放页时恢复竖屏 + 恢复自动熄屏（避免退出后整 App 卡横屏/永远不熄屏）
         .onDisappear {
             OrientationLock.shared.resetToPortrait()
@@ -190,7 +189,8 @@ struct PlayerView: View {
             classicDeck               // 内容自适应：歌词+动作行+进度+控件，绝不裁切
         }
         .frame(width: screen.width, height: contentHeight, alignment: .top)
-        .padding(.top, win.safeTop)                          // 整块下移到状态栏下方
+        // 🔴 v2.5.41：用户要求顶栏往上移一点（原来紧贴状态栏下沿，视觉上偏低）
+        .padding(.top, max(win.safeTop - 12, 6))
         .frame(width: screen.width, height: screen.height, alignment: .top)  // 铺满全屏、顶对齐
         .clipped()
     }
@@ -299,7 +299,7 @@ struct PlayerView: View {
                     .offset(x: classicSwipeOffset)
                     .opacity(CGFloat(1) - min(abs(classicSwipeOffset) / 260, 0.35))
                     .animation(.spring(response: 0.34, dampingFraction: 0.86), value: classicSwipeOffset)
-                    .padding(.top, 10)   // 🔴 封面上移：贴顶（留 10pt 呼吸），下方留白由 Spacer 吸收
+                    .padding(.top, 0)    // 🔴 v2.5.41：封面再上移（原 10pt 呼吸去掉），下方留白由 Spacer 吸收
                     .gesture(
                     DragGesture(minimumDistance: 15)
                         .onChanged { value in
@@ -348,12 +348,10 @@ struct PlayerView: View {
                 }
             }
             .frame(width: side, height: side)
+            // 🔴 v2.5.41：去掉原来那圈 1pt 白色描边（在浅色封面上就是一条显眼的"白边"），
+            // 投影也收小，避免边缘出现发白的散射圈。
             .clipShape(RoundedRectangle(cornerRadius: side * 0.04, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: side * 0.04, style: .continuous)
-                    .stroke(.white.opacity(0.28), lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.3), radius: 18, y: 8)
+            .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
         }
         .buttonStyle(.plain)
     }
@@ -460,7 +458,7 @@ struct PlayerView: View {
                 .frame(height: 34)
 
             classicDeckControls
-                .frame(height: 62)
+                .frame(height: 54)
         }
         .padding(.horizontal, 15)
         .padding(.top, 2)
@@ -509,7 +507,7 @@ struct PlayerView: View {
         }
         return Button { store.cycleMode(); Haptics.light() } label: {
             Image(systemName: icon)
-                .font(.system(size: 22, weight: .medium))
+                .font(.system(size: 19, weight: .medium))
                 .foregroundStyle(active ? dominantColor : .white.opacity(0.85))
                 .frame(width: 44, height: 48)
                 .contentShape(Rectangle())
@@ -522,7 +520,7 @@ struct PlayerView: View {
     private var classicQueueButton: some View {
         Button { store.isQueuePresented.toggle(); Haptics.light() } label: {
             Image(systemName: "list.bullet")
-                .font(.system(size: 22, weight: .medium))
+                .font(.system(size: 19, weight: .medium))
                 .foregroundStyle(store.isQueuePresented ? dominantColor : .white.opacity(0.85))
                 .frame(width: 44, height: 48)
                 .contentShape(Rectangle())
@@ -535,7 +533,7 @@ struct PlayerView: View {
     private func classicPrevNextButton(icon: String, action: @escaping () -> Void) -> some View {
         Button { action(); Haptics.light() } label: {
             Image(systemName: icon)
-                .font(.system(size: 32, weight: .medium))
+                .font(.system(size: 26, weight: .medium))
                 .foregroundStyle(.white)
                 .frame(width: 52, height: 52)
                 .contentShape(Rectangle())
@@ -548,11 +546,12 @@ struct PlayerView: View {
     private var classicPlayPauseButton: some View {
         Button { store.toggle(); Haptics.soft() } label: {
             ZStack {
-                if store.isLoading || store.isBuffering {
+                // 🔴 同上：缓冲态只在"正在播放"时才画转圈
+                if store.isLoading || (store.isBuffering && store.isPlaying) {
                     ProgressView().tint(.white)
                 } else {
                     Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 48, weight: .medium))
+                        .font(.system(size: 38, weight: .medium))
                         .foregroundStyle(.white)
                         .offset(x: store.isPlaying ? 0 : 2)
                 }
@@ -1143,7 +1142,9 @@ private struct PlayButton: View {
                     .scaleEffect(pulse ? 1.16 : 1)
                     .opacity(pulse ? 0 : 0.55)
 
-                if store.isLoading || store.isBuffering {
+                // 🔴 暂停时绝不显示转圈：暂停后 isPlaybackLikelyToKeepUp 会转 false，
+                // 旧写法会让播放键卡在 ProgressView（"按一下就卡住"）。
+                if store.isLoading || (store.isBuffering && store.isPlaying) {
                     ProgressView()
                         .tint(.white)
                 } else {
@@ -1383,13 +1384,15 @@ struct LyricsPageView: View {
 /// 直接调用会触发弃用警告 → CI 的 warning-as-error 会挂）。
 private struct LandscapeStatusBarHider: ViewModifier {
     let hidden: Bool
-    /// 用户要求：横屏浮层隐藏时，底部 home 横条也一并隐藏；点击屏幕显出浮层时恢复
-    var hideHomeIndicator: Bool = false
+    /// 🔴 v2.5.41：不再隐藏 home 横条 —— `persistentSystemOverlays(.hidden)` 会让系统
+    /// 把底部区域（播放控件那一行）的**第一次点击吞掉**去恢复 home 指示条，
+    /// 实测表现就是横屏「播放/暂停按一下没反应、要点几下」（用户反复反馈）。
+    /// 播放控件的可靠性优先，home 横条改为系统默认（.automatic）。
     func body(content: Content) -> some View {
         if #available(iOS 16.0, *) {
             content
                 .statusBarHidden(hidden)
-                .persistentSystemOverlays(hideHomeIndicator ? .hidden : .automatic)
+                .persistentSystemOverlays(.automatic)
         } else {
             content
         }

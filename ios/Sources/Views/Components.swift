@@ -193,8 +193,17 @@ enum CoverLoader {
         await request(url, maxPixelSize: maxPixelSize)
     }
 
-    private static func request(_ target: URL, maxPixelSize: CGFloat) async -> UIImage? {
-        if let cached = CoverCache.shared.image(for: target) {
+    /// 🔴 播放页大封面专用（v2.5.41）：按 900px 解码 + **跳过共享缓存**。
+    /// 共享缓存里通常躺的是列表页存的 180/300px 小图，直接复用会把 ~320pt 的
+    /// 大封面放大成糊图（用户反馈"专辑图片模糊"）。高清图不回写缓存，
+    /// 免得把小图挤掉后列表又得重新下载。
+    static func downloadHiRes(_ url: URL) async -> UIImage? {
+        await request(url, maxPixelSize: 900, useCache: false)
+    }
+
+    private static func request(_ target: URL, maxPixelSize: CGFloat,
+                                useCache: Bool = true) async -> UIImage? {
+        if useCache, let cached = CoverCache.shared.image(for: target) {
             return cached
         }
         let key = target.absoluteString
@@ -203,7 +212,7 @@ enum CoverLoader {
         }
         let task = Task<UIImage?, Never> {
             defer { inflight.remove(key) }
-            return await performRequest(target, maxPixelSize: maxPixelSize)
+            return await performRequest(target, maxPixelSize: maxPixelSize, useCache: useCache)
         }
         inflight.insert(key, task)
         return await task.value
@@ -255,16 +264,17 @@ enum CoverLoader {
         return urls
     }
 
-    private static func performRequest(_ target: URL, maxPixelSize: CGFloat) async -> UIImage? {
+    private static func performRequest(_ target: URL, maxPixelSize: CGFloat,
+                                       useCache: Bool = true) async -> UIImage? {
         // 排队期间可能已被别的任务下载好
-        if let cached = CoverCache.shared.image(for: target) {
+        if useCache, let cached = CoverCache.shared.image(for: target) {
             return cached
         }
         let urls = Self.candidateURLs(for: target)
         for url in urls {
             if let result = await downloadSingle(url, maxPixelSize: maxPixelSize) {
                 // 命中后给所有候选 URL 都存一份，下次任何 scheme 进来都能命中
-                for u in urls { CoverCache.shared.store(result, for: u) }
+                if useCache { for u in urls { CoverCache.shared.store(result, for: u) } }
                 return result
             }
         }

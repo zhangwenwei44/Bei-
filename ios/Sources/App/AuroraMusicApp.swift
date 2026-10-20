@@ -8,8 +8,8 @@ struct AuroraMusicApp: App {
     /// 两处必须是同一个实例，environmentObject 注入仍照常供深层视图使用。
     @StateObject private var store = PlayerStore.shared
     @StateObject private var auth = AuthService.shared
-    @AppStorage("aurora.disclaimer.accepted") private var disclaimerAccepted = false
-    @State private var showQQSheet = false
+    // 🔴 v2.5.41：用户要求移除「启动公告」与「免责声明」——App 直接进入主界面，
+    // QQ 群入口改到「设置」页（见 ProfileView 的「加入 QQ 交流群」）。
     /// 🔴 注入 AppDelegate：接管 supportedInterfaceOrientations，配合 OrientationLock
     /// 实现「平时锁竖屏、横屏播放器时强制横屏」。
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -44,39 +44,13 @@ struct AuroraMusicApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if disclaimerAccepted {
-                mainContent
-            } else {
-                DisclaimerView()
-                    .preferredColorScheme(ThemeSettings.mode.colorScheme)
-            }
+            // 🔴 不再有启动公告 / 免责声明拦截：直接进主界面。
+            RootView()
+                .environmentObject(store)
+                .environmentObject(auth)
+                .preferredColorScheme(ThemeSettings.mode.colorScheme)
+                .onAppear { store.bootstrap() }
         }
-    }
-
-    @ViewBuilder
-    private var mainContent: some View {
-        RootView()
-            .environmentObject(store)
-            .environmentObject(auth)
-            .preferredColorScheme(ThemeSettings.mode.colorScheme)
-            .onAppear {
-                store.bootstrap()
-                // 🔴 首次启动弹 QQ 群公告（用户点"知道了"后关闭本 App 重开就不再弹）
-                let dismissed = UserDefaults.standard.bool(forKey: "aurora.qqAnnouncement.dismissed")
-                let launched = UserDefaults.standard.integer(forKey: "aurora.qqAnnouncement.launchCount")
-                if !dismissed {
-                    // 只在前 3 次启动弹，超过 3 次用户还没关就自动不弹了
-                    if launched < 3 {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                            showQQSheet = true
-                        }
-                        UserDefaults.standard.set(launched + 1, forKey: "aurora.qqAnnouncement.launchCount")
-                    }
-                }
-            }
-            .sheet(isPresented: $showQQSheet) {
-                QQAnnouncementView()
-            }
     }
 }
 

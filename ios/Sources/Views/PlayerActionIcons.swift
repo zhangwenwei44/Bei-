@@ -41,7 +41,13 @@ struct PlayerActionIcon: View {
             case .quality:
                 WaveformGlyph().stroke(tint, style: stroke)
             case .lyric:
-                LyricGlyph().stroke(tint, style: stroke)
+                // 🔴 参考图 v2.5.41：六边形外框 + 中间「词」字
+                ZStack {
+                    HexagonGlyph().stroke(tint, style: stroke)
+                    Text("词")
+                        .font(.system(size: size * 0.42, weight: .semibold))
+                        .foregroundStyle(tint)
+                }
             case .translate:
                 TranslateGlyph().stroke(tint, style: stroke)
             case .comment:
@@ -82,16 +88,34 @@ private struct HeartGlyph: Shape {
     }
 }
 
-/// 下载：竖直箭杆 + V 形箭头 + 底部托盘横线
+/// 下载（参考图 v2.5.41）：圆角方框 + 从顶部穿入的向下箭头
+/// （框顶在箭头处留缺口，箭头落在框内）
 private struct DownloadGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         var p = Path()
-        p.move(to: b.p(12, 4.6));   p.addLine(to: b.p(12, 14.2))     // 箭杆
-        p.move(to: b.p(8.1, 10.6))                                    // 箭头左翼
-        p.addLine(to: b.p(12, 14.6))
-        p.addLine(to: b.p(15.9, 10.6))                                // 箭头右翼
-        p.move(to: b.p(5.4, 18.6)); p.addLine(to: b.p(18.6, 18.6))    // 托盘
+        // 框体：顶部中间留缺口（x 10.2 → 13.8 之间不画），四角圆角
+        let r: CGFloat = 2.6
+        // 左上角 → 缺口左沿
+        p.move(to: b.p(5.2 + r, 8.2))
+        p.addLine(to: b.p(10.2, 8.2))
+        // 缺口右沿 → 右上角
+        p.move(to: b.p(13.8, 8.2))
+        p.addLine(to: b.p(18.8 - r, 8.2))
+        p.addArc(tangent1End: b.p(18.8, 8.2), tangent2End: b.p(18.8, 8.2 + r), radius: r)
+        // 右边 → 右下角 → 底边 → 左下角 → 左边
+        p.addLine(to: b.p(18.8, 19.0 - r))
+        p.addArc(tangent1End: b.p(18.8, 19.0), tangent2End: b.p(18.8 - r, 19.0), radius: r)
+        p.addLine(to: b.p(5.2 + r, 19.0))
+        p.addArc(tangent1End: b.p(5.2, 19.0), tangent2End: b.p(5.2, 19.0 - r), radius: r)
+        p.addLine(to: b.p(5.2, 8.2 + r))
+        p.addArc(tangent1End: b.p(5.2, 8.2), tangent2End: b.p(5.2 + r, 8.2), radius: r)
+        // 箭杆（从缺口上方穿入）+ 箭头
+        p.move(to: b.p(12, 4.0))
+        p.addLine(to: b.p(12, 15.2))
+        p.move(to: b.p(9.0, 12.2))
+        p.addLine(to: b.p(12, 15.2))
+        p.addLine(to: b.p(15.0, 12.2))
         return p
     }
 }
@@ -107,6 +131,21 @@ private struct WaveformGlyph: Shape {
             p.move(to: b.p(bx, 12 - half))
             p.addLine(to: b.p(bx, 12 + half))
         }
+        return p
+    }
+}
+
+/// 歌词图标的外框：正六边形（平顶朝上，参考图同款）
+private struct HexagonGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        let b = GlyphBox(rect: rect)
+        var p = Path()
+        // 平顶六边形：六个顶点 (6,4)(18,4)(21.4,12)(18,20)(6,20)(2.6,12)
+        let pts: [(CGFloat, CGFloat)] = [(6.0, 4.2), (18.0, 4.2), (21.2, 12.0),
+                                         (18.0, 19.8), (6.0, 19.8), (2.8, 12.0)]
+        p.move(to: b.p(pts[0].0, pts[0].1))
+        for i in 1..<pts.count { p.addLine(to: b.p(pts[i].0, pts[i].1)) }
+        p.closeSubpath()
         return p
     }
 }
@@ -149,27 +188,33 @@ private struct MoreGlyph: Shape {
     }
 }
 
-/// 评论：圆角气泡 + 左下尾巴
+/// 评论（参考图 v2.5.41）：圆角方气泡 + 左下小尾巴 + 气泡内两行横线（上长下短）
 private struct CommentGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         var p = Path()
-        // 气泡主体（圆角矩形，手写以便与其它字形同样走 stroke）
-        let x0 = b.x(3.8), x1 = b.x(20.2), y0 = b.y(4.6), y1 = b.y(15.4)
-        let r = (x1 - x0) * 0.16
+        // 气泡主体：圆角矩形（4.4,4.6)→(19.6,16.2)，圆角 4
+        let x0 = b.x(4.4), x1 = b.x(19.6), y0 = b.y(4.6), y1 = b.y(16.2)
+        let r = (x1 - x0) * 0.22
         p.move(to: CGPoint(x: x0 + r, y: y0))
         p.addLine(to: CGPoint(x: x1 - r, y: y0))
         p.addArc(tangent1End: CGPoint(x: x1, y: y0), tangent2End: CGPoint(x: x1, y: y0 + r), radius: r)
         p.addLine(to: CGPoint(x: x1, y: y1 - r))
         p.addArc(tangent1End: CGPoint(x: x1, y: y1), tangent2End: CGPoint(x: x1 - r, y: y1), radius: r)
+        p.addLine(to: CGPoint(x: x0 + 6.4, y: y1))
+        // 左下尾巴：从底边靠左处折向左下角尖
+        p.addLine(to: CGPoint(x: x0 + 1.2, y: y1 + 3.4))
+        p.addLine(to: CGPoint(x: x0 + 1.2, y: y1 - 0.6))
+        // 回到气泡左边（尾巴上沿）→ 左边框 → 左上角
         p.addLine(to: CGPoint(x: x0 + r, y: y1))
         p.addArc(tangent1End: CGPoint(x: x0, y: y1), tangent2End: CGPoint(x: x0, y: y1 - r), radius: r)
         p.addLine(to: CGPoint(x: x0, y: y0 + r))
         p.addArc(tangent1End: CGPoint(x: x0, y: y0), tangent2End: CGPoint(x: x0 + r, y: y0), radius: r)
-        // 尾巴
-        p.move(to: b.p(8.6, 15.3))
-        p.addLine(to: b.p(8.6, 19.4))
-        p.addLine(to: b.p(13.2, 15.3))
+        // 气泡内两行横线：上长下短（左对齐）
+        p.move(to: b.p(8.2, 9.0))
+        p.addLine(to: b.p(15.8, 9.0))
+        p.move(to: b.p(8.2, 12.2))
+        p.addLine(to: b.p(12.2, 12.2))
         return p
     }
 }
