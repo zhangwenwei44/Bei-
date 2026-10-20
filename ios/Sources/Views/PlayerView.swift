@@ -24,6 +24,8 @@ struct PlayerView: View {
     /// 音质切换弹层
     /// 「更多」弹层：音质档位 / 完整歌词 / 歌词翻译
     @State private var showMoreMenu = false
+    /// 🔴 v2.5.44：横屏播放器内嵌的「播放队列」面板（不再单独弹一页 sheet）
+    @State private var showLandscapeQueue = false
     /// 分享弹层内容（nil = 不弹）
     @State private var shareItems: [Any]?
     @State private var dominantColor: Color = .white
@@ -253,7 +255,9 @@ struct PlayerView: View {
                 .truncationMode(.tail)
                 .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
 
-            // 歌手 + 徽标（参考图：VIP / 音效 / 高品 / 伴唱 一排小胶囊）
+            // 歌手 + 徽标
+            // 🔴 v2.5.44：用户要求 —— 移除黄色「极高音质」标签、移除「专辑」标签、加入「VIP」标签。
+            // 现在歌手名后面只保留两个：VIP（金色胶囊）+ 音质（白色半透明胶囊）。
             HStack(spacing: 6) {
                 Text(store.current?.artist ?? "未知歌手")
                     .font(.system(size: 14))
@@ -261,23 +265,14 @@ struct PlayerView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
-                qualityPill
-                Text(SourceStore.shared.quality.title)
+                vipPill
+                Text(qualityText)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(.white.opacity(0.16), in: Capsule())
-                if let album = store.current?.album, !album.isEmpty {
-                    Text(album)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.7))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.white.opacity(0.12), in: Capsule())
-                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -703,6 +698,8 @@ struct PlayerView: View {
         if OrientationLock.shared.isLandscapePlayer {
             OrientationLock.shared.exitLandscape()
             isLandscape = false
+            // 🔴 v2.5.44：进出横屏都收起内嵌队列面板
+            showLandscapeQueue = false
             UIApplication.shared.isIdleTimerDisabled = false
         } else {
             OrientationLock.shared.enterLandscape()
@@ -757,7 +754,12 @@ struct PlayerView: View {
             // 显示异常/对比度糊掉。
             plainGradientBackground
             .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.2)) { landscapeChromeVisible.toggle() }
+                // 🔴 v2.5.44：队列面板开着时，点空白先关面板（再点才切浮层）
+                if showLandscapeQueue {
+                    withAnimation(.easeOut(duration: 0.22)) { showLandscapeQueue = false }
+                } else {
+                    withAnimation(.easeInOut(duration: 0.2)) { landscapeChromeVisible.toggle() }
+                }
             }
 
             HStack(spacing: 0) {
@@ -792,6 +794,13 @@ struct PlayerView: View {
             }
             .padding(.leading, insets.left)              // 真实左安全区：避开刘海（XS 不再遮唱片）
         }
+        // 🔴 v2.5.44：队列面板内嵌在右侧（不再是单独的 sheet 页）
+        .overlay(alignment: .trailing) {
+            if showLandscapeQueue {
+                landscapeQueuePanel(size: size, insets: insets)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            }
+        }
         // 🔴 顶栏浮层用 overlay(alignment:.top) 钉在顶部：
         // - 放 ZStack 里不带 alignment 会被居中（实测关闭按钮浮在唱片中间）；
         // - 带全屏 frame 又可能吞下方触摸；
@@ -815,6 +824,8 @@ struct PlayerView: View {
                 isLandscape = false
                 // 离开横屏取消屏幕常亮
                 UIApplication.shared.isIdleTimerDisabled = false
+                // 🔴 v2.5.44：退出横屏时收起内嵌队列面板
+                showLandscapeQueue = false
                 Haptics.light()
             } label: {
                 Image(systemName: "chevron.left")
@@ -830,7 +841,9 @@ struct PlayerView: View {
         .buttonStyle(.plain)
         .frame(height: 44)
         .padding(.top, max(insets.top, 10) + 14)
-        .padding(.leading, insets.left + 14)
+        // 🔴 v2.5.44：返回按钮整体再往左移（原来 +14 太靠中间）：
+        // 按钮 44 宽、图标居中 → 用 -10 的偏移把图标推到更靠屏幕左边缘的位置。
+        .padding(.leading, max(insets.left - 10, 0))
         .padding(.trailing, insets.right + 8)
     }
 
@@ -855,82 +868,99 @@ struct PlayerView: View {
         LandscapeLyricsBlock()
     }
 
-    /// 横屏控制键单排（酷狗式）：收藏 / 上一首 / 播放 / 下一首 / 列表
-    /// （退出只保留左上角一处 —— 用户要求移除收藏旁的关闭按钮）
+    /// 横屏控制键单排（v2.5.44 改版）：
+    /// 播放模式（顺序/单曲/随机） / 上一首 / 播放 / 下一首 / 列表
+    /// - 🔴 收藏按钮改播放模式：用户要求「收藏按钮改顺序播放随机播放」；
+    /// - 🔴 上一首 / 播放 / 下一首 全部去掉圆圈底，只留裸图标（用户要求"不要圆圈"）；
+    /// - 🔴 列表改成横屏内直接展开队列面板，不再 .sheet 弹一页（用户要求 + 解决"按不到"）。
     private func landscapeControls() -> some View {
         HStack(spacing: 0) {
-            Button {
-                store.toggleFavorite()
-                Haptics.light()
-            } label: {
-                Image(systemName: store.isLiked ? "heart.fill" : "heart")
-                    .font(.system(size: 22))
-                    .foregroundStyle(store.isLiked ? AppStyle.like : .white)
-                    .frame(width: 44, height: 48)
+            // ① 播放模式（顺序播放 / 单曲循环 / 随机播放）
+            Button { store.cycleMode(); Haptics.light() } label: {
+                Image(systemName: store.mode.icon)
+                    .font(.system(size: 21, weight: .medium))
+                    .foregroundStyle(store.mode == .order ? .white : dominantColor)
+                    .frame(width: 52, height: 56)
+                    .contentShape(Rectangle())
+                    .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
             }
 
             Spacer(minLength: 0)
 
-            Button { store.step(-1) } label: {
+            // ② 上一首（裸图标，无圆底）
+            Button { store.step(-1); Haptics.light() } label: {
                 Image(systemName: "backward.end.fill")
-                    .font(.system(size: 24))
+                    .font(.system(size: 27, weight: .medium))
                     .foregroundStyle(.white)
-                    .frame(width: 48, height: 52)
+                    .frame(width: 56, height: 56)
                     .contentShape(Rectangle())
-                    .background(Circle().fill(.white.opacity(0.16)))
+                    .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
             }
 
             Spacer(minLength: 0)
 
-            PlayButton()
+            // ③ 播放/暂停（裸图标，无圆底 —— 与竖屏同一套）
+            classicPlayPauseButton
 
             Spacer(minLength: 0)
 
-            Button { store.step(1) } label: {
+            // ④ 下一首（裸图标，无圆底）
+            Button { store.step(1); Haptics.light() } label: {
                 Image(systemName: "forward.end.fill")
-                    .font(.system(size: 24))
+                    .font(.system(size: 27, weight: .medium))
                     .foregroundStyle(.white)
-                    .frame(width: 48, height: 52)
+                    .frame(width: 56, height: 56)
                     .contentShape(Rectangle())
-                    .background(Circle().fill(.white.opacity(0.16)))
+                    .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
             }
 
             Spacer(minLength: 0)
 
+            // ⑤ 列表：在横屏播放器内直接展开队列面板（不再弹 sheet）
             Button {
-                // 「词」改「列表」：点击弹出播放列表（酷狗横屏同款）
-                store.isQueuePresented = true
+                withAnimation(.easeOut(duration: 0.22)) { showLandscapeQueue.toggle() }
                 Haptics.light()
             } label: {
                 Image(systemName: "list.bullet")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 48)
+                    .font(.system(size: 21, weight: .medium))
+                    .foregroundStyle(showLandscapeQueue ? dominantColor : .white)
+                    .frame(width: 52, height: 56)
+                    .contentShape(Rectangle())
+                    .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
             }
         }
         .buttonStyle(.plain)
     }
 
-    /// 音质徽标：紧跟在歌手后面
-    private var qualityPill: some View {
-        HStack(spacing: 3) {
-            if store.isLoading {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 8, weight: .bold))
-            } else {
-                Image(systemName: "waveform")
-                    .font(.system(size: 8, weight: .bold))
-            }
-            Text(qualityText)
-                .font(.system(size: 10, weight: .medium))
-                .lineLimit(1)
+    /// 横屏内嵌播放队列面板（v2.5.44）：
+    /// 🔴 用户要求「列表改成直接在横屏播放器显示，不要单独一个页显示」——
+    /// 旧实现是 .sheet(isPresented:)，在横屏里 sheet 的点击区域会受 presentation detent /
+    /// 手势区影响，实测"有时按不到"；改成右侧内嵌面板，按钮全部是普通 Button，
+    /// 命中区 52×56 并显式 contentShape，稳定可点。
+    private func landscapeQueuePanel(size: CGSize, insets: UIEdgeInsets) -> some View {
+        LandscapeQueuePanel(width: min(size.width * 0.40, 380),
+                            topInset: insets.top,
+                            rightInset: insets.right,
+                            accent: dominantColor) {
+            withAnimation(.easeOut(duration: 0.22)) { showLandscapeQueue = false }
         }
-        .foregroundStyle(.white.opacity(0.9))
+    }
+
+    /// 🔴 v2.5.44：VIP 徽标（紧跟歌手后面）。
+    /// 顶掉原来的黄色「极高音质」音质徽标（qualityPill 已删除）：
+    /// 用户要求「移除黄色极高音质标签、移除专辑标签、加入 VIP 标签」。
+    private var vipPill: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "crown.fill")
+                .font(.system(size: 8, weight: .bold))
+            Text("VIP")
+                .font(.system(size: 10, weight: .bold))
+        }
+        .foregroundStyle(AppStyle.gold)
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
-        .background(AppStyle.gold.opacity(0.22), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
-            .stroke(AppStyle.gold.opacity(0.45), lineWidth: 0.5))
+        .background(AppStyle.gold.opacity(0.18), in: Capsule())
+        .overlay(Capsule().stroke(AppStyle.gold.opacity(0.55), lineWidth: 0.6))
     }
 
     private var qualityText: String {
@@ -1168,6 +1198,116 @@ private struct PlayButton: View {
         .buttonStyle(.plain)
         .foregroundStyle(.white)
         .onChange(of: store.isPlaying) { playing in pulse = playing }
+    }
+}
+
+/// 横屏内嵌播放队列面板（v2.5.44）。
+/// 🔴 抽成独立子视图：面板内有 20+ 行的列表，若整块塞进 PlayerView 的函数里，
+/// 类型检查开销大（本项目踩过 "unable to type-check" 的坑）；独立出去也让
+/// 面板自身的刷新与播放页主体解耦。
+private struct LandscapeQueuePanel: View {
+    @EnvironmentObject private var store: PlayerStore
+    var width: CGFloat
+    var topInset: CGFloat
+    var rightInset: CGFloat
+    var accent: Color
+    /// 关闭面板（由父视图把 showLandscapeQueue 置 false 并带动画）
+    var dismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            ScrollView {
+                LazyVStack(spacing: 2) { rows }
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 24)
+            }
+            .frame(maxHeight: .infinity)
+        }
+        .frame(width: width)
+        .frame(maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.black.opacity(0.42))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.white.opacity(0.14), lineWidth: 0.6))
+        )
+        .padding(.trailing, rightInset + 12)
+        .padding(.vertical, 10)
+    }
+
+    /// 头部：标题 + 曲目数 + 播放模式 + 关闭
+    private var header: some View {
+        HStack(spacing: 10) {
+            Text("播放队列")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(.white)
+            Text("\(store.queue.count) 首")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.6))
+            Button { store.cycleMode(); Haptics.light() } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: store.mode.icon)
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(store.mode.title)
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundStyle(store.mode == .order ? .white.opacity(0.85) : accent)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(.white.opacity(0.14), in: Capsule())
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Spacer(minLength: 0)
+            Button { Haptics.light(); dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .frame(width: 38, height: 38)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, topInset + 56)
+        .padding(.bottom, 10)
+    }
+
+    /// 曲目行（点击切歌并自动收起面板）
+    private var rows: some View {
+        ForEach(Array(store.queue.enumerated()), id: \.element.id) { idx, song in
+            Button {
+                store.jump(to: idx)
+                Haptics.light()
+                dismiss()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: idx == store.currentIndex ? "waveform" : "music.note")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(idx == store.currentIndex ? accent : .white.opacity(0.45))
+                        .frame(width: 18)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(song.title)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(idx == store.currentIndex ? accent : .white)
+                            .lineLimit(1)
+                        Text(song.artist)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(idx == store.currentIndex
+                            ? Color.white.opacity(0.14) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
     }
 }
 

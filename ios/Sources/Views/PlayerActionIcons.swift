@@ -7,11 +7,13 @@ import SwiftUI
 /// 四个符号的线宽、留白、重心各不相同，凑在一行里显得杂乱。
 /// 这里全部自绘：同一 24×24 画布、同一线宽、同一圆头圆角 —— 视觉重量一致。
 ///
-/// 🔴 v2.5.42 全套重新设计：线宽 1.7 → 2.0，形状改成最通用、辨识度最高的版本
-/// （心形 / 下载托盘箭头 / 气泡评论 / 六边形「词」）。
+/// 🔴 v2.5.44 重新设计「收藏 / 下载 / 评论」三个：
+/// - 收藏：更饱满对称的心形，双瓣加宽、底部收尖；
+/// - 下载：向下箭头（粗杆 + 大箭头）落进 U 形托盘，重心更稳；
+/// - 评论：圆角矩形气泡 + 左下三角尾 + 气泡内两行横线（上长下短）。
 enum PlayerActionGlyph {
     case favorite   // 喜欢（心形；激活时填充红）
-    case download   // 下载（向下箭头 + 底部托盘横线）
+    case download   // 下载（向下箭头 + 底部 U 形托盘）
     case quality    // 音质（波形竖条）
     case lyric      // 歌词（六边形 + 「词」）
     case translate  // 翻译（「文」字骨架）
@@ -27,7 +29,7 @@ struct PlayerActionIcon: View {
     var tint: Color = .white
     var size: CGFloat = 22
 
-    /// 🔴 v2.5.42：线宽 2.0/24 —— 小尺寸下更清晰，视觉重量接近系统图标
+    /// 线宽 2.0/24 —— 小尺寸下更清晰，视觉重量接近系统图标
     private var lineWidth: CGFloat { size / 24 * 2.0 }
 
     private var stroke: StrokeStyle {
@@ -45,7 +47,7 @@ struct PlayerActionIcon: View {
             case .quality:
                 WaveformGlyph().stroke(tint, style: stroke)
             case .lyric:
-                // 六边形外框 + 中间「词」字（v2.5.41 参考图 / v2.5.42 重绘）
+                // 六边形外框 + 中间「词」字
                 ZStack {
                     HexagonGlyph().stroke(tint, style: stroke)
                     Text("词")
@@ -73,37 +75,42 @@ private struct GlyphBox {
     func p(_ vx: CGFloat, _ vy: CGFloat) -> CGPoint { CGPoint(x: x(vx), y: y(vy)) }
 }
 
-/// 心形（v2.5.42 重新设计：饱满对称的标准心形）
+/// 心形（v2.5.44 重新设计：双瓣更宽更圆、底部收尖，饱满对称的标准心形）
 private struct HeartGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         var p = Path()
         // 底尖 → 左腰 → 左瓣顶 → 顶凹
-        p.move(to: b.p(12, 20.4))
-        p.addCurve(to: b.p(3.4, 12.6), control1: b.p(8.0, 17.7), control2: b.p(4.2, 15.2))
-        p.addCurve(to: b.p(7.6, 5.4),  control1: b.p(3.4, 10.4), control2: b.p(4.8, 7.2))
-        p.addCurve(to: b.p(12, 9.2),   control1: b.p(9.2, 5.4),  control2: b.p(12, 6.6))
+        p.move(to: b.p(12, 20.6))
+        p.addCurve(to: b.p(2.8, 12.4), control1: b.p(7.9, 17.8), control2: b.p(3.6, 15.3))
+        p.addCurve(to: b.p(7.2, 5.0),  control1: b.p(2.8, 10.2), control2: b.p(4.5, 6.8))
+        p.addCurve(to: b.p(12, 9.4),   control1: b.p(8.9, 5.0),  control2: b.p(12, 6.6))
         // 顶凹 → 右瓣顶 → 右腰 → 底尖
-        p.addCurve(to: b.p(16.4, 5.4), control1: b.p(12, 6.6),   control2: b.p(14.8, 5.4))
-        p.addCurve(to: b.p(20.6, 12.6),control1: b.p(19.2, 7.2), control2: b.p(20.6, 10.4))
-        p.addCurve(to: b.p(12, 20.4),  control1: b.p(20.2, 15.2),control2: b.p(16.0, 17.7))
+        p.addCurve(to: b.p(16.8, 5.0), control1: b.p(12, 6.6),   control2: b.p(15.1, 5.0))
+        p.addCurve(to: b.p(21.2, 12.4),control1: b.p(19.5, 6.8), control2: b.p(21.2, 10.2))
+        p.addCurve(to: b.p(12, 20.6),  control1: b.p(20.4, 15.3),control2: b.p(16.1, 17.8))
         p.closeSubpath()
         return p
     }
 }
 
-/// 下载（v2.5.42 重新设计：下箭头 + 底部托盘横线，最通用的下载语义）
+/// 下载（v2.5.44 重新设计：向下箭头（粗杆 + 大箭头）落进 U 形托盘）
 private struct DownloadGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         var p = Path()
-        p.move(to: b.p(12, 4.4))
-        p.addLine(to: b.p(12, 15.0))            // 箭杆
-        p.move(to: b.p(7.8, 11.0))              // 箭头左翼
-        p.addLine(to: b.p(12, 15.2))
-        p.addLine(to: b.p(16.2, 11.0))          // 箭头右翼
-        p.move(to: b.p(5.0, 19.0))              // 托盘
-        p.addLine(to: b.p(19.0, 19.0))
+        // 箭杆（顶部到箭头顶点）
+        p.move(to: b.p(12, 3.6))
+        p.addLine(to: b.p(12, 13.2))
+        // 箭头左翼 → 顶点 → 右翼
+        p.move(to: b.p(7.4, 9.2))
+        p.addLine(to: b.p(12, 13.6))
+        p.addLine(to: b.p(16.6, 9.2))
+        // U 形托盘：左上 → 底 → 右上
+        p.move(to: b.p(4.8, 16.2))
+        p.addLine(to: b.p(4.8, 19.4))
+        p.addLine(to: b.p(19.2, 19.4))
+        p.addLine(to: b.p(19.2, 16.2))
         return p
     }
 }
@@ -163,34 +170,34 @@ private struct MoreGlyph: Shape {
     }
 }
 
-/// 评论（v2.5.42 重新设计：圆角气泡 + 左下尾巴 + 气泡内两行横线，上长下短）
+/// 评论（v2.5.44 重新设计：圆角矩形气泡 + 左下三角尾 + 气泡内两行横线，上长下短）
 private struct CommentGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         var p = Path()
-        // 气泡主体：(4.6, 4.8) → (19.4, 16.0)，圆角约 4.2
-        let x0 = b.x(4.6), x1 = b.x(19.4), y0 = b.y(4.8), y1 = b.y(16.0)
-        let r = (x1 - x0) * 0.22
+        // 气泡主体：(4.4, 4.6) → (19.6, 15.4)，圆角约 3.6
+        let x0 = b.x(4.4), x1 = b.x(19.6), y0 = b.y(4.6), y1 = b.y(15.4)
+        let r = (x1 - x0) * 0.20
         p.move(to: CGPoint(x: x0 + r, y: y0))
         p.addLine(to: CGPoint(x: x1 - r, y: y0))
         p.addArc(tangent1End: CGPoint(x: x1, y: y0), tangent2End: CGPoint(x: x1, y: y0 + r), radius: r)
         p.addLine(to: CGPoint(x: x1, y: y1 - r))
         p.addArc(tangent1End: CGPoint(x: x1, y: y1), tangent2End: CGPoint(x: x1 - r, y: y1), radius: r)
-        // 底边走到尾巴起点
-        p.addLine(to: CGPoint(x: x0 + 6.6, y: y1))
-        // 左下尾巴（尖朝左下）
-        p.addLine(to: CGPoint(x: x0 + 0.8, y: y1 + 3.6))
-        p.addLine(to: CGPoint(x: x0 + 0.8, y: y1 - 0.2))
+        // 底边走到尾巴起点（左下）
+        p.addLine(to: CGPoint(x: x0 + 6.4, y: y1))
+        // 左下三角尾巴（尖朝左下）
+        p.addLine(to: CGPoint(x: x0 + 0.6, y: y1 + 4.0))
+        p.addLine(to: CGPoint(x: x0 + 0.6, y: y1 - 0.4))
         // 回到气泡左边 → 左上角闭合
         p.addLine(to: CGPoint(x: x0 + r, y: y1))
         p.addArc(tangent1End: CGPoint(x: x0, y: y1), tangent2End: CGPoint(x: x0, y: y1 - r), radius: r)
         p.addLine(to: CGPoint(x: x0, y: y0 + r))
         p.addArc(tangent1End: CGPoint(x: x0, y: y0), tangent2End: CGPoint(x: x0 + r, y: y0), radius: r)
         // 气泡内两行横线
-        p.move(to: b.p(8.4, 9.2))
-        p.addLine(to: b.p(15.6, 9.2))
-        p.move(to: b.p(8.4, 12.4))
-        p.addLine(to: b.p(12.4, 12.4))
+        p.move(to: b.p(8.2, 8.9))
+        p.addLine(to: b.p(15.6, 8.9))
+        p.move(to: b.p(8.2, 11.9))
+        p.addLine(to: b.p(12.4, 11.9))
         return p
     }
 }
