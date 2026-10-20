@@ -199,9 +199,10 @@ struct PlayerView: View {
     /// 中间不再堆歌名（歌名已挪到封面下方的大标题区）；横屏入口改到「更多」弹层里。
     private var classicHeaderBar: some View {
         HStack(alignment: .center, spacing: 8) {
+            // 🔴 v2.5.42：用户要求「向下箭头」改「向左箭头」（返回语义）
             Button { animateOut() } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 20, weight: .semibold))
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 21, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
                     .contentShape(Rectangle())
@@ -211,10 +212,9 @@ struct PlayerView: View {
 
             Spacer(minLength: 0)
 
-            Button { shareCurrentSong() } label: {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.white)
+            // 🔴 v2.5.42：右上角从「分享」改回「横屏」按钮（分享挪进「更多」菜单）
+            Button { toggleLandscape() } label: {
+                LandscapeToggleIcon()
                     .frame(width: 40, height: 40)
                     .contentShape(Rectangle())
                     .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
@@ -388,8 +388,8 @@ struct PlayerView: View {
                     }
                 }
             }
-            Button("横屏播放") { toggleLandscape() }
             Button("完整歌词") { openLyricsPage() }
+            Button("分享歌曲") { shareCurrentSong() }
             Button(store.showTranslation ? "关闭歌词翻译" : "开启歌词翻译") {
                 store.showTranslation.toggle()
                 Haptics.light()
@@ -875,7 +875,8 @@ struct PlayerView: View {
                 Image(systemName: "backward.end.fill")
                     .font(.system(size: 24))
                     .foregroundStyle(.white)
-                    .frame(width: 44, height: 48)
+                    .frame(width: 48, height: 52)
+                    .contentShape(Rectangle())
                     .background(Circle().fill(.white.opacity(0.16)))
             }
 
@@ -889,7 +890,8 @@ struct PlayerView: View {
                 Image(systemName: "forward.end.fill")
                     .font(.system(size: 24))
                     .foregroundStyle(.white)
-                    .frame(width: 44, height: 48)
+                    .frame(width: 48, height: 52)
+                    .contentShape(Rectangle())
                     .background(Circle().fill(.white.opacity(0.16)))
             }
 
@@ -1002,6 +1004,11 @@ struct PlayerView: View {
                 .background(.ultraThinMaterial, in: Capsule())
                 .padding(.bottom, 40)
                 .transition(.opacity)
+                // 🔴 v2.5.42 关键修复（横屏播放键「点了没反应」的真凶之一）：
+                // playbackError 一旦被置位就会一直显示这条胶囊提示（.bottom + 40pt），
+                // 它默认是可命中测试的 —— 常驻时正好压在横屏底部控件行上，把
+                // 播放/暂停的点击全吃掉。提示条纯展示，必须 allowsHitTesting(false)。
+                .allowsHitTesting(false)
         }
     }
 
@@ -1153,7 +1160,10 @@ private struct PlayButton: View {
                         .offset(x: store.isPlaying ? 0 : 2)
                 }
             }
-            .frame(width: 72, height: 72)
+            .frame(width: 80, height: 76)
+            // 🔴 命中区显式声明：ZStack 里只有 52pt 的圆和图标是实心的，
+            // 四周透明区域默认不吃点击 → 加大底框 + contentShape 让整块可点。
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(.white)
