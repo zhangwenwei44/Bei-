@@ -246,7 +246,7 @@ final class PlayerStore: ObservableObject {
                 // 跳过初始化时的第一次（和当前值相同）
                 // prepare() 里已经读了最新 quality，所以每次 prepare 都会用新音质
                 // 这里只需要处理 mid-playback 切换 —— 重新解析 URL 并保留 seek 位置
-                if let current, self.player.currentItem != nil, !self.isLoading {
+                if self.current != nil, self.player.currentItem != nil, !self.isLoading {
                     Log.info("播放", "音质切换，重新解析当前歌曲 URL")
                     self.pendingQualitySwitchSeek = self.currentTime
                     self.prepare(autoplay: self.isPlaying)

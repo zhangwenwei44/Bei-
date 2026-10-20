@@ -1645,6 +1645,11 @@ private struct KaraokeLine: View {
     let start: Double
     let end: Double
     let isPlaying: Bool
+    /// 🔴 playback 必须声明在默认参数之前（第 5 位）：Swift 的合成成员初始化器会把
+    /// "无默认值的参数"排在"有默认值的参数"前面，若 playback 落在 font/lineLimit/align/
+    /// liveTime 这些默认值之后，调用时就会报 "argument 'font' must precede argument
+    /// 'liveTime'"。这里把它放到 isPlaying 之后、所有默认值之前，调用顺序就对了。
+    @ObservedObject var playback: PlaybackProgress
     /// 字号/字重（播放页迷你条 16pt；歌词页当前句 26pt bold）。
     var font: Font = .system(size: 16, weight: .medium, design: .rounded)
     /// 行数限制：播放页迷你条 1 行；歌词页当前句允许换行传 nil。
@@ -1654,7 +1659,6 @@ private struct KaraokeLine: View {
     /// 🔴 精确播放头（AVPlayer 实时值）：注入后逐帧直读，填充与演唱严格同步，
     /// 根治「逐字跟不上」。未注入时退回 墙钟插值 兜底。
     var liveTime: (() -> Double)? = nil
-    @ObservedObject var playback: PlaybackProgress
 
     @State private var baseTime: Double = 0
     @State private var baseStamp: Date = Date()
@@ -1976,10 +1980,10 @@ private struct BigLyricsView: View {
                                                 start: line.time,
                                                 end: end,
                                                 isPlaying: isPlaying,
+                                                playback: playback,
                                                 liveTime: liveTime,
                                                 font: .system(size: 26, weight: .bold),
-                                                lineLimit: nil,
-                                                playback: playback)
+                                                lineLimit: nil)
                                 } else {
                                     Text(line.text)
                                         .font(.system(size: 17, weight: .medium))
@@ -2292,8 +2296,8 @@ private struct LyricPill: View {
                                 start: span.start,
                                 end: span.end,
                                 isPlaying: store.isPlaying,
-                                liveTime: { store.preciseTime },
-                                playback: playback)
+                                playback: playback,
+                                liveTime: { store.preciseTime })
                 } else {
                     // 纯音乐 / 解析中 / 无当前行：静态半透白
                     Text(currentLyricText)
@@ -2371,11 +2375,11 @@ private struct LandscapeLyricsBlock: View {
                             start: span.start,
                             end: span.end,
                             isPlaying: store.isPlaying,
+                            playback: playback,
                             liveTime: { store.preciseTime },
                             font: .system(size: 23, weight: .bold),
                             lineLimit: 2,
-                            align: .leading,
-                            playback: playback)
+                            align: .leading)
             } else {
                 Text(currentLyricText)
                     .font(.system(size: 23, weight: .bold))
