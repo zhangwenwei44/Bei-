@@ -135,14 +135,14 @@ private struct TranslateGlyph: Shape {
     }
 }
 
-/// 更多：三个实心圆点（横排，酷狗同款「…」）
+/// 更多：三个实心圆点（**竖排**，参考图最右侧「⋮」酷狗同款）
 private struct MoreGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         let r = 1.7 * rect.width / 24           // 半径取与线宽同量级，视觉重量一致
         var p = Path()
-        for vx in [5.4, 12.0, 18.6] {
-            p.addEllipse(in: CGRect(x: b.x(vx) - r, y: b.y(12) - r,
+        for vy in [5.4, 12.0, 18.6] {
+            p.addEllipse(in: CGRect(x: b.x(12) - r, y: b.y(vy) - r,
                                     width: r * 2, height: r * 2))
         }
         return p

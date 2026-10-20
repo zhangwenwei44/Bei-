@@ -243,37 +243,44 @@ struct PlayerView: View {
         Haptics.light()
     }
 
-    /// 封面下方的信息区（对齐参考图）：大标题 → 歌手 · 专辑 + 音质徽标。
+    /// 封面下方的信息区（对齐参考图）：大标题 → 歌手 + 音质/伴唱等徽标，全部左对齐。
     private var classicTitleBlock: some View {
-        VStack(spacing: 7) {
+        VStack(alignment: .leading, spacing: 7) {
             Text(store.current?.title ?? "未在播放")
-                .font(.system(size: 21, weight: .bold))
+                .font(.system(size: 24, weight: .bold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .multilineTextAlignment(.center)
                 .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
 
+            // 歌手 + 徽标（参考图：VIP / 音效 / 高品 / 伴唱 一排小胶囊）
             HStack(spacing: 6) {
-                Text(classicSubtitleText)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.72))
+                Text(store.current?.artist ?? "未知歌手")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white.opacity(0.78))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
                 qualityPill
+                Text(SourceStore.shared.quality.title)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.white.opacity(0.16), in: Capsule())
+                if let album = store.current?.album, !album.isEmpty {
+                    Text(album)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.white.opacity(0.12), in: Capsule())
+                }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .center)
-    }
-
-    /// 「歌手 · 专辑」副标题
-    private var classicSubtitleText: String {
-        let artist = store.current?.artist ?? ""
-        let album = store.current?.album ?? ""
-        if artist.isEmpty { return album.isEmpty ? "未知歌手" : album }
-        if album.isEmpty { return artist }
-        return "\(artist) · \(album)"
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: 封面区：专辑封面方图（弹性填充，歌词已移到底部 deck）
@@ -351,22 +358,27 @@ struct PlayerView: View {
         .buttonStyle(.plain)
     }
 
-    /// 动作行（参考图同款四项）：喜欢 / 下载 / 评论 / 更多
+    /// 动作行（参考图同款）：纯图标、无文字、整行均分 —— 喜欢 / 下载 / 评论 / 歌词 / ⋯
     private var classicActionRow: some View {
-        HStack(spacing: 30) {
+        HStack(spacing: 0) {
             // ① 喜欢（激活时实心红心）
             classicActionButton(glyph: .favorite,
-                                label: "喜欢",
                                 active: store.isLiked,
                                 tint: store.isLiked ? AppStyle.like : .white) {
                 store.toggleFavorite()
             }
-            // ② 下载（标签随下载状态变化：下载 / 35% / 已下）
-            classicActionButton(glyph: .download, label: downloadLabel) { download() }
+            Spacer(minLength: 0)
+            // ② 下载
+            classicActionButton(glyph: .download) { download() }
+            Spacer(minLength: 0)
             // ③ 评论
-            classicActionButton(glyph: .comment, label: "评论") { openComments() }
-            // ④ 更多（音质 / 横屏 / 完整歌词 / 歌词翻译 / 歌词微调）
-            classicActionButton(glyph: .more, label: "更多") { showMoreMenu = true }
+            classicActionButton(glyph: .comment) { openComments() }
+            Spacer(minLength: 0)
+            // ④ 歌词页
+            classicActionButton(glyph: .lyric) { openLyricsPage() }
+            Spacer(minLength: 0)
+            // ⑤ 更多（音质 / 横屏 / 歌词翻译 / 歌词微调）
+            classicActionButton(glyph: .more) { showMoreMenu = true }
         }
         .frame(maxWidth: .infinity)
         .confirmationDialog("更多", isPresented: $showMoreMenu, titleVisibility: .visible) {
@@ -401,21 +413,15 @@ struct PlayerView: View {
         }
     }
 
-    /// 经典主题动作按钮：同样走自绘图标集，与炫胶/黑胶动作行风格一致
+    /// 动作按钮（参考图：只有图标没有文字，44×44 命中区）
     private func classicActionButton(glyph: PlayerActionGlyph,
-                                     label: String,
                                      active: Bool = false,
                                      tint: Color = .white,
                                      action: @escaping () -> Void) -> some View {
         Button { action(); Haptics.light() } label: {
-            VStack(spacing: 4) {
-                PlayerActionIcon(glyph: glyph, active: active, tint: tint, size: 22)
-                    .frame(width: 44, height: 44)
-                Text(label)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.55))
-            }
-            .contentShape(Rectangle())
+            PlayerActionIcon(glyph: glyph, active: active, tint: tint, size: 24)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -436,25 +442,25 @@ struct PlayerView: View {
     // MARK: 播放控件（Beans 直接搬：accent=dominantColor 渐变 + 发光 + 玻璃描边）
 
     private var classicDeck: some View {
-        VStack(spacing: 4) {
-            // 🔴 参考图版式：封面下方先放「大标题 + 歌手·专辑 + 音质徽标」
+        VStack(spacing: 6) {
+            // 🔴 参考图版式：封面下方先放「大标题 + 歌手 + 徽标」（左对齐）
             classicTitleBlock
-                .padding(.bottom, 8)
+                .padding(.bottom, 10)
 
             // 歌词两行：当前句（卡拉OK逐字）+ 下一句（暗）
             lyricPill()
-                .padding(.bottom, 4)
+                .padding(.bottom, 8)
 
-            // 动作行：喜欢 / 下载 / 评论 / 更多
+            // 动作行：喜欢 / 下载 / 评论 / 歌词 / ⋯（纯图标均分）
             classicActionRow
-                .padding(.top, 2)
-                .padding(.bottom, 2)
+                .padding(.bottom, 10)
 
+            // 进度行：已播时间 —— 细白进度条 —— 总时长
             classicProgressBlock
-                .frame(height: 50)
+                .frame(height: 34)
 
             classicDeckControls
-                .frame(height: 56)
+                .frame(height: 62)
         }
         .padding(.horizontal, 15)
         .padding(.top, 2)
@@ -503,7 +509,7 @@ struct PlayerView: View {
         }
         return Button { store.cycleMode(); Haptics.light() } label: {
             Image(systemName: icon)
-                .font(.system(size: 20, weight: .medium))
+                .font(.system(size: 22, weight: .medium))
                 .foregroundStyle(active ? dominantColor : .white.opacity(0.85))
                 .frame(width: 44, height: 48)
                 .contentShape(Rectangle())
@@ -516,7 +522,7 @@ struct PlayerView: View {
     private var classicQueueButton: some View {
         Button { store.isQueuePresented.toggle(); Haptics.light() } label: {
             Image(systemName: "list.bullet")
-                .font(.system(size: 20, weight: .medium))
+                .font(.system(size: 22, weight: .medium))
                 .foregroundStyle(store.isQueuePresented ? dominantColor : .white.opacity(0.85))
                 .frame(width: 44, height: 48)
                 .contentShape(Rectangle())
@@ -529,7 +535,7 @@ struct PlayerView: View {
     private func classicPrevNextButton(icon: String, action: @escaping () -> Void) -> some View {
         Button { action(); Haptics.light() } label: {
             Image(systemName: icon)
-                .font(.system(size: 27, weight: .medium))
+                .font(.system(size: 32, weight: .medium))
                 .foregroundStyle(.white)
                 .frame(width: 52, height: 52)
                 .contentShape(Rectangle())
@@ -546,7 +552,7 @@ struct PlayerView: View {
                     ProgressView().tint(.white)
                 } else {
                     Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 42, weight: .medium))
+                        .font(.system(size: 48, weight: .medium))
                         .foregroundStyle(.white)
                         .offset(x: store.isPlaying ? 0 : 2)
                 }
@@ -949,14 +955,6 @@ struct PlayerView: View {
         } else if !hash.isEmpty {
             if let url = URL(string: "https://www.kugou.com/song/#\(hash)") { UIApplication.shared.open(url) }
         }
-    }
-
-    private var downloadLabel: String {
-        guard let song = store.current else { return "下载" }
-        if let item = DownloadManager.shared.item(for: song), item.state.isActive {
-            return "\(Int(item.progress * 100))%"
-        }
-        return DownloadManager.shared.isDownloaded(song) ? "已下" : "下载"
     }
 
     /// 动作行按钮：图标统一走自绘图标集 PlayerActionIcon（线宽/画布/圆角一致）
@@ -1607,136 +1605,79 @@ private struct ClassicProgressBlock: View {
     let dominantColor: Color
     @State private var isScrubbing = false
     @State private var scrubValue: Double = 0
-    /// 游动光点相位（0→1 往返，仅播放时动画）
-    @State private var classicFlowPhase: CGFloat = 0
 
     private var displayTime: Double { isScrubbing ? scrubValue : playback.currentTime }
 
     var body: some View {
-        let progressFrac = max(0, min(1, playback.progress))
+        // 🔴 v2.5.40 参考图版式：「已播时间 —— 细白进度条 —— 总时长」同一行，
+        // 时间贴两侧（不再叠在下方 / 不放 ±15s 按钮）；细白条 + 白色圆滑标，拖动可 seek。
+        HStack(spacing: 12) {
+            Text(displayTime.clockString)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.78))
+                .frame(minWidth: 38, alignment: .leading)
 
-        return GeometryReader { geo in
-            let gWidth = geo.size.width
-            let thumbX = min(max(progressFrac * gWidth, 10), max(gWidth - 10, 10))
-            let trackH: CGFloat = 5
+            GeometryReader { geo in
+                let gWidth = geo.size.width
+                let thumbX = min(max(playback.progress * gWidth, 5), max(gWidth - 5, 5))
+                let trackH: CGFloat = 4
 
-            ZStack(alignment: .leading) {
-                // 清透轨道 + 玻璃材质覆盖 + 细边描边（Beans 流光）
-                Capsule()
-                    .fill(.white.opacity(0.55))
-                    .frame(height: trackH)
-                Capsule()
-                    .fill(.ultraThinMaterial)
-                    .frame(height: trackH)
-                    .overlay { Capsule().strokeBorder(.white.opacity(0.2), lineWidth: 0.5) }
-
-                // 已播放段：accent 渐变 + shadow 发光 + 顶部高光
-                Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [dominantColor, dominantColor.opacity(0.6), .white.opacity(0.85)],
-                            startPoint: .leading, endPoint: .trailing
-                        )
-                    )
-                    .frame(width: thumbX, height: trackH)
-                    .shadow(color: dominantColor.opacity(0.45), radius: 4, y: 1)
-                    .overlay(alignment: .top) {
-                        LinearGradient(colors: [.white.opacity(0.55), .clear],
-                                       startPoint: .top, endPoint: .bottom)
-                            .frame(height: trackH / 2).clipShape(Capsule())
-                    }
-
-                // 游动光点（仅播放时往返游动，Beans 流光的灵魂）
-                if store.isPlaying {
-                    ZStack {
-                        // 外层柔光晕
-                        Circle()
-                            .fill(.white.opacity(0.35))
-                            .blur(radius: 4)
-                            .frame(width: 14, height: 14)
-                        // 内层实白点
-                        Circle()
-                            .fill(.white.opacity(0.95))
-                            .frame(width: 5, height: 5)
-                            .shadow(color: .white.opacity(0.7), radius: 2)
-                    }
-                    .offset(x: max(2, thumbX - 5) * classicFlowPhase)
-                    .animation(.linear(duration: 2.4).repeatForever(autoreverses: true),
-                               value: classicFlowPhase)
+                ZStack(alignment: .leading) {
+                    // 轨道（半透明白）
+                    Capsule()
+                        .fill(.white.opacity(0.30))
+                        .frame(height: trackH)
+                    // 已播段（实白）
+                    Capsule()
+                        .fill(.white)
+                        .frame(width: thumbX, height: trackH)
+                    // 滑标（拖动时放大）
+                    Circle()
+                        .fill(.white)
+                        .frame(width: isScrubbing ? 20 : 12, height: isScrubbing ? 20 : 12)
+                        .shadow(color: .black.opacity(isScrubbing ? 0.35 : 0.25),
+                                radius: isScrubbing ? 6 : 3, y: 0)
+                        .offset(x: thumbX - (isScrubbing ? 10 : 6))
+                        .animation(.spring(response: 0.24, dampingFraction: 0.76), value: isScrubbing)
                 }
-
-                // 发光滑块（白底 + stroke + accent shadow）
-                Circle()
-                    .fill(.white)
-                    .frame(width: isScrubbing ? 22 : 14, height: isScrubbing ? 22 : 14)
-                    .overlay { Circle().strokeBorder(.white.opacity(0.95), lineWidth: 0.8) }
-                    .shadow(color: dominantColor.opacity(0.7),
-                            radius: isScrubbing ? 10 : 3.5, y: isScrubbing ? 3 : 1)
-                    .offset(x: thumbX - (isScrubbing ? 11 : 7))
-                    .animation(.spring(response: 0.24, dampingFraction: 0.76), value: isScrubbing)
-            }
-            .frame(width: gWidth, height: 34)
-            .contentShape(Rectangle())
-            .highPriorityGesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        if !isScrubbing { scrubValue = playback.currentTime; Haptics.soft() }
-                        isScrubbing = true
-                        scrubValue = min(max(value.location.x / max(gWidth, 1), 0), 1) * playback.duration
-                    }
-                    .onEnded { _ in
-                        store.seek(to: scrubValue); isScrubbing = false; Haptics.light()
-                    }
-            )
-            .overlay(alignment: .topLeading) {
-                if isScrubbing {
-                    Text(displayTime.clockString)
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 9).padding(.vertical, 5)
-                        .background {
-                            Capsule().fill(.black.opacity(0.48))
-                                .overlay { Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 0.7) }
+                .frame(width: gWidth, height: 24)
+                .contentShape(Rectangle())
+                .highPriorityGesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            if !isScrubbing { scrubValue = playback.currentTime; Haptics.soft() }
+                            isScrubbing = true
+                            scrubValue = min(max(value.location.x / max(gWidth, 1), 0), 1) * playback.duration
                         }
-                        .shadow(color: dominantColor.opacity(0.35), radius: 10, y: 4)
-                        .offset(x: min(max(thumbX - 31, 0), max(gWidth - 62, 0)), y: -25)
-                        .transition(.scale(scale: 0.92).combined(with: .opacity))
+                        .onEnded { _ in
+                            store.seek(to: scrubValue); isScrubbing = false; Haptics.light()
+                        }
+                )
+                .overlay(alignment: .topLeading) {
+                    if isScrubbing {
+                        Text(displayTime.clockString)
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 9).padding(.vertical, 5)
+                            .background {
+                                Capsule().fill(.black.opacity(0.48))
+                                    .overlay { Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 0.7) }
+                            }
+                            .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
+                            .offset(x: min(max(thumbX - 31, 0), max(gWidth - 62, 0)), y: -28)
+                            .transition(.scale(scale: 0.92).combined(with: .opacity))
+                    }
                 }
             }
-            .onAppear {
-                if store.isPlaying, classicFlowPhase == 0 { classicFlowPhase = 1 }
-            }
-            .onChange(of: store.isPlaying) { playing in
-                classicFlowPhase = playing ? 1 : 0
-            }
+            .frame(height: 24)
 
-            HStack(spacing: 6) {
-                seekPillButton("gobackward.15") { store.seek(to: max(0, playback.currentTime - 15)) }
-                Text(displayTime.clockString)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.56))
-                    .frame(minWidth: 34, alignment: .leading)
-                Spacer(minLength: 0)
-                Text(playback.duration.clockString)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.56))
-                    .frame(minWidth: 34, alignment: .trailing)
-                seekPillButton("goforward.15") { store.seek(to: max(0, min(playback.duration, playback.currentTime + 15))) }
-            }
-            .offset(y: 26)
+            Text(playback.duration.clockString)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.78))
+                .frame(minWidth: 38, alignment: .trailing)
         }
-        .frame(height: 60)
+        .frame(height: 28)
         .animation(.spring(response: 0.24, dampingFraction: 0.82), value: isScrubbing)
-    }
-
-    private func seekPillButton(_ icon: String, action: @escaping () -> Void) -> some View {
-        Button { Haptics.light(); action() } label: {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.72))
-                .frame(width: 30, height: 22)
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -1837,34 +1778,36 @@ private struct LyricPill: View {
         Button {
             onOpen()
         } label: {
-            VStack(spacing: 4) {
-                // 第一行：当前歌词 —— 高亮、大，卡拉OK逐字填充
+            VStack(alignment: .leading, spacing: 4) {
+                // 第一行：当前歌词 —— 高亮、大，卡拉OK逐字填充（参考图：左对齐）
                 if let span = currentLineSpan {
                     KaraokeLine(text: currentLyricText,
                                 start: span.start,
                                 end: span.end,
                                 isPlaying: store.isPlaying,
                                 playback: playback,
+                                font: .system(size: 17, weight: .semibold, design: .rounded),
+                                align: .leading,
                                 liveTime: { store.lyricDisplayTime })
                 } else {
                     // 纯音乐 / 解析中 / 无当前行：静态半透白
                     Text(currentLyricText)
-                        .font(.system(size: 16, weight: .medium, design: .rounded))
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
                         .foregroundStyle(dim)
                         .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                // 第二行：下一句歌词 —— 暗、小
+                // 第二行：下一句歌词 —— 暗、小（左对齐）
                 if let next = nextLyricText {
                     Text(next)
-                        .font(.system(size: 13))
+                        .font(.system(size: 14))
                         .foregroundStyle(dim)
                         .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(.vertical, 6)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.25), value: currentLyricText)
