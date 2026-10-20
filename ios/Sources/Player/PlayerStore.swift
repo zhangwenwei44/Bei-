@@ -152,8 +152,6 @@ final class PlayerStore: ObservableObject {
     private var artistPhotoTaskID: String?
     private var lyricTaskID: String?
     private var lastNowPlayingSecond = -1
-    /// @Published currentTime 节流桶 —— 只在 0.5s 边界变化时 publish，减少 SwiftUI body 重建。
-    private var lastPublishedHalfSecond = -1
     /// bufferedFraction 改由 AVPlayerItem KVO loadedTimeRanges 驱动（不再轮询），此变量已弃用。
     // private var lastPublishedQuarterSecond = -1
     /// stall 自动恢复定时器 — 15 秒内没恢复就重新 attach
@@ -803,12 +801,14 @@ final class PlayerStore: ObservableObject {
             guard let self else { return }
             let rawTime = time.seconds.isFinite ? max(0, time.seconds) : 0
 
-            // 节流 currentTime：0.5 秒刷一次（2 次/秒），避免 UI 高频重建。
-            // 写入独立的 playback 对象 —— 这样只有订阅了它的播放页/进度条会重算，
-            // 四个主页面（持有 PlayerStore）完全不受影响。
-            let halfSecondBucket = Int(rawTime * 2)
-            if halfSecondBucket != self.lastPublishedHalfSecond {
-                self.lastPublishedHalfSecond = halfSecondBucket
+            // 🔴 逐字歌词同步修复：currentTime 改为每拍（0.25s 原始时间）即时发布，
+            // 不再按 0.5s 桶节流。旧逻辑会让值滞后最多 0.5s，导致「新切到的当前句」
+            // 在初始化（onAppear / syncBase）时读到一个落后的 currentTime → 逐字
+            // 填充从一开始就慢半拍、整句都跟不上演唱。改为 4fps 即时发布后，新句
+            // 初始化拿到的就是当前真实播放位置，填充起点精准。
+            // 发布频率仍是 4fps，且仅 playback 订阅者（进度条 + 歌词）重算；
+            // 四个主页面订阅的是 PlayerStore，不受 currentTime 影响（见 PlaybackProgress 文档）。
+            if abs(rawTime - self.playback.currentTime) > 0.005 {
                 self.playback.setCurrentTime(rawTime)
             }
 

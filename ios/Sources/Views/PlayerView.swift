@@ -134,7 +134,10 @@ struct PlayerView: View {
                 }
             }
             .frame(width: size.width, height: size.height)
-            .gesture(dragGesture)
+            // 🔴 仅竖屏播放页允许「下滑关闭整个播放器」；歌词页 / 横屏播放器改用各自的
+            // 左上角返回按钮（用户要求移除下滑关闭）。否则下滑手势会和歌词页按钮 / 横屏
+            // 返回键抢手势，且歌词页下滑会把整页播放器一起 dismiss。
+            .gesture((!isLyricsPage && !isLandscape) ? dragGesture : nil)
             .overlay(alignment: .bottom) { toastLayer }
             // 🔴 进入/退出歌词页时接管方向：
             // 进歌词页 → 临时强制竖屏；退歌词页 → 延迟 0.4s 恢复（避免动画打架）。
@@ -2054,17 +2057,8 @@ struct LyricsPageView: View {
                                startPoint: .top, endPoint: .bottom)
             }
             .ignoresSafeArea()
-            // 🔴 下滑关闭手势挂背景层（普通 .gesture，不是整页 highPriorityGesture）：
-            // 之前整页 highPriorityGesture 会把歌词页进度条的拖动手势抢掉
-            // （父级高优先级手势压过子级 → 进度条拖不动的根因）。
-            // 挂背景后：空白处可下滑关闭；进度条/歌词滚动区各自的手势正常优先。
-            .gesture(
-                DragGesture(minimumDistance: 24).onEnded { value in
-                    if value.translation.height > 60 {
-                        withAnimation(.easeInOut(duration: 0.3)) { isShown = false }
-                    }
-                }
-            )
+            // 🔴 已移除下滑关闭手势：用户要求只用左上角返回按钮关闭歌词页（横屏同理），
+            // 下滑手势会和按钮 / 进度条抢手势且易误触。关闭统一由左上角 chevron.left 按钮完成。
 
             VStack(spacing: 0) {
                 // 顶栏：降低存在感
@@ -2072,7 +2066,7 @@ struct LyricsPageView: View {
                     Button {
                         withAnimation(.easeInOut(duration: 0.3)) { isShown = false }
                     } label: {
-                        Image(systemName: "chevron.down")
+                        Image(systemName: "chevron.left")
                             .font(.system(size: 20, weight: .semibold))
                             .frame(width: 44, height: 44)
                     }
@@ -2307,13 +2301,27 @@ private struct BigLyricsView: View {
             .mask(LinearGradient(colors: [.clear, .black.opacity(0.85), .black, .black.opacity(0.85), .clear],
                                 startPoint: .top,
                                 endPoint: .bottom))
+            .onAppear {
+                // 🔴 打开歌词页时若正在播放，立即把当前演唱行滚到【中间】：
+                // 不能只靠 onChange(currentIndex) —— 打开瞬间 currentIndex 已是当前值（没变化），
+                // onChange 不会触发，于是停在顶端。这里显式滚一次，配合下方 onChange 保持居中。
+                if let id = activeId {
+                    proxy.scrollTo(id, anchor: .center)
+                } else {
+                    proxy.scrollTo(lyrics.first?.id, anchor: .center)
+                }
+            }
             .onChange(of: currentIndex) { _ in
                 guard let id = activeId else { return }
                 withAnimation(.easeInOut(duration: 0.5)) {
                     proxy.scrollTo(id, anchor: .center)
                 }
             }
-            .onChange(of: lyrics) { _ in proxy.scrollTo(lyrics.first?.id, anchor: .center) }
+            .onChange(of: lyrics) { _ in
+                // 切歌：滚到当前行（而非顶端），保持高亮行居中
+                if let id = activeId { proxy.scrollTo(id, anchor: .center) }
+                else { proxy.scrollTo(lyrics.first?.id, anchor: .center) }
+            }
         }
         // 容器级统一动画 —— 只有一个 animation 作用在 LazyVStack 上，
         // 可见行的 active 状态样式变化会自动过渡，不可见行不渲染就不参与。
