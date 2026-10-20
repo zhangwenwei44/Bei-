@@ -1968,41 +1968,7 @@ private struct BigLyricsView: View {
                         // enumerated() 让每行持有自己的 index —— isActive/isNearActive 直接比较 index，
                         // 干掉原来的 firstIndex(where:) O(n) 扫描。ForEach × firstIndex = O(n²)。
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { idx, line in
-                            let activeIdx = currentIndex
-                            let isActive = activeIdx == idx
-                            let isNear = activeIdx != nil && abs(idx - activeIdx!) <= 1
-                            VStack(spacing: 7) {
-                                // 🔴 用户要求字号调小：当前句 30→26，其他行 20→17
-                                if isActive {
-                                    // 当前句：卡拉OK逐字填充（已唱纯白 / 未唱半透白），与播放页迷你条同款
-                                    let end = (idx + 1 < lyrics.count) ? lyrics[idx + 1].time : (line.time + 5)
-                                    KaraokeLine(text: line.text,
-                                                start: line.time,
-                                                end: end,
-                                                isPlaying: isPlaying,
-                                                playback: playback,
-                                                liveTime: liveTime,
-                                                font: .system(size: 26, weight: .bold),
-                                                lineLimit: nil)
-                                } else {
-                                    Text(line.text)
-                                        .font(.system(size: 17, weight: .medium))
-                                        .foregroundStyle(.white.opacity(isNear ? 0.45 : 0.28))
-                                        .multilineTextAlignment(.center)
-                                }
-                                if showsTranslation, let translation = line.translation, !translation.isEmpty {
-                                    Text(translation)
-                                        .font(.system(size: isActive ? 14 : 11))
-                                        .foregroundStyle(isActive ? .white.opacity(0.78) : .white.opacity(0.3))
-                                        .multilineTextAlignment(.center)
-                                }
-                            }
-                            .lineSpacing(4)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .id(line.id)
-                            // 关键：每行不单独加 .animation —— 以前每行都 .animation(.easeInOut(0.3), value: isActive)
-                            // 导致 currentIndex 一变 100 行全部做 transition 动画。
-                            // 只在容器级统一加一次 animation，SwiftUI 自动处理可见行的样式过渡。
+                            lyricRow(idx: idx, line: line)
                         }
                     }
                 }
@@ -2041,6 +2007,47 @@ private struct BigLyricsView: View {
     private var activeId: UUID? {
         guard let index = currentIndex, lyrics.indices.contains(index) else { return nil }
         return lyrics[index].id
+    }
+
+    /// 单行歌词视图（抽出独立函数，降低 body 的类型推导复杂度，
+    /// 避免 "compiler is unable to type-check this expression in reasonable time"）。
+    private func lyricRow(idx: Int, line: LyricLine) -> some View {
+        let activeIdx = currentIndex
+        let isActive = activeIdx == idx
+        let isNear = activeIdx != nil && abs(idx - activeIdx!) <= 1
+        return VStack(spacing: 7) {
+            // 🔴 用户要求字号调小：当前句 30→26，其他行 20→17
+            if isActive {
+                // 当前句：卡拉OK逐字填充（已唱纯白 / 未唱半透白），与播放页迷你条同款
+                let end = (idx + 1 < lyrics.count) ? lyrics[idx + 1].time : (line.time + 5)
+                // 🔴 KaraokeLine 参数顺序必须严格匹配声明顺序：
+                // text, start, end, isPlaying, playback, font, lineLimit, align, liveTime。
+                // liveTime 是最后一个（带默认值的）参数，必须放在最末尾，否则报
+                // "argument 'font' must precede argument 'liveTime'"。
+                KaraokeLine(text: line.text,
+                            start: line.time,
+                            end: end,
+                            isPlaying: isPlaying,
+                            playback: playback,
+                            font: .system(size: 26, weight: .bold),
+                            lineLimit: nil,
+                            liveTime: liveTime)
+            } else {
+                Text(line.text)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(.white.opacity(isNear ? 0.45 : 0.28))
+                    .multilineTextAlignment(.center)
+            }
+            if showsTranslation, let translation = line.translation, !translation.isEmpty {
+                Text(translation)
+                    .font(.system(size: isActive ? 14 : 11))
+                    .foregroundStyle(isActive ? .white.opacity(0.78) : .white.opacity(0.3))
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .lineSpacing(4)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .id(line.id)
     }
 }
 
@@ -2376,10 +2383,10 @@ private struct LandscapeLyricsBlock: View {
                             end: span.end,
                             isPlaying: store.isPlaying,
                             playback: playback,
-                            liveTime: { store.preciseTime },
                             font: .system(size: 23, weight: .bold),
                             lineLimit: 2,
-                            align: .leading)
+                            align: .leading,
+                            liveTime: { store.preciseTime })
             } else {
                 Text(currentLyricText)
                     .font(.system(size: 23, weight: .bold))
