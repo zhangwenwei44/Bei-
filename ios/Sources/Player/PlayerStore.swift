@@ -66,6 +66,31 @@ final class PlayerStore: ObservableObject {
         return (t.isFinite && t >= 0) ? t : playback.currentTime
     }
 
+    // MARK: - 歌词时间校准（v2.5.39）
+
+    /// 歌词整体微调（秒）：正数 = 歌词**延后**显示，负数 = **提前**。
+    /// 不同音源下发的 LRC 时间戳可能整首偏早/偏晚，用户可在播放页「更多」里校准。
+    /// 持久化到 UserDefaults，跨会话保留。
+    var lyricOffsetSeconds: Double {
+        get { UserDefaults.standard.double(forKey: "aurora.lyricOffsetSeconds") }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "aurora.lyricOffsetSeconds")
+            refreshLyric()
+        }
+    }
+
+    func adjustLyricOffset(by delta: Double) {
+        // 限制在 ±3s，避免误触把歌词推得太离谱
+        let next = min(3, max(-3, lyricOffsetSeconds + delta))
+        lyricOffsetSeconds = next
+    }
+
+    func resetLyricOffset() { lyricOffsetSeconds = 0 }
+
+    /// 🔴 匹配歌词行/驱动卡拉OK填充统一使用的"歌词时间" = 实时播放头 − 用户微调。
+    /// 延后 0.5s 时，同一句歌词要在播放头多走 0.5s 后才高亮/开始填充。
+    var lyricDisplayTime: Double { preciseTime - lyricOffsetSeconds }
+
     /// 迷你播放条专用状态 —— 第二个高频隔离对象。
     ///
     /// 🔴 为什么还需要它：只拆 currentTime 是不够的。PlayerStore 里还有
@@ -729,10 +754,11 @@ final class PlayerStore: ObservableObject {
         refreshLyric(at: currentTime)
     }
 
-    /// 直接用传入的时间，不依赖 @Published currentTime —— 时间观察器里用这个保持精准对齐，
-    /// 因为 currentTime 被节流到 0.5s 一桶，内部的 0.05s 原始时间更准。
+    /// 直接用传入的时间，不依赖 @Published currentTime —— 时间观察器里用这个保持精准对齐。
+    /// 🔴 v2.5.39：统一减去用户微调 lyricOffsetSeconds，让「高亮行」与「逐字填充」
+    /// 走同一个校准后的时间轴（否则两者会差一个 offset）。
     private func refreshLyric(at time: Double) {
-        let found = LRCParser.index(at: time, in: lyrics)
+        let found = LRCParser.index(at: time - lyricOffsetSeconds, in: lyrics)
         if found != lyricState.currentIndex { lyricState.currentIndex = found }
     }
 
@@ -806,7 +832,12 @@ final class PlayerStore: ObservableObject {
         // refreshLyric 每次扫完 100 行歌词（O(n)）+ bufferedFraction 读 loadedTimeRanges
         // + currentTime 节流桶比较 —— 叠加起来和 ScrollGesture 渲染抢 CPU 就卡顿。
         // 0.25s 足够歌词精准对齐（每首歌每行歌词持续至少 0.5s）。
-        let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
+        // 🔴 v2.5.39：观察器从 0.25s（4fps）提到 0.1s（10fps）——
+        // 「歌词对不上」的一大来源就是**换行的量化误差**：4fps 时一行歌词的切换
+        // 最多晚 250ms（叠加旧的 0.25s 提前高亮容差 → 最多早/晚半秒）。
+        // refreshLyric 是二分查找 O(log n)，10fps 下开销仍可忽略；
+        // 但 currentTime 的发布仍按 ~0.2s 节流（见下方判断），进度条不会跟着抖到 10fps。
+        let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self else { return }
             let rawTime = time.seconds.isFinite ? max(0, time.seconds) : 0
@@ -818,7 +849,9 @@ final class PlayerStore: ObservableObject {
             // 初始化拿到的就是当前真实播放位置，填充起点精准。
             // 发布频率仍是 4fps，且仅 playback 订阅者（进度条 + 歌词）重算；
             // 四个主页面订阅的是 PlayerStore，不受 currentTime 影响（见 PlaybackProgress 文档）。
-            if abs(rawTime - self.playback.currentTime) > 0.005 {
+            // 🔴 观察器提到 10fps 后，currentTime 的发布仍按 ~0.2s 节流：
+            // 进度条/缓冲条不需要 10fps，节流后主线程重建工作量不上升。
+            if abs(rawTime - self.playback.currentTime) > 0.2 {
                 self.playback.setCurrentTime(rawTime)
             }
 

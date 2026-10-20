@@ -73,6 +73,11 @@ enum LRCParser {
 
     static func parse(_ text: String) -> ParseResult {
         guard let pattern else { return ParseResult(lines: [], metadata: [:]) }
+        // 🔴 LRC 全局时间校准 [offset:±毫秒]（v2.5.39）：
+        // 标准约定「正值 = 歌词整体提前」，故实际生效时间 = 行时间 − offset/1000。
+        // 酷狗多数 LRC 是 [offset:0]，此前该标签被整行丢弃、从未生效 —— 一旦音源
+        // 下发了非零 offset，整首歌词就会恒定偏早/偏晚（"歌词对不上"的隐藏来源之一）。
+        var offsetMilliseconds: Double = 0
         // 🔴 必须剥掉 UTF-8 BOM(\u{feff})：酷狗 LRC 首行常是 "\u{feff}[id:$00000000]"，
         // BOM 不在 .whitespacesAndNewlines 里、trim 不掉 → hasPrefix("[") 失配 →
         // 元数据过滤被绕过，[id:$00000000] 当成歌词正文显示（用户截图实测）。
@@ -100,6 +105,14 @@ enum LRCParser {
                     let inside = String(line.dropFirst().dropLast())
                     let key = inside.split(separator: ":", maxSplits: 1).first.map(String.init) ?? inside
                     if lrcMetaKeys.contains(key.lowercased()) {
+                        // [offset:±毫秒]：全局时间校准（详见 parse 顶部注释）
+                        if key.lowercased() == "offset" {
+                            let raw = inside.split(separator: ":", maxSplits: 1).last.map(String.init) ?? ""
+                            if let ms = Double(raw.trimmingCharacters(in: .whitespaces)),
+                               abs(ms) <= 5000 {
+                                offsetMilliseconds += ms
+                            }
+                        }
                         // 顺带把 [ti:歌名] / [ar:歌手] / [al:专辑] 存进 meta ——
                         // 供下面剔除酷狗首句「[00:00.02]青花瓷 - 周杰伦」（歌名 - 歌手）。
                         Self.storeHeaderMeta(key: key.lowercased(), inside: inside, into: &meta)
@@ -167,7 +180,16 @@ enum LRCParser {
         // 写成带时间戳的行，绕过上面的关键词分支混进正文。这里对成品再做一遍元数据剔除。
         result.removeAll { Self.isMetadataLine($0.text) }
 
-        return ParseResult(lines: result.sorted { $0.time < $1.time }, metadata: meta)
+        var lines = result.sorted { $0.time < $1.time }
+        // 应用 [offset:] 全局校准（正值 = 歌词提前 → 行时间减小），并裁剪掉负值时间戳
+        if offsetMilliseconds != 0 {
+            let delta = offsetMilliseconds / 1000.0
+            lines = lines.map { LyricLine(time: max(0, $0.time - delta),
+                                          text: $0.text,
+                                          translation: $0.translation) }
+        }
+
+        return ParseResult(lines: lines, metadata: meta)
     }
 
     /// 识别词曲元数据行前缀：返回命中的关键词。
@@ -257,16 +279,18 @@ enum LRCParser {
         parse(text).lines
     }
 
-    /// 找到时间戳 ≤ `time + 0.25s` 的最后一行 —— 即「当前应该高亮的歌词行」。
+    /// 找到时间戳 ≤ `time + 0.05s` 的最后一行 —— 即「当前应该高亮的歌词行」。
+    ///
+    /// 🔴 v2.5.39：提前高亮容差从 0.25s 收到 0.05s。旧的 0.25s 会让下一句在真正唱到
+    /// 之前 250ms 就翻上去，与逐字填充（按真实播放头走）明显错位 —— 这是「歌词对不上」
+    /// 最直观的来源。观察器已提到 10fps（±50ms），0.05s 容差正好把误差居中。
     ///
     /// ⚠️ 性能关键：二分搜索 O(log n)，之前是 O(n) 全量扫描。
-    /// 0.05s × 每秒 20 次调用 × 100 行歌词 = 2000 次比较/秒，和 ScrollGesture 抢 CPU 导致滑动卡顿。
-    /// 改成二分后每次只需 7 次比较（2^7 = 128），加上 time observer interval 也从 0.05s 降到 0.25s，
-    /// 主线程工作量直接砍到之前的 1/8。
+    /// 改成二分后每次只需 7 次比较（2^7 = 128），10fps 下开销可忽略。
     static func index(at time: Double, in lines: [LyricLine]) -> Int? {
         guard !lines.isEmpty else { return nil }
-        // 二分找最后一个 timeStamp <= time + 0.25 的行（0.25s 提前高亮容差）
-        let target = time + 0.25
+        // 二分找最后一个 timeStamp <= time + 0.05 的行（50ms 提前高亮容差）
+        let target = time + 0.05
         var lo = 0, hi = lines.count - 1, result: Int?
         while lo <= hi {
             let mid = (lo + hi) >> 1

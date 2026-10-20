@@ -24,8 +24,8 @@ struct PlayerView: View {
     /// 音质切换弹层
     /// 「更多」弹层：音质档位 / 完整歌词 / 歌词翻译
     @State private var showMoreMenu = false
-    @AppStorage("aurora.playerTheme") private var playerTheme: String = "glitter"
-    @State private var vinylStart: Date = Date()
+    /// 分享弹层内容（nil = 不弹）
+    @State private var shareItems: [Any]?
     @State private var dominantColor: Color = .white
 
     /// 参数顺序必须与属性声明顺序一致：playback / lyricState 在 isExpanded 之前。
@@ -34,13 +34,6 @@ struct PlayerView: View {
         self.lyricState = lyricState
         self._isExpanded = isExpanded
     }
-
-    private enum Theme: String {
-        case vinyl, classic
-        /// 炫胶唱片：黑胶版式 + 炫彩高光盘面
-        case glitter
-    }
-    private var currentTheme: Theme { Theme(rawValue: playerTheme) ?? .classic }
 
     /// key window bounds = 真实可见屏幕尺寸（几何权威）。
     /// 🔴 不再读任何 window 的 bounds：设备上的第三方注入悬浮窗（如网速悬浮球）
@@ -119,16 +112,9 @@ struct PlayerView: View {
                     // 横屏播放器：右上角按钮强制旋转后接管（唱片在左、信息在右）
                     landscapeBody()
                 } else {
-                    // 经典/黑胶沿用取色渐变背景；炫胶自带全屏背景
-                    switch currentTheme {
-                    case .classic:
-                        immersiveBackground.ignoresSafeArea()
-                        classicBody(in: contentHeight, win: win, screen: screen)
-                    case .vinyl:
-                        immersiveBackground.ignoresSafeArea()
-                        vinylBody(in: contentHeight, win: win, screen: screen)
-                    case .glitter:    glitterBody(in: contentHeight, win: win, screen: screen)
-                    }
+                    // 🔴 v2.5.39：主题精简，只剩「经典封面」——取色渐变背景 + 经典版式。
+                    immersiveBackground.ignoresSafeArea()
+                    classicBody(in: contentHeight, win: win, screen: screen)
                 }
             }
             .frame(width: size.width, height: size.height)
@@ -171,177 +157,11 @@ struct PlayerView: View {
         // 🔴 播放列表 sheet：必须挂在播放页自己身上。此前只挂在 RootView 迷你条上，
         // 它在播放页 fullScreenCover 之下 —— 播放页打开时 sheet 弹不出来（点了没反应）。
         .queueSheet()
-    }
-
-    /// 酷狗黑胶（当前默认）：黑胶封面 + 信息堆叠 + Spacer 推控制到底
-    private func vinylBody(in contentHeight: CGFloat,
-                           win: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat),
-                           screen: CGRect) -> some View {
-        VStack(spacing: 0) {
-            topBar()
-            artworkStage(in: CGSize(width: screen.width, height: contentHeight))
-            meta(width: screen.width)
+        // 分享弹层（顶栏右上角分享按钮）
+        .sheet(isPresented: Binding(get: { shareItems != nil },
+                                    set: { presented in if !presented { shareItems = nil } })) {
+            ShareSheet(items: shareItems ?? [])
         }
-        .frame(width: screen.width, height: contentHeight, alignment: .top)
-        .padding(.top, win.safeTop)
-        .clipped()
-    }
-
-    // MARK: - 炫胶唱片（暖金渐变 + 巨大炫彩唱片 + 底部暗区信息，对齐酷狗版式）
-
-    /// 炫胶背景：取色渐变铺满（底段用封面暗色而非近黑），顶部微压、底部轻收
-    private var glitterBackground: some View {
-        ZStack {
-            LinearGradient(colors: [store.currentPalette.light,
-                                    store.currentPalette.main,
-                                    store.currentPalette.dark,
-                                    store.currentPalette.dark],
-                           startPoint: .top, endPoint: .bottom)
-            LinearGradient(colors: [.black.opacity(0.30),
-                                    .black.opacity(0.06),
-                                    .clear,
-                                    .black.opacity(0.22),
-                                    .black.opacity(0.55)],
-                           startPoint: .top, endPoint: .bottom)
-        }
-        .ignoresSafeArea()
-        .animation(.easeInOut(duration: 0.5), value: store.currentIndex)
-        .animation(.easeInOut(duration: 0.5), value: store.currentPalette)
-    }
-
-    private func glitterBody(in contentHeight: CGFloat,
-                             win: (size: CGSize, safeTop: CGFloat, safeBottom: CGFloat),
-                             screen: CGRect) -> some View {
-        ZStack(alignment: .top) {
-            glitterBackground
-
-            VStack(spacing: 0) {
-                topBar()
-                    .frame(height: 44)
-                    .padding(.top, win.safeTop)
-
-                // 主视觉：巨大炫彩唱片（酷狗实测约占屏宽 80%）
-                glitterDiscArea(width: screen.width)
-                    .frame(maxHeight: .infinity)
-                    .padding(.top, 8)
-
-                // 底部暗区信息：歌词 + 动作行 + 进度 + 控件
-                meta(width: screen.width)
-            }
-            .frame(width: screen.width, height: contentHeight, alignment: .top)
-        }
-        .frame(width: screen.width, height: screen.height, alignment: .top)
-        .clipped()
-    }
-
-    private func glitterDiscArea(width: CGFloat) -> some View {
-        let side = max(250, min(width * 0.80, 330))
-        let coverSide = side * 0.44
-
-        return TimelineView(.animation(minimumInterval: 1/30)) { _ in
-            let angle = isSpinning
-                ? (Date().timeIntervalSince(vinylStart) / 20.0) * 360
-                : 0
-            ZStack {
-                glitterDisc(side: side)
-
-                Group {
-                    if let artwork = store.artwork {
-                        Image(uiImage: artwork).resizable().scaledToFill()
-                    } else {
-                        ZStack {
-                            LinearGradient(colors: [.gray.opacity(0.5), .gray.opacity(0.3)],
-                                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                            Image(systemName: "music.note")
-                                .font(.system(size: coverSide * 0.3, weight: .light))
-                                .foregroundStyle(.white.opacity(0.55))
-                        }
-                    }
-                }
-                .frame(width: coverSide, height: coverSide)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(.white.opacity(0.55), lineWidth: 2))
-                .overlay(alignment: .center) {
-                    Circle()
-                        .fill(.white.opacity(0.92))
-                        .frame(width: 10, height: 10)
-                }
-            }
-            .rotationEffect(.degrees(angle))
-        }
-        .frame(width: side, height: side)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
-        .onChange(of: store.isPlaying) { playing in
-            if playing { vinylStart = Date() }
-        }
-        .onChange(of: store.currentIndex) { _ in
-            vinylStart = Date()
-            extractDominantColor()
-        }
-        .onAppear { extractDominantColor() }
-    }
-
-    /// 炫胶盘面：亮银底盘 + 彩虹角向炫彩 + 强白光扫过 + 细沟槽
-    /// （酷狗炫胶是亮色炫彩盘面，不是黑胶的深黑盘）
-    private func glitterDisc(side: CGFloat) -> some View {
-        ZStack {
-            // 亮银底盘
-            Circle()
-                .fill(RadialGradient(colors: [.white,
-                                              Color(white: 0.90),
-                                              Color(white: 0.74)],
-                                     center: .center,
-                                     startRadius: side * 0.05,
-                                     endRadius: side * 0.52))
-
-            // 彩虹角向炫彩
-            Circle()
-                .fill(AngularGradient(colors: [
-                    Color(red: 1.00, green: 0.30, blue: 0.45),
-                    Color(red: 1.00, green: 0.80, blue: 0.25),
-                    Color(red: 0.25, green: 0.90, blue: 0.60),
-                    Color(red: 0.25, green: 0.60, blue: 1.00),
-                    Color(red: 0.75, green: 0.35, blue: 1.00),
-                    Color(red: 1.00, green: 0.30, blue: 0.45)
-                ], center: .center))
-                .opacity(0.42)
-
-            // 白色高光扫光
-            Circle()
-                .fill(AngularGradient(colors: [.clear,
-                                               .white.opacity(0.85),
-                                               .clear,
-                                               .white.opacity(0.45),
-                                               .clear],
-                                      center: .center))
-
-            // 唱片沟槽
-            ForEach(0..<9, id: \.self) { i in
-                Circle()
-                    .stroke(.black.opacity(0.05), lineWidth: 1)
-                    .frame(width: side - CGFloat(i) * (side / 12),
-                           height: side - CGFloat(i) * (side / 12))
-            }
-
-            // 外圈金属边
-            Circle()
-                .stroke(LinearGradient(colors: [.white.opacity(0.9),
-                                                .black.opacity(0.15),
-                                                .white.opacity(0.7),
-                                                .black.opacity(0.12)],
-                                       startPoint: .top, endPoint: .bottom),
-                        lineWidth: 2.5)
-                .frame(width: side - 2, height: side - 2)
-
-            // 中心挖空（放专辑封面）
-            Circle()
-                .fill(.clear)
-                .frame(width: side * 0.44, height: side * 0.44)
-                .blendMode(.destinationOut)
-        }
-        .compositingGroup()
-        .frame(width: side, height: side)
     }
 
     // MARK: - 经典封面（参考 Beans ReferencePlaybackView · 紧凑版）
@@ -375,40 +195,85 @@ struct PlayerView: View {
         .clipped()
     }
 
+    /// 🔴 v2.5.39 版式对齐参考图：顶栏只留「左下箭头（收起）」+「右分享」两个按钮，
+    /// 中间不再堆歌名（歌名已挪到封面下方的大标题区）；横屏入口改到「更多」弹层里。
     private var classicHeaderBar: some View {
         HStack(alignment: .center, spacing: 8) {
             Button { animateOut() } label: {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 19, weight: .semibold))
+                    .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
+                    .contentShape(Rectangle())
                     .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
             }
+            .buttonStyle(.plain)
 
-            // 🔴 居中：歌名 + 歌手同一行（用户要求改在一行显示）
-            HStack(alignment: .center, spacing: 6) {
-                Text(store.current?.title ?? "未在播放")
-                    .font(.system(size: 15, weight: .bold))
+            Spacer(minLength: 0)
+
+            Button { shareCurrentSong() } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(1)
-                Text(store.current?.artist ?? "")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .frame(maxWidth: .infinity)
-
-            Button { toggleLandscape() } label: {
-                LandscapeToggleIcon()
                     .frame(width: 40, height: 40)
+                    .contentShape(Rectangle())
                     .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
             }
+            .buttonStyle(.plain)
         }
         .frame(height: 44)
         .padding(.horizontal, 10)
+    }
+
+    /// 分享当前歌曲：优先酷狗歌曲页链接，没有 hash 时退回「歌名 - 歌手」文本。
+    private func shareCurrentSong() {
+        guard let song = store.current else { return }
+        var items: [Any] = []
+        if !song.kugouHash.isEmpty,
+           let url = URL(string: "https://www.kugou.com/song/#\(song.kugouHash)") {
+            items.append(url)
+        } else if !song.kugouAlbumID.isEmpty,
+                  let url = URL(string: "https://www.kugou.com/album/\(song.kugouAlbumID).html") {
+            items.append(url)
+        } else {
+            items.append("\(song.title) - \(song.artist)")
+        }
+        if let artwork = store.artwork { items.append(artwork) }
+        shareItems = items
+        Haptics.light()
+    }
+
+    /// 封面下方的信息区（对齐参考图）：大标题 → 歌手 · 专辑 + 音质徽标。
+    private var classicTitleBlock: some View {
+        VStack(spacing: 7) {
+            Text(store.current?.title ?? "未在播放")
+                .font(.system(size: 21, weight: .bold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .multilineTextAlignment(.center)
+                .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+
+            HStack(spacing: 6) {
+                Text(classicSubtitleText)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
+                qualityPill
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    /// 「歌手 · 专辑」副标题
+    private var classicSubtitleText: String {
+        let artist = store.current?.artist ?? ""
+        let album = store.current?.album ?? ""
+        if artist.isEmpty { return album.isEmpty ? "未知歌手" : album }
+        if album.isEmpty { return artist }
+        return "\(artist) · \(album)"
     }
 
     // MARK: 封面区：专辑封面方图（弹性填充，歌词已移到底部 deck）
@@ -419,8 +284,8 @@ struct PlayerView: View {
         GeometryReader { geo in
             let h = geo.size.height
             let w = geo.size.width
-            // 🔴 封面改大：占可用高度 66%、屏宽 82%；圆角改小（classicCoverArt 内 side*0.04）。
-            let side = max(180, min(h * 0.66, w * 0.82))
+            // 🔴 v2.5.39 参考图：封面是主视觉，占可用高度 90%、屏宽 86%（原 66%/82% 偏小）。
+            let side = max(150, min(h * 0.90, w * 0.86))
 
             VStack(spacing: 0) {
                 classicCoverArt(side: side)
@@ -486,9 +351,9 @@ struct PlayerView: View {
         .buttonStyle(.plain)
     }
 
-    /// 经典主题动作行：与炫胶/黑胶一致，酷狗同款四项（喜欢 / 下载 / 评论 / 更多）
+    /// 动作行（参考图同款四项）：喜欢 / 下载 / 评论 / 更多
     private var classicActionRow: some View {
-        HStack(spacing: 28) {  // 🔴 间距加大到 28
+        HStack(spacing: 30) {
             // ① 喜欢（激活时实心红心）
             classicActionButton(glyph: .favorite,
                                 label: "喜欢",
@@ -496,15 +361,11 @@ struct PlayerView: View {
                                 tint: store.isLiked ? AppStyle.like : .white) {
                 store.toggleFavorite()
             }
-            // ② 下载
-            classicActionButton(glyph: .download, label: "下载") {
-                if let song = store.current {
-                    Task { _ = try? await DownloadManager.shared.download(song) }
-                }
-            }
+            // ② 下载（标签随下载状态变化：下载 / 35% / 已下）
+            classicActionButton(glyph: .download, label: downloadLabel) { download() }
             // ③ 评论
             classicActionButton(glyph: .comment, label: "评论") { openComments() }
-            // ④ 更多（音质 / 完整歌词 / 歌词翻译）
+            // ④ 更多（音质 / 横屏 / 完整歌词 / 歌词翻译 / 歌词微调）
             classicActionButton(glyph: .more, label: "更多") { showMoreMenu = true }
         }
         .frame(maxWidth: .infinity)
@@ -517,10 +378,24 @@ struct PlayerView: View {
                     }
                 }
             }
+            Button("横屏播放") { toggleLandscape() }
             Button("完整歌词") { openLyricsPage() }
             Button(store.showTranslation ? "关闭歌词翻译" : "开启歌词翻译") {
                 store.showTranslation.toggle()
                 Haptics.light()
+            }
+            // 🔴 歌词时间微调：不同音源 LRC 时间戳可能整首偏早/偏晚，给用户一个校准旋钮
+            Button("歌词延后 0.5 秒") {
+                store.adjustLyricOffset(by: 0.5)
+                show("歌词已延后 0.5 秒")
+            }
+            Button("歌词提前 0.5 秒") {
+                store.adjustLyricOffset(by: -0.5)
+                show("歌词已提前 0.5 秒")
+            }
+            Button("歌词对齐重置") {
+                store.resetLyricOffset()
+                show("歌词对齐已重置")
             }
             Button("取消", role: .cancel) {}
         }
@@ -562,11 +437,15 @@ struct PlayerView: View {
 
     private var classicDeck: some View {
         VStack(spacing: 4) {
-            // 🔴 歌词移到动作行上方：白色 + 卡拉OK逐字（用户要求"改在动作行上方显示"）
-            lyricPill()
-                .padding(.bottom, 2)
+            // 🔴 参考图版式：封面下方先放「大标题 + 歌手·专辑 + 音质徽标」
+            classicTitleBlock
+                .padding(.bottom, 8)
 
-            // 进度条上面一行：下载 / 收藏 / 评论 / 更多
+            // 歌词两行：当前句（卡拉OK逐字）+ 下一句（暗）
+            lyricPill()
+                .padding(.bottom, 4)
+
+            // 动作行：喜欢 / 下载 / 评论 / 更多
             classicActionRow
                 .padding(.top, 2)
                 .padding(.bottom, 2)
@@ -590,7 +469,9 @@ struct PlayerView: View {
         ClassicProgressBlock(playback: store.playback, dominantColor: dominantColor)
     }
 
-    // MARK: 控件行：循环 ← 上一曲/播放/下一曲 → 队列（Beans deckRow 复刻）
+    // MARK: 控件行：循环 ← 上一曲/播放/下一曲 → 队列
+    // 🔴 v2.5.39：参考图版式 —— 全部改成"裸图标"（去掉玻璃圆底/渐变圆），
+    // 白色实心图标 + 轻微投影，横向均分；播放键最大号。
 
     private var classicDeckControls: some View {
         ZStack {
@@ -602,104 +483,79 @@ struct PlayerView: View {
             }
 
             // 中间三个：上一曲 / 播放暂停 / 下一曲
-            HStack(spacing: 18) {
-                classicPrevNextButton(icon: "backward.fill") { store.step(-1) }
+            HStack(spacing: 34) {
+                classicPrevNextButton(icon: "backward.end.fill") { store.step(-1) }
                 classicPlayPauseButton
-                classicPrevNextButton(icon: "forward.fill") { store.step(1) }
+                classicPrevNextButton(icon: "forward.end.fill") { store.step(1) }
             }
         }
         .frame(maxWidth: .infinity, minHeight: 56)
     }
 
-    /// 模式按钮（玻璃圆底，激活=dominantColor）
+    /// 模式按钮（裸图标；激活时用主色高亮）
     private var classicModeButton: some View {
         let icon: String
         let active: Bool
         switch store.mode {
         case .shuffle: icon = "shuffle"; active = true
         case .single:  icon = "repeat.1"; active = true
-        case .order:   icon = "arrow.right"; active = false
+        case .order:   icon = "repeat";   active = false
         }
         return Button { store.cycleMode(); Haptics.light() } label: {
             Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(active ? dominantColor : .white.opacity(0.75))
-                .frame(width: 36, height: 36)
-                .background { classicButtonSurface(size: 36, active: active) }
+                .font(.system(size: 20, weight: .medium))
+                .foregroundStyle(active ? dominantColor : .white.opacity(0.85))
+                .frame(width: 44, height: 48)
+                .contentShape(Rectangle())
+                .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
         }
         .buttonStyle(.plain)
     }
 
-    /// 队列按钮（玻璃圆底）
+    /// 队列按钮（裸图标）
     private var classicQueueButton: some View {
         Button { store.isQueuePresented.toggle(); Haptics.light() } label: {
             Image(systemName: "list.bullet")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(store.isQueuePresented ? dominantColor : .white.opacity(0.75))
-                .frame(width: 36, height: 36)
-                .background { classicButtonSurface(size: 36, active: store.isQueuePresented) }
+                .font(.system(size: 20, weight: .medium))
+                .foregroundStyle(store.isQueuePresented ? dominantColor : .white.opacity(0.85))
+                .frame(width: 44, height: 48)
+                .contentShape(Rectangle())
+                .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
         }
         .buttonStyle(.plain)
     }
 
-    /// 上一曲/下一曲：玻璃圆底 + dominantColor icon（🔴 着色！）
+    /// 上一曲/下一曲（裸图标，白色实心）
     private func classicPrevNextButton(icon: String, action: @escaping () -> Void) -> some View {
         Button { action(); Haptics.light() } label: {
             Image(systemName: icon)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(dominantColor)
-                .frame(width: 44, height: 44)
-                .background { classicButtonSurface(size: 44) }
+                .font(.system(size: 27, weight: .medium))
+                .foregroundStyle(.white)
+                .frame(width: 52, height: 52)
+                .contentShape(Rectangle())
+                .shadow(color: .black.opacity(0.32), radius: 3, y: 1)
         }
         .buttonStyle(.plain)
     }
 
-    /// 播放暂停：渐变填充圆 + 玻璃描边 + 播放时 dominantColor 发光 shadow
+    /// 播放暂停（参考图：大白图标，无圆底）；加载/缓冲时转圈
     private var classicPlayPauseButton: some View {
         Button { store.toggle(); Haptics.soft() } label: {
             ZStack {
-                // 渐变填充圆
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [dominantColor.opacity(0.82),
-                                     dominantColor.opacity(0.52)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 60, height: 60)
-                    .overlay {
-                        Circle().strokeBorder(.white.opacity(0.28), lineWidth: 1)
-                    }
-                    .shadow(color: dominantColor.opacity(0.55),
-                            radius: store.isPlaying ? 22 : 12, y: 0)
-
                 if store.isLoading || store.isBuffering {
                     ProgressView().tint(.white)
                 } else {
                     Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 26, weight: .bold))
+                        .font(.system(size: 42, weight: .medium))
                         .foregroundStyle(.white)
                         .offset(x: store.isPlaying ? 0 : 2)
                 }
             }
-            .frame(width: 62, height: 62)
+            .frame(width: 64, height: 60)
+            .contentShape(Rectangle())
+            .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
         }
         .buttonStyle(.plain)
-    }
-
-    /// 玻璃按钮底：半透明圆 + active 时 dominantColor 描边
-    private func classicButtonSurface(size: CGFloat, active: Bool = false) -> some View {
-        ZStack {
-            Circle()
-                .fill(.white.opacity(0.08))
-            Circle()
-                .strokeBorder(
-                    active ? dominantColor.opacity(0.52) : .white.opacity(0.18),
-                    lineWidth: 0.8
-                )
-        }
-        .frame(width: size, height: size)
     }
 
     /// 横屏布局专用：返回【全屏播放窗口】的横屏语义真实安全区（left/right=刘海/home 侧）。
@@ -759,73 +615,25 @@ struct PlayerView: View {
         // 外层 .drawingGroup() 会强制分配一张 ~12MB 全屏 backing store 做二次光栅化，产生双倍显存峰值。
     }
 
-    // MARK: - 封面（黑胶 or 普通圆角矩形，由 playerTheme 控制）
-
-    private func artworkStage(in size: CGSize) -> some View {
-        let targetHeight = size.height * 0.44
-        return Group {
-            if currentTheme == .vinyl {
-                vinylArtwork(width: size.width, height: targetHeight)
-            } else if currentTheme == .glitter {
-                vinylArtwork(width: size.width, height: targetHeight, glitter: true)
-            } else {
-                roundedArtwork(width: size.width, height: targetHeight)
-            }
+    /// 横屏专用背景：纯取色渐变（**不带模糊封面图**）。
+    /// 🔴 竖屏沉浸背景那层 0.38 模糊封面在横屏会让右列信息区对比度糊掉，故横屏单独用这一版。
+    private var plainGradientBackground: some View {
+        ZStack {
+            LinearGradient(colors: [store.currentPalette.light,
+                                    store.currentPalette.main,
+                                    store.currentPalette.dark,
+                                    store.currentPalette.dark],
+                           startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [.black.opacity(0.30),
+                                    .black.opacity(0.06),
+                                    .clear,
+                                    .black.opacity(0.22),
+                                    .black.opacity(0.55)],
+                           startPoint: .top, endPoint: .bottom)
         }
-        .frame(maxWidth: .infinity, minHeight: targetHeight, idealHeight: targetHeight, maxHeight: targetHeight)
-        .animation(.easeInOut(duration: 0.4), value: store.currentIndex)
-        .animation(.easeInOut(duration: 0.3), value: playerTheme)
-    }
-
-    /// 黑胶版：TimelineView(.animation) 每帧驱动旋转，黑胶盘+封面一起转
-    private func vinylArtwork(width: CGFloat, height: CGFloat, glitter: Bool = false) -> some View {
-        // 封面尺寸：屏宽的 65%，最小 220 最大 300 — 和 stage 高度无关
-        // 之前用 height * 0.38（整屏高度的 38%）→ 封面太大，挤占 meta 空间
-        let vinylSide = max(220, min(width * 0.65, 300))
-        let coverSide = vinylSide * 0.56
-
-        return TimelineView(.animation(minimumInterval: 1/30)) { timeline in
-            let angle = isSpinning
-                ? (Date().timeIntervalSince(vinylStart) / 20.0) * 360
-                : 0
-            ZStack {
-                vinylDisc(side: vinylSide, glitter: glitter)
-
-                Group {
-                    if let artwork = store.artwork {
-                        Image(uiImage: artwork).resizable().scaledToFill()
-                    } else {
-                        ZStack {
-                            LinearGradient(colors: [.gray.opacity(0.5), .gray.opacity(0.3)],
-                                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                            Image(systemName: "music.note")
-                                .font(.system(size: coverSide * 0.3, weight: .light))
-                                .foregroundStyle(.white.opacity(0.55))
-                        }
-                    }
-                }
-                .frame(width: coverSide, height: coverSide)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1.5))
-                .overlay(alignment: .center) {
-                    Circle()
-                        .fill(.black.opacity(0.8))
-                        .frame(width: 10, height: 10)
-                        .overlay(Circle().stroke(.white.opacity(0.4), lineWidth: 0.5))
-                }
-            }
-            .rotationEffect(.degrees(angle))
-        }
-        .frame(width: vinylSide, height: vinylSide)
-        .shadow(color: .black.opacity(0.45), radius: 16, y: 8)
-        .onChange(of: store.isPlaying) { playing in
-            if playing { vinylStart = Date() }
-        }
-        .onChange(of: store.currentIndex) { _ in
-            vinylStart = Date()
-            extractDominantColor()
-        }
-        .onAppear { extractDominantColor() }
+        .ignoresSafeArea()
+        .animation(.easeInOut(duration: 0.5), value: store.currentIndex)
+        .animation(.easeInOut(duration: 0.5), value: store.currentPalette)
     }
 
     /// 从专辑封面提取主色调（CIAreaAverage 滤镜）
@@ -883,78 +691,6 @@ struct PlayerView: View {
         .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
     }
 
-    /// 黑胶盘纹理：多层同心圆环 + 高光
-    private func vinylDisc(side: CGFloat, glitter: Bool = false) -> some View {
-        ZStack {
-            // 底盘：深黑色
-            Circle()
-                .fill(LinearGradient(colors: [.black, .black.opacity(0.85)],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing))
-
-            // 唱针高光（顶部弧形反光）
-            Circle()
-                .fill(AngularGradient(colors: [
-                    .clear,
-                    .white.opacity(0.06),
-                    .clear,
-                    .white.opacity(0.04),
-                    .clear
-                ], center: .center))
-
-            // 唱片纹理环（用 stroke 画多层同心圆）
-            ForEach(0..<8, id: \.self) { i in
-                Circle()
-                    .stroke(.white.opacity(0.04), lineWidth: 1)
-                    .frame(width: side - CGFloat(i) * (side / 14),
-                           height: side - CGFloat(i) * (side / 14))
-            }
-
-            // 外圈金属质感边框
-            Circle()
-                .stroke(LinearGradient(colors: [
-                    .white.opacity(0.3),
-                    .white.opacity(0.05),
-                    .white.opacity(0.25),
-                    .white.opacity(0.05)
-                ], startPoint: .top, endPoint: .bottom),
-                        lineWidth: 2)
-                .frame(width: side - 2, height: side - 2)
-
-            // 炫胶高光：彩虹角向渐变 + 强 specular（仅炫胶唱片主题）
-            if glitter {
-                Circle()
-                    .fill(AngularGradient(colors: [
-                        Color(red: 1.00, green: 0.25, blue: 0.45),
-                        Color(red: 1.00, green: 0.85, blue: 0.30),
-                        Color(red: 0.30, green: 0.95, blue: 0.65),
-                        Color(red: 0.30, green: 0.55, blue: 1.00),
-                        Color(red: 0.80, green: 0.35, blue: 1.00),
-                        Color(red: 1.00, green: 0.25, blue: 0.45)
-                    ], center: .center))
-                    .opacity(0.30)
-                    .blendMode(.screen)
-
-                Circle()
-                    .fill(AngularGradient(colors: [
-                        .clear, .white.opacity(0.55), .clear,
-                        .white.opacity(0.25), .clear
-                    ], center: .center))
-                    .opacity(0.8)
-                    .blendMode(.screen)
-            }
-
-            // 中心挖空（放专辑封面）
-            Circle()
-                .fill(.clear)
-                .frame(width: side * 0.56, height: side * 0.56)
-                .blendMode(.destinationOut)
-        }
-        .compositingGroup()
-        .frame(width: side, height: side)
-    }
-
-    private var isSpinning: Bool { store.isPlaying && !store.isLoading && !store.isBuffering }
-
     // MARK: - 横屏播放器（参考酷狗：右上角「横屏」按钮进入）
 
     /// 进入/退出横屏播放器的切换：由顶栏的「横屏」按钮调用。
@@ -1011,19 +747,22 @@ struct PlayerView: View {
     /// 单排控制键（收藏/上一首/播放/下一首/列表）。顶栏浮层只留关闭。
     private func landscapeContent(size: CGSize, insets: UIEdgeInsets) -> some View {
         ZStack {
-            // 背景跟随主题（经典/黑胶取色渐变；炫胶自带全屏炫彩）
-            // 🔴 用户要求"参考炫胶唱片主题的横屏"：横屏背景统一用炫胶的纯取色渐变。
-            // 经典原先在横屏用 immersiveBackground（多一层 0.38 模糊封面图），实测会导致
-            // 右列信息区显示异常/对比度糊掉，故横屏一律改用无模糊图的 glitterBackground。
-            glitterBackground
+            // 🔴 横屏背景用"无模糊"的纯取色渐变（plainGradientBackground）：
+            // immersiveBackground 多一层 0.38 模糊封面图，实测会导致右列信息区
+            // 显示异常/对比度糊掉。
+            plainGradientBackground
             .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.2)) { landscapeChromeVisible.toggle() }
             }
 
             HStack(spacing: 0) {
                 // 左：大封面（垂直居中，约占屏宽 44%）
-                discViewForLandscape(maxSide: min(size.height - insets.top - insets.bottom - 24,
-                                                  size.width * 0.44))
+                // 🔴 主题精简后横屏固定用圆角封面：ratio 0.82、上限 340
+                roundedArtwork(width: min(size.height - insets.top - insets.bottom - 24,
+                                          size.width * 0.44),
+                               height: min(size.height - insets.top - insets.bottom - 24,
+                                           size.width * 0.44),
+                               ratio: 0.82, maxCap: 340)
                     .frame(maxWidth: size.width * 0.46, maxHeight: .infinity)
 
                 // 右：信息列
@@ -1165,68 +904,6 @@ struct PlayerView: View {
         .buttonStyle(.plain)
     }
 
-    /// 横屏下的唱片：跟随主题选择黑胶 / 炫胶 / 普通圆角封面。
-    /// 🔴 glitterDiscArea 内部会再乘 0.80（竖屏版式），横屏要"左大封面"，
-    /// 传入 maxSide/0.8 抵消这个二次缩小，让唱片真正用满给定的 maxSide。
-    @ViewBuilder
-    private func discViewForLandscape(maxSide: CGFloat) -> some View {
-        switch currentTheme {
-        case .glitter:
-            glitterDiscArea(width: maxSide / 0.8)
-        case .vinyl:
-            vinylArtwork(width: maxSide, height: maxSide)
-        case .classic:
-            // 横屏封面改大：ratio 0.82、上限 340（竖屏仍用默认 0.65/300，不受影响）
-            roundedArtwork(width: maxSide, height: maxSide, ratio: 0.82, maxCap: 340)
-        }
-    }
-
-    // MARK: - 顶栏
-
-    private func topBar() -> some View {
-        HStack(spacing: 0) {
-            Button { animateOut() } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-            }
-
-            // 歌名 + 歌手同一行（用户要求改在一行显示）
-            HStack(alignment: .center, spacing: 6) {
-                Text(store.current?.title ?? "未播放")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(1)
-                Text(store.current?.artist ?? "")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 8)
-
-            Button { toggleLandscape() } label: {
-                LandscapeToggleIcon()
-                    .frame(width: 40, height: 40)
-                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-            }
-        }
-        // 关闭 / 横屏 按钮同为 40×40 圆形底，图标齐平
-        .frame(height: 44)
-        .foregroundStyle(.white)
-    }
-
-    /// 顶栏中间显示的专辑名（优先歌曲专辑，fallback 源名）
-    private var albumDisplay: String {
-        if let album = store.current?.album, !album.isEmpty { return album }
-        return store.sourceName.isEmpty ? "在线播放" : store.sourceName
-    }
-
     /// 音质徽标：紧跟在歌手后面
     private var qualityPill: some View {
         HStack(spacing: 3) {
@@ -1256,103 +933,10 @@ struct PlayerView: View {
         return store.bitrateLabel.isEmpty ? SourceStore.shared.quality.title : store.bitrateLabel
     }
 
-    // MARK: - 信息区
-
-    private func meta(width: CGFloat) -> some View {
-        // VStack 外层 frame height = contentHeight（已扣 safeTop+safeBottom），
-        // 底部正好在 home indicator 顶部。Spacer 在最前，把 歌词+动作行+进度+控件
-        // 整块推到底部：信息区紧贴播放控件上方（用户要求酷狗黑胶版式）。
-        VStack(alignment: .leading, spacing: 0) {
-            Spacer(minLength: 0)
-
-            lyricPill()
-
-            actionRow()
-                .padding(.top, 18)
-
-            progressSection()
-                .padding(.top, 20)
-                .padding(.horizontal, 15)
-
-            controls()
-                .padding(.top, 14)
-        }
-        .frame(width: width - 36, alignment: .leading)
-        .padding(.bottom, 2)
-        .layoutPriority(1)
-    }
-
-    private func tagRow() -> some View {
-        HStack(spacing: 8) {
-            Button {
-                if let song = store.current {
-                    NotificationCenter.default.post(name: .navigateToArtist, object: song)
-                }
-            } label: {
-                HStack(spacing: 3) {
-                    Text(store.current?.artist ?? "")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.white.opacity(0.75))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: 120, alignment: .leading)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.5))
-                }
-            }
-            .buttonStyle(.plain)
-
-            if let album = store.current?.album, !album.isEmpty {
-                Text("·")
-                    .foregroundStyle(.white.opacity(0.4))
-                Text(album)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 0)
-        }
-    }
-
     /// 双行歌词 —— 已拆到独立子视图 LyricPill（见其注释）：
     /// 歌词高亮 + 进度的 4fps 订阅收进小块，不再整树重建。
     private func lyricPill() -> some View {
         LyricPill(onOpen: { openLyricsPage() })
-    }
-
-    /// 酷狗同款动作行：喜欢 / 下载 / 评论 / 更多
-    /// 🔴 音质与歌词入口挪进「更多」弹层（歌词区本身点一下也能进歌词页）
-    private func actionRow() -> some View {
-        HStack(spacing: 35) {
-            actionButton(glyph: .favorite,
-                         label: "喜欢",
-                         active: store.isLiked,
-                         tint: store.isLiked ? AppStyle.like : .white) {
-                store.toggleFavorite()
-            }
-            actionButton(glyph: .download, label: downloadLabel) { download() }
-            actionButton(glyph: .comment, label: "评论") { openComments() }
-            actionButton(glyph: .more, label: "更多") { showMoreMenu = true }
-        }
-        .frame(maxWidth: .infinity)
-        .confirmationDialog("更多", isPresented: $showMoreMenu, titleVisibility: .visible) {
-            ForEach(MusicQuality.allCases) { q in
-                Button(q == SourceStore.shared.quality ? "✓ \(q.title)音质" : "\(q.title)音质") {
-                    if q != SourceStore.shared.quality {
-                        SourceStore.shared.quality = q
-                        show("已切换到\(q.title)")
-                    }
-                }
-            }
-            Button("完整歌词") { openLyricsPage() }
-            Button(store.showTranslation ? "关闭歌词翻译" : "开启歌词翻译") {
-                store.showTranslation.toggle()
-                Haptics.light()
-            }
-            Button("取消", role: .cancel) {}
-        }
     }
 
     /// 评论：跳到酷狗该歌曲/专辑的 Web 页（与经典主题一致）
@@ -1364,14 +948,6 @@ struct PlayerView: View {
             if let url = URL(string: "https://www.kugou.com/album/\(albumID).html") { UIApplication.shared.open(url) }
         } else if !hash.isEmpty {
             if let url = URL(string: "https://www.kugou.com/song/#\(hash)") { UIApplication.shared.open(url) }
-        }
-    }
-
-    private var modeLabel: String {
-        switch store.mode {
-        case .order: return "顺序"
-        case .single: return "单曲"
-        case .shuffle: return "随机"
         }
     }
 
@@ -1415,50 +991,6 @@ struct PlayerView: View {
     /// 4fps 实时进度刷新被限制在这一小块，横屏控制按钮不再被整树重建吞掉点击。
     private func progressSection() -> some View {
         PlayerProgressSection(playback: store.playback, dominantColor: dominantColor)
-    }
-
-    // MARK: - 控制
-
-    private func controls() -> some View {
-        HStack(spacing: 0) {
-            Button { store.cycleMode() } label: {
-                Image(systemName: store.mode.icon)
-                    .font(.system(size: 20))
-                    .frame(width: 44, height: 56)
-            }
-
-            Spacer(minLength: 0)
-
-            Button { store.step(-1) } label: {
-                Image(systemName: "backward.end.fill")
-                    .font(.system(size: 28))
-                    .frame(width: 56, height: 56)
-            }
-
-            Spacer(minLength: 0)
-
-            PlayButton()
-
-            Spacer(minLength: 0)
-
-            Button { store.step(1) } label: {
-                Image(systemName: "forward.end.fill")
-                    .font(.system(size: 28))
-                    .frame(width: 56, height: 56)
-            }
-
-            Spacer(minLength: 0)
-
-            Button { store.isQueuePresented = true } label: {
-                Image(systemName: "list.bullet")
-                    .font(.system(size: 20))
-                    .frame(width: 44, height: 56)
-            }
-        }
-        .foregroundStyle(.white)
-        .buttonStyle(.plain)
-        // controls 在 meta VStack 里，meta 已有 16pt bottom padding
-        // 不需要再加 safeBottom，SwiftUI 自动处理
     }
 
     // MARK: - 反馈
@@ -1822,7 +1354,7 @@ struct LyricsPageView: View {
                               showsTranslation: store.showTranslation,
                               playback: PlayerStore.shared.playback,
                               isPlaying: store.isPlaying,
-                              liveTime: { store.preciseTime })
+                              liveTime: { store.lyricDisplayTime })
                     .frame(width: sz.width - 52)
                     .frame(maxHeight: .infinity)
                     .frame(maxWidth: .infinity)
@@ -2313,7 +1845,7 @@ private struct LyricPill: View {
                                 end: span.end,
                                 isPlaying: store.isPlaying,
                                 playback: playback,
-                                liveTime: { store.preciseTime })
+                                liveTime: { store.lyricDisplayTime })
                 } else {
                     // 纯音乐 / 解析中 / 无当前行：静态半透白
                     Text(currentLyricText)
@@ -2399,7 +1931,7 @@ private struct LandscapeLyricsBlock: View {
                             font: .system(size: 23, weight: .bold),
                             lineLimit: 2,
                             align: .leading,
-                            liveTime: { store.preciseTime })
+                            liveTime: { store.lyricDisplayTime })
             } else {
                 Text(currentLyricText)
                     .font(.system(size: 23, weight: .bold))

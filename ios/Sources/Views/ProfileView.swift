@@ -13,7 +13,7 @@ struct ProfileView: View {
     @StateObject private var updater = AppUpdater.shared
     /// 自动预缓存下一首 —— 用户手动开关，优先级高于网络判断（默认开启）。
     @AppStorage("aurora.autoPrecache") private var autoPrecacheEnabled: Bool = true
-    @AppStorage("aurora.playerTheme") private var playerTheme: String = "glitter"
+    // 🔴 v2.5.39：播放器主题精简为唯一的「经典封面」，主题选择器已移除（保留旧键不影响）。
     private var autoPrecacheBinding: Binding<Bool> {
         Binding(get: { autoPrecacheEnabled },
                 set: { autoPrecacheEnabled = $0 })
@@ -141,14 +141,6 @@ struct ProfileView: View {
                     }
                 } label: {
                     Label("播放音质", systemImage: "waveform")
-                }
-
-                Picker(selection: $playerTheme) {
-                    Text("酷狗黑胶").tag("vinyl")
-                    Text("经典封面").tag("classic")
-                    Text("炫胶唱片").tag("glitter")
-                } label: {
-                    Label("播放器主题", systemImage: "opticaldisc")
                 }
 
                 HStack {
