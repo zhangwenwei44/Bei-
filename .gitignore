@@ -37,3 +37,4 @@ ios/BundledSources/*.local.js
 # 归档产物
 *.xcarchive
 *.ipa.manifest
+*.json.tmp
