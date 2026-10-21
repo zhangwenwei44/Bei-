@@ -816,17 +816,13 @@ struct PlayerView: View {
                     landscapeLyricsBlock
                         .padding(.top, 16)
                     Spacer(minLength: 10)
-                    // 🔴 v2.5.49：底部横条（进度条 + 播放按钮行）隐藏修复 ——
-                    // 改成与顶栏同一机制：隐藏时整块【移出视图树】（之前用 .opacity(0)，
-                    // 实测横屏里底部横条不会跟着顶栏一起消失）。
-                    if landscapeChromeVisible {
-                        progressSection()
-                            .padding(.horizontal, 2)
-                            .transition(.opacity)
-                        landscapeControls()
-                            .padding(.top, 20)   // 🔴 v2.5.49：播放按钮行与进度条的间距加大
-                            .transition(.opacity)
-                    }
+                    // 🔴 v2.5.50：进度条 + 播放按钮行改回【常显】——
+                    // v2.5.49 跟着浮层一起隐藏后用户实测不方便，要求只自动隐藏
+                    // 顶栏（返回/收藏/下载），底部进度条和播放按钮一直可见。
+                    progressSection()
+                        .padding(.horizontal, 2)
+                    landscapeControls()
+                        .padding(.top, 20)   // 🔴 v2.5.49：播放按钮行与进度条的间距加大
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 // 🔴 layoutPriority(1)：HStack 分配宽度时右列优先，绝不被左侧封面槽挤没

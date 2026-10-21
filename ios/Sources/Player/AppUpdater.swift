@@ -47,6 +47,21 @@ final class AppUpdater: ObservableObject {
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var lastCheckedAt: Date?
 
+    // 🔴 v2.5.50：强制更新 —— 启动检查发现新版本时置位，全屏浮层盖住 App，
+    // 没有关闭按钮，更新完成/安装前无法使用 App。
+    @Published var forceUpdateActive = false
+    @Published var forceRelease: Release?
+
+    /// 启动时的强制更新检查：发现新版本 → 记录 release 并拉起全屏强制更新浮层。
+    func checkForLaunch() async {
+        await check(force: true)
+        if case let .available(release) = phase {
+            forceRelease = release
+            forceUpdateActive = true
+            Log.info("更新", "启动检测到新版本 \(release.tag_name)，进入强制更新")
+        }
+    }
+
     /// 仓库地址，和仓库 README 保持一致
     private let repo = "zhangwenwei44/Bei-"
     private let currentVersion: String

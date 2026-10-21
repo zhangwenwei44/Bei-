@@ -66,6 +66,9 @@ struct DiscoverView: View {
     /// 🔴 v2.5.49：新歌推荐横向翻页的当前页码（每页 4 首，共 28 首 = 7 页）
     @State private var newSongPage = 0
 
+    /// 🔴 v2.5.50：热门歌手横向翻页的当前页码（每页 5 行）
+    @State private var artistPage = 0
+
     /// 猜你喜欢的抽词池。
     static let guessPool: [String] = [
         "抖音热歌", "华语经典", "粤语金曲", "伤感情歌", "欧美流行",
@@ -300,8 +303,10 @@ struct DiscoverView: View {
     private var recommendContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             bigCardsGrid
+            // 🔴 v2.5.50：热门歌手移到新歌推荐上面，同样横向翻页（每页 5 行）
+            moodGreeting
+            artistPagerSection
             // 三个新推荐板块 —— 点"更多"push 进完整榜单页（复用已加载好的歌曲，省一次请求）
-            // 顺序：新歌推荐（置顶）→ 经典推荐 → KTV必点曲（按用户要求换位）
             // 🔴 v2.5.49：新歌推荐改横向翻页（每页 4 首 × 7 页 = 28 首）
             newSongSection
             songSection(title: "经典推荐", moreDestination: {
@@ -330,8 +335,6 @@ struct DiscoverView: View {
                 }
                 .buttonStyle(.plain)
             }, allSongs: ktvSongs)
-            moodGreeting
-            artistsSection
         }
     }
 
@@ -647,28 +650,53 @@ struct DiscoverView: View {
         "热门歌手"
     }
 
-    // MARK: 热门歌手列表
+    // MARK: 热门歌手列表（🔴 v2.5.50 改横向翻页：每页 5 行，与「新歌推荐」同款交互）
 
-    private var artistsSection: some View {
+    private var artistPagerSection: some View {
         Group {
             if !hotArtists.isEmpty {
-                let shown = Array(hotArtists.prefix(8))
+                let pages = stride(from: 0, to: hotArtists.count, by: 5).map {
+                    Array(hotArtists[$0..<min($0 + 5, hotArtists.count)])
+                }
                 VStack(spacing: 0) {
-                    ForEach(Array(shown.enumerated()), id: \.element.id) { index, artist in
-                        NavigationLink {
-                            ArtistDetailView(artist: artist)
-                        } label: {
-                            ArtistRow(artist: artist,
-                                      isPlaying: playingArtistID == artist.id)
-                        }
-                        .buttonStyle(.plain)
-                        if index < shown.count - 1 {
-                            Divider().padding(.leading, 68)
+                    TabView(selection: $artistPage) {
+                        ForEach(Array(pages.enumerated()), id: \.offset) { pageIndex, pageArtists in
+                            VStack(spacing: 0) {
+                                ForEach(Array(pageArtists.enumerated()), id: \.element.id) { index, artist in
+                                    NavigationLink {
+                                        ArtistDetailView(artist: artist)
+                                    } label: {
+                                        ArtistRow(artist: artist,
+                                                  isPlaying: playingArtistID == artist.id)
+                                    }
+                                    .buttonStyle(.plain)
+                                    if index < pageArtists.count - 1 {
+                                        Divider().padding(.leading, 68)
+                                    }
+                                }
+                            }
+                            .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .padding(.horizontal, 16)
+                            .tag(pageIndex)
                         }
                     }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    // 5 行（每行 66pt）+ 4 条分隔线
+                    .frame(height: 336)
+                    .onChange(of: artistPage) { _ in Haptics.soft() }
+
+                    // 页码圆点（与新歌推荐同款：当前页蓝色短条）
+                    HStack(spacing: 5) {
+                        ForEach(0..<pages.count, id: \.self) { idx in
+                            Capsule()
+                                .fill(idx == artistPage ? AppStyle.accent : AppStyle.secondaryText.opacity(0.25))
+                                .frame(width: idx == artistPage ? 16 : 6, height: 6)
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.2), value: artistPage)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 8)
                 }
-                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .padding(.horizontal, 16)
             }
         }
     }
@@ -1128,7 +1156,12 @@ struct DiscoverView: View {
         // 三个新推荐板块
         if ktvSongs.isEmpty { ktvSongs = (try? await KugouClient.shared.searchSongs(keyword: "KTV必点 经典", limit: 30)) ?? [] }
         if classicSongs.isEmpty { classicSongs = (try? await KugouClient.shared.searchSongs(keyword: "华语经典 怀旧", limit: 30)) ?? [] }
-        if newSongs.isEmpty { newSongs = (try? await KugouClient.shared.searchSongs(keyword: "新歌榜", limit: 28)) ?? [] }
+        if newSongs.isEmpty {
+            let fetched = (try? await KugouClient.shared.searchSongs(keyword: "新歌榜", limit: 28)) ?? []
+            // 🔴 v2.5.50：接口偶尔多回 2 首，尾页只剩 2 行很难看 —— 裁成 4 的倍数，
+            // 保证每页都是整整齐齐 4 首（28 首 = 7 页）。
+            newSongs = Array(fetched.prefix(fetched.count / 4 * 4))
+        }
         let whitelistedSlices = filteredLists
         await loadTrackCounts(for: whitelistedSlices.prefix(5))
     }

@@ -8,6 +8,8 @@ struct AuroraMusicApp: App {
     /// 两处必须是同一个实例，environmentObject 注入仍照常供深层视图使用。
     @StateObject private var store = PlayerStore.shared
     @StateObject private var auth = AuthService.shared
+    // 🔴 v2.5.50：启动检查更新 —— 检测到新版本弹全屏强制更新浮层（不可关闭）
+    @StateObject private var updater = AppUpdater.shared
     // 🔴 v2.5.41：用户要求移除「启动公告」与「免责声明」——App 直接进入主界面，
     // QQ 群入口改到「设置」页（见 ProfileView 的「加入 QQ 交流群」）。
     /// 🔴 注入 AppDelegate：接管 supportedInterfaceOrientations，配合 OrientationLock
@@ -50,6 +52,14 @@ struct AuroraMusicApp: App {
                 .environmentObject(auth)
                 .preferredColorScheme(ThemeSettings.mode.colorScheme)
                 .onAppear { store.bootstrap() }
+                // 🔴 v2.5.50：启动后台查一次版本，有新版 → 全屏强制更新浮层（无关闭按钮）
+                .task { await updater.checkForLaunch() }
+                .overlay {
+                    if updater.forceUpdateActive {
+                        ForceUpdateView()
+                            .transition(.opacity)
+                    }
+                }
         }
     }
 }
