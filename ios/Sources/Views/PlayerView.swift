@@ -24,6 +24,8 @@ struct PlayerView: View {
     /// 音质切换弹层
     /// 「更多」弹层：音质档位 / 完整歌词 / 歌词翻译
     @State private var showMoreMenu = false
+    /// 🔴 v2.5.45：动作行「音质」按钮专用弹层（原「评论」位置改为音质）
+    @State private var showQualityMenu = false
     /// 🔴 v2.5.44：横屏播放器内嵌的「播放队列」面板（不再单独弹一页 sheet）
     @State private var showLandscapeQueue = false
     /// 分享弹层内容（nil = 不弹）
@@ -364,17 +366,17 @@ struct PlayerView: View {
             // ② 下载
             classicActionButton(glyph: .download) { download() }
             Spacer(minLength: 0)
-            // ③ 评论
-            classicActionButton(glyph: .comment) { openComments() }
+            // ③ 音质（v2.5.45：原「评论」改为「音质」—— 点开音质选择）
+            classicActionButton(glyph: .quality) { showQualityMenu = true }
             Spacer(minLength: 0)
             // ④ 歌词页
             classicActionButton(glyph: .lyric) { openLyricsPage() }
             Spacer(minLength: 0)
-            // ⑤ 更多（音质 / 横屏 / 歌词翻译 / 歌词微调）
+            // ⑤ 更多（横屏 / 歌词翻译 / 歌词微调）
             classicActionButton(glyph: .more) { showMoreMenu = true }
         }
         .frame(maxWidth: .infinity)
-        .confirmationDialog("更多", isPresented: $showMoreMenu, titleVisibility: .visible) {
+        .confirmationDialog("音质", isPresented: $showQualityMenu, titleVisibility: .visible) {
             ForEach(MusicQuality.allCases) { q in
                 Button(q == SourceStore.shared.quality ? "✓ \(q.title)音质" : "\(q.title)音质") {
                     if q != SourceStore.shared.quality {
@@ -383,6 +385,9 @@ struct PlayerView: View {
                     }
                 }
             }
+            Button("取消", role: .cancel) {}
+        }
+        .confirmationDialog("更多", isPresented: $showMoreMenu, titleVisibility: .visible) {
             Button("完整歌词") { openLyricsPage() }
             Button("分享歌曲") { shareCurrentSong() }
             Button(store.showTranslation ? "关闭歌词翻译" : "开启歌词翻译") {
@@ -434,6 +439,16 @@ struct PlayerView: View {
 
     // MARK: 播放控件（Beans 直接搬：accent=dominantColor 渐变 + 发光 + 玻璃描边）
 
+    /// 🔴 v2.5.45：专辑封面边长 side = min(剩余高*0.9, 屏宽*0.86)，封面水平居中，
+    /// 因此左右留白 = (屏宽 - side)/2。让封面下方信息区（歌名/歌词/动作行/进度/控件）
+    /// 用同样的左右 padding，做到与专辑左右边缘齐平。
+    private var classicSideInset: CGFloat {
+        let w = UIScreen.main.bounds.width
+        let h = UIScreen.main.bounds.height
+        let side = min(h * 0.90, w * 0.86)
+        return max(12, (w - side) / 2)
+    }
+
     private var classicDeck: some View {
         VStack(spacing: 6) {
             // 🔴 参考图版式：封面下方先放「大标题 + 歌手 + 徽标」（左对齐）
@@ -444,7 +459,7 @@ struct PlayerView: View {
             lyricPill()
                 .padding(.bottom, 8)
 
-            // 动作行：喜欢 / 下载 / 评论 / 歌词 / ⋯（纯图标均分）
+            // 动作行：喜欢 / 下载 / 音质 / 歌词 / ⋯（纯图标均分）
             classicActionRow
                 .padding(.bottom, 10)
 
@@ -455,7 +470,8 @@ struct PlayerView: View {
             classicDeckControls
                 .frame(height: 54)
         }
-        .padding(.horizontal, 15)
+        // 🔴 v2.5.45：左右间距与专辑封面齐平（之前固定 15，导致信息区比专辑更宽）
+        .padding(.horizontal, classicSideInset)
         .padding(.top, 2)
         // 🔴 classicBody 已在内容高度里扣除底部安全区（deck 底部正好落在 home 指示条上方），
         // 这里只留少量呼吸，不再重复加 safeBottom（否则内容会被 fixed height 裁掉 → 歌词被"移除"）。
@@ -802,6 +818,11 @@ struct PlayerView: View {
             }
         }
         // 🔴 顶栏浮层用 overlay(alignment:.top) 钉在顶部：
+        // 🔴 v2.5.45：加 zIndex(10) 确保返回按钮始终位于最上层，不被其它浮层/手势层吞掉点击。
+        .overlay(alignment: .top) {
+            landscapeTopBar(insets: insets)
+                .zIndex(10)
+        }
         // - 放 ZStack 里不带 alignment 会被居中（实测关闭按钮浮在唱片中间）；
         // - 带全屏 frame 又可能吞下方触摸；
         // overlay 只在自身内容处可点击，两个问题都没有。
@@ -829,21 +850,23 @@ struct PlayerView: View {
                 Haptics.light()
             } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 21, weight: .semibold))
+                    .font(.system(size: 23, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 56, height: 56)
                     .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
             }
-            // 🔴 显式命中区 + contentShape：保证 44×44 全覆盖可点（不受图标自身 bounds 限制）
+            // 🔴 显式命中区 + contentShape：保证 56×56 全覆盖可点（不受图标自身 bounds 限制）
             .contentShape(Rectangle())
             Spacer(minLength: 0)
         }
         .buttonStyle(.plain)
-        .frame(height: 44)
-        .padding(.top, max(insets.top, 10) + 14)
-        // 🔴 v2.5.44：返回按钮整体再往左移（原来 +14 太靠中间）：
-        // 按钮 44 宽、图标居中 → 用 -10 的偏移把图标推到更靠屏幕左边缘的位置。
-        .padding(.leading, max(insets.left - 10, 0))
+        .frame(height: 56)
+        .padding(.top, max(insets.top, 10) + 10)
+        // 🔴 v2.5.45：返回按钮回到安全区内（insets.left + 2），避免压在屏幕左缘的系统
+        // 边缘手势区里 —— 之前 inset-10 让按钮左半部分落在屏幕边缘手势带，
+        // 部分点按会被系统边缘手势吞掉，表现就是"有时要按几下才按到"。同时整体仍比
+        // 初版（insets.left+14）更靠左。命中区也由 44×44 放大到 56×56。
+        .padding(.leading, insets.left + 2)
         .padding(.trailing, insets.right + 8)
     }
 
@@ -974,18 +997,6 @@ struct PlayerView: View {
     /// 歌词高亮 + 进度的 4fps 订阅收进小块，不再整树重建。
     private func lyricPill() -> some View {
         LyricPill(onOpen: { openLyricsPage() })
-    }
-
-    /// 评论：跳到酷狗该歌曲/专辑的 Web 页（与经典主题一致）
-    private func openComments() {
-        guard let song = store.current else { return }
-        let albumID = song.kugouAlbumID
-        let hash = song.kugouHash
-        if !albumID.isEmpty {
-            if let url = URL(string: "https://www.kugou.com/album/\(albumID).html") { UIApplication.shared.open(url) }
-        } else if !hash.isEmpty {
-            if let url = URL(string: "https://www.kugou.com/song/#\(hash)") { UIApplication.shared.open(url) }
-        }
     }
 
     /// 动作行按钮：图标统一走自绘图标集 PlayerActionIcon（线宽/画布/圆角一致）
