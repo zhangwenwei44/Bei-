@@ -63,6 +63,9 @@ struct DiscoverView: View {
         "85432",  // 百万收藏榜
     ]
 
+    /// 🔴 v2.5.49：新歌推荐横向翻页的当前页码（每页 4 首，共 28 首 = 7 页）
+    @State private var newSongPage = 0
+
     /// 猜你喜欢的抽词池。
     static let guessPool: [String] = [
         "抖音热歌", "华语经典", "粤语金曲", "伤感情歌", "欧美流行",
@@ -299,19 +302,8 @@ struct DiscoverView: View {
             bigCardsGrid
             // 三个新推荐板块 —— 点"更多"push 进完整榜单页（复用已加载好的歌曲，省一次请求）
             // 顺序：新歌推荐（置顶）→ 经典推荐 → KTV必点曲（按用户要求换位）
-            songSection(title: "新歌推荐", moreDestination: {
-                NavigationLink {
-                    PlaylistDetailView(
-                        playlist: Playlist(id: "local-new", name: "新歌推荐",
-                                           coverURL: nil, trackCount: newSongs.count,
-                                           creatorName: "Aurora 推荐", source: .kugou),
-                        initialSongs: newSongs)
-                } label: {
-                    HStack(spacing: 2) { Text("更多").font(.system(size: 12)); Image(systemName: "chevron.right").font(.system(size: 10)) }
-                        .foregroundStyle(AppStyle.tertiaryText)
-                }
-                .buttonStyle(.plain)
-            }, allSongs: newSongs)
+            // 🔴 v2.5.49：新歌推荐改横向翻页（每页 4 首 × 7 页 = 28 首）
+            newSongSection
             songSection(title: "经典推荐", moreDestination: {
                 NavigationLink {
                     PlaylistDetailView(
@@ -340,6 +332,82 @@ struct DiscoverView: View {
             }, allSongs: ktvSongs)
             moodGreeting
             artistsSection
+        }
+    }
+
+    // 🔴 v2.5.49：新歌推荐 —— 横向翻页版式（参考用户截图）：
+    // 每页 4 首歌（封面 + 歌名 + 歌手 + 收藏心形），共 28 首 = 7 页，左右滑切换，
+    // 底部页码圆点指示当前页。
+    private var newSongSection: some View {
+        let pages = stride(from: 0, to: newSongs.count, by: 4).map {
+            Array(newSongs[$0..<min($0 + 4, newSongs.count)])
+        }
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("新歌推荐")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(AppStyle.primaryText)
+                Spacer()
+                NavigationLink {
+                    PlaylistDetailView(
+                        playlist: Playlist(id: "local-new", name: "新歌推荐",
+                                           coverURL: nil, trackCount: newSongs.count,
+                                           creatorName: "Aurora 推荐", source: .kugou),
+                        initialSongs: newSongs)
+                } label: {
+                    HStack(spacing: 2) { Text("更多").font(.system(size: 12)); Image(systemName: "chevron.right").font(.system(size: 10)) }
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 18)
+            .padding(.bottom, 8)
+
+            if pages.isEmpty {
+                HStack {
+                    ProgressView().controlSize(.small)
+                        .frame(maxWidth: .infinity).padding(.vertical, 20)
+                }.padding(.horizontal, 16)
+            } else {
+                TabView(selection: $newSongPage) {
+                    ForEach(Array(pages.enumerated()), id: \.offset) { pageIndex, pageSongs in
+                        VStack(spacing: 0) {
+                            ForEach(Array(pageSongs.enumerated()), id: \.element.id) { index, song in
+                                FeedSongRow(song: song)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        guard let start = newSongs.firstIndex(where: { $0.id == song.id }) else { return }
+                                        store.play(newSongs, startAt: start)
+                                        Haptics.soft()
+                                    }
+                                if index < pageSongs.count - 1 {
+                                    Divider().padding(.leading, 14)
+                                }
+                            }
+                        }
+                        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .padding(.horizontal, 16)
+                        .tag(pageIndex)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                // 4 行（每行 76pt）+ 3 条分隔线
+                .frame(height: 308)
+                .onChange(of: newSongPage) { _ in Haptics.soft() }
+
+                // 页码圆点（与榜单宫格同款：当前页蓝色短条）
+                HStack(spacing: 5) {
+                    ForEach(0..<pages.count, id: \.self) { idx in
+                        Capsule()
+                            .fill(idx == newSongPage ? AppStyle.accent : AppStyle.secondaryText.opacity(0.25))
+                            .frame(width: idx == newSongPage ? 16 : 6, height: 6)
+                    }
+                }
+                .animation(.easeInOut(duration: 0.2), value: newSongPage)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 8)
+            }
         }
     }
 
@@ -1060,7 +1128,7 @@ struct DiscoverView: View {
         // 三个新推荐板块
         if ktvSongs.isEmpty { ktvSongs = (try? await KugouClient.shared.searchSongs(keyword: "KTV必点 经典", limit: 30)) ?? [] }
         if classicSongs.isEmpty { classicSongs = (try? await KugouClient.shared.searchSongs(keyword: "华语经典 怀旧", limit: 30)) ?? [] }
-        if newSongs.isEmpty { newSongs = (try? await KugouClient.shared.searchSongs(keyword: "新歌榜", limit: 30)) ?? [] }
+        if newSongs.isEmpty { newSongs = (try? await KugouClient.shared.searchSongs(keyword: "新歌榜", limit: 28)) ?? [] }
         let whitelistedSlices = filteredLists
         await loadTrackCounts(for: whitelistedSlices.prefix(5))
     }
@@ -1304,20 +1372,17 @@ struct FeedSongRow: View {
             CoverImage(url: song.artworkURL,
                        fallbackKeys: song.coverFallbackKeys,
                        seed: "\(song.artist)-\(song.title)",
-                       size: 50,
+                       size: 56,
                        corner: 8)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(song.title)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(AppStyle.primaryText)
                     .lineLimit(1)
-                HStack(spacing: 6) {
-                    Text(song.artist)
-                        .font(.system(size: 12))
-                        .foregroundStyle(AppStyle.secondaryText)
-                        .lineLimit(1)
-                        .layoutPriority(1)
-                }
+                Text(song.artist)
+                    .font(.system(size: 13))
+                    .foregroundStyle(AppStyle.secondaryText)
+                    .lineLimit(1)
             }
             Spacer(minLength: 4)
             Button {
@@ -1325,9 +1390,9 @@ struct FeedSongRow: View {
                 Haptics.light()
             } label: {
                 Image(systemName: library.isFavorite(song) ? "heart.fill" : "heart")
-                    .font(.system(size: 18))
-                    .foregroundStyle(library.isFavorite(song) ? AppStyle.like : AppStyle.tertiaryText)
-                    .frame(width: 36, height: 36)
+                    .font(.system(size: 20))
+                    .foregroundStyle(library.isFavorite(song) ? AppStyle.like : AppStyle.secondaryText.opacity(0.7))
+                    .frame(width: 40, height: 40)
             }
             .buttonStyle(.plain)
         }

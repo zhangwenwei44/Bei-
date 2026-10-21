@@ -110,7 +110,8 @@ struct PlayerView: View {
                 // 于是 isLandscape 仍为 true → 横屏播放器和竖屏歌词页同时渲染、左右错乱拼接（实测截图）。
                 // 改成 else-if 链：isLyricsPage 一开，横屏播放器整棵移出视图树，从根上消除拼接。
                 if isLyricsPage {
-                    LyricsPageView(isShown: $isLyricsPage)
+                    LyricsPageView(isShown: $isLyricsPage,
+                                   onEnterLandscape: enterLandscapeFromLyrics)
                         .environmentObject(store)
                         .transition(.opacity)
                         .zIndex(10)
@@ -759,6 +760,20 @@ struct PlayerView: View {
         }
     }
 
+    /// 🔴 v2.5.49：歌词页右上角「横屏」按钮 —— 关掉歌词页后进入横屏播放器。
+    /// 时序：先退歌词页（触发 onChange 里的 0.4s restore），等方向稳定后再进横屏，
+    /// 避免歌词页退场动画和强制旋转打架。若本来就是从横屏进的歌词页，
+    /// 关闭歌词页时 restoreOrientationAfterLyrics 会自动恢复横屏，无需再转。
+    private func enterLandscapeFromLyrics() {
+        Haptics.light()
+        let wasLandscape = isLandscape
+        withAnimation(.easeInOut(duration: 0.3)) { isLyricsPage = false }
+        guard !wasLandscape else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            toggleLandscape()
+        }
+    }
+
     /// 横屏布局（酷狗式，参考用户截图）。
     /// 🔴 播放页由 UIKit present() 呈现 + 系统强制旋转（见 RootView），
     /// 窗口尺寸/安全区就是横屏语义的真实值，直接布局即可。
@@ -784,22 +799,6 @@ struct PlayerView: View {
             // immersiveBackground 多一层 0.38 模糊封面图，实测会导致右列信息区
             // 显示异常/对比度糊掉。
             plainGradientBackground
-            .onTapGesture {
-                // 🔴 v2.5.44：队列面板开着时，点空白先关面板（再点才切浮层）
-                if showLandscapeQueue {
-                    withAnimation(.easeOut(duration: 0.22)) { showLandscapeQueue = false }
-                    scheduleChromeHide()
-                } else if landscapeChromeVisible {
-                    // 🔴 v2.5.47：可见时点击立即隐藏
-                    chromeHideTask?.cancel()
-                    withAnimation(.easeInOut(duration: 0.2)) { landscapeChromeVisible = false }
-                } else {
-                    // 隐藏时点击 → 显示并在 4 秒后自动隐藏
-                    scheduleChromeHide()
-                }
-            }
-            .onAppear { scheduleChromeHide() }
-            .onDisappear { chromeHideTask?.cancel() }
 
             HStack(spacing: 0) {
                 // 左：大封面（垂直居中，约占屏宽 44%）
@@ -816,16 +815,18 @@ struct PlayerView: View {
                     landscapeTitleRow
                     landscapeLyricsBlock
                         .padding(.top, 16)
-            Spacer(minLength: 10)
-            // 🔴 v2.5.47：进度条 + 控制行随浮层自动隐藏（视频播放器式交互）
-            progressSection()
-                .padding(.horizontal, 2)
-                .opacity(landscapeChromeVisible ? 1 : 0)
-                .allowsHitTesting(landscapeChromeVisible)
-            landscapeControls()
-                .padding(.top, 10)
-                .opacity(landscapeChromeVisible ? 1 : 0)
-                .allowsHitTesting(landscapeChromeVisible)
+                    Spacer(minLength: 10)
+                    // 🔴 v2.5.49：底部横条（进度条 + 播放按钮行）隐藏修复 ——
+                    // 改成与顶栏同一机制：隐藏时整块【移出视图树】（之前用 .opacity(0)，
+                    // 实测横屏里底部横条不会跟着顶栏一起消失）。
+                    if landscapeChromeVisible {
+                        progressSection()
+                            .padding(.horizontal, 2)
+                            .transition(.opacity)
+                        landscapeControls()
+                            .padding(.top, 20)   // 🔴 v2.5.49：播放按钮行与进度条的间距加大
+                            .transition(.opacity)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 // 🔴 layoutPriority(1)：HStack 分配宽度时右列优先，绝不被左侧封面槽挤没
@@ -838,6 +839,26 @@ struct PlayerView: View {
             }
             .padding(.leading, insets.left)              // 真实左安全区：避开刘海（XS 不再遮唱片）
         }
+        // 🔴 v2.5.49：点击手势挂到整个 ZStack 并用 contentShape 铺满全屏 ——
+        // 之前挂在背景渐变层上，点到 Spacer/封面等区域时手势收不到，
+        // 表现就是"点了没反应、浮层藏不住"。按钮仍优先响应（Button 吞掉自己的点击）。
+        .contentShape(Rectangle())
+        .onTapGesture {
+            // 🔴 v2.5.44：队列面板开着时，点空白先关面板（再点才切浮层）
+            if showLandscapeQueue {
+                withAnimation(.easeOut(duration: 0.22)) { showLandscapeQueue = false }
+                scheduleChromeHide()
+            } else if landscapeChromeVisible {
+                // 🔴 v2.5.47：可见时点击立即隐藏
+                chromeHideTask?.cancel()
+                withAnimation(.easeInOut(duration: 0.2)) { landscapeChromeVisible = false }
+            } else {
+                // 隐藏时点击 → 显示并在 4 秒后自动隐藏
+                scheduleChromeHide()
+            }
+        }
+        .onAppear { scheduleChromeHide() }
+        .onDisappear { chromeHideTask?.cancel() }
         // 🔴 v2.5.44：队列面板内嵌在右侧（不再是单独的 sheet 页）
         .overlay(alignment: .trailing) {
             if showLandscapeQueue {
@@ -1486,6 +1507,8 @@ struct LyricsPageView: View {
     /// 这个视图没有注入链，直接从单例取同一个实例。
     @ObservedObject private var lyricState = PlayerStore.shared.lyricState
     @Binding var isShown: Bool
+    /// 🔴 v2.5.49：右上角「横屏」按钮回调（由 PlayerView 注入，处理方向切换时序）。
+    var onEnterLandscape: (() -> Void)? = nil
 
     private var safeTop: CGFloat {
         // 🔴 复用 PlayerView.safeAreaInsets（过滤第三方注入窗口），不再直接读 keyWindow
@@ -1558,14 +1581,15 @@ struct LyricsPageView: View {
 
                     Spacer()
 
+                    // 🔴 v2.5.49：右上角改「横屏播放器」按钮（原翻译按钮，翻译入口保留在播放页「更多」菜单）
                     Button {
-                        store.showTranslation.toggle()
+                        onEnterLandscape?()
                     } label: {
-                        Image(systemName: "character.bubble")
-                            .font(.system(size: 18, weight: .medium))
-                            .opacity(store.showTranslation ? 1 : 0.4)
+                        LandscapeToggleIcon()
                             .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
                 .foregroundStyle(.white)
                 .padding(.top, safeTop)
