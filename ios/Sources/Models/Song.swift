@@ -61,13 +61,14 @@ enum MusicQuality: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    /// 🔴 v2.5.46：按用户要求改名（原 标准音质/较高音质/极高音质/无损音质/Hi-Res）。
     var title: String {
         switch self {
-        case .standard: return "标准音质"
-        case .higher: return "较高音质"
-        case .exHigh: return "极高音质"
-        case .lossless: return "无损音质"
-        case .hires: return "Hi-Res"
+        case .standard: return "高品音质"
+        case .higher: return "超品音质"
+        case .exHigh: return "无损音质"
+        case .lossless: return "至臻母带"
+        case .hires: return "至臻2.0"
         }
     }
 

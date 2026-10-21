@@ -268,13 +268,15 @@ struct PlayerView: View {
                     .truncationMode(.tail)
                     .layoutPriority(1)
                 vipPill
+                // 🔴 v2.5.46：音质标签改成与 VIP 同款黄色胶囊（原白色半透明）
                 Text(qualityText)
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.85))
+                    .foregroundStyle(AppStyle.gold)
                     .lineLimit(1)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.white.opacity(0.16), in: Capsule())
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(AppStyle.gold.opacity(0.18), in: Capsule())
+                    .overlay(Capsule().stroke(AppStyle.gold.opacity(0.55), lineWidth: 0.6))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -356,12 +358,18 @@ struct PlayerView: View {
     /// 动作行（参考图同款）：纯图标、无文字、整行均分 —— 喜欢 / 下载 / 评论 / 歌词 / ⋯
     private var classicActionRow: some View {
         HStack(spacing: 0) {
-            // ① 喜欢（激活时实心红心）
-            classicActionButton(glyph: .favorite,
-                                active: store.isLiked,
-                                tint: store.isLiked ? AppStyle.like : .white) {
+            // ① 喜欢 —— 🔴 v2.5.46：改回最初用的 SF Symbol 心形（用户要求）
+            Button {
                 store.toggleFavorite()
+                Haptics.light()
+            } label: {
+                Image(systemName: store.isLiked ? "heart.fill" : "heart")
+                    .font(.system(size: 22))
+                    .foregroundStyle(store.isLiked ? AppStyle.like : .white)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             Spacer(minLength: 0)
             // ② 下载
             classicActionButton(glyph: .download) { download() }
@@ -378,7 +386,8 @@ struct PlayerView: View {
         .frame(maxWidth: .infinity)
         .confirmationDialog("音质", isPresented: $showQualityMenu, titleVisibility: .visible) {
             ForEach(MusicQuality.allCases) { q in
-                Button(q == SourceStore.shared.quality ? "✓ \(q.title)音质" : "\(q.title)音质") {
+                // 🔴 v2.5.46：title 自带「音质」二字（至臻母带/至臻2.0 除外），不再额外拼接
+                Button(q == SourceStore.shared.quality ? "✓ \(q.title)" : "\(q.title)") {
                     if q != SourceStore.shared.quality {
                         SourceStore.shared.quality = q
                         show("已切换到\(q.title)")
@@ -858,16 +867,40 @@ struct PlayerView: View {
             // 🔴 显式命中区 + contentShape：保证 56×56 全覆盖可点（不受图标自身 bounds 限制）
             .contentShape(Rectangle())
             Spacer(minLength: 0)
+            // 🔴 v2.5.46：右侧与返回键同高度加「收藏」「下载」（用户要求）
+            Button {
+                store.toggleFavorite()
+                Haptics.light()
+            } label: {
+                Image(systemName: store.isLiked ? "heart.fill" : "heart")
+                    .font(.system(size: 21))
+                    .foregroundStyle(store.isLiked ? AppStyle.like : .white)
+                    .frame(width: 52, height: 56)
+                    .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
+                    .contentShape(Rectangle())
+            }
+            Button {
+                download()
+                Haptics.light()
+            } label: {
+                Image(systemName: "arrow.down.to.line")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 52, height: 56)
+                    .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
+                    .contentShape(Rectangle())
+            }
         }
         .buttonStyle(.plain)
         .frame(height: 56)
-        .padding(.top, max(insets.top, 10) + 10)
+        // 🔴 v2.5.46：返回按钮整体上移（顶栏 padding 由 +10 减到 +2）
+        .padding(.top, max(insets.top, 10) + 2)
         // 🔴 v2.5.45：返回按钮回到安全区内（insets.left + 2），避免压在屏幕左缘的系统
         // 边缘手势区里 —— 之前 inset-10 让按钮左半部分落在屏幕边缘手势带，
         // 部分点按会被系统边缘手势吞掉，表现就是"有时要按几下才按到"。同时整体仍比
         // 初版（insets.left+14）更靠左。命中区也由 44×44 放大到 56×56。
         .padding(.leading, insets.left + 2)
-        .padding(.trailing, insets.right + 8)
+        .padding(.trailing, insets.right + 2)
     }
 
     /// 横屏标题：「歌名 - 歌手」单行（用户要求移除会员试听条）。
@@ -1239,7 +1272,8 @@ private struct LandscapeQueuePanel: View {
         .frame(maxHeight: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.black.opacity(0.42))
+                // 🔴 v2.5.46：面板改不透明（原 0.42 半透明，歌词透出来看不清）
+                .fill(Color.black.opacity(0.97))
                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .stroke(Color.white.opacity(0.14), lineWidth: 0.6))
         )
@@ -1719,20 +1753,12 @@ private struct BigLyricsView: View {
         return VStack(spacing: 7) {
             // 🔴 用户要求字号调小：当前句 30→26，其他行 20→17
             if isActive {
-                // 当前句：卡拉OK逐字填充（已唱纯白 / 未唱半透白），与播放页迷你条同款
-                let end = (idx + 1 < lyrics.count) ? lyrics[idx + 1].time : (line.time + 5)
-                // 🔴 KaraokeLine 参数顺序必须严格匹配声明顺序：
-                // text, start, end, isPlaying, playback, font, lineLimit, align, liveTime。
-                // liveTime 是最后一个（带默认值的）参数，必须放在最末尾，否则报
-                // "argument 'font' must precede argument 'liveTime'"。
-                KaraokeLine(text: line.text,
-                            start: line.time,
-                            end: end,
-                            isPlaying: isPlaying,
-                            playback: playback,
-                            font: .system(size: 26, weight: .bold),
-                            lineLimit: nil,
-                            liveTime: liveTime)
+                // 🔴 v2.5.46：竖屏歌词页整行高亮（白、加粗），不再逐字卡拉OK填充
+                // （横屏歌词块保持逐字不变 —— 用户要求只改竖屏）
+                Text(line.text)
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
             } else {
                 Text(line.text)
                     .font(.system(size: 17, weight: .medium))
@@ -1925,15 +1951,13 @@ private struct PlayerProgressSection: View {
     }
 }
 
-/// 双行歌词条（酷狗风格 + 卡拉OK逐字）：当前行卡拉OK填充 + 下一行暗显。
-/// 炫胶 / 黑胶 / 经典三主题竖屏共用；点击进歌词页。
+/// 双行歌词条（酷狗风格）：当前行整行高亮 + 下一行暗显。
+/// 🔴 v2.5.46：竖屏不再逐字卡拉OK填充，改为整行高亮（用户要求；横屏保持逐字不变）。
+/// 点击进歌词页。
 private struct LyricPill: View {
     @EnvironmentObject private var store: PlayerStore
-    /// 独立订阅歌词高亮 + 进度（与注入的是同一单例实例，见 LyricsPageView 同款写法）
+    /// 独立订阅歌词高亮（与注入的是同一单例实例，见 LyricsPageView 同款写法）
     @ObservedObject private var lyricState = PlayerStore.shared.lyricState
-    /// 🔴 let 不订阅（v2.5.38）：LyricPill 的逐字填充由 KaraokeLine 的 TimelineView
-    /// + liveTime 驱动，无需随 4fps 进度重建（否则迷你歌词条每秒抖 4 次）。
-    private let playback = PlayerStore.shared.playback
     var onOpen: () -> Void
 
     private var dim: Color { .white.opacity(0.4) }
@@ -1943,24 +1967,12 @@ private struct LyricPill: View {
             onOpen()
         } label: {
             VStack(alignment: .leading, spacing: 4) {
-                // 第一行：当前歌词 —— 高亮、大，卡拉OK逐字填充（参考图：左对齐）
-                if let span = currentLineSpan {
-                    KaraokeLine(text: currentLyricText,
-                                start: span.start,
-                                end: span.end,
-                                isPlaying: store.isPlaying,
-                                playback: playback,
-                                font: .system(size: 17, weight: .semibold, design: .rounded),
-                                align: .leading,
-                                liveTime: { store.lyricDisplayTime })
-                } else {
-                    // 纯音乐 / 解析中 / 无当前行：静态半透白
-                    Text(currentLyricText)
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .foregroundStyle(dim)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                // 第一行：当前歌词 —— 整行高亮（白、加粗），无逐字填充
+                Text(currentLyricText)
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundStyle(currentLineActive ? .white : dim)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 // 第二行：下一句歌词 —— 暗、小（左对齐）
                 if let next = nextLyricText {
                     Text(next)
@@ -1978,19 +1990,9 @@ private struct LyricPill: View {
         .animation(.easeInOut(duration: 0.25), value: nextLyricText)
     }
 
-    /// 当前歌词行的起止时间：start=本句 time，end=下一句 time；末行用整曲时长兜底。
-    private var currentLineSpan: (start: Double, end: Double)? {
-        guard let index = lyricState.currentIndex,
-              store.lyrics.indices.contains(index) else { return nil }
-        let start = store.lyrics[index].time
-        let end: Double
-        if store.lyrics.indices.contains(index + 1) {
-            end = store.lyrics[index + 1].time
-        } else {
-            end = playback.duration > start ? playback.duration : start + 5
-        }
-        guard end > start else { return (start, start + 1) }
-        return (start, end)
+    /// 当前行是否处于激活状态（有有效行且非加载/纯音乐提示语）
+    private var currentLineActive: Bool {
+        !store.isLoading && lyricState.currentIndex != nil && !store.lyrics.isEmpty
     }
 
     private var currentLyricText: String {

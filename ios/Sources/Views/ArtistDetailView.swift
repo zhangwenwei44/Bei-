@@ -1,9 +1,11 @@
 import SwiftUI
 
-/// 歌手主页：沉浸式横幅 + 分段切换「歌曲 / 专辑」+ 多选下载。
+/// 歌手主页：酷狗同款大图头部（歌手名 + 粉丝 + 黄色收藏）+ 金色下划线分段
+/// 「单曲 / 专辑」+ 全部播放行（最新/最热排序）+ 扁平化编号歌曲列表 + 多选下载。
 struct ArtistDetailView: View {
     let artist: Artist
     @EnvironmentObject private var store: PlayerStore
+    @Environment(\.dismiss) private var dismiss
     @State private var songs: [Song] = []
     @State private var albums: [Album] = []
     @State private var isLoading = false
@@ -13,6 +15,9 @@ struct ArtistDetailView: View {
     // 顶部 Tab：歌曲 / 专辑
     @State private var tab: Int = 0
 
+    // 🔴 v2.5.46：排序（最热=接口原序 / 最新=倒序）
+    @State private var sortNewest = false
+
     // 多选模式
     @State private var isSelecting = false
     @State private var selectedIDs: Set<String> = []
@@ -21,6 +26,9 @@ struct ArtistDetailView: View {
     @State private var songPage = 1
     @State private var hasMoreSongs = true
     @State private var isLoadingMore = false
+
+    /// 排序后的展示列表（最热=原序，最新=倒序）
+    private var displaySongs: [Song] { sortNewest ? songs.reversed() : songs }
 
     var body: some View {
         ScrollView {
@@ -47,22 +55,14 @@ struct ArtistDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 if isSelecting {
                     Button {
-                        if selectedIDs.count == songs.count {
+                        if selectedIDs.count == displaySongs.count {
                             selectedIDs.removeAll()
                         } else {
                             selectedIDs = Set(songs.map(\.id))
                         }
                     } label: {
-                        Text(selectedIDs.count == songs.count ? "取消全选" : "全选")
+                        Text(selectedIDs.count == displaySongs.count ? "取消全选" : "全选")
                             .font(.system(size: 14, weight: .medium))
-                    }
-                } else {
-                    Button {
-                        isSelecting = true
-                        selectedIDs.removeAll()
-                    } label: {
-                        Label("多选", systemImage: "checkmark.circle")
-                            .font(.system(size: 13))
                     }
                 }
             }
@@ -91,48 +91,52 @@ struct ArtistDetailView: View {
         .onDisappear { store.isAnyMultiSelecting = false }
     }
 
-    // MARK: - 分段 Tab 条
+    // MARK: - 分段 Tab 条（酷狗同款：文字 + 金色下划线）
 
     private var tabBar: some View {
-        HStack(spacing: 4) {
-            tabButton(title: "歌曲", count: songs.count, selected: tab == 0) {
+        HStack(spacing: 26) {
+            tabButton(title: "单曲", count: songs.count, selected: tab == 0) {
                 withAnimation(.easeOut(duration: 0.2)) { tab = 0 }
             }
             tabButton(title: "专辑", count: albums.count, selected: tab == 1) {
                 withAnimation(.easeOut(duration: 0.2)) { tab = 1 }
             }
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
         .padding(.top, 14)
-        .padding(.bottom, 6)
+        .padding(.bottom, 4)
     }
 
     private func tabButton(title: String, count: Int, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 4) {
-                Text(title).font(.system(size: 15, weight: selected ? .semibold : .regular))
-                if count > 0 {
-                    Text("\(count)")
-                        .font(.system(size: 10, weight: .medium))
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(.white.opacity(0.15), in: Capsule())
+            VStack(spacing: 5) {
+                HStack(spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 17, weight: selected ? .bold : .regular))
+                        .foregroundStyle(selected ? AppStyle.primaryText : AppStyle.secondaryText)
+                    if count > 0 {
+                        Text("\(count)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(AppStyle.secondaryText)
+                    }
                 }
+                // 金色下划线（酷狗同款）
+                Capsule()
+                    .fill(selected ? AppStyle.gold : Color.clear)
+                    .frame(width: 22, height: 3)
             }
-            .foregroundStyle(selected ? AppStyle.accent : AppStyle.secondaryText)
-            .padding(.horizontal, 14).padding(.vertical, 8)
-            .background(
-                Capsule().fill(selected ? AppStyle.accent.opacity(0.12) : Color.clear)
-            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
-    // MARK: - 顶部沉浸式横幅
+    // MARK: - 顶部沉浸式大图头部（酷狗同款）
 
     private var immersiveHeader: some View {
         let screenW = UIScreen.main.bounds.width
-        let bannerHeight: CGFloat = 240
-        return ZStack(alignment: .bottomLeading) {
+        let bannerHeight: CGFloat = 380
+        return ZStack(alignment: .bottom) {
             CoverImage(
                 url: artist.coverURL,
                 fallbackKeys: [artist.id],
@@ -144,21 +148,22 @@ struct ArtistDetailView: View {
             )
             .frame(width: screenW, height: bannerHeight)
 
-            LinearGradient(colors: [.clear, Color.black.opacity(0.8)],
+            // 底部压暗渐变（保证白字可读）
+            LinearGradient(colors: [.clear, Color.black.opacity(0.05), Color.black.opacity(0.72)],
                            startPoint: .top, endPoint: .bottom)
                 .frame(width: screenW, height: bannerHeight)
 
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(artist.name)
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    if artist.fansCount > 0 {
-                        Text("\(formatFans(artist.fansCount)) 粉丝")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.8))
-                    }
+            VStack(alignment: .leading, spacing: 10) {
+                Text(artist.name)
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
+
+                if artist.fansCount > 0 {
+                    Text("粉丝\(formatFans(artist.fansCount))")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.85))
                 }
 
                 HStack(spacing: 12) {
@@ -166,72 +171,114 @@ struct ArtistDetailView: View {
                         url: artist.coverURL,
                         fallbackKeys: [artist.id],
                         seed: artist.name,
-                        size: 48,
-                        corner: 24
+                        size: 40,
+                        corner: 20
                     )
-                    .frame(width: 48, height: 48)
+                    .frame(width: 40, height: 40)
                     .clipShape(Circle())
-                    .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1.5))
+                    .overlay(Circle().stroke(.white.opacity(0.35), lineWidth: 1.5))
 
                     Spacer()
 
-                    // 🔴 播放全部：更大更显眼
-                    Button {
-                        Haptics.soft()
-                        store.queueID = "artist:\(artist.id)"
-                        store.play(songs, startAt: 0)
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "play.fill").font(.system(size: 11, weight: .bold))
-                            Text("播放全部").font(.system(size: 12, weight: .semibold))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 16).padding(.vertical, 7)
-                        .background(Capsule().fill(AppStyle.accent).shadow(color: AppStyle.accent.opacity(0.5), radius: 6, y: 2))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(songs.isEmpty)
-
+                    // 🔴 收藏：黄色胶囊（酷狗同款）
                     Button {
                         Haptics.soft()
                         library.toggleArtistFavorite(artist)
                     } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: library.isFavoriteArtist(artist) ? "heart.fill" : "heart")
-                            Text(library.isFavoriteArtist(artist) ? "已收藏" : "收藏")
-                        }
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12).padding(.vertical, 7)
-                        .background(Capsule().fill(.white.opacity(0.22)))
+                        Text(library.isFavoriteArtist(artist) ? "已收藏" : "收藏")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color.black.opacity(0.85))
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 9)
+                            .background(Capsule().fill(AppStyle.gold))
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 14)
+            .padding(.bottom, 16)
         }
         .frame(width: screenW, height: bannerHeight)
+        // 顶部浮动按钮：返回 + 更多（酷狗同款，压在图上）
+        .overlay(alignment: .top) {
+            HStack(spacing: 0) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Spacer(minLength: 0)
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
+                    .frame(width: 44, height: 44)
+            }
+            .padding(.horizontal, 10)
+        }
     }
 
-    // MARK: - 歌曲列表
+    // MARK: - 歌曲列表（酷狗同款：全部播放行 + 最新/最热 + 扁平编号列表）
 
     private var songListSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("歌曲列表")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(AppStyle.primaryText)
-                Spacer()
-                if !songs.isEmpty {
-                    Text("共 \(songs.count) 首")
-                        .font(.system(size: 11))
-                        .foregroundStyle(AppStyle.secondaryText)
+            // 全部播放行：金色播放圆钮 + 排序切换 + 多选下载
+            HStack(spacing: 10) {
+                Button {
+                    guard !songs.isEmpty else { return }
+                    Haptics.soft()
+                    store.queueID = "artist:\(artist.id)"
+                    store.play(songs, startAt: 0)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.black.opacity(0.85))
+                            .frame(width: 26, height: 26)
+                            .background(Circle().fill(AppStyle.gold))
+                        Text("全部播放")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(AppStyle.primaryText)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(songs.isEmpty)
+
+                Spacer(minLength: 0)
+
+                // 最新 / 最热 胶囊切换
+                HStack(spacing: 0) {
+                    sortButton("最新", selected: sortNewest) { sortNewest = true }
+                    sortButton("最热", selected: !sortNewest) { sortNewest = false }
+                }
+                .background(AppStyle.surface.opacity(0.9), in: Capsule())
+                .overlay(Capsule().stroke(AppStyle.stroke, lineWidth: 0.5))
+
+                // 多选（下载用）
+                if !isSelecting {
+                    Button {
+                        isSelecting = true
+                        selectedIDs.removeAll()
+                    } label: {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.system(size: 17))
+                            .foregroundStyle(AppStyle.secondaryText)
+                            .frame(width: 34, height: 34)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 12)
-            .padding(.bottom, 6)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
 
             if isLoading {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: 60)
@@ -245,8 +292,9 @@ struct ArtistDetailView: View {
                     .font(.system(size: 13)).foregroundStyle(AppStyle.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: 60)
             } else {
+                // 🔴 v2.5.46：扁平化列表（去掉卡片底），酷狗同款编号行
                 LazyVStack(spacing: 0) {
-                    ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
+                    ForEach(Array(displaySongs.enumerated()), id: \.element.id) { index, song in
                         let selected = selectedIDs.contains(song.id)
                         HStack(spacing: 0) {
                             if isSelecting {
@@ -255,7 +303,7 @@ struct ArtistDetailView: View {
                                 } label: {
                                     Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                                         .font(.system(size: 24))
-                                        .foregroundStyle(selected ? AppStyle.accent : AppStyle.tertiaryText)
+                                        .foregroundStyle(selected ? AppStyle.gold : AppStyle.tertiaryText)
                                         .frame(width: 44, height: 44)
                                 }
                                 .buttonStyle(.plain)
@@ -263,16 +311,16 @@ struct ArtistDetailView: View {
                             ArtistSongRow(song: song, index: index + 1) {
                                 Haptics.soft()
                                 store.queueID = "artist:\(artist.id)"
-                                store.play(songs, startAt: index)
+                                store.play(songs, startAt: songs.firstIndex(where: { $0.id == song.id }) ?? 0)
                             }
-                            .padding(.leading, isSelecting ? 0 : 12)
+                            .padding(.leading, isSelecting ? 0 : 4)
                         }
                         .onAppear {
-                            if index == songs.count - 5 {
+                            if index == displaySongs.count - 5 {
                                 Task { await loadMoreSongs() }
                             }
                         }
-                        Divider().padding(.leading, isSelecting ? 56 : 68)
+                        Divider().padding(.leading, isSelecting ? 56 : 60)
                     }
                     HStack {
                         Spacer()
@@ -286,15 +334,27 @@ struct ArtistDetailView: View {
                     }
                     .padding(.vertical, 14)
                 }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 6)
+                .padding(.horizontal, 12)
+                .padding(.top, 4)
+                .padding(.bottom, 20)
             }
         }
-        .background(AppStyle.surface.opacity(0.45))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .padding(.horizontal, 16)
-        .padding(.top, 6)
-        .padding(.bottom, 20)
+    }
+
+    private func sortButton(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            guard !selected else { return }
+            withAnimation(.easeOut(duration: 0.18)) { action() }
+            Haptics.light()
+        } label: {
+            Text(title)
+                .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                .foregroundStyle(selected ? AppStyle.primaryText : AppStyle.secondaryText)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(selected ? AppStyle.surface : Color.clear, in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - 专辑列表（统一和歌曲列表一样的卡片样式）
@@ -487,7 +547,7 @@ struct ArtistDetailView: View {
     }
 }
 
-// MARK: - 歌手详情里的单行歌曲
+// MARK: - 歌手详情里的单行歌曲（酷狗同款：编号 + 歌名 + 歌手·专辑，无封面）
 
 private struct ArtistSongRow: View {
     let song: Song
@@ -499,33 +559,31 @@ private struct ArtistSongRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Button(action: onPlay) {
-                HStack(spacing: 12) {
+                HStack(spacing: 14) {
                     Text("\(index)")
-                        .font(.system(size: 13))
+                        .font(.system(size: 15, design: .rounded))
                         .foregroundStyle(AppStyle.secondaryText)
-                        .frame(width: 24, alignment: .center)
+                        .frame(width: 26, alignment: .center)
 
-                    CoverImage(
-                        url: song.artworkURL,
-                        fallbackKeys: song.kugouHash.isEmpty ? [] : ["kg:\(song.kugouHash)"],
-                        seed: song.id,
-                        size: 40,
-                        corner: 6
-                    )
-                    .frame(width: 40, height: 40)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text(song.title)
-                            .font(.system(size: 14))
+                            .font(.system(size: 15, weight: .medium))
                             .foregroundStyle(AppStyle.primaryText)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                        Text(song.album)
-                            .font(.system(size: 11))
-                            .foregroundStyle(AppStyle.secondaryText)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                        HStack(spacing: 5) {
+                            Text(song.artist)
+                                .font(.system(size: 11))
+                                .foregroundStyle(AppStyle.secondaryText)
+                                .lineLimit(1)
+                            if !song.album.isEmpty && song.album != song.title {
+                                Text("· \(song.album)")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(AppStyle.secondaryText)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(0)
