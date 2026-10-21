@@ -21,6 +21,8 @@ struct PlayerView: View {
     @State private var isLandscape = false
     /// 横屏浮层显隐（关闭按钮 + 底部横条）：默认隐藏，点击屏幕切换
     @State private var landscapeChromeVisible = false
+    /// 🔴 v2.5.47：横屏浮层自动隐藏的定时任务（4 秒无操作淡出）
+    @State private var chromeHideTask: Task<Void, Never>?
     /// 音质切换弹层
     /// 「更多」弹层：音质档位 / 完整歌词 / 歌词翻译
     @State private var showMoreMenu = false
@@ -469,15 +471,19 @@ struct PlayerView: View {
                 .padding(.bottom, 8)
 
             // 动作行：喜欢 / 下载 / 音质 / 歌词 / ⋯（纯图标均分）
+            // 🔴 v2.5.47：动作行左右间距再收窄 10pt（比封面更宽一档）
             classicActionRow
+                .padding(.horizontal, -10)
                 .padding(.bottom, 10)
 
             // 进度行：已播时间 —— 细白进度条 —— 总时长
             classicProgressBlock
                 .frame(height: 34)
 
+            // 🔴 v2.5.47：播放控制行左右间距与动作行一致（收窄 10pt）
             classicDeckControls
                 .frame(height: 54)
+                .padding(.horizontal, -10)
         }
         // 🔴 v2.5.45：左右间距与专辑封面齐平（之前固定 15，导致信息区比专辑更宽）
         .padding(.horizontal, classicSideInset)
@@ -782,10 +788,18 @@ struct PlayerView: View {
                 // 🔴 v2.5.44：队列面板开着时，点空白先关面板（再点才切浮层）
                 if showLandscapeQueue {
                     withAnimation(.easeOut(duration: 0.22)) { showLandscapeQueue = false }
+                    scheduleChromeHide()
+                } else if landscapeChromeVisible {
+                    // 🔴 v2.5.47：可见时点击立即隐藏
+                    chromeHideTask?.cancel()
+                    withAnimation(.easeInOut(duration: 0.2)) { landscapeChromeVisible = false }
                 } else {
-                    withAnimation(.easeInOut(duration: 0.2)) { landscapeChromeVisible.toggle() }
+                    // 隐藏时点击 → 显示并在 4 秒后自动隐藏
+                    scheduleChromeHide()
                 }
             }
+            .onAppear { scheduleChromeHide() }
+            .onDisappear { chromeHideTask?.cancel() }
 
             HStack(spacing: 0) {
                 // 左：大封面（垂直居中，约占屏宽 44%）
@@ -802,11 +816,16 @@ struct PlayerView: View {
                     landscapeTitleRow
                     landscapeLyricsBlock
                         .padding(.top, 16)
-                    Spacer(minLength: 10)
-                    progressSection()
-                        .padding(.horizontal, 2)
-                    landscapeControls()
-                        .padding(.top, 10)
+            Spacer(minLength: 10)
+            // 🔴 v2.5.47：进度条 + 控制行随浮层自动隐藏（视频播放器式交互）
+            progressSection()
+                .padding(.horizontal, 2)
+                .opacity(landscapeChromeVisible ? 1 : 0)
+                .allowsHitTesting(landscapeChromeVisible)
+            landscapeControls()
+                .padding(.top, 10)
+                .opacity(landscapeChromeVisible ? 1 : 0)
+                .allowsHitTesting(landscapeChromeVisible)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 // 🔴 layoutPriority(1)：HStack 分配宽度时右列优先，绝不被左侧封面槽挤没
@@ -827,18 +846,27 @@ struct PlayerView: View {
             }
         }
         // 🔴 顶栏浮层用 overlay(alignment:.top) 钉在顶部：
-        // 🔴 v2.5.45：加 zIndex(10) 确保返回按钮始终位于最上层，不被其它浮层/手势层吞掉点击。
+        // 🔴 v2.5.47：顶栏（返回/收藏/下载）随浮层自动隐藏 —— 4 秒无操作淡出，
+        // 点空白处唤出。只保留一个 overlay（之前误留了两个叠加，白白多一层按钮）。
         .overlay(alignment: .top) {
-            landscapeTopBar(insets: insets)
-                .zIndex(10)
+            if landscapeChromeVisible {
+                landscapeTopBar(insets: insets)
+                    .zIndex(10)
+                    .transition(.opacity)
+            }
         }
-        // - 放 ZStack 里不带 alignment 会被居中（实测关闭按钮浮在唱片中间）；
-        // - 带全屏 frame 又可能吞下方触摸；
-        // overlay 只在自身内容处可点击，两个问题都没有。
-        // 🔴 顶栏（关闭按钮）改为始终可见：用户反馈"退出按钮有时能按到有时按不到"，
-        // 旧逻辑默认隐藏、要点空白处才弹出，容易点不到。现在常驻，稳定可点。
-        .overlay(alignment: .top) {
-            landscapeTopBar(insets: insets)
+    }
+
+    /// 🔴 v2.5.47：横屏浮层自动隐藏调度 —— 显示 chrome 并在 4 秒无操作后淡出。
+    /// 任何按钮点击不会触发背景 tap，因此 chrome 在操作期间保持可见；
+    /// 点背景、进入横屏、关面板都会重新计时。
+    private func scheduleChromeHide() {
+        chromeHideTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.2)) { landscapeChromeVisible = true }
+        chromeHideTask = Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.3)) { landscapeChromeVisible = false }
         }
     }
 
@@ -1272,8 +1300,12 @@ private struct LandscapeQueuePanel: View {
         .frame(maxHeight: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                // 🔴 v2.5.46：面板改不透明（原 0.42 半透明，歌词透出来看不清）
-                .fill(Color.black.opacity(0.97))
+                // 🔴 v2.5.47：面板底色改为与歌曲沉浸背景同款取色渐变（不透明，
+                // 不再用黑色 —— 用户要求"改跟歌曲一样的沉浸背景色不要透明"）
+                .fill(LinearGradient(colors: [store.currentPalette.main,
+                                              store.currentPalette.dark,
+                                              store.currentPalette.dark],
+                                     startPoint: .top, endPoint: .bottom))
                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .stroke(Color.white.opacity(0.14), lineWidth: 0.6))
         )

@@ -30,6 +30,21 @@ struct ArtistDetailView: View {
     /// 排序后的展示列表（最热=原序，最新=倒序）
     private var displaySongs: [Song] { sortNewest ? songs.reversed() : songs }
 
+    /// 🔴 v2.5.47：歌手封面高清化 —— 酷狗 singer/list 的 imgurl 是 200px 小图，
+    /// 全屏大图直接放大发糊。softhead 支持 400px，kugouicon 支持 400px，
+    /// stdmusic 支持 500px，显示时统一升到最大档。
+    private var hiResCoverURL: URL? {
+        guard let raw = artist.coverURL?.absoluteString else { return nil }
+        var s = raw
+        for sz in ["90", "100", "120", "150", "165", "200", "240"] {
+            s = s.replacingOccurrences(of: "softhead/\(sz)/", with: "softhead/400/")
+            s = s.replacingOccurrences(of: "kugouicon/\(sz)/", with: "kugouicon/400/")
+            s = s.replacingOccurrences(of: "stdmusic/\(sz)/", with: "stdmusic/500/")
+            s = s.replacingOccurrences(of: "simg/\(sz)/", with: "simg/400/")
+        }
+        return URL(string: s)
+    }
+
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
@@ -42,6 +57,8 @@ struct ArtistDetailView: View {
                 }
             }
         }
+        // 🔴 v2.5.47：大图通顶 —— 歌手图片延伸到状态栏后面，顶栏（导航条）透明压在图上
+        .ignoresSafeArea(edges: .top)
         .background(AppStyle.background)
         .navigationBarTitleDisplayMode(.inline)
         .compatToolbarHidden()
@@ -121,9 +138,9 @@ struct ArtistDetailView: View {
                             .foregroundStyle(AppStyle.secondaryText)
                     }
                 }
-                // 金色下划线（酷狗同款）
+                // 🔴 v2.5.47：下划线改蓝色（原金色）
                 Capsule()
-                    .fill(selected ? AppStyle.gold : Color.clear)
+                    .fill(selected ? AppStyle.accent : Color.clear)
                     .frame(width: 22, height: 3)
             }
             .contentShape(Rectangle())
@@ -135,13 +152,14 @@ struct ArtistDetailView: View {
 
     private var immersiveHeader: some View {
         let screenW = UIScreen.main.bounds.width
-        let bannerHeight: CGFloat = 380
+        // 🔴 v2.5.47：图片通顶后顶部被状态栏/导航条占掉约 50pt，加高补偿
+        let bannerHeight: CGFloat = 430
         return ZStack(alignment: .bottom) {
             CoverImage(
-                url: artist.coverURL,
+                url: hiResCoverURL,
                 fallbackKeys: [artist.id],
                 seed: artist.name,
-                size: max(screenW, 720),
+                size: max(screenW, 800),
                 corner: 0,
                 displayWidth: screenW,
                 displayHeight: bannerHeight
@@ -168,7 +186,7 @@ struct ArtistDetailView: View {
 
                 HStack(spacing: 12) {
                     CoverImage(
-                        url: artist.coverURL,
+                        url: hiResCoverURL,
                         fallbackKeys: [artist.id],
                         seed: artist.name,
                         size: 40,
@@ -180,17 +198,17 @@ struct ArtistDetailView: View {
 
                     Spacer()
 
-                    // 🔴 收藏：黄色胶囊（酷狗同款）
+                    // 🔴 v2.5.47：收藏改蓝色胶囊（原黄色）
                     Button {
                         Haptics.soft()
                         library.toggleArtistFavorite(artist)
                     } label: {
                         Text(library.isFavoriteArtist(artist) ? "已收藏" : "收藏")
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color.black.opacity(0.85))
+                            .foregroundStyle(.white)
                             .padding(.horizontal, 22)
                             .padding(.vertical, 9)
-                            .background(Capsule().fill(AppStyle.gold))
+                            .background(Capsule().fill(AppStyle.accent))
                     }
                     .buttonStyle(.plain)
                 }
@@ -199,29 +217,6 @@ struct ArtistDetailView: View {
             .padding(.bottom, 16)
         }
         .frame(width: screenW, height: bannerHeight)
-        // 顶部浮动按钮：返回 + 更多（酷狗同款，压在图上）
-        .overlay(alignment: .top) {
-            HStack(spacing: 0) {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                Spacer(minLength: 0)
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
-                    .frame(width: 44, height: 44)
-            }
-            .padding(.horizontal, 10)
-        }
     }
 
     // MARK: - 歌曲列表（酷狗同款：全部播放行 + 最新/最热 + 扁平编号列表）
@@ -237,11 +232,12 @@ struct ArtistDetailView: View {
                     store.play(songs, startAt: 0)
                 } label: {
                     HStack(spacing: 8) {
+                        // 🔴 v2.5.47：播放圆钮改蓝色（原金色）
                         Image(systemName: "play.fill")
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.black.opacity(0.85))
+                            .foregroundStyle(.white)
                             .frame(width: 26, height: 26)
-                            .background(Circle().fill(AppStyle.gold))
+                            .background(Circle().fill(AppStyle.accent))
                         Text("全部播放")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(AppStyle.primaryText)
@@ -303,7 +299,7 @@ struct ArtistDetailView: View {
                                 } label: {
                                     Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                                         .font(.system(size: 24))
-                                        .foregroundStyle(selected ? AppStyle.gold : AppStyle.tertiaryText)
+                                        .foregroundStyle(selected ? AppStyle.accent : AppStyle.tertiaryText)
                                         .frame(width: 44, height: 44)
                                 }
                                 .buttonStyle(.plain)
@@ -559,11 +555,17 @@ private struct ArtistSongRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Button(action: onPlay) {
-                HStack(spacing: 14) {
-                    Text("\(index)")
-                        .font(.system(size: 15, design: .rounded))
-                        .foregroundStyle(AppStyle.secondaryText)
-                        .frame(width: 26, alignment: .center)
+                HStack(spacing: 12) {
+                    // 🔴 v2.5.47：编号改回歌曲封面小图（用户要求）
+                    CoverImage(
+                        url: song.artworkURL,
+                        fallbackKeys: song.kugouHash.isEmpty ? [] : ["kg:\(song.kugouHash)"],
+                        seed: song.id,
+                        size: 44,
+                        corner: 6
+                    )
+                    .frame(width: 44, height: 44)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(song.title)
