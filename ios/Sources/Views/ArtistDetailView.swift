@@ -48,7 +48,13 @@ struct ArtistDetailView: View {
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                immersiveHeader
+                // 🔴 v2.5.48：下拉时歌手图片拉伸铺满，顶部不留白空隙
+                GeometryReader { geo in
+                    let pull = max(0, geo.frame(in: .named("artistScroll")).minY)
+                    immersiveHeader(height: headerBaseHeight + pull)
+                        .offset(y: -pull)
+                }
+                .frame(height: headerBaseHeight)
                 tabBar
                 if tab == 0 {
                     songListSection
@@ -57,11 +63,13 @@ struct ArtistDetailView: View {
                 }
             }
         }
-        // 🔴 v2.5.47：大图通顶 —— 歌手图片延伸到状态栏后面，顶栏（导航条）透明压在图上
-        .ignoresSafeArea(edges: .top)
+        .coordinateSpace(name: "artistScroll")
         .background(AppStyle.background)
         .navigationBarTitleDisplayMode(.inline)
-        .compatToolbarHidden()
+        // 🔴 v2.5.48：顶栏锁定不透明（原透明压在图上）—— 应用背景色实底，
+        // 滚动时始终固定不透明，图片从顶栏下方开始
+        .toolbarBackground(AppStyle.background, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 if isSelecting {
@@ -148,12 +156,13 @@ struct ArtistDetailView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - 顶部沉浸式大图头部（酷狗同款）
+    // MARK: - 顶部大图头部（酷狗同款；height 由拉伸效果动态传入）
 
-    private var immersiveHeader: some View {
+    /// 头部基础高度（下拉时由 body 里的 GeometryReader 拉伸放大）
+    private let headerBaseHeight: CGFloat = 400
+
+    private func immersiveHeader(height: CGFloat) -> some View {
         let screenW = UIScreen.main.bounds.width
-        // 🔴 v2.5.47：图片通顶后顶部被状态栏/导航条占掉约 50pt，加高补偿
-        let bannerHeight: CGFloat = 430
         return ZStack(alignment: .bottom) {
             CoverImage(
                 url: hiResCoverURL,
@@ -162,14 +171,15 @@ struct ArtistDetailView: View {
                 size: max(screenW, 800),
                 corner: 0,
                 displayWidth: screenW,
-                displayHeight: bannerHeight
+                displayHeight: height
             )
-            .frame(width: screenW, height: bannerHeight)
+            .frame(width: screenW, height: height)
+            .clipped()
 
             // 底部压暗渐变（保证白字可读）
             LinearGradient(colors: [.clear, Color.black.opacity(0.05), Color.black.opacity(0.72)],
                            startPoint: .top, endPoint: .bottom)
-                .frame(width: screenW, height: bannerHeight)
+                .frame(width: screenW, height: height)
 
             VStack(alignment: .leading, spacing: 10) {
                 Text(artist.name)
@@ -216,7 +226,7 @@ struct ArtistDetailView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
         }
-        .frame(width: screenW, height: bannerHeight)
+        .frame(width: screenW, height: height)
     }
 
     // MARK: - 歌曲列表（酷狗同款：全部播放行 + 最新/最热 + 扁平编号列表）

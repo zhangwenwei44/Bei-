@@ -771,7 +771,19 @@ final class PlayerStore: ObservableObject {
     /// 走同一个校准后的时间轴（否则两者会差一个 offset）。
     private func refreshLyric(at time: Double) {
         let found = LRCParser.index(at: time - lyricOffsetSeconds, in: lyrics)
-        if found != lyricState.currentIndex { lyricState.currentIndex = found }
+        if found != lyricState.currentIndex {
+            lyricState.currentIndex = found
+            // 🔴 v2.5.48：歌词换行时同步刷新锁屏 / CarPlay 标题（标题=当前句）
+            updateNowPlayingLyricTitle()
+        }
+    }
+
+    /// 只刷新标题字段，不重置整份 nowPlayingInfo（避免清掉进度/封面/速率）。
+    private func updateNowPlayingLyricTitle() {
+        guard current != nil else { return }
+        var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+        info[MPMediaItemPropertyTitle] = nowPlayingDisplayTitle
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 
     // MARK: - 封面与取色
@@ -1069,13 +1081,24 @@ final class PlayerStore: ObservableObject {
 
     // MARK: - 锁屏 / 控制中心
 
+    /// 🔴 锁屏 / 车机（CarPlay）标题显示的文本：有歌词时 = 当前歌词行，
+    /// 无歌词 / 纯音乐 / 未开始 = 歌名（回退）。
+    private var nowPlayingDisplayTitle: String {
+        if let idx = lyricState.currentIndex, lyrics.indices.contains(idx) {
+            let line = lyrics[idx].text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !line.isEmpty { return line }
+        }
+        return current?.title ?? ""
+    }
+
     private func updateNowPlaying() {
         guard let song = current else {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
             return
         }
         var info: [String: Any] = [
-            MPMediaItemPropertyTitle: song.title,
+            // 🔴 v2.5.48：标题改显当前歌词行（车机同款），歌手仍是副标题
+            MPMediaItemPropertyTitle: nowPlayingDisplayTitle,
             MPMediaItemPropertyArtist: song.artist,
             MPMediaItemPropertyAlbumTitle: song.album.isEmpty ? "Aurora Music" : song.album,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
