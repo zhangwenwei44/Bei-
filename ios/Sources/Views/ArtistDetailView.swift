@@ -68,8 +68,7 @@ struct ArtistDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         // 🔴 v2.5.48：顶栏锁定不透明（原透明压在图上）—— 应用背景色实底，
         // 滚动时始终固定不透明，图片从顶栏下方开始
-        .toolbarBackground(AppStyle.background, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .compatToolbarOpaqueBackground(AppStyle.background)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 if isSelecting {

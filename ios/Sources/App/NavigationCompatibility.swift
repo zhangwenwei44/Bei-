@@ -33,6 +33,16 @@ extension View {
                 .toolbarColorScheme(.dark, for: .navigationBar)
         } else { self }
     }
+
+    /// 🔴 v2.5.48：顶栏锁定不透明 —— 指定实底背景色并强制可见。
+    /// iOS 16 以下导航条本来就是实底，直接原样返回。
+    @ViewBuilder
+    func compatToolbarOpaqueBackground(_ color: Color) -> some View {
+        if #available(iOS 16.0, *) {
+            toolbarBackground(color, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+        } else { self }
+    }
 }
 
 // MARK: - FlowLayout / Layout protocol
