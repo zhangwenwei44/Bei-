@@ -359,8 +359,18 @@ struct ArtistPhotoBackdrop: View {
                     // 🔴 先向外扩 60pt 再模糊：blur 会把边缘羽化成半透明，
                     // 直接在原尺寸上模糊会让屏幕四周露出一圈透底的边。
                     .padding(-60)
-                    .blur(radius: 18)
-                    .overlay(Color.black.opacity(0.32))
+                    .blur(radius: 14)
+                    // 🔴 v2.6.6：写真自带压暗层。写真铺在暗色渐变【上层】
+                    // （v2.6.4 调整后写真不再被原渐变压暗），亮色写真上
+                    // 白色歌词会糊成一片（用户截图：底部几行几乎看不见）。
+                    // 基础遮罩 + 上下加重的渐变，保证任何亮度的写真下歌词都读得清。
+                    .overlay(Color.black.opacity(0.34))
+                    .overlay(
+                        LinearGradient(colors: [.black.opacity(0.30),
+                                                .black.opacity(0.12),
+                                                .black.opacity(0.38)],
+                                       startPoint: .top, endPoint: .bottom)
+                    )
             }
         }
         // 纯背景层，绝不能吃掉歌词滚动和点击

@@ -751,7 +751,12 @@ final class PlayerStore: ObservableObject {
         Task { [weak self] in
             let lrc = await KugouClient.shared.lyric(hash: song.kugouHash, duration: song.duration)
             guard let lrc, !lrc.isEmpty else { return }
-            let result = LRCParser.parse(lrc)
+            // 🔴 v2.6.6：把歌曲本身的歌名/歌手交给解析器 —— 酷狗大量 LRC 没有
+            // [ti:]/[ar:] 头信息，之前标题行（"歌名 - 歌手"）全部漏网，
+            // 会在歌词页首屏用大字高亮显示（用户截图实测）。
+            let result = LRCParser.parse(lrc,
+                                         songTitle: song.cleanTitle,
+                                         songArtist: song.artist)
             guard !result.lines.isEmpty else { return }
             await MainActor.run { [weak self] in
                 guard let self, self.lyricTaskID == song.id else { return }

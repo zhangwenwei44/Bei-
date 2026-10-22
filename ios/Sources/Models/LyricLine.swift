@@ -64,6 +64,24 @@ enum LRCParser {
         return false
     }
 
+    /// 🔴 v2.6.6：版权声明 / 免责声明类整行。
+    /// 酷狗 LRC 开头常带「【未经著作权人许可不得转载或使用】」这类声明行，
+    /// 之前没有任何过滤，会被当成歌词正文显示（用户截图实测）。
+    private static let copyrightNotices: [String] = [
+        "未经著作权人许可", "未经版权方许可", "未经版权所有人许可", "未经出版方许可",
+        "版权所有", "版权归", "本作品未经", "仅供试听", "仅供试听使用",
+        "请购买正版", "请支持正版", "不得用于商业", "仅供学习交流", "禁止转载",
+        "更多歌曲请访问", "更多歌曲下载", "更多音乐请", "本歌词由", "本翻译由",
+        "歌词贡献", "歌词整理", "未经授权", "侵权必究", "违者必究", "保留所有权利",
+    ]
+
+    /// 🔴 v2.6.6：判定整行是不是版权/声明行（含「【…】」包裹的也要命中）。
+    private static func isCopyrightNotice(_ content: String) -> Bool {
+        let t = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return false }
+        return copyrightNotices.contains { t.contains($0) }
+    }
+
     /// 解析结果：歌词正文 + 词曲编曲等元数据（从正文剥离出来的）。
     struct ParseResult {
         let lines: [LyricLine]
@@ -71,7 +89,9 @@ enum LRCParser {
         let metadata: [String: String]
     }
 
-    static func parse(_ text: String) -> ParseResult {
+    static func parse(_ text: String,
+                      songTitle: String = "",
+                      songArtist: String = "") -> ParseResult {
         guard let pattern else { return ParseResult(lines: [], metadata: [:]) }
         // 🔴 LRC 全局时间校准 [offset:±毫秒]（v2.5.39）：
         // 标准约定「正值 = 歌词整体提前」，故实际生效时间 = 行时间 − offset/1000。
@@ -128,6 +148,8 @@ enum LRCParser {
                     Self.storeMeta(hit, content: line, into: &meta)
                     continue
                 }
+                // 🔴 v2.6.6：无时间戳的版权声明行同样不进正文
+                if Self.isCopyrightNotice(line) { continue }
                 result.append(LyricLine(time: 0, text: line))
                 continue
             }
@@ -154,10 +176,21 @@ enum LRCParser {
                 continue
             }
 
+            // 🔴 v2.6.6：版权声明整行不进正文（【未经著作权人许可不得转载或使用】等）
+            if Self.isCopyrightNotice(content) { continue }
+
             // 🔴 歌名行：酷狗 LRC 首句常是「[00:00.02]青花瓷 - 周杰伦」（歌名 - 歌手），
             // 带时间戳、绕过头信息过滤，会被当成歌词正文显示在歌词页/播放条首屏。
-            // 与 [ti:]/[ar:] 头信息精确匹配才剔除，避免误伤真歌词。
-            if Self.isTitleLine(content, meta: meta) { continue }
+            // 🔴 v2.6.6：判定放宽 —— 之前只在 LRC 头信息有 [ti:]/[ar:] 时才判，
+            // 而酷狗大量 LRC 根本没有头信息 → 标题行全部漏网，还被当成"当前行"
+            // 用 26pt 大字高亮（用户三张截图实测）。现在同时用【歌曲本身的歌名/歌手】
+            // 做匹配，并允许「歌名带副标题」「歌手带英文别名」等常见变形。
+            let firstTime = Self.timeValue(of: first, in: line)
+            if Self.isTitleLine(content,
+                                meta: meta,
+                                songTitle: songTitle,
+                                songArtist: songArtist,
+                                time: firstTime) { continue }
 
             for stamp in stamps {
                 let m = ns.substring(with: stamp.range(at: 1))
@@ -226,17 +259,82 @@ enum LRCParser {
         if !v.isEmpty, meta[key] == nil { meta[key] = v }
     }
 
-    /// 判定「歌名 - 歌手」首句：与 [ti:] + [ar:] 头信息精确匹配（归一化空白后比较）。
-    /// 酷狗 LRC 标准格式首句即标题行（如 [00:00.02]青花瓷 - 周杰伦），混进歌词首屏很违和。
-    /// 必须同时有 ti 和 ar 才判，避免误伤真歌词行。
-    private static func isTitleLine(_ content: String, meta: [String: String]) -> Bool {
-        let ti = (meta["ti"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let ar = (meta["ar"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !ti.isEmpty, !ar.isEmpty else { return false }
-        // 归一化：去掉所有空白，分隔符统一成 "-"
-        let norm = content.replacingOccurrences(of: " ", with: "")
-                         .replacingOccurrences(of: "\t", with: "")
-        return norm == "\(ti)-\(ar)"
+    /// 判定「歌名行」—— 酷狗 LRC 的第一句常常是标题而不是歌词。
+    ///
+    /// 🔴 v2.6.6：判定放宽，覆盖三种真实形态（用户三张截图实测）：
+    /// ①「青花瓷 - 周杰伦」      → 歌名 + " - " + 歌手
+    /// ②「大梦归（《兰香如故》电视剧主题曲）- 周深」→ 歌名带副标题
+    /// ③「茶汤 - 都可唯 (Yisa Yu)」→ 歌手带英文别名
+    /// 另外还有「时过境迁」这种只有歌名、没有分隔符的形态。
+    ///
+    /// 判定依据有两个来源：LRC 头信息 [ti:]/[ar:]（有就用），
+    /// 以及**歌曲本身的歌名/歌手**（App 里就有，最可靠）。
+    /// 两者都缺才判不了 —— 这正是之前大量 LRC 标题行漏网的原因。
+    ///
+    /// 为了不误伤真歌词，「整行就是歌名」这条规则只在前 10 秒内生效。
+    private static func isTitleLine(_ content: String,
+                                    meta: [String: String],
+                                    songTitle: String,
+                                    songArtist: String,
+                                    time: Double) -> Bool {
+        let norm = Self.normalize(content)
+        guard !norm.isEmpty else { return false }
+
+        var titles: [String] = []
+        var artists: [String] = []
+        if let ti = meta["ti"], !ti.isEmpty { titles.append(ti) }
+        if let ar = meta["ar"], !ar.isEmpty { artists.append(ar) }
+        if !songTitle.isEmpty { titles.append(songTitle) }
+        if !songArtist.isEmpty { artists.append(songArtist) }
+
+        let normTitles = titles.map { Self.normalize($0) }.filter { !$0.isEmpty }
+        let normArtists = artists.map { Self.normalize($0) }.filter { !$0.isEmpty }
+
+        // ① 整行就是歌名（只在开头几秒判定，避免误伤同名真歌词）
+        if time <= 10, normTitles.contains(where: { $0 == norm }) { return true }
+
+        // ② 「歌名 - 歌手」形态：任一侧带上常见的附加说明也算命中
+        for sep in [" - ", " – ", "—", "－", "-"] {
+            guard let range = content.range(of: sep) else { continue }
+            let left = Self.normalize(String(content[content.startIndex..<range.lowerBound]))
+            let right = Self.normalize(String(content[range.upperBound...]))
+            guard !left.isEmpty, !right.isEmpty else { continue }
+            let leftHit = normTitles.contains { left.hasPrefix($0) || $0.hasPrefix(left) }
+            let rightHit = normArtists.contains { right == $0 || right.hasPrefix($0) || $0.hasPrefix(right) }
+            if leftHit && rightHit { return true }
+        }
+        return false
+    }
+
+    /// 归一化：去空白、去尾部括号补充说明（"都可唯 (Yisa Yu)" → "都可唯"），
+    /// 括号里的内容在标题里也可能是副标题（"大梦归（《兰香如故》电视剧主题曲）"）。
+    private static func normalize(_ s: String) -> String {
+        var t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 反复剥掉尾部的（中英文）括号补充说明
+        while let r = t.range(of: "\\s*[（(][^（()）]*[)）]\\s*$", options: .regularExpression) {
+            let stripped = String(t[t.startIndex..<r.lowerBound])
+            if stripped.isEmpty { break }
+            t = stripped
+        }
+        return t.replacingOccurrences(of: " ", with: "")
+               .replacingOccurrences(of: "\t", with: "")
+               .replacingOccurrences(of: "\u{3000}", with: "")
+    }
+
+    /// 时间戳 → 秒（用于判定"是不是开头那行"）。
+    private static func timeValue(of stamp: NSTextCheckingResult, in line: String) -> Double {
+        let ns = line as NSString
+        let m = ns.substring(with: stamp.range(at: 1))
+        let s = ns.substring(with: stamp.range(at: 2))
+        var fraction = "0"
+        if stamp.range(at: 3).location != NSNotFound,
+           let msRange = Range(stamp.range(at: 3), in: line) {
+            fraction = String(line[msRange])
+        }
+        let minutes = Double(m) ?? 0
+        let seconds = Double(s) ?? 0
+        let millis = Double(fraction.prefix(2).padding(toLength: 2, withPad: "0", startingAt: 0)) ?? 0
+        return minutes * 60 + seconds + millis / 100
     }
 
     /// 判断是否为酷狗内嵌元数据（如 id:00000000 / id$00000000 / id$AARRGGBB / 纯 "id"）。
@@ -305,8 +403,11 @@ enum LRCParser {
     }
 
     /// 解析原文 + 翻译，按时间戳合并成一份歌词。
-    static func parse(_ lrc: String, translation tlyric: String?) -> ParseResult {
-        let base = parse(lrc)
+    static func parse(_ lrc: String,
+                      translation tlyric: String?,
+                      songTitle: String = "",
+                      songArtist: String = "") -> ParseResult {
+        let base = parse(lrc, songTitle: songTitle, songArtist: songArtist)
         guard let tlyric, !tlyric.isEmpty else { return base }
         let translated = parseLines(tlyric)
         guard !translated.isEmpty else { return base }
