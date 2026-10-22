@@ -39,3 +39,5 @@ ios/BundledSources/*.local.js
 *.ipa.manifest
 *.json.tmp
 run.html
+rel_*.json
+v26*.ipa
