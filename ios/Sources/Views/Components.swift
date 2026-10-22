@@ -327,6 +327,62 @@ final class CoverCache {
     }
 }
 
+/// 🔴 v2.6.2：歌手写真内存缓存（按歌手名）。歌词页背景用 —— 歌手写真尺寸大，
+/// 每次进歌词页重新下载既慢又费流量，缓存到内存里按歌手名复用。
+final class ArtistPhotoCache {
+    static let shared = ArtistPhotoCache()
+    private let cache = NSCache<NSString, UIImage>()
+
+    private init() { cache.countLimit = 40 }
+
+    func image(for name: String) -> UIImage? { cache.object(forKey: name as NSString) }
+
+    func store(_ image: UIImage, for name: String) {
+        cache.setObject(image, forKey: name as NSString)
+    }
+}
+
+/// 🔴 v2.6.2：歌手写真背景（歌词页）。
+/// 取到写真就全屏铺底（scaledToFill + 轻模糊 + 暗色遮罩，保证歌词可读）；
+/// 取不到就整层不显示，由调用方原来的取色渐变兜底。
+struct ArtistPhotoBackdrop: View {
+    let artist: String
+    let title: String
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    // 🔴 先向外扩 60pt 再模糊：blur 会把边缘羽化成半透明，
+                    // 直接在原尺寸上模糊会让屏幕四周露出一圈透底的边。
+                    .padding(-60)
+                    .blur(radius: 18)
+                    .overlay(Color.black.opacity(0.32))
+            }
+        }
+        // 纯背景层，绝不能吃掉歌词滚动和点击
+        .allowsHitTesting(false)
+        .task(id: artist) { await load() }
+    }
+
+    private func load() async {
+        let key = artist.trimmingCharacters(in: .whitespaces)
+        guard !key.isEmpty else { image = nil; return }
+        if let cached = ArtistPhotoCache.shared.image(for: key) {
+            image = cached
+            return
+        }
+        guard let url = await KugouClient.shared.artistPhotoStrict(name: key, title: title),
+              let (data, _) = try? await URLSession.shared.data(from: url),
+              let ui = UIImage(data: data) else { return }
+        ArtistPhotoCache.shared.store(ui, for: key)
+        withAnimation(.easeOut(duration: 0.35)) { image = ui }
+    }
+}
+
 // MARK: - 区块标题
 
 struct SectionHeader<Trailing: View>: View {

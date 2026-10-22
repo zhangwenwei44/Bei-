@@ -1505,6 +1505,8 @@ struct LyricsPageView: View {
     @Binding var isShown: Bool
     /// 🔴 v2.5.49：右上角「横屏」按钮回调（由 PlayerView 注入，处理方向切换时序）。
     var onEnterLandscape: (() -> Void)? = nil
+    /// 🔴 v2.6.2：歌词页歌手写真背景开关（设置页可关，默认开）
+    @AppStorage("aurora.lyricsArtistPhoto") private var showArtistPhoto: Bool = true
 
     private var safeTop: CGFloat {
         // 🔴 复用 PlayerView.safeAreaInsets（过滤第三方注入窗口），不再直接读 keyWindow
@@ -1538,6 +1540,14 @@ struct LyricsPageView: View {
                 LinearGradient(colors: store.currentPalette.gradient,
                                startPoint: .topLeading,
                                endPoint: .bottomTrailing)
+
+                // 🔴 v2.6.2：歌手写真背景（取不到图就整层不显示，仍走上面的取色渐变）。
+                // 写在暗色渐变【下面】：先让写真透出来一点，再由暗色渐变压对比度保可读性。
+                if showArtistPhoto {
+                    ArtistPhotoBackdrop(artist: store.current?.artist ?? "",
+                                        title: store.current?.title ?? "")
+                        .ignoresSafeArea()
+                }
 
                 LinearGradient(colors: [.black.opacity(0.35),
                                         .black.opacity(0.18),

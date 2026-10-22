@@ -258,17 +258,34 @@ final class KugouClient {
         return nil
     }
 
+    /// 🔴 v2.6.2：严格版歌手写真 —— 只接受「歌手名精确匹配」的结果，拿不到就返回 nil。
+    /// 歌词页背景用：宁可不显示（回退取色渐变），也不要拿 MV 抽帧 / 别人专辑图
+    /// 当歌手写真糊在整屏上张冠李戴。
+    func artistPhotoStrict(name: String, title: String = "") async -> URL? {
+        let lead = name.components(separatedBy: CharacterSet(charactersIn: "、/&，,"))
+            .first?.trimmingCharacters(in: .whitespaces) ?? name
+        guard !lead.isEmpty else { return nil }
+        let key = (lead + "#strict") as NSString
+        if let cached = photoCache.object(forKey: key) { return cached as URL }
+        guard let url = await artistPhoto(name: lead, keyword: lead, strict: true) else { return nil }
+        photoCache.setObject(url as NSURL, forKey: key)
+        return url
+    }
+
     /// 核心实现：只翻 mixedSearch 第 1 页。
     /// cursor=1/2/3 在 mixedSearch 上返回的是完全相同的第一页数据（酷狗把 cursor 用在
     /// 搜索建议而非正式搜索），之前翻 3 页纯属浪费请求和发热，现在砍到只翻 1 页。
     /// 12 个热门歌手头像直接省掉 24 个无用请求。
-    private func artistPhoto(name: String, keyword: String) async -> URL? {
+    /// 🔴 strict=true：不用任何 fallback（只认精确匹配的歌手写真）。
+    private func artistPhoto(name: String, keyword: String, strict: Bool = false) async -> URL? {
         let lead = name.components(separatedBy: CharacterSet(charactersIn: "、/&，,"))
             .first?.trimmingCharacters(in: .whitespaces) ?? name
         guard !keyword.isEmpty else { return nil }
 
         // 内存缓存命中直接返回（NSCache 线程安全）
-        if let cached = photoCache.object(forKey: keyword as NSString) as URL? {
+        // 🔴 strict 模式不读这份缓存：它里面可能存着宽松模式留下的 fallback（非歌手写真），
+        // 歌词页背景会因此糊上一张别人的图。strict 结果单独存在 "名字#strict" 键下。
+        if !strict, let cached = photoCache.object(forKey: keyword as NSString) as URL? {
             return cached
         }
 
@@ -303,7 +320,7 @@ final class KugouClient {
                         photoCache.setObject(portrait as NSURL, forKey: keyword as NSString)
                         Log.info("歌手头像", "keyword=\(keyword) exact=hit")
                         return portrait
-                    } else if fallbackURL == nil {
+                    } else if fallbackURL == nil, !strict {
                         fallbackURL = portrait
                     }
                     continue
@@ -333,7 +350,7 @@ final class KugouClient {
                 }
 
                 // 兜底：专辑封面（AlbumImage/AlbumImg/Image）— 虽然是专辑不是歌手，但比首字占位好
-                if fallbackURL == nil {
+                if fallbackURL == nil, !strict {
                     for field in ["AlbumImage", "albumImage", "AlbumImg", "albumImg", "Image"] {
                         if let raw = Self.string(node[field]) {
                             let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
@@ -347,7 +364,8 @@ final class KugouClient {
                 }
             } // for node
         } // for group
-        Log.info("歌手头像", "keyword=\(keyword) fallback=\(fallbackURL?.absoluteString ?? "nil")")
+        Log.info("歌手头像", "keyword=\(keyword) strict=\(strict) fallback=\(fallbackURL?.absoluteString ?? "nil")")
+        guard !strict else { return nil }
         if let fallback = fallbackURL {
             photoCache.setObject(fallback as NSURL, forKey: keyword as NSString)
         }

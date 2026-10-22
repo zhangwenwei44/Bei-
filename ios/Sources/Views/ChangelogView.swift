@@ -130,6 +130,11 @@ enum Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "2.6.2", date: "", items: [
+            "歌词页加歌手写真背景：取当前歌手的写真全屏铺底（轻模糊 + 暗色遮罩保证歌词可读），取不到图自动回退原来的封面取色渐变",
+            "写真只认「歌手名精确匹配」的结果（新增 artistPhotoStrict）——不再拿 MV 抽帧 / 别的专辑图张冠李戴糊满整屏",
+            "设置 → 播放 新增「歌词页歌手写真背景」开关，不想要可以关",
+        ]),
         Entry(version: "2.0.6", date: "", items: [
             "下载修复：URLSession 配 allowsConstrainedDownloads=true 放开 http 限制 — 很多音源的 CDN 只有 http 出口，ATS 会直接拦掉；同时 Referer 改成按 CDN 域名动态设（之前硬设网易云 Referer 对酷狗 CDN 是反爬触发）",
             "专辑封面 NSCache + inFlight 去重 — 同一 albumID 并发多次请求合并成 1 次；日志里 22 首歌发了 40 次 album/info，现在变成 22 次且缓存命中直接返回",

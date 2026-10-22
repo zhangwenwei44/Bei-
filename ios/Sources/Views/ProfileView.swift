@@ -13,6 +13,8 @@ struct ProfileView: View {
     @StateObject private var updater = AppUpdater.shared
     /// 自动预缓存下一首 —— 用户手动开关，优先级高于网络判断（默认开启）。
     @AppStorage("aurora.autoPrecache") private var autoPrecacheEnabled: Bool = true
+    /// 🔴 v2.6.2：歌词页歌手写真背景开关（歌词页背景默认用当前歌手的写真）
+    @AppStorage("aurora.lyricsArtistPhoto") private var lyricsArtistPhoto: Bool = true
     // 🔴 v2.5.39：播放器主题精简为唯一的「经典封面」，主题选择器已移除（保留旧键不影响）。
     private var autoPrecacheBinding: Binding<Bool> {
         Binding(get: { autoPrecacheEnabled },
@@ -195,6 +197,20 @@ struct ProfileView: View {
                         }
                     } icon: {
                         Image(systemName: "arrow.triangle.2.circlepath")
+                    }
+                    .tint(AppStyle.accent)
+                }
+                // 🔴 v2.6.2：歌词页歌手写真背景
+                Toggle(isOn: $lyricsArtistPhoto) {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("歌词页歌手写真背景")
+                            Text("取不到歌手写真时自动回退为封面取色背景")
+                                .font(.system(size: 11))
+                                .foregroundStyle(AppStyle.tertiaryText)
+                        }
+                    } icon: {
+                        Image(systemName: "person.crop.rectangle.fill")
                     }
                     .tint(AppStyle.accent)
                 }
