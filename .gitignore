@@ -38,3 +38,4 @@ ios/BundledSources/*.local.js
 *.xcarchive
 *.ipa.manifest
 *.json.tmp
+run.html
