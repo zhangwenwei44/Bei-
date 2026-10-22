@@ -19,38 +19,62 @@ struct ForceUpdateView: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                Image(systemName: "arrow.down.circle.fill")
-                    .font(.system(size: 62))
-                    .foregroundStyle(AppStyle.accent)
-                Text("发现新版本")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(AppStyle.primaryText)
-                    .padding(.top, 14)
+                // 🔴 v2.6.3 排版重做：图标 → 标题 → 版本对照胶囊 → 更新内容卡片，
+                // 各区独立成块、左对齐的说明列表收进卡片里，不再是一坨挤在一起的文字。
+                VStack(spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .fill(LinearGradient(colors: [AppStyle.accent, AppStyle.like],
+                                                 startPoint: .topLeading,
+                                                 endPoint: .bottomTrailing))
+                            .frame(width: 88, height: 88)
+                            .shadow(color: AppStyle.accent.opacity(0.35), radius: 16, y: 8)
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.system(size: 42))
+                            .foregroundStyle(AppStyle.onAccent)
+                    }
+
+                    Text("发现新版本")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(AppStyle.primaryText)
+
+                    if let release = updater.forceRelease {
+                        HStack(spacing: 8) {
+                            versionPill("最新 \(release.name ?? release.tag_name)", highlight: true)
+                            versionPill("当前 \(updater.versionText)", highlight: false)
+                        }
+                    }
+                }
 
                 if let release = updater.forceRelease {
-                    Text("最新版本 \(release.name ?? release.tag_name)，当前 \(updater.versionText)")
-                        .font(.system(size: 14))
-                        .foregroundStyle(AppStyle.secondaryText)
-                        .padding(.top, 8)
-
                     let notes = AppUpdater.notes(from: release.body, limit: 6)
                     if !notes.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(Array(notes.enumerated()), id: \.offset) { _, line in
-                                HStack(alignment: .top, spacing: 6) {
-                                    Circle()
-                                        .fill(AppStyle.accent.opacity(0.6))
-                                        .frame(width: 4, height: 4)
-                                        .padding(.top, 6)
-                                    Text(line)
-                                        .font(.system(size: 13))
-                                        .foregroundStyle(AppStyle.secondaryText)
-                                        .lineLimit(2)
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("更新内容")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(AppStyle.secondaryText)
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(Array(notes.enumerated()), id: \.offset) { _, line in
+                                    HStack(alignment: .top, spacing: 8) {
+                                        Circle()
+                                            .fill(AppStyle.accent.opacity(0.7))
+                                            .frame(width: 4, height: 4)
+                                            .padding(.top, 7)
+                                        Text(line)
+                                            .font(.system(size: 13))
+                                            .foregroundStyle(AppStyle.secondaryText)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
                                 }
                             }
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(AppStyle.surfaceHigh,
+                                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
-                        .padding(.top, 16)
-                        .padding(.horizontal, 36)
+                        .padding(.horizontal, 32)
+                        .padding(.top, 22)
                     }
                 }
 
@@ -68,6 +92,17 @@ struct ForceUpdateView: View {
         .onAppear {
             if case let .ready(file) = updater.phase { enterReadyState(file) }
         }
+    }
+
+    /// 版本胶囊：新版本高亮、当前版本弱化，一行对齐不再挤成一句话
+    private func versionPill(_ text: String, highlight: Bool) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .medium, design: .monospaced))
+            .foregroundStyle(highlight ? AppStyle.onAccent : AppStyle.secondaryText)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(highlight ? AnyShapeStyle(AppStyle.accent) : AnyShapeStyle(AppStyle.surfaceHigh),
+                        in: Capsule())
     }
 
     // MARK: 状态区

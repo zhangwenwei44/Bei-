@@ -800,6 +800,12 @@ struct PlayerView: View {
             // 显示异常/对比度糊掉。
             plainGradientBackground
 
+            // 🔴 v2.6.3：底部动态波纹 —— 播放中随音乐起伏的多层波浪，暂停淡出。
+            // 垫在内容层下面，纯装饰不挡操作。
+            LandscapeRippleView(isPlaying: store.isPlaying)
+                .frame(height: 130)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+
             HStack(spacing: 0) {
                 // 左：大封面（垂直居中，约占屏宽 44%）
                 // 🔴 主题精简后横屏固定用圆角封面：ratio 0.82、上限 340
@@ -816,13 +822,17 @@ struct PlayerView: View {
                     landscapeLyricsBlock
                         .padding(.top, 16)
                     Spacer(minLength: 10)
-                    // 🔴 v2.5.50：进度条 + 播放按钮行改回【常显】——
-                    // v2.5.49 跟着浮层一起隐藏后用户实测不方便，要求只自动隐藏
-                    // 顶栏（返回/收藏/下载），底部进度条和播放按钮一直可见。
+                    // 🔴 v2.6.3：底部横条（进度条 + 播放按钮）加入自动隐藏 ——
+                    // 和顶栏同一节奏：4 秒无操作淡出、点屏幕唤出。
+                    // 用 opacity 而非 if：布局占位不变，显隐不跳动；隐藏时禁点。
                     progressSection()
                         .padding(.horizontal, 2)
+                        .opacity(landscapeChromeVisible ? 1 : 0)
+                        .allowsHitTesting(landscapeChromeVisible)
                     landscapeControls()
                         .padding(.top, 20)   // 🔴 v2.5.49：播放按钮行与进度条的间距加大
+                        .opacity(landscapeChromeVisible ? 1 : 0)
+                        .allowsHitTesting(landscapeChromeVisible)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 // 🔴 layoutPriority(1)：HStack 分配宽度时右列优先，绝不被左侧封面槽挤没
@@ -884,6 +894,47 @@ struct PlayerView: View {
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: 0.3)) { landscapeChromeVisible = false }
+        }
+    }
+
+    /// 🔴 v2.6.3：横屏底部动态波纹 —— 三层相位/速度不同的正弦波随时间起伏，
+    /// 模拟"跟着音乐动"的流动感；暂停时整层淡出并停帧（TimelineView paused）。
+    /// 纯装饰层，allowsHitTesting(false) 不吃任何触摸。
+    private struct LandscapeRippleView: View {
+        let isPlaying: Bool
+
+        var body: some View {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isPlaying)) { timeline in
+                Canvas { context, size in
+                    let t = timeline.date.timeIntervalSinceReferenceDate
+                    let h = size.height
+                    for layer in 0...2 {
+                        let speed = 1.0 + Double(layer) * 0.6
+                        let ampBase = h * (0.30 - 0.07 * Double(layer))
+                        let alpha = 0.16 - Double(layer) * 0.045
+                        var path = Path()
+                        var x: CGFloat = 0
+                        var first = true
+                        while x <= size.width + 6 {
+                            let nx = Double(x) / 64.0
+                            // 两列正弦叠加：波形有起伏变化，不像单一正弦那么机械
+                            let w = sin(nx * 2.1 + t * speed + Double(layer) * 1.9) * 0.7
+                                  + sin(nx * 4.6 - t * speed * 1.6 + Double(layer) * 0.8) * 0.3
+                            let y = h - ampBase * (0.5 + 0.5 * w)
+                            if first { path.move(to: CGPoint(x: x, y: y)); first = false }
+                            else { path.addLine(to: CGPoint(x: x, y: y)) }
+                            x += 6
+                        }
+                        path.addLine(to: CGPoint(x: size.width, y: h))
+                        path.addLine(to: CGPoint(x: 0, y: h))
+                        path.closeSubpath()
+                        context.fill(path, with: .color(.white.opacity(max(0, alpha))))
+                    }
+                }
+            }
+            .allowsHitTesting(false)
+            .opacity(isPlaying ? 1 : 0)
+            .animation(.easeInOut(duration: 0.8), value: isPlaying)
         }
     }
 
@@ -1541,19 +1592,22 @@ struct LyricsPageView: View {
                                startPoint: .topLeading,
                                endPoint: .bottomTrailing)
 
-                // 🔴 v2.6.2：歌手写真背景（取不到图就整层不显示，仍走上面的取色渐变）。
-                // 写在暗色渐变【下面】：先让写真透出来一点，再由暗色渐变压对比度保可读性。
-                if showArtistPhoto {
-                    ArtistPhotoBackdrop(artist: store.current?.artist ?? "",
-                                        title: store.current?.title ?? "")
-                        .ignoresSafeArea()
-                }
-
                 LinearGradient(colors: [.black.opacity(0.35),
                                         .black.opacity(0.18),
                                         .black.opacity(0.3),
                                         .black.opacity(0.55)],
                                startPoint: .top, endPoint: .bottom)
+
+                // 🔴 v2.6.3：歌手写真背景移到最上层 —— v2.6.2 把它压在 0.35~0.55
+                // 黑色渐变之下，加上自身 0.32 遮罩，双层压暗后照片几乎不可见
+                // （用户反馈"歌词页显示不出歌手写真"）。现在写真铺在最上面，
+                // 只受自身 blur(18) + 0.32 遮罩约束：照片清晰可见、歌词仍可读；
+                // 取不到图整层不显示，回退下面的取色渐变。
+                if showArtistPhoto {
+                    ArtistPhotoBackdrop(artist: store.current?.artist ?? "",
+                                        title: store.current?.title ?? "")
+                        .ignoresSafeArea()
+                }
             }
             .ignoresSafeArea()
             // 🔴 已移除下滑关闭手势：用户要求只用左上角返回按钮关闭歌词页（横屏同理），

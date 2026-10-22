@@ -44,6 +44,11 @@ struct AuroraMusicApp: App {
         }
     }
 
+    /// 🔴 v2.6.3：启动 splash —— 系统启动图经常 <1 秒就被撤掉，
+    /// 用户要求启动图至少显示 2 秒：进 App 后再铺一层同样的启动图，
+    /// 满 2 秒淡出。放在 ForceUpdateView overlay 之上（后写的 overlay 在上层）。
+    @State private var splashVisible = true
+
     var body: some Scene {
         WindowGroup {
             // 🔴 不再有启动公告 / 免责声明拦截：直接进主界面。
@@ -60,7 +65,36 @@ struct AuroraMusicApp: App {
                             .transition(.opacity)
                     }
                 }
+                // 🔴 v2.6.3：启动图至少显示 2 秒
+                .overlay {
+                    if splashVisible {
+                        LaunchSplashView()
+                            .transition(.opacity)
+                            .zIndex(100)
+                    }
+                }
+                .task {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    withAnimation(.easeOut(duration: 0.35)) { splashVisible = false }
+                }
         }
+    }
+}
+
+/// 🔴 v2.6.3：启动 splash 层 —— 与 LaunchScreen.storyboard 同款视觉
+/// （蓝色底 + LaunchImage 全屏铺满），衔接系统启动图不跳变。
+private struct LaunchSplashView: View {
+    var body: some View {
+        ZStack {
+            Color(red: 0.291, green: 0.552, blue: 0.983).ignoresSafeArea()
+            if let ui = UIImage(named: "LaunchImage") {
+                Image(uiImage: ui)
+                    .resizable()
+                    .scaledToFill()
+                    .ignoresSafeArea()
+            }
+        }
+        .transition(.opacity)
     }
 }
 

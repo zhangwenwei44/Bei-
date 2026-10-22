@@ -462,7 +462,8 @@ private struct KugouLibraryPage: View {
     @State private var playlists: [KugouClient.KugouPlaylist] = []
     @State private var isLoading = false
     @State private var errorMsg: String?
-    @State private var showDisclaimer = false
+    // 🔴 v2.6.3：扫码登录的免责声明弹窗已移除（用户要求），
+    // 点「扫码登录」直接拉起扫码页。
 
     var body: some View {
         Group {
@@ -480,12 +481,6 @@ private struct KugouLibraryPage: View {
                     }
                 }
                 .refreshable { await reloadPlaylists() }
-            }
-        }
-        .sheet(isPresented: $showDisclaimer) {
-            KugouDisclaimerView {
-                showDisclaimer = false
-                NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
             }
         }
         .task(id: kugouAuth.isLoggedIn) {
@@ -521,7 +516,8 @@ private struct KugouLibraryPage: View {
             Button {
                 // 先清掉旧 token 再登录，避免拿脏凭证反复触发 20017
                 kugouAuth.clearForRelogin()
-                showDisclaimer = true
+                // 🔴 v2.6.3：免责声明弹窗移除，直接拉起扫码登录
+                NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "qrcode.viewfinder")
@@ -559,7 +555,8 @@ private struct KugouLibraryPage: View {
                 .padding(.bottom, 24)
 
             Button {
-                showDisclaimer = true
+                // 🔴 v2.6.3：免责声明弹窗移除，直接拉起扫码登录
+                NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "qrcode.viewfinder")
@@ -829,80 +826,9 @@ struct KugouAccountCenter: View {
     }
 }
 
-// MARK: - 首次登录免责声明（QQ公告同款风格）
-
-struct KugouDisclaimerView: View {
-    @Environment(\.dismiss) private var dismiss
-    let onContinue: () -> Void
-
-    var body: some View {
-        ZStack {
-            LinearGradient(colors: [Color(red: 0.20, green: 0.55, blue: 0.95),
-                                     Color(red: 0.10, green: 0.25, blue: 0.60)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                .ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
-
-                // 图标 + 标题
-                VStack(spacing: 14) {
-                    // 酷狗品牌登录图标（绿圆白话筒）
-                    KugouLogoIcon(size: 72)
-                    Text("登录酷狗音乐")
-                        .font(.system(size: 20, weight: .bold)).foregroundStyle(.white)
-                    Text("扫码后会把你的酷狗歌单同步到这里 🎵")
-                        .font(.system(size: 14)).foregroundStyle(.white.opacity(0.85))
-                }
-                .padding(.bottom, 22)
-
-                // 提示列表
-                VStack(alignment: .leading, spacing: 10) {
-                    bullet(icon: "lock.shield", text: "登录凭证只保存在本机 UserDefaults，不上云同步")
-                    bullet(icon: "folder", text: "你的酷狗歌单会拉取到「我的音乐」下")
-                    bullet(icon: "person.2", text: "需要保持正常网络，酷狗接口偶尔会限流")
-                    bullet(icon: "hand.raised", text: "请遵守酷狗用户协议，不要抓取付费内容")
-                }
-                .padding(.horizontal, 32)
-                .padding(.bottom, 26)
-
-                // 按钮
-                VStack(spacing: 12) {
-                    Button {
-                        dismiss()
-                        onContinue()
-                    } label: {
-                        Text("我知道了，继续扫码")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Color(red: 0.10, green: 0.35, blue: 0.80))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(.white, in: RoundedRectangle(cornerRadius: 28))
-                            .shadow(color: .black.opacity(0.15), radius: 10, y: 4)
-                    }
-
-                    Button {
-                        dismiss()
-                    } label: {
-                        Text("取消登录").font(.system(size: 13)).foregroundStyle(.white.opacity(0.7))
-                    }
-                }
-                .padding(.horizontal, 28)
-                .padding(.bottom, 18)
-
-                Spacer(minLength: 0)
-            }
-        }
-    }
-
-    private func bullet(icon: String, text: String) -> some View {
-        HStack(alignment: .center, spacing: 10) {
-            Image(systemName: icon).font(.system(size: 12)).foregroundStyle(.white.opacity(0.7))
-                .frame(width: 18, height: 18)
-            Text(text).font(.system(size: 13)).foregroundStyle(.white.opacity(0.93))
-        }
-    }
-}
+// MARK: - 首次登录免责声明
+// 🔴 v2.6.3：KugouDisclaimerView 已整体移除（用户要求点「扫码登录」不再弹声明页），
+// 扫码入口直接 post .auroraShowKugouLogin 拉起 KugouLoginSheet。
 
 // MARK: - 左滑删除行（ScrollView + LazyVStack 里用；List 的 onDelete 只适用 List）
 

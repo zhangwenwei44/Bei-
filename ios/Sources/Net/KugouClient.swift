@@ -258,18 +258,28 @@ final class KugouClient {
         return nil
     }
 
-    /// 🔴 v2.6.2：严格版歌手写真 —— 只接受「歌手名精确匹配」的结果，拿不到就返回 nil。
-    /// 歌词页背景用：宁可不显示（回退取色渐变），也不要拿 MV 抽帧 / 别人专辑图
-    /// 当歌手写真糊在整屏上张冠李戴。
+    /// 🔴 v2.6.2：严格版歌手写真 —— 优先「歌手名精确匹配」的结果。
+    /// 🔴 v2.6.3：纯严格导致大多数歌手精确匹配不上、返回 nil，歌词页永远是
+    /// 取色渐变（用户反馈"歌词页显示不出歌手写真"）。改为：精确匹配失败时
+    /// 回退宽松版 artistPhoto（它优先 exact 歌手卡 / singerimg，拿不到才用
+    /// 兜底图）—— 宁可图不够"纯"，也不能一直没图。
     func artistPhotoStrict(name: String, title: String = "") async -> URL? {
         let lead = name.components(separatedBy: CharacterSet(charactersIn: "、/&，,"))
             .first?.trimmingCharacters(in: .whitespaces) ?? name
         guard !lead.isEmpty else { return nil }
         let key = (lead + "#strict") as NSString
         if let cached = photoCache.object(forKey: key) { return cached as URL }
-        guard let url = await artistPhoto(name: lead, keyword: lead, strict: true) else { return nil }
-        photoCache.setObject(url as NSURL, forKey: key)
-        return url
+        // ① 精确匹配歌手写真
+        if let url = await artistPhoto(name: lead, keyword: lead, strict: true) {
+            photoCache.setObject(url as NSURL, forKey: key)
+            return url
+        }
+        // ② 回退宽松版（优先 exact 匹配，仅在没有精确结果时用兜底图）
+        if let url = await artistPhoto(name: name, title: title) {
+            photoCache.setObject(url as NSURL, forKey: key)
+            return url
+        }
+        return nil
     }
 
     /// 核心实现：只翻 mixedSearch 第 1 页。
