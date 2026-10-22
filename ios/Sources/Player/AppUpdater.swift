@@ -27,19 +27,6 @@ final class AppUpdater: ObservableObject {
         var prerelease: Bool?
     }
 
-    /// 更新检查的通道错误（不借用酷狗的错误枚举，保持职责清晰）。
-    enum UpdateError: LocalizedError {
-        case badURL
-        case message(String)
-
-        var errorDescription: String? {
-            switch self {
-            case .badURL: return "仓库地址无效"
-            case .message(let text): return text
-            }
-        }
-    }
-
     enum Phase: Equatable {        case idle
         case checking
         case upToDate(current: String)
@@ -155,7 +142,7 @@ final class AppUpdater: ObservableObject {
     /// 通道一：GitHub REST API。
     private func fetchReleasesFromAPI() async throws -> [Release] {
         guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases?per_page=100") else {
-            throw UpdateError.badURL
+            throw UpdateError.message("仓库地址无效")
         }
         var request = URLRequest(url: url)
         request.timeoutInterval = 15
@@ -466,11 +453,14 @@ final class AppUpdater: ObservableObject {
 enum UpdateError: LocalizedError {
     case http
     case notIPA
+    /// 🔴 v2.6.5：带具体文案的错误（限流提示等）
+    case message(String)
 
     var errorDescription: String? {
         switch self {
         case .http: return "下载失败，服务器没有返回安装包"
         case .notIPA: return "下载到的不是安装包（可能触发了 GitHub 限流），请稍后重试或用「Releases 页面」下载"
+        case .message(let text): return text
         }
     }
 }
