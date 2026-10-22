@@ -317,17 +317,19 @@ final class KugouClient {
 
                 // 🔴 v2.6.4：节点里的歌手名统一取一份（节点名可能是歌名，
                 // 只有当节点本身就是歌手卡片/歌曲节点时才算命中）。
-                let nodeName = Self.string(node["singername"])
+                // 🔴 拆成两段 —— ?? 链太长（9 个）会让 Swift 类型检查器超时
+                // （CI 报 unable to type-check this expression in reasonable time）。
+                let nameA: String? = Self.string(node["singername"])
                     ?? Self.string(extra?["singername"])
                     ?? Self.string(node["SingerName"])
                     ?? Self.string(node["singer_name"])
-                    ?? Self.string(node["artistname"])
+                let nameB: String? = Self.string(node["artistname"])
                     ?? Self.string(node["ArtistName"])
                     ?? Self.string(node["artist"])
                     ?? Self.string(node["Singers"])
                     // 歌手卡片的歌名位放的是歌手名（type=4 节点）
                     ?? Self.string(node["title"])
-                let nameHit = Self.nameMatches(nodeName, lead)
+                let nameHit = Self.nameMatches(nameA ?? nameB, lead)
 
                 // 路径 1（主）：歌曲节点的 singerimg —— 酷狗每首歌都带，最稳。
                 // 🔴 v2.6.4：这一路径提到最前面。原来它在 anyImageURL 之后，
@@ -2183,18 +2185,19 @@ final class KugouClient {
                 ?? ""
             // 🔴 v2.6.4：歌手名字段候选补全 —— 云歌单接口常常不给 singername，
             // 放在 author_name / author / singer / extra 里，导致歌单里歌手列全空。
-            var artist = Self.string(item["singername"])
+            // 🔴 拆成两段 —— ?? 链太长（11 个）会让 Swift 类型检查器超时。
+            let artistA: String? = Self.string(item["singername"])
                 ?? Self.string(item["singer_name"])
                 ?? Self.string(item["singerName"])
                 ?? Self.string(item["author_name"])
                 ?? Self.string(item["author"])
-                ?? Self.string(item["singer"])
+            let artistB: String? = Self.string(item["singer"])
                 ?? Self.string(item["artist"])
                 ?? Self.string(item["album_author"])
                 ?? Self.string(extra?["singername"])
                 ?? Self.string(extra?["singer_name"])
                 ?? Self.string(extra?["author_name"])
-                ?? ""
+            var artist: String = artistA ?? artistB ?? ""
             // 数组型歌手（Singers / SingerName 是数组时）
             if artist.isEmpty {
                 if let names = item["Singers"] as? [String] {
