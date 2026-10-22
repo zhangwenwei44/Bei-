@@ -15,6 +15,9 @@ struct AuroraMusicApp: App {
     /// 🔴 注入 AppDelegate：接管 supportedInterfaceOrientations，配合 OrientationLock
     /// 实现「平时锁竖屏、横屏播放器时强制横屏」。
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    /// 🔴 v2.6.5：回到前台时再查一次更新 —— 之前只在冷启动查一次，
+    /// App 挂在后台期间发布的新版本，回到前台也收不到推送。
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         // 必须最先装：播放闪退时全靠它把现场写进运行日志
@@ -76,6 +79,12 @@ struct AuroraMusicApp: App {
                 .task {
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
                     withAnimation(.easeOut(duration: 0.35)) { splashVisible = false }
+                }
+                // 🔴 v2.6.5：前台回来补一次更新检查（自带 5 分钟节流）
+                .onChange(of: scenePhase) { phase in
+                    if phase == .active {
+                        Task { await updater.checkOnForeground() }
+                    }
                 }
         }
     }

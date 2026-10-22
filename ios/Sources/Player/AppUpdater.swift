@@ -27,8 +27,20 @@ final class AppUpdater: ObservableObject {
         var prerelease: Bool?
     }
 
-    enum Phase: Equatable {
-        case idle
+    /// 更新检查的通道错误（不借用酷狗的错误枚举，保持职责清晰）。
+    enum UpdateError: LocalizedError {
+        case badURL
+        case message(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .badURL: return "仓库地址无效"
+            case .message(let text): return text
+            }
+        }
+    }
+
+    enum Phase: Equatable {        case idle
         case checking
         case upToDate(current: String)
         case available(Release)
@@ -62,6 +74,19 @@ final class AppUpdater: ObservableObject {
         }
     }
 
+    /// 🔴 v2.6.5：回到前台时再查一次 —— 之前只在冷启动查，
+    /// App 挂在后台期间发布了新版本的话，用户回到前台永远收不到更新提示
+    /// （用户反馈"没推到"）。check(force: false) 自带 5 分钟节流，不会刷爆接口。
+    func checkOnForeground() async {
+        guard !forceUpdateActive else { return }
+        await check(force: false)
+        if case let .available(release) = phase {
+            forceRelease = release
+            forceUpdateActive = true
+            Log.info("更新", "回到前台检测到新版本 \(release.tag_name)，进入强制更新")
+        }
+    }
+
     /// 仓库地址，和仓库 README 保持一致
     private let repo = "zhangwenwei44/Bei-"
     private let currentVersion: String
@@ -84,48 +109,136 @@ final class AppUpdater: ObservableObject {
         // 用 /releases 列表自己挑最高语义版本号，而不是只信 /releases/latest：
         // 一旦 GitHub 没把新版本标成「Latest」、或新版本被打了 prerelease，/releases/latest
         // 就会漏掉它，老用户永远收不到更新提示（表现就是「App 内没有更新」）。
-        guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases?per_page=100") else {
-            phase = .failed("仓库地址无效")
+        var newest: Release?
+        var failure: String?
+
+        // ① 首选 GitHub API
+        do {
+            let releases = try await fetchReleasesFromAPI()
+            newest = newestStableRelease(releases)
+            if newest == nil {
+                failure = "没有可用的稳定版 Release"
+            }
+        } catch {
+            failure = error.localizedDescription
+            Log.error("更新", "API 通道失败：\(failure ?? "未知")")
+        }
+
+        // ② 🔴 v2.6.5：API 通道失败（限流/网络）→ 走 Releases 的 Atom 订阅兜底。
+        // Atom 走 github.com 普通网页域，不受 api.github.com「每 IP 每小时 60 次」
+        // 的未认证限流约束。国内移动网络 IP 共享，API 额度经常被耗光，
+        // 表现就是「App 内永远查不到新版本」——这就是用户说的"没推到"。
+        if newest == nil {
+            if let viaAtom = await latestReleaseViaAtomFeed() {
+                newest = viaAtom
+                failure = nil
+                Log.info("更新", "改用 Atom 订阅通道，拿到 \(viaAtom.tag_name)")
+            }
+        }
+
+        guard let newest else {
+            phase = .failed(failure ?? "检查更新失败")
             return
+        }
+        lastCheckedAt = Date()
+        Log.info("更新", "远端最新稳定版 \(newest.tag_name)，附件 \(newest.assets.map(\.name).joined(separator: ", "))")
+        if isNewer(newest.tag_name) {
+            phase = .available(newest)
+        } else {
+            Log.info("更新", "已是最新（远端 \(newest.tag_name)）")
+            phase = .upToDate(current: currentVersion)
+        }
+    }
+
+    // MARK: - 取版本数据（两条通道）
+
+    /// 通道一：GitHub REST API。
+    private func fetchReleasesFromAPI() async throws -> [Release] {
+        guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases?per_page=100") else {
+            throw UpdateError.badURL
         }
         var request = URLRequest(url: url)
         request.timeoutInterval = 15
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("AuroraMusic/\(currentVersion)", forHTTPHeaderField: "User-Agent")
 
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                Log.error("更新", "响应不是 HTTP：\(response)")
-                phase = .failed("网络异常")
-                return
-            }
-            // 403/429 多半是 API 限流。GitHub 未认证请求每 IP 每小时只有 60 次，
-            // 移动网络下同 IP 共享，很容易撞上限。
-            guard (200...299).contains(http.statusCode) else {
-                let remaining = http.value(forHTTPHeaderField: "X-RateLimit-Remaining")
-                Log.error("更新", "GitHub 返回 \(http.statusCode)，限流剩余 \(remaining ?? "未知")")
-                phase = .failed(Self.rateLimitMessage(http))
-                return
-            }
-            let releases = try JSONDecoder().decode([Release].self, from: data)
-            guard let newest = newestStableRelease(releases) else {
-                Log.warn("更新", "没有可用的稳定版 Release")
-                phase = .upToDate(current: currentVersion)
-                return
-            }
-            lastCheckedAt = Date()
-            Log.info("更新", "远端最新稳定版 \(newest.tag_name)，附件 \(newest.assets.map(\.name).joined(separator: ", "))")
-            if isNewer(newest.tag_name) {
-                phase = .available(newest)
-            } else {
-                Log.info("更新", "已是最新（远端 \(newest.tag_name)）")
-                phase = .upToDate(current: currentVersion)
-            }
-        } catch {
-            Log.error("更新", "检查失败：\(error.localizedDescription)")
-            phase = .failed(error.localizedDescription)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw UpdateError.message("响应不是 HTTP")
         }
+        // 403/429 多半是 API 限流。GitHub 未认证请求每 IP 每小时只有 60 次，
+        // 移动网络下同 IP 共享，很容易撞上限。
+        guard (200...299).contains(http.statusCode) else {
+            let remaining = http.value(forHTTPHeaderField: "X-RateLimit-Remaining")
+            Log.error("更新", "GitHub 返回 \(http.statusCode)，限流剩余 \(remaining ?? "未知")")
+            throw UpdateError.message(Self.rateLimitMessage(http))
+        }
+        return try JSONDecoder().decode([Release].self, from: data)
+    }
+
+    /// 通道二：Releases 的 Atom 订阅（不限流）。取最新一条 entry 的 tag，
+    /// 再从 expanded_assets 片段里取真实的 .ipa 下载链接。
+    private func latestReleaseViaAtomFeed() async -> Release? {
+        guard let feedURL = URL(string: "https://github.com/\(repo)/releases.atom") else { return nil }
+        var request = URLRequest(url: feedURL)
+        request.timeoutInterval = 15
+        request.setValue("AuroraMusic/\(currentVersion)", forHTTPHeaderField: "User-Agent")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse,
+              (200...299).contains(http.statusCode),
+              let xml = String(data: data, encoding: .utf8),
+              let tag = Self.firstTagName(in: xml) else { return nil }
+
+        var assets = await Self.assetsForTag(tag, repo: repo)
+        if assets.isEmpty {
+            // 兜底：CI 的附件命名规则固定是 AuroraMusic-<tag>.ipa
+            let name = "AuroraMusic-\(tag).ipa"
+            assets = [Asset(name: name,
+                            browser_download_url: "https://github.com/\(repo)/releases/download/\(tag)/\(name)",
+                            size: 0)]
+        }
+        return Release(tag_name: tag,
+                      name: tag,
+                      body: nil,
+                      html_url: "https://github.com/\(repo)/releases/tag/\(tag)",
+                      assets: assets,
+                      draft: false,
+                      prerelease: false)
+    }
+
+    /// 从 Atom XML 里取第一条 entry 的 tag（链接形如 .../releases/tag/v2.6.4）。
+    private static func firstTagName(in xml: String) -> String? {
+        guard let marker = xml.range(of: "/releases/tag/") else { return nil }
+        let rest = xml[marker.upperBound...]
+        guard let end = rest.firstIndex(where: { $0 == "\"" || $0 == "<" || $0 == "&" }) else { return nil }
+        let tag = String(rest[..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return tag.isEmpty ? nil : tag
+    }
+
+    /// 从 GitHub 的 expanded_assets 片段里取该版本的所有 .ipa 附件。
+    private static func assetsForTag(_ tag: String, repo: String) async -> [Asset] {
+        guard let url = URL(string: "https://github.com/\(repo)/releases/expanded_assets/\(tag)") else { return [] }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        request.setValue("AuroraMusic", forHTTPHeaderField: "User-Agent")
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let html = String(data: data, encoding: .utf8) else { return [] }
+
+        let marker = "/releases/download/\(tag)/"
+        var result: [Asset] = []
+        var cursor = html.startIndex
+        while let range = html.range(of: marker, range: cursor..<html.endIndex) {
+            cursor = range.upperBound
+            let nameStart = range.upperBound
+            guard let nameEnd = html[nameStart...].firstIndex(of: "\"") else { break }
+            let name = String(html[nameStart..<nameEnd])
+            guard name.hasSuffix(".ipa") else { continue }
+            let link = "https://github.com/\(repo)/releases/download/\(tag)/\(name)"
+            if !result.contains(where: { $0.browser_download_url == link }) {
+                result.append(Asset(name: name, browser_download_url: link, size: 0))
+            }
+        }
+        return result
     }
 
     /// 从 release 列表里挑出版本号最高的稳定版（排除 draft / prerelease）。

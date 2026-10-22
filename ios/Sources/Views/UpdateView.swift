@@ -307,7 +307,9 @@ struct UpdateView: View {
             }
             .buttonStyle(.plain)
 
-            if case .available(let release) = updater.phase, let url = URL(string: release.html_url) {
+            // 🔴 v2.6.5：Releases 页面入口不再只在"有更新"时出现 ——
+            // 查不到新版本（限流/网络）时，用户最需要的就是手动去下载页拿包。
+            if let url = URL(string: "https://github.com/zhangwenwei44/Bei-/releases/latest") {
                 Link(destination: url) {
                     Text("Releases 页面")
                         .font(.system(size: 14, weight: .medium))
