@@ -365,7 +365,8 @@ struct ArtistPhotoBackdrop: View {
         }
         // 纯背景层，绝不能吃掉歌词滚动和点击
         .allowsHitTesting(false)
-        .task(id: artist) { await load() }
+        // 🔴 v2.6.4：id 带上歌名 —— 同一歌手连唱多首时也要重新取图
+        .task(id: artist + "|" + title) { await load() }
     }
 
     private func load() async {
@@ -375,9 +376,19 @@ struct ArtistPhotoBackdrop: View {
             image = cached
             return
         }
-        guard let url = await KugouClient.shared.artistPhotoStrict(name: key, title: title),
-              let (data, _) = try? await URLSession.shared.data(from: url),
-              let ui = UIImage(data: data) else { return }
+        guard let url = await KugouClient.shared.artistPhotoStrict(name: key, title: title) else {
+            Log.info("歌词写真", "没取到歌手写真：\(key)")
+            return
+        }
+        // 🔴 v2.6.4：必须用 CoverLoader 下载，不能用裸 URLSession.data(from:)。
+        // 裸 URLSession 有三个静默失败的坑：① http 链接被 ATS 直接拦掉；
+        // ② 酷狗图片 CDN 要 Referer，缺了返回 403；③ URL 里残留 {size} 占位符返回 404。
+        // 三者都是 try? 静默返回 nil → 歌词页永远看不到写真（用户实测两版都没图）。
+        // CoverLoader 内部会试 https/http 双协议、带 UA+Referer、替换占位符并换 CDN 兜底。
+        guard let ui = await CoverLoader.download(url, maxPixelSize: 900) else {
+            Log.warn("歌词写真", "写真下载失败：\(url.absoluteString)")
+            return
+        }
         ArtistPhotoCache.shared.store(ui, for: key)
         withAnimation(.easeOut(duration: 0.35)) { image = ui }
     }
@@ -610,7 +621,10 @@ struct SongMenu: ViewModifier {
     @EnvironmentObject private var store: PlayerStore
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var downloads = DownloadManager.shared
+    @ObservedObject private var kugouAuth = KugouAuth.shared
     let song: Song
+    /// 🔴 v2.6.4：把歌曲存进酷狗云歌单
+    @State private var showKugouPicker = false
 
     func body(content: Content) -> some View {
         content
@@ -637,6 +651,18 @@ struct SongMenu: ViewModifier {
                         Label(downloads.isDownloaded(song) ? "已下载" : "下载", systemImage: "arrow.down.circle")
                     }
                 }
+                // 🔴 v2.6.4：存进酷狗云歌单（需要已登录 + 歌曲有酷狗 hash）
+                if kugouAuth.isLoggedIn && !song.kugouHash.isEmpty {
+                    Button {
+                        // 延后一拍再弹 sheet —— contextMenu 正在关闭动画里，
+                        // 立刻 present 会撞上「菜单正在消失」而弹不出来
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            showKugouPicker = true
+                        }
+                    } label: {
+                        Label("添加到酷狗歌单", systemImage: "icloud.and.arrow.up")
+                    }
+                }
                 // 之前 gate 在 !library.playlists.isEmpty，导致一个歌单都没有时
                 // 根本无法从歌曲菜单加歌，新建出来的歌单永远是空的
                 Menu("添加到歌单") {
@@ -647,6 +673,9 @@ struct SongMenu: ViewModifier {
                         Button(playlist.name) { library.add(song, toPlaylist: playlist.id) }
                     }
                 }
+            }
+            .sheet(isPresented: $showKugouPicker) {
+                KugouPlaylistPicker(songs: [song], title: "添加到酷狗歌单")
             }
     }
 }

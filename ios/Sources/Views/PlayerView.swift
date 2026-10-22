@@ -254,7 +254,7 @@ struct PlayerView: View {
     private var classicTitleBlock: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(store.current?.title ?? "未在播放")
-                .font(.system(size: 24, weight: .bold))
+                .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -800,9 +800,9 @@ struct PlayerView: View {
             // 显示异常/对比度糊掉。
             plainGradientBackground
 
-            // 🔴 v2.6.3：底部动态波纹 —— 播放中随音乐起伏的多层波浪，暂停淡出。
-            // 垫在内容层下面，纯装饰不挡操作。
-            LandscapeRippleView(isPlaying: store.isPlaying)
+            // 🔴 v2.6.4：底部动态波纹 —— 相位取自 AVPlayer 实时播放头，
+            // 严格跟着音乐走，暂停即静止。垫在内容层下面，纯装饰不挡操作。
+            LandscapeRippleView(isPlaying: store.isPlaying) { store.preciseTime }
                 .frame(height: 130)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
 
@@ -822,17 +822,13 @@ struct PlayerView: View {
                     landscapeLyricsBlock
                         .padding(.top, 16)
                     Spacer(minLength: 10)
-                    // 🔴 v2.6.3：底部横条（进度条 + 播放按钮）加入自动隐藏 ——
-                    // 和顶栏同一节奏：4 秒无操作淡出、点屏幕唤出。
-                    // 用 opacity 而非 if：布局占位不变，显隐不跳动；隐藏时禁点。
+                    // 🔴 v2.6.4：底部横条（进度条 + 播放按钮）恢复【常显】——
+                    // v2.6.3 跟顶栏一起自动隐藏，用户实测进度条和播放键找不到；
+                    // 现在只有顶栏（返回/收藏/下载）会 4 秒自动隐藏，底部这一排一直可见。
                     progressSection()
                         .padding(.horizontal, 2)
-                        .opacity(landscapeChromeVisible ? 1 : 0)
-                        .allowsHitTesting(landscapeChromeVisible)
                     landscapeControls()
                         .padding(.top, 20)   // 🔴 v2.5.49：播放按钮行与进度条的间距加大
-                        .opacity(landscapeChromeVisible ? 1 : 0)
-                        .allowsHitTesting(landscapeChromeVisible)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 // 🔴 layoutPriority(1)：HStack 分配宽度时右列优先，绝不被左侧封面槽挤没
@@ -897,30 +893,39 @@ struct PlayerView: View {
         }
     }
 
-    /// 🔴 v2.6.3：横屏底部动态波纹 —— 三层相位/速度不同的正弦波随时间起伏，
-    /// 模拟"跟着音乐动"的流动感；暂停时整层淡出并停帧（TimelineView paused）。
+    /// 🔴 v2.6.4：横屏底部动态波纹 —— 参考酷狗横屏的声波条：
+    /// 波形的相位直接取【AVPlayer 实时播放头】（store.preciseTime），
+    /// 所以波纹严格跟着这首歌的时间轴走，暂停时播放头静止 → 波纹自然停住，
+    /// 不再是"一直在动"的假动画。振幅按 144BPM 的节拍包络起伏，
+    /// 每一拍的强弱由拍号哈希决定（同一拍内稳定，不会逐帧抖动）。
     /// 纯装饰层，allowsHitTesting(false) 不吃任何触摸。
     private struct LandscapeRippleView: View {
         let isPlaying: Bool
+        /// 每帧读取实时播放头（闭包形式：TimelineView 每次刷新都会重新调用）
+        let timeProvider: () -> Double
 
         var body: some View {
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isPlaying)) { timeline in
+            TimelineView(.animation(minimumInterval: 1.0 / 40.0, paused: !isPlaying)) { timeline in
                 Canvas { context, size in
-                    let t = timeline.date.timeIntervalSinceReferenceDate
+                    let t = timeProvider()
                     let h = size.height
                     for layer in 0...2 {
-                        let speed = 1.0 + Double(layer) * 0.6
-                        let ampBase = h * (0.30 - 0.07 * Double(layer))
-                        let alpha = 0.16 - Double(layer) * 0.045
+                        let layerD = Double(layer)
+                        let speed = 1.0 + layerD * 0.55
+                        let ampBase = h * (0.30 - 0.07 * layerD)
+                        // 节拍能量：整体音量随拍起伏，三层错开相位
+                        let beat = Self.beatEnergy(t, phaseOffset: layerD * 0.35)
+                        let alpha = (0.17 - layerD * 0.05) * beat
+                        guard alpha > 0.004 else { continue }
                         var path = Path()
                         var x: CGFloat = 0
                         var first = true
                         while x <= size.width + 6 {
                             let nx = Double(x) / 64.0
                             // 两列正弦叠加：波形有起伏变化，不像单一正弦那么机械
-                            let w = sin(nx * 2.1 + t * speed + Double(layer) * 1.9) * 0.7
-                                  + sin(nx * 4.6 - t * speed * 1.6 + Double(layer) * 0.8) * 0.3
-                            let y = h - ampBase * (0.5 + 0.5 * w)
+                            let w = sin(nx * 2.1 + t * speed + layerD * 1.9) * 0.7
+                                  + sin(nx * 4.6 - t * speed * 1.6 + layerD * 0.8) * 0.3
+                            let y = h - ampBase * (0.22 + 0.78 * beat) * (0.45 + 0.55 * w)
                             if first { path.move(to: CGPoint(x: x, y: y)); first = false }
                             else { path.addLine(to: CGPoint(x: x, y: y)) }
                             x += 6
@@ -928,13 +933,29 @@ struct PlayerView: View {
                         path.addLine(to: CGPoint(x: size.width, y: h))
                         path.addLine(to: CGPoint(x: 0, y: h))
                         path.closeSubpath()
-                        context.fill(path, with: .color(.white.opacity(max(0, alpha))))
+                        context.fill(path, with: .color(.white.opacity(alpha)))
                     }
                 }
             }
             .allowsHitTesting(false)
             .opacity(isPlaying ? 1 : 0)
-            .animation(.easeInOut(duration: 0.8), value: isPlaying)
+            .animation(.easeInOut(duration: 0.6), value: isPlaying)
+        }
+
+        /// 拍点能量 0...1：144BPM 网格，每拍一个确定的强弱（哈希拍号得到），
+        /// 拍内用指数衰减包络 —— 看起来像真的在跟着节拍跳。
+        private static func beatEnergy(_ t: Double, phaseOffset: Double) -> Double {
+            guard t.isFinite, t >= 0 else { return 0.35 }
+            let bpm = 2.4                      // 每秒 2.4 拍 ≈ 144 BPM
+            let beat = t * bpm + phaseOffset
+            let index = beat.rounded(.down)
+            let frac = beat - index
+            // 拍号哈希：同一拍内每帧结果一致（不会抖）
+            var h = UInt64(bitPattern: Int64(index)) &* 6364136223846793005
+            h ^= h >> 33
+            let noise = Double((h >> 11) & 0xFFFF) / 65535.0
+            let env = exp(-frac * 3.4)         // 攻击后快速衰减
+            return 0.28 + 0.72 * (0.35 + 0.65 * noise) * env
         }
     }
 

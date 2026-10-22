@@ -315,17 +315,42 @@ final class KugouClient {
             for node in nodes {
                 let extra = node["extra"] as? [String: Any]
 
-                // 路径 1（主）：任何节点只要有 imgurl/Pic/ErectPic 就尝试当歌手卡片
+                // 🔴 v2.6.4：节点里的歌手名统一取一份（节点名可能是歌名，
+                // 只有当节点本身就是歌手卡片/歌曲节点时才算命中）。
+                let nodeName = Self.string(node["singername"])
+                    ?? Self.string(extra?["singername"])
+                    ?? Self.string(node["SingerName"])
+                    ?? Self.string(node["singer_name"])
+                    ?? Self.string(node["artistname"])
+                    ?? Self.string(node["ArtistName"])
+                    ?? Self.string(node["artist"])
+                    ?? Self.string(node["Singers"])
+                    // 歌手卡片的歌名位放的是歌手名（type=4 节点）
+                    ?? Self.string(node["title"])
+                let nameHit = Self.nameMatches(nodeName, lead)
+
+                // 路径 1（主）：歌曲节点的 singerimg —— 酷狗每首歌都带，最稳。
+                // 🔴 v2.6.4：这一路径提到最前面。原来它在 anyImageURL 之后，
+                // 而 anyImageURL 的字段表里也含 singerimg → 节点只要有图就被
+                // 路径 1（歌手卡片）抢先处理并 continue，歌曲节点的 singerimg
+                // 永远轮不到，strict 模式下常常直接返回 nil（歌词页没有写真）。
+                if nameHit {
+                    for field in ["singerimg", "singerImg", "singer_img", "SingerImg", "singermid"] {
+                        if let raw = Self.string(node[field]) {
+                            let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
+                                .replacingOccurrences(of: "{si}", with: "480")
+                            if let url = URL(string: fixed), Self.looksLikeImage(url) {
+                                photoCache.setObject(url as NSURL, forKey: keyword as NSString)
+                                Log.info("歌手头像", "keyword=\(keyword) exact=singerimg")
+                                return url
+                            }
+                        }
+                    }
+                }
+
+                // 路径 2：任何节点只要有 imgurl/Pic/ErectPic 就尝试当歌手卡片
                 if let portrait = Self.anyImageURL(node: node, extra: extra) {
-                    let matchedName = Self.string(node["singername"])
-                        ?? Self.string(extra?["singername"])
-                        ?? Self.string(node["title"])
-                        ?? Self.string(node["SingerName"])
-                        ?? Self.string(node["artistname"])
-                        ?? Self.string(node["ArtistName"])
-                        ?? Self.string(node["artist"])
-                        ?? Self.string(node["Singers"])
-                    if matchedName == lead {
+                    if nameHit {
                         // 找到 exact 就立即缓存返回
                         photoCache.setObject(portrait as NSURL, forKey: keyword as NSString)
                         Log.info("歌手头像", "keyword=\(keyword) exact=hit")
@@ -336,30 +361,8 @@ final class KugouClient {
                     continue
                 }
 
-                // 路径 2：歌曲节点 —— 严格匹配歌手名后，抓 singerimg / AlbumImage / Image
-                let matchedArtist = Self.string(node["singername"])
-                    ?? Self.string(node["SingerName"])
-                    ?? Self.string(node["artistname"])
-                    ?? Self.string(node["ArtistName"])
-                    ?? Self.string(node["artist"])
-                    ?? Self.string(node["Singers"])
-                guard matchedArtist == lead else { continue }
-
-                // 歌手头像字段（singerimg 系列）
-                for field in ["singerimg", "singerImg", "singer_img", "singermid", "SingerImg"] {
-                    if let raw = Self.string(node[field]) {
-                        let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
-                            .replacingOccurrences(of: "{si}", with: "480")
-                        if let url = URL(string: fixed), Self.looksLikeImage(url) {
-                            // singerimg 也算 exact — 严格匹配了歌手名
-                            photoCache.setObject(url as NSURL, forKey: keyword as NSString)
-                            Log.info("歌手头像", "keyword=\(keyword) exact=singerimg")
-                            return url
-                        }
-                    }
-                }
-
-                // 兜底：专辑封面（AlbumImage/AlbumImg/Image）— 虽然是专辑不是歌手，但比首字占位好
+                // 路径 3：兜底 —— 专辑封面（AlbumImage/AlbumImg/Image）
+                // 虽然是专辑不是歌手，但比首字占位好
                 if fallbackURL == nil, !strict {
                     for field in ["AlbumImage", "albumImage", "AlbumImg", "albumImg", "Image"] {
                         if let raw = Self.string(node[field]) {
@@ -380,6 +383,27 @@ final class KugouClient {
             photoCache.setObject(fallback as NSURL, forKey: keyword as NSString)
         }
         return fallbackURL
+    }
+
+    /// 🔴 v2.6.4：歌手名匹配（容错版）。
+    ///
+    /// 原来用 `==` 严格比较，导致大量本该命中的情况失配：
+    /// - 多人合唱："周杰伦、方文山" vs 主歌手 "周杰伦"
+    /// - 前后空格 / 全角空格
+    /// - 英文歌手大小写差异（"Taylor Swift" vs "taylor swift"）
+    /// 结果 strict 模式经常返回 nil → 歌词页永远回退取色渐变（用户反馈没有写真）。
+    static func nameMatches(_ raw: String?, _ lead: String) -> Bool {
+        guard let raw else { return false }
+        let a = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let b = lead.trimmingCharacters(in: .whitespacesAndNewlines)
+        if a.isEmpty || b.isEmpty { return false }
+        if a == b { return true }
+        if a.caseInsensitiveCompare(b) == .orderedSame { return true }
+        // 多人合唱：拆开后看是否包含主歌手
+        let parts = a.components(separatedBy: CharacterSet(charactersIn: "、/&，,;；|｜ "))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.contains { $0.caseInsensitiveCompare(b) == .orderedSame }
     }
 
     /// 统一判断 URL 看起来是图片（扩展名或域名）
@@ -1921,10 +1945,12 @@ final class KugouClient {
         var playlists: [KugouPlaylist] = []
         for item in allItems {
             guard let listid = Self.playlistID(item) else { continue }
-            let name = Self.string(item["listname"])
+            let name = Self.stripAudioExtension(
+                Self.string(item["listname"])
                 ?? Self.string(item["name"])
                 ?? Self.string(item["list_name"])
                 ?? "未命名歌单"
+            )
             // 🔴 封面字段（对齐 Beans mapPlaylist）。
             // 🔴 注意：酷狗的封面 URL 模板带 `{size}` 占位符
             // （如 `.../{size}001.jpg`），不替换的话 URL 打不开、图片永远加载失败。
@@ -1957,15 +1983,32 @@ final class KugouClient {
         return playlists
     }
 
+    /// 🔴 v2.6.4：去掉文件名/歌单名末尾的音频后缀（.mp3/.flac/…）。
+    /// 酷狗云歌单里返回的 filename 常是「歌手 - 歌名.mp3」，不处理的话
+    /// 歌名会带 .mp3、歌单名也会带 .mp3（用户两次反馈）。
+    static func stripAudioExtension(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let exts = ["mp3", "flac", "wav", "ape", "aac", "m4a", "ogg", "wma", "aiff", "mp4"]
+        for ext in exts {
+            let suffix = ".\(ext)"
+            if s.lowercased().hasSuffix(suffix) {
+                s = String(s.dropLast(suffix.count)).trimmingCharacters(in: .whitespaces)
+                break
+            }
+        }
+        return s
+    }
+
     /// 歌单 id 字段名在不同接口/版本间不一致，逐个候选匹配。
     /// `list_create_listid` 是创建者的默认歌单（=1），不能当歌单 id 用。
     private static func playlistID(_ item: [String: Any]) -> String? {
         string(item["listid"]) ?? string(item["list_id"]) ?? string(item["id"])
     }
 
-    /// 把当前歌曲保存到指定酷狗歌单
-    func addCurrentSongToPlaylist(_ listid: String, song: Song) async throws {
+    /// 🔴 v2.6.4：把歌曲加入指定酷狗歌单。
+    func addSongToPlaylist(_ listid: String, song: Song) async throws {
         guard KugouAuth.shared.isLoggedIn else { throw KugouError.parse("请先登录酷狗") }
+        guard !song.kugouHash.isEmpty else { throw KugouError.parse("这首歌没有酷狗 ID，加不进云歌单") }
         let userId = KugouAuth.shared.userId
         let token = KugouAuth.shared.token
 
@@ -1980,7 +2023,33 @@ final class KugouClient {
                                   host: "https://gateway.kugou.com",
                                   params: params,
                                   headers: ["x-router": "cloudlist.service.kugou.com"])
-        Log.info("酷狗", "歌曲已保存到歌单 \(listid)")
+        Log.info("酷狗", "歌曲《\(song.cleanTitle)》已保存到歌单 \(listid)")
+    }
+
+    /// 🔴 v2.6.4：把歌曲从酷狗歌单里移出（删除歌单内歌曲）。
+    func removeSongFromPlaylist(_ listid: String, song: Song) async throws {
+        guard KugouAuth.shared.isLoggedIn else { throw KugouError.parse("请先登录酷狗") }
+        guard !song.kugouHash.isEmpty else { throw KugouError.parse("这首歌没有酷狗 ID，移不出歌单") }
+        let userId = KugouAuth.shared.userId
+        let token = KugouAuth.shared.token
+
+        let params = [
+            "listid": listid,
+            "userid": userId,
+            "token": token,
+            "resource_id": song.kugouHash,
+            "source": "1",
+        ]
+        let _ = try await getRaw(path: "/v5/delete_song_from_list",
+                                  host: "https://gateway.kugou.com",
+                                  params: params,
+                                  headers: ["x-router": "cloudlist.service.kugou.com"])
+        Log.info("酷狗", "歌曲《\(song.cleanTitle)》已移出歌单 \(listid)")
+    }
+
+    /// 兼容旧调用点
+    func addCurrentSongToPlaylist(_ listid: String, song: Song) async throws {
+        try await addSongToPlaylist(listid, song: song)
     }
 
     // MARK: - 酷狗歌单详情（拉取歌单内歌曲）
@@ -2105,36 +2174,71 @@ final class KugouClient {
                 ?? Self.string(item["audio_hash"])
                 ?? ""
             let filename = Self.string(item["filename"]) ?? Self.string(item["FileName"]) ?? ""
+            let extra = item["extra"] as? [String: Any]
 
             var title = Self.string(item["songname"])
                 ?? Self.string(item["song_name"])
                 ?? Self.string(item["name"])
                 ?? Self.string(item["title"])
                 ?? ""
+            // 🔴 v2.6.4：歌手名字段候选补全 —— 云歌单接口常常不给 singername，
+            // 放在 author_name / author / singer / extra 里，导致歌单里歌手列全空。
             var artist = Self.string(item["singername"])
                 ?? Self.string(item["singer_name"])
+                ?? Self.string(item["singerName"])
                 ?? Self.string(item["author_name"])
+                ?? Self.string(item["author"])
                 ?? Self.string(item["singer"])
                 ?? Self.string(item["artist"])
+                ?? Self.string(item["album_author"])
+                ?? Self.string(extra?["singername"])
+                ?? Self.string(extra?["singer_name"])
+                ?? Self.string(extra?["author_name"])
                 ?? ""
+            // 数组型歌手（Singers / SingerName 是数组时）
+            if artist.isEmpty {
+                if let names = item["Singers"] as? [String] {
+                    artist = names.joined(separator: " / ")
+                } else if let names = item["SingerName"] as? [String] {
+                    artist = names.joined(separator: " / ")
+                } else if let names = item["singers"] as? [String] {
+                    artist = names.joined(separator: " / ")
+                }
+            }
 
-            // 🔴 关键兜底：filename 形如「歌手 - 歌名」，
+            // 🔴 关键兜底：filename 形如「歌手 - 歌名(.mp3)」，
             // 歌单接口常常不单独给 songname/singername，全靠这里拆出来。
             if !filename.isEmpty {
-                let parts = filename.components(separatedBy: " - ")
+                // 先去掉 .mp3 之类的后缀，再按分隔符拆 —— 分隔符兼容
+                // " - " / " – " / "—" / "－" / "_"（不同接口版本用的都不一样）。
+                let cleanName = Self.stripAudioExtension(filename)
+                let separators = [" - ", " – ", " — ", "—", "－", "－ ", "_", " -"]
+                var parts: [String] = []
+                for sep in separators {
+                    let comps = cleanName.components(separatedBy: sep)
+                    if comps.count >= 2 { parts = comps; break }
+                }
                 if parts.count >= 2 {
-                    if artist.isEmpty { artist = parts[0].trimmingCharacters(in: .whitespaces) }
+                    if artist.isEmpty {
+                        artist = Self.stripAudioExtension(parts[0].trimmingCharacters(in: .whitespaces))
+                    }
                     if title.isEmpty || title == filename {
                         title = parts.dropFirst().joined(separator: " - ")
                             .trimmingCharacters(in: .whitespaces)
                     }
                 } else if title.isEmpty {
-                    title = filename
+                    title = cleanName
                 }
             }
             if artist.isEmpty {
-                artist = Self.string(item["h5_author_name"]) ?? Self.string(item["authors"]) ?? ""
+                artist = Self.string(item["h5_author_name"])
+                    ?? Self.string(item["authors"])
+                    ?? Self.string(item["author_name"])
+                    ?? ""
             }
+            // 🔴 v2.6.4：歌名末尾的 .mp3 一律去掉（接口直给的 songname 也可能带）
+            title = Self.stripAudioExtension(title)
+            artist = Self.stripAudioExtension(artist)
 
             let album = Self.string(item["album_name"])
                 ?? Self.string(item["albumname"])

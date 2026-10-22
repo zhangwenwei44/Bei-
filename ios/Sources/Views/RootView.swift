@@ -95,7 +95,7 @@ final class PlayerPresenter {
     func present<Content: View>(rootView: Content) {
         guard currentVC == nil, let root = rootViewController,
               root.presentedViewController == nil else { return }
-        let vc = UIHostingController(rootView: rootView)
+        let vc = PlayerHostingController(rootView: rootView)
         vc.modalPresentationStyle = .fullScreen
         vc.modalTransitionStyle = .coverVertical
         currentVC = vc
@@ -106,6 +106,17 @@ final class PlayerPresenter {
         guard let vc = currentVC else { return }
         currentVC = nil
         vc.dismiss(animated: true, completion: nil)
+    }
+}
+
+/// 🔴 v2.6.4：播放页容器 —— 横屏播放器时隐藏系统 home 指示条（底部那条白杠）。
+///
+/// 为什么不用 `UIApplication.shared.isHomeIndicatorAutoHidden`：现代 iOS 由
+/// **UIViewController 的 prefersHomeIndicatorAutoHidden** 决定，全局属性不生效。
+/// 这里动态读 OrientationLock —— 进横屏为 true、退横屏自动恢复。
+final class PlayerHostingController<Content: View>: UIHostingController<Content> {
+    override var prefersHomeIndicatorAutoHidden: Bool {
+        OrientationLock.shared.isLandscapePlayer
     }
 }
 

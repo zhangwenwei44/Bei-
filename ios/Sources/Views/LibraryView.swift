@@ -120,6 +120,7 @@ private struct LocalLibraryPage: View {
     @EnvironmentObject private var store: PlayerStore
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var downloads = DownloadManager.shared
+    @ObservedObject private var kugouAuth = KugouAuth.shared
     @State private var section: Section = .favorites
     /// 二级页导航：nil = 板块入口列表页；非 nil = 该板块内容页
     @State private var activeSection: Section?
@@ -127,6 +128,8 @@ private struct LocalLibraryPage: View {
     @State private var newPlaylistName = ""
     @State private var renamingID: String?
     @State private var renamingName = ""
+    /// 🔴 v2.6.4：把收藏存进酷狗云歌单
+    @State private var showKugouPicker = false
 
     private enum Section: Int, CaseIterable, Identifiable {
         case favorites, albums, artists, downloads, local, playlists
@@ -199,6 +202,10 @@ private struct LocalLibraryPage: View {
                 if let id = renamingID { library.renamePlaylist(id: id, name: renamingName) }
                 renamingID = nil
             }
+        }
+        // 🔴 v2.6.4：收藏 → 酷狗云歌单
+        .sheet(isPresented: $showKugouPicker) {
+            KugouPlaylistPicker(songs: library.favorites, title: "把收藏存到酷狗歌单")
         }
     }
 
@@ -327,6 +334,17 @@ private struct LocalLibraryPage: View {
         case .playlists:
             Button { isCreatingPlaylist = true } label: {
                 Label("新建", systemImage: "plus").font(.system(size: 12, weight: .medium))
+            }
+        case .favorites:
+            // 🔴 v2.6.4：收藏歌曲一键存进酷狗云歌单
+            if kugouAuth.isLoggedIn && !library.favorites.isEmpty {
+                Button { showKugouPicker = true } label: {
+                    Label("存到酷狗歌单", systemImage: "icloud.and.arrow.up").font(.system(size: 12, weight: .medium))
+                }
+            } else {
+                if !songs.isEmpty {
+                    Button("全部播放") { store.play(songs); Haptics.soft() }.font(.system(size: 12, weight: .medium))
+                }
             }
         default:
             if !songs.isEmpty {
@@ -464,19 +482,29 @@ private struct KugouLibraryPage: View {
     @State private var errorMsg: String?
     // 🔴 v2.6.3：扫码登录的免责声明弹窗已移除（用户要求），
     // 点「扫码登录」直接拉起扫码页。
+    // 🔴 v2.6.4：已加载标记 —— 之前每次切到「酷狗音乐」Tab 都会重新拉一遍歌单，
+    // 用户反馈"每次进都刷新"。现在只有首次进入 / 登录成功 / 下拉刷新才请求。
+    @State private var hasLoaded = false
 
     var body: some View {
         Group {
             if !kugouAuth.isLoggedIn {
-                kugouNotLoggedInView
+                // 🔴 v2.6.4：登录状态统一放在【顶栏】（导航栏右上角头像/登录按钮），
+                // 页内不再重复一整套登录 UI，只给一句提示。
+                EmptyStateView(icon: "person.crop.circle",
+                               title: "未登录酷狗",
+                               message: "点右上角「登录」扫码，登录后这里会显示你的酷狗歌单")
+                    .padding(.top, 60)
             } else if kugouAuth.needsRelogin {
                 // 🔴 登录态失效（旧域签发的 token / 服务端返回 20017）：
                 // 不走歌单列表 —— 否则用户只会看到空列表，以为是歌单丢了。
-                kugouReloginRequiredView
+                EmptyStateView(icon: "exclamationmark.arrow.triangle.2.circlepath",
+                               title: "登录已失效",
+                               message: "点右上角头像重新扫码，登录后这里会显示你的酷狗歌单")
+                    .padding(.top, 60)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        kugouHeader
                         kugouContent
                     }
                 }
@@ -484,130 +512,19 @@ private struct KugouLibraryPage: View {
             }
         }
         .task(id: kugouAuth.isLoggedIn) {
-            if kugouAuth.isLoggedIn { await reloadPlaylists() }
+            // 🔴 v2.6.4：只在「还没加载过」时拉一次 —— 反复切 Tab 不再重新请求。
+            guard kugouAuth.isLoggedIn else {
+                playlists = []
+                hasLoaded = false
+                return
+            }
+            if !hasLoaded { await reloadPlaylists() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .auroraKugouLoginSuccess)) { _ in
+            // 刚登录成功：强制重拉一次
+            hasLoaded = false
             Task { await reloadPlaylists() }
         }
-    }
-
-    // MARK: 登录态失效
-
-    private var kugouReloginRequiredView: some View {
-        VStack(spacing: 0) {
-            Spacer()
-            ZStack {
-                Circle().fill(Color.orange.opacity(0.14)).frame(width: 88, height: 88)
-                Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
-                    .font(.system(size: 38)).foregroundStyle(.orange)
-            }
-            .padding(.bottom, 20)
-
-            Text("登录已失效")
-                .font(.system(size: 20, weight: .bold)).foregroundStyle(AppStyle.primaryText)
-                .padding(.bottom, 6)
-
-            Text("你的酷狗登录凭证已过期，重新扫码即可恢复歌单同步")
-                .font(.system(size: 13)).foregroundStyle(AppStyle.tertiaryText)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-                .padding(.bottom, 24)
-
-            Button {
-                // 先清掉旧 token 再登录，避免拿脏凭证反复触发 20017
-                kugouAuth.clearForRelogin()
-                // 🔴 v2.6.3：免责声明弹窗移除，直接拉起扫码登录
-                NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "qrcode.viewfinder")
-                    Text("重新扫码登录")
-                }
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 24).padding(.vertical, 12)
-                .background(AppStyle.accent, in: Capsule())
-                .shadow(color: AppStyle.accent.opacity(0.4), radius: 10, y: 4)
-            }
-            .buttonStyle(.plain)
-
-            Spacer()
-        }
-    }
-
-    // MARK: 未登录态
-
-    private var kugouNotLoggedInView: some View {
-        VStack(spacing: 0) {
-            Spacer()
-            // 酷狗品牌登录图标（绿环绿话筒），对齐酷狗 App 登录样式
-            KugouLogoIcon(size: 88, style: .ring)
-                .padding(.bottom, 20)
-
-            Text("登录酷狗音乐")
-                .font(.system(size: 20, weight: .bold)).foregroundStyle(AppStyle.primaryText)
-                .padding(.bottom, 6)
-
-            Text("扫码登录后，可以在这里查看你的酷狗歌单、同步收藏")
-                .font(.system(size: 13)).foregroundStyle(AppStyle.tertiaryText)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-                .padding(.bottom, 24)
-
-            Button {
-                // 🔴 v2.6.3：免责声明弹窗移除，直接拉起扫码登录
-                NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "qrcode.viewfinder")
-                    Text("扫码登录酷狗")
-                }
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 24).padding(.vertical, 12)
-                .background(AppStyle.accent, in: Capsule())
-                .shadow(color: AppStyle.accent.opacity(0.4), radius: 10, y: 4)
-            }
-            .buttonStyle(.plain)
-
-            Spacer()
-        }
-    }
-
-    // MARK: 已登录头
-
-    private var kugouHeader: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 14) {
-                CoverImage(url: kugouAuth.avatarURL, fallbackKeys: ["kg-user:\(kugouAuth.userId)"],
-                           seed: kugouAuth.nickname, size: 56, corner: 28)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(kugouAuth.nickname.isEmpty ? "酷狗用户 \(kugouAuth.userId)" : kugouAuth.nickname)
-                            .font(.system(size: 16, weight: .bold)).foregroundStyle(AppStyle.primaryText)
-                        if kugouAuth.isVip {
-                            Text("VIP").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
-                                .padding(.horizontal, 5).padding(.vertical, 1)
-                                .background(Color(red: 1.0, green: 0.85, blue: 0.2), in: Capsule())
-                        }
-                    }
-                    Text("酷狗音乐已连接")
-                        .font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
-                }
-                Spacer()
-                Button {
-                    kugouAuth.logout()
-                    playlists.removeAll()
-                } label: {
-                    Image(systemName: "rectangle.portrait.and.arrow.right")
-                        .font(.system(size: 14)).foregroundStyle(AppStyle.tertiaryText)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 6)
     }
 
     // MARK: 歌单列表
@@ -627,7 +544,6 @@ private struct KugouLibraryPage: View {
                     Spacer()
                     Text("\(playlists.count) 个").font(.system(size: 11)).foregroundStyle(AppStyle.tertiaryText)
                 }.padding(.horizontal, 16).padding(.bottom, 8)
-
                 ForEach(playlists) { playlist in
                     NavigationLink {
                         KugouPlaylistDetail(listid: playlist.id, name: playlist.name, coverURL: playlist.coverURL)
@@ -663,6 +579,7 @@ private struct KugouLibraryPage: View {
         defer { isLoading = false }
         do {
             playlists = try await KugouClient.shared.userPlaylists()
+            hasLoaded = true
         } catch {
             errorMsg = error.localizedDescription
         }
@@ -681,6 +598,10 @@ struct KugouPlaylistDetail: View {
     @State private var songs: [Song] = []
     @State private var isLoading = false
     @State private var errorMsg: String?
+    /// 🔴 v2.6.4：把这首歌加入我的其它酷狗歌单
+    @State private var showKugouPicker = false
+    /// 🔴 v2.6.4：移出歌单失败的提示
+    @State private var removeError: String?
 
     var body: some View {
         ScrollView {
@@ -693,6 +614,14 @@ struct KugouPlaylistDetail: View {
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
+        .sheet(isPresented: $showKugouPicker) {
+            KugouPlaylistPicker(songs: songs, title: "加入我的酷狗歌单")
+        }
+        .alert("移出歌单失败", isPresented: Binding(get: { removeError != nil }, set: { if !$0 { removeError = nil } })) {
+            Button("好", role: .cancel) { removeError = nil }
+        } message: {
+            Text(removeError ?? "")
+        }
     }
 
     private var header: some View {
@@ -706,6 +635,18 @@ struct KugouPlaylistDetail: View {
             }
             Spacer()
             if !songs.isEmpty {
+                // 🔴 v2.6.4：把这首歌单里的歌一并加入我的其它酷狗歌单
+                Button {
+                    showKugouPicker = true
+                } label: {
+                    Image(systemName: "icloud.and.arrow.up")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(AppStyle.accent)
+                        .frame(width: 34, height: 34)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
                 Button {
                     Haptics.soft()
                     store.queueID = "kugou-list:\(listid)"
@@ -734,19 +675,49 @@ struct KugouPlaylistDetail: View {
             EmptyStateView(icon: "music.note.list", title: "歌单是空的").padding(.top, 60)
         } else {
             ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
-                SongRow(song: song,
-                        isCurrent: store.current?.id == song.id,
-                        isPlaying: store.isPlaying,
-                        trailing: nil)
-                    .equatable().songMenu(song).padding(.horizontal, 16)
-                    .onTapGesture {
-                        store.queueID = "kugou-list:\(listid)"
-                        store.play(songs, startAt: index); Haptics.soft()
+                // 🔴 v2.6.4：左滑删除 = 把这首歌移出酷狗歌单
+                SwipeToDeleteRow {
+                    Task { await removeSong(song) }
+                } content: {
+                    SongRow(song: song,
+                            isCurrent: store.current?.id == song.id,
+                            isPlaying: store.isPlaying,
+                            trailing: nil)
+                        .equatable().songMenu(song)
+                        .onTapGesture {
+                            store.queueID = "kugou-list:\(listid)"
+                            store.play(songs, startAt: index); Haptics.soft()
+                        }
+                        // 不透明底：盖住身后的红色删除按钮（页面背景同色）
+                        .background(AppStyle.background)
+                }
+                .padding(.horizontal, 16)
+                // 长按也可以移出歌单
+                .contextMenu {
+                    Button(role: .destructive) {
+                        Task { await removeSong(song) }
+                    } label: {
+                        Label("移出歌单", systemImage: "trash")
                     }
+                }
                 if index < songs.count - 1 {
                     Divider().padding(.leading, 16 + 48 + 12 + 44)
                 }
             }
+        }
+    }
+
+    /// 🔴 v2.6.4：把歌曲从酷狗歌单移出（删除歌单内歌曲）。
+    private func removeSong(_ song: Song) async {
+        do {
+            try await KugouClient.shared.removeSongFromPlaylist(listid, song: song)
+            withAnimation(.easeOut(duration: 0.2)) {
+                songs.removeAll { $0.id == song.id }
+            }
+            Haptics.light()
+        } catch {
+            removeError = error.localizedDescription
+            Log.error("酷狗", "移出歌单失败：\(error.localizedDescription)")
         }
     }
 
