@@ -440,16 +440,6 @@ final class KugouClient {
         return urls
     }
 
-    /// 按名字稳定挑一张写真。
-    func singerPhoto(name: String, title: String = "") async -> URL? {
-        let urls = await singerPhotoURLs(name: name, title: title)
-        guard !urls.isEmpty else { return nil }
-        let seed = "\(name)|\(title)"
-        var hash: UInt64 = 5381
-        for byte in seed.utf8 { hash = (hash &* 33) &+ UInt64(byte) }
-        return urls[Int(hash % UInt64(urls.count))]
-    }
-
     /// ① 歌手名 → singerid（精确匹配；同名的取粉丝/命中最靠前的）
     private func singerID(for name: String) async -> String? {
         let params: [String: String] = [

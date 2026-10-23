@@ -329,16 +329,23 @@ final class CoverCache {
 
 /// 🔴 v2.6.2：歌手写真内存缓存（按歌手名）。歌词页背景用 —— 歌手写真尺寸大，
 /// 每次进歌词页重新下载既慢又费流量，缓存到内存里按歌手名复用。
+///
+/// 🔴 v2.6.8：改成存**一组**写真（轮播用），同一歌手缓存多张。
 final class ArtistPhotoCache {
     static let shared = ArtistPhotoCache()
-    private let cache = NSCache<NSString, UIImage>()
+    private let cache = NSCache<NSString, NSArray>()
 
-    private init() { cache.countLimit = 40 }
+    // 🔴 v2.6.8：缓存按「歌手」存一组写真，内存占用不小（每张约 3~4MB 解码后），
+    // 只缓存最近 3 个歌手，避免长期使用把内存吃满。
+    private init() { cache.countLimit = 3 }
 
-    func image(for name: String) -> UIImage? { cache.object(forKey: name as NSString) }
+    func images(for name: String) -> [UIImage] {
+        (cache.object(forKey: name as NSString) as? [UIImage]) ?? []
+    }
 
-    func store(_ image: UIImage, for name: String) {
-        cache.setObject(image, forKey: name as NSString)
+    func store(_ images: [UIImage], for name: String) {
+        guard !images.isEmpty else { return }
+        cache.setObject(images as NSArray, forKey: name as NSString)
     }
 }
 
@@ -348,20 +355,35 @@ final class ArtistPhotoCache {
 /// 🔴 v2.6.7：改用酷狗官方「歌手写真」图库（KugouClient.singerPhotoURLs），
 /// 不再是歌手主页的小头像；并且**不做模糊**（用户要求"写真不要模糊显示出来"）。
 /// 为保证歌词可读，用「上下加重的暗色渐变」压住照片，而不是把照片本身糊掉。
+///
+/// 🔴 v2.6.8：
+/// ① 多张写真轮播（用户要求"要几张换着显示"）——取图库里 6 张，每 8 秒淡入下一张。
+/// ② 背景层**不再撑大页面布局**：原来用 `.padding(-60)` 让照片出血，
+///    但这会把父级 ZStack 撑到比屏幕大 120pt（歌词页"内容被挤出屏幕"的元凶）。
+///    改成 `.scaleEffect`（纯渲染放大，不占布局）+ 外层 frame/clipped 收死。
 struct ArtistPhotoBackdrop: View {
     let artist: String
     let title: String
-    @State private var image: UIImage?
+    /// 已加载的写真（多张轮播）
+    @State private var images: [UIImage] = []
+    /// 当前显示第几张
+    @State private var currentIndex = 0
+
+    /// 轮播间隔（秒）
+    private let rotateInterval: UInt64 = 8_000_000_000
+    /// 一次最多展示的写真张数（4 张轮播，兼顾效果与内存）
+    private let maxPhotos = 4
 
     var body: some View {
         ZStack {
-            if let image {
+            ForEach(Array(images.enumerated()), id: \.offset) { index, image in
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-                    // 🔴 先向外扩 60pt 再裁：照片比屏幕宽高比窄/宽时，
-                    // 不外扩会在四周露出底色。
-                    .padding(-60)
+                    // 🔴 v2.6.8：用 scaleEffect 做出血，**不改变布局尺寸**。
+                    // 之前用 padding(-60) 会把背景 ZStack 撑到比屏幕大 120pt，
+                    // 歌词页内容因此被挤出屏幕。
+                    .scaleEffect(1.18)
                     .clipped()
                     // 🔴 v2.6.7：不模糊了（用户要求写真清晰显示）。
                     // 可读性靠下面这层「上下加重」的暗色渐变来保证。
@@ -371,41 +393,93 @@ struct ArtistPhotoBackdrop: View {
                                                 .black.opacity(0.52)],
                                        startPoint: .top, endPoint: .bottom)
                     )
+                    .opacity(index == currentIndex ? 1 : 0)
             }
         }
+        // 背景层严格等于容器尺寸，不允许溢出影响页面布局
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
         // 纯背景层，绝不能吃掉歌词滚动和点击
         .allowsHitTesting(false)
         // 🔴 v2.6.4：id 带上歌名 —— 同一歌手连唱多首时也要重新取图
         .task(id: artist + "|" + title) { await load() }
+        // 🔴 v2.6.8：写真轮播（图片数量变化时重启计时）
+        .task(id: images.count) { await rotate() }
     }
+
+    // MARK: 取图
 
     private func load() async {
         let key = artist.trimmingCharacters(in: .whitespaces)
-        guard !key.isEmpty else { image = nil; return }
-        // 🔴 v2.6.7：缓存键带上歌名 —— 写真按歌名稳定挑选，
-        // 同一歌手的不同歌应该看到不同的写真，而不是一直同一张。
-        let cacheKey = "\(key)|\(title)"
-        if let cached = ArtistPhotoCache.shared.image(for: cacheKey) {
-            image = cached
+        guard !key.isEmpty else { images = []; return }
+        images = []
+        currentIndex = 0
+
+        // 内存缓存命中：直接播
+        let cached = ArtistPhotoCache.shared.images(for: key)
+        if !cached.isEmpty {
+            images = cached
             return
         }
-        // 🔴 v2.6.7：优先取酷狗「歌手写真」图库里的图（多张，按歌名稳定挑一张）；
-        // 取不到再回退老路径（歌手头像），保证至少有图。
-        var url = await KugouClient.shared.singerPhoto(name: key, title: title)
-        if url == nil {
-            url = await KugouClient.shared.artistPhotoStrict(name: key, title: title)
+
+        // 🔴 v2.6.8：取多张 —— 优先酷狗「歌手写真」图库（几十~几百张），
+        // 均匀抽几张（避免连着取到风格雷同的图）。
+        var picked: [URL] = []
+        if let gallery = await KugouClient.shared.singerPhotoURLs(name: key, title: title),
+           !gallery.isEmpty {
+            picked = Self.spread(gallery, count: maxPhotos)
         }
-        guard let url else {
+        if picked.isEmpty,
+           let fallback = await KugouClient.shared.artistPhotoStrict(name: key, title: title) {
+            picked = [fallback]
+        }
+        guard !picked.isEmpty else {
             Log.info("歌词写真", "没取到歌手写真：\(key)")
             return
         }
-        // 用统一封面下载器取图（会试 https/http、带 UA+Referer、换 CDN 兜底）
-        guard let ui = await CoverLoader.download(url, maxPixelSize: 1200) else {
-            Log.warn("歌词写真", "写真下载失败：\(url.absoluteString)")
-            return
+
+        // 第一张先显示，其余依次补进来（不阻塞首屏）
+        var loaded: [UIImage] = []
+        if let first = await CoverLoader.download(picked[0], maxPixelSize: 1200) {
+            loaded.append(first)
+            images = loaded
         }
-        ArtistPhotoCache.shared.store(ui, for: cacheKey)
-        withAnimation(.easeOut(duration: 0.35)) { image = ui }
+        for url in picked.dropFirst() {
+            guard let ui = await CoverLoader.download(url, maxPixelSize: 1200) else { continue }
+            loaded.append(ui)
+            images = loaded
+        }
+        ArtistPhotoCache.shared.store(loaded, for: key)
+    }
+
+    /// 从图库里均匀抽 count 张（首尾都覆盖，风格差异大一点）
+    private static func spread(_ urls: [URL], count: Int) -> [URL] {
+        guard urls.count > count else { return urls }
+        var result: [URL] = []
+        let step = Double(urls.count) / Double(count)
+        for i in 0..<count {
+            let idx = min(urls.count - 1, Int((Double(i) * step).rounded()))
+            let url = urls[idx]
+            if !result.contains(url) { result.append(url) }
+        }
+        return result
+    }
+
+    // MARK: 轮播
+
+    /// 每 8 秒淡入下一张写真；暂停/离开页面时随 task 取消而停止。
+    private func rotate() async {
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(nanoseconds: rotateInterval)
+            } catch {
+                return   // 被取消
+            }
+            guard !Task.isCancelled, images.count > 1 else { return }
+            withAnimation(.easeInOut(duration: 1.2)) {
+                currentIndex = (currentIndex + 1) % images.count
+            }
+        }
     }
 }
 

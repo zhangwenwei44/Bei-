@@ -1625,16 +1625,20 @@ struct LyricsPageView: View {
                                startPoint: .top, endPoint: .bottom)
 
                 // 🔴 v2.6.3：歌手写真背景移到最上层 —— v2.6.2 把它压在 0.35~0.55
-                // 黑色渐变之下，加上自身 0.32 遮罩，双层压暗后照片几乎不可见
-                // （用户反馈"歌词页显示不出歌手写真"）。现在写真铺在最上面，
-                // 只受自身 blur(18) + 0.32 遮罩约束：照片清晰可见、歌词仍可读；
-                // 取不到图整层不显示，回退下面的取色渐变。
+                // 黑色渐变之下，加上自身遮罩，双层压暗后照片几乎不可见
+                // （用户反馈"歌词页显示不出歌手写真"）。
+                // 🔴 v2.6.7：写真不再模糊；🔴 v2.6.8：多张写真轮播。
                 if showArtistPhoto {
                     ArtistPhotoBackdrop(artist: store.current?.artist ?? "",
                                         title: store.current?.title ?? "")
                         .ignoresSafeArea()
                 }
             }
+            // 🔴 v2.6.8：背景层锁死为屏幕尺寸 + 裁剪。
+            // 写真是 scaledToFill 的大图，一旦它的尺寸超过屏幕，
+            // 父级 ZStack 会被撑大，歌词内容就跟着被顶出屏幕（用户实测"歌词页挤出屏幕"）。
+            .frame(width: sz.width, height: sz.height)
+            .clipped()
             .ignoresSafeArea()
             // 🔴 已移除下滑关闭手势：用户要求只用左上角返回按钮关闭歌词页（横屏同理），
             // 下滑手势会和按钮 / 进度条抢手势且易误触。关闭统一由左上角 chevron.left 按钮完成。
