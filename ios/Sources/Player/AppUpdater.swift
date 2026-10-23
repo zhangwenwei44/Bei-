@@ -300,14 +300,14 @@ final class AppUpdater: ObservableObject {
             self.phase = .downloading(progress: 0)
             Log.info("更新", "开始下载 \(asset.name)（\(asset.size) 字节）")
             do {
-                let localURL = try await Self.download(url: url, assetName: asset.name) { [weak self] ratio in
+                // 🔴 v2.7.3：改用 UpdateDownloader（真实进度 + 超时放宽 + 自动重试 +
+                // 大小校验），旧实现一次性读完 5.7MB，60s 超时就失败且不重试。
+                let localURL = try await UpdateDownloader.shared.download(
+                    from: url,
+                    assetName: asset.name,
+                    expectedSize: Int64(asset.size)
+                ) { [weak self] ratio in
                     Task { @MainActor [weak self] in self?.phase = .downloading(progress: ratio) }
-                }
-                let attrs = try? FileManager.default.attributesOfItem(atPath: localURL.path)
-                let size = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
-                Log.info("更新", "下载完成：\(localURL.lastPathComponent)，实际 \(size) 字节，期望 \(asset.size) 字节")
-                if size > 0, asset.size > 0, size != Int64(asset.size) {
-                    Log.warn("更新", "文件大小与 Release 声明不一致（\(size) vs \(asset.size)），包可能不完整")
                 }
                 self.phase = .ready(localURL)
             } catch is CancellationError {
@@ -389,46 +389,8 @@ final class AppUpdater: ObservableObject {
         return fileURL
     }
 
-    /// 把 IPA 收进 Documents 下的 Updates 目录（Downloads 目录在安装后可能被清）。
-    private static func download(url: URL,
-                                assetName: String,
-                                onProgress: @escaping (Double) -> Void) async throws -> URL {
-        onProgress(0)
-        // 用 data(from:) 而不是 bytes(from:)：后者要手写分块落盘，中途出错容易
-        // 留下半截文件，而且拿不到最终内容做格式校验。
-        let (data, response) = try await URLSession.shared.data(from: url)
-        try Task.checkCancellation()
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-            Log.error("更新", "下载返回 HTTP \(code)")
-            throw UpdateError.http
-        }
-        // 撞到限流或登录页时，服务器会返回一小段 HTML/JSON 错误内容而不是 ipa。
-        // 不校验的话会写出一个几百字节的假安装包，用户到安装那步才发现。
-        guard dataStartsWithPK(data) else {
-            let preview = String(data: data.prefix(200), encoding: .utf8) ?? ""
-            Log.error("更新", "下载到的不是 IPA（开头 \(preview.prefix(120))）")
-            throw UpdateError.notIPA
-        }
-        Log.info("更新", "已取到 \(data.count) 字节，确认是 IPA 格式")
-
-        let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Updates", isDirectory: true)
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let destination = folder.appendingPathComponent(assetName)
-        if FileManager.default.fileExists(atPath: destination.path) {
-            try? FileManager.default.removeItem(at: destination)
-        }
-        try data.write(to: destination, options: .atomic)
-        onProgress(1)
-        return destination
-    }
-
-    /// IPA 本质是 zip，文件头是 PK\x03\x04。
-    private static func dataStartsWithPK(_ data: Data) -> Bool {
-        data.count >= 4 && data[0] == 0x50 && data[1] == 0x4B && data[2] == 0x03 && data[3] == 0x04
-    }
-
+    /// 🔴 v2.7.3：旧的 download 实现已移到 UpdateDownloader
+    /// （真实进度 / 超时放宽 / 自动重试 / 大小校验），这里只留 PK 头校验工具。
     private static func pickIPA(from assets: [Asset]) -> Asset? {
         assets.first { $0.name.lowercased().hasSuffix(".ipa") }
             ?? assets.first { $0.name.lowercased().hasSuffix(".tipa") }
@@ -455,12 +417,16 @@ enum UpdateError: LocalizedError {
     case notIPA
     /// 🔴 v2.6.5：带具体文案的错误（限流提示等）
     case message(String)
+    /// 🔴 v2.7.3：下载下来的文件大小和 Release 声明不一致（下到一半 / 被截断）
+    case sizeMismatch(expected: Int64, actual: Int64)
 
     var errorDescription: String? {
         switch self {
         case .http: return "下载失败，服务器没有返回安装包"
         case .notIPA: return "下载到的不是安装包（可能触发了 GitHub 限流），请稍后重试或用「Releases 页面」下载"
         case .message(let text): return text
+        case .sizeMismatch(let expected, let actual):
+            return "安装包不完整（应为 \(expected) 字节，实际 \(actual) 字节），已自动重试仍失败，请稍后再试"
         }
     }
 }

@@ -1058,8 +1058,8 @@ struct PlayerView: View {
                 Image(systemName: store.mode.icon)
                     .font(.system(size: 21, weight: .medium))
                     .foregroundStyle(store.mode == .order ? .white : dominantColor)
-                    // 🔴 v2.7.2：边距继续改小 42→36（与竖屏一致，用户要求再收一点）
-                    .frame(width: 36, height: 52)
+                    // 🔴 v2.7.3：边距继续改小 36→32（与竖屏一致，用户要求再收一点）
+                    .frame(width: 32, height: 50)
                     .contentShape(Rectangle())
                     .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
             }
@@ -1103,8 +1103,8 @@ struct PlayerView: View {
                 Image(systemName: "list.bullet")
                     .font(.system(size: 21, weight: .medium))
                     .foregroundStyle(showLandscapeQueue ? dominantColor : .white)
-                    // 🔴 v2.7.2：边距继续改小 42→36（与竖屏一致，用户要求再收一点）
-                    .frame(width: 36, height: 52)
+                    // 🔴 v2.7.3：边距继续改小 36→32（与竖屏一致，用户要求再收一点）
+                    .frame(width: 32, height: 50)
                     .contentShape(Rectangle())
                     .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
             }
@@ -1605,8 +1605,7 @@ struct LyricsPageView: View {
     }
 
     var body: some View {
-        // 🔴 用 GeometryReader 实测 cover 真实尺寸来约束布局：
-        // 之前用 UIScreen.main.bounds 钳制，但强制旋转瞬间 UIScreen 可能还停在横屏
+        // 🔴 用 GeometryReader 实测 cover 真实尺寸来约束布局：        // 之前用 UIScreen.main.bounds 钳制，但强制旋转瞬间 UIScreen 可能还停在横屏
         // (852 宽) 而窗口已是竖屏(393) → 内容被钳成 852 宽、两侧被裁出屏幕（实测）。
         // 改用容器自身尺寸（永远正确），任何方向竞态都不会再溢出裁切。
         GeometryReader { geo in
@@ -1737,8 +1736,32 @@ struct LyricsPageView: View {
         }
         .ignoresSafeArea()
         .clipped()
+        // 🔴 v2.7.3：沉浸模式 —— 收起时隐藏系统状态栏（时间/信号/电量那一条）。
+        // iOS 16+ 用 statusBarHidden(_:)，iOS 15 的旧 API 已弃用（用了会编译告警），
+        // 所以 15 上不处理。
+        .modifier(LyricsStatusBarHider(hidden: chromeHidden))
+        // 🔴 v2.7.3：沉浸模式屏幕常亮 —— 看歌词时手机不熄屏。
+        .onChange(of: chromeHidden) { hidden in
+            UIApplication.shared.isIdleTimerDisabled = true
+            Log.info("歌词页", hidden ? "进入沉浸模式（隐藏状态栏 + 常亮）" : "退出沉浸模式")
+        }
         // 🔴 整页下滑关闭手势已移到背景层（.gesture）：highPriorityGesture 会把
         // 进度条的拖动手势整个吃掉（进度条拖不动的根因），不能再挂在这。
+    }
+}
+
+/// 🔴 v2.7.3：歌词页沉浸模式 —— 隐藏系统状态栏。
+/// iOS 16+ 用 statusBarHidden(_:)；iOS 15 的 statusBar(hidden:) 已弃用，
+/// 用了会触发编译告警 → CI 的 warning-as-error 会挂，所以 15 上不处理。
+private struct LyricsStatusBarHider: ViewModifier {
+    let hidden: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            content.statusBarHidden(hidden)
+        } else {
+            content
+        }
     }
 }
 
@@ -1813,12 +1836,17 @@ private struct LyricsBottomBar: View {
                         Capsule().fill(.white.opacity(0.30)).frame(height: trackH)
                         Capsule().fill(.white.opacity(0.42)).frame(width: bf * w, height: trackH)
                         Capsule().fill(.white).frame(width: px, height: trackH)
+                        // 🔴 v2.7.3：常显定位点（滑块）—— 之前只有拖动时才显示，
+                        // 静态看着就是一条光秃秃的白线。
                         Circle().fill(.white)
-                            .frame(width: isScrubbing ? 18 : 12, height: isScrubbing ? 18 : 12)
-                            .offset(x: px - (isScrubbing ? 9 : 6))
-                            .opacity(isScrubbing ? 1 : 0)
-                            .shadow(color: .black.opacity(0.4), radius: 4)
+                            .frame(width: isScrubbing ? 14 : 7, height: isScrubbing ? 14 : 7)
+                            .offset(x: px - (isScrubbing ? 7 : 3.5))
+                            .shadow(color: .black.opacity(0.45), radius: 2)
                     }
+                    // 🔴 v2.7.3：GeometryReader 的内容默认**顶部对齐**，
+                    // 导致进度条比两侧的时间文字高出一截。强制垂直居中，
+                    // 让细条和「00:23 / 03:55」在同一条基线上。
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                     .contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 0)
                         .onChanged { v in
@@ -1856,8 +1884,8 @@ private struct LyricsBottomBar: View {
                     Image(systemName: modeIcon)
                         .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(modeActive ? Color.white.opacity(0.95) : .white.opacity(0.7))
-                        // 🔴 v2.7.2：边距继续改小 34→28（用户要求再收一点）
-                        .frame(width: 28, height: 44)
+                        // 🔴 v2.7.3：边距继续改小 28→24（用户要求再收一点）
+                        .frame(width: 24, height: 42)
                         .contentShape(Rectangle())
                         .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
                 }
@@ -1889,8 +1917,8 @@ private struct LyricsBottomBar: View {
                     Image(systemName: "list.bullet")
                         .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(.white.opacity(0.85))
-                        // 🔴 v2.7.2：边距继续改小 34→28（用户要求再收一点）
-                        .frame(width: 28, height: 44)
+                        // 🔴 v2.7.3：边距继续改小 28→24（用户要求再收一点）
+                        .frame(width: 24, height: 42)
                         .contentShape(Rectangle())
                         .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
                 }
