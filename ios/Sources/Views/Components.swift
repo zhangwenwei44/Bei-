@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import CoreImage
 
 /// 全局配色。以酷狗音乐的蓝为主色，浅色下蓝白相间。
 ///
@@ -201,6 +202,13 @@ enum CoverLoader {
         await request(url, maxPixelSize: 900, useCache: false)
     }
 
+    /// 🔴 v2.6.9：歌词页写真专用 —— 按原图分辨率解码，且**不写共享缓存**。
+    /// 共享缓存上限 200 张，写真每张解码后约 4MB —— 写进去会把列表封面全挤掉，
+    /// 而且锐化前后的两份还会各占一份内存。写真有自己的缓存（ArtistPhotoCache）。
+    static func downloadPhoto(_ url: URL, maxPixelSize: CGFloat) async -> UIImage? {
+        await request(url, maxPixelSize: maxPixelSize, useCache: false)
+    }
+
     private static func request(_ target: URL, maxPixelSize: CGFloat,
                                 useCache: Bool = true) async -> UIImage? {
         if useCache, let cached = CoverCache.shared.image(for: target) {
@@ -357,10 +365,17 @@ final class ArtistPhotoCache {
 /// 为保证歌词可读，用「上下加重的暗色渐变」压住照片，而不是把照片本身糊掉。
 ///
 /// 🔴 v2.6.8：
-/// ① 多张写真轮播（用户要求"要几张换着显示"）——取图库里 6 张，每 8 秒淡入下一张。
+/// ① 多张写真轮播（用户要求"要几张换着显示"）——取图库里 3 张，每 8 秒淡入下一张。
 /// ② 背景层**不再撑大页面布局**：原来用 `.padding(-60)` 让照片出血，
 ///    但这会把父级 ZStack 撑到比屏幕大 120pt（歌词页"内容被挤出屏幕"的元凶）。
-///    改成 `.scaleEffect`（纯渲染放大，不占布局）+ 外层 frame/clipped 收死。
+///    现在照片按容器尺寸铺满 + 外层 frame/clipped 收死。
+///
+/// 🔴 v2.6.9：清晰度修复（用户反馈"图片模糊，好像被放大了"）：
+/// · 去掉多余的 1.18 倍缩放 —— 源图 750px 宽铺满 1125pt 屏本来就要放大 1.5 倍，
+///   再叠 1.18 就变成 2.16 倍，画面糊（现在只放大 1.5 倍，可见宽度从 69% 恢复到 82%）。
+/// · 解码上限从 1200 提到 1600 —— 之前按 1200 解码反而把 1334 高的原图又缩小了 10%。
+/// · 加一道轻锐化（CISharpenLuminance），在**原图**上锐化比放大后再锐化有效。
+/// · 写真不走共享封面缓存（每张 4MB，写进去会把列表封面全挤掉）。
 struct ArtistPhotoBackdrop: View {
     let artist: String
     let title: String
@@ -371,8 +386,8 @@ struct ArtistPhotoBackdrop: View {
 
     /// 轮播间隔（秒）
     private let rotateInterval: UInt64 = 8_000_000_000
-    /// 一次最多展示的写真张数（4 张轮播，兼顾效果与内存）
-    private let maxPhotos = 4
+    /// 一次最多展示的写真张数（3 张轮播；每张解码后约 4MB，兼顾效果与内存）
+    private let maxPhotos = 3
 
     var body: some View {
         ZStack {
@@ -383,7 +398,10 @@ struct ArtistPhotoBackdrop: View {
                     // 🔴 v2.6.8：用 scaleEffect 做出血，**不改变布局尺寸**。
                     // 之前用 padding(-60) 会把背景 ZStack 撑到比屏幕大 120pt，
                     // 歌词页内容因此被挤出屏幕。
-                    .scaleEffect(1.18)
+                    // 🔴 v2.6.9：去掉多余的 1.18 倍缩放 —— 源图 750px 宽铺满
+                    // 1125pt 的屏本来就要放大 1.5 倍，再叠 1.18 就成了"被放大"，
+                    // 画面发虚（用户反馈"图片模糊，好像被放大了"）。
+                    // 出血改由 .clipped() + 父层满尺寸保证，不再二次放大。
                     .clipped()
                     // 🔴 v2.6.7：不模糊了（用户要求写真清晰显示）。
                     // 可读性靠下面这层「上下加重」的暗色渐变来保证。
@@ -440,16 +458,36 @@ struct ArtistPhotoBackdrop: View {
 
         // 第一张先显示，其余依次补进来（不阻塞首屏）
         var loaded: [UIImage] = []
-        if let first = await CoverLoader.download(picked[0], maxPixelSize: 1200) {
-            loaded.append(first)
+        // 一个 CIContext 处理全部写真（创建一次即可，避免每张都重建）
+        let context = CIContext(options: nil)
+        if let first = await CoverLoader.downloadPhoto(picked[0], maxPixelSize: Self.decodeMaxPixel) {
+            let sharp = Self.sharpened(first, context: context)
+            loaded.append(sharp)
             images = loaded
         }
         for url in picked.dropFirst() {
-            guard let ui = await CoverLoader.download(url, maxPixelSize: 1200) else { continue }
-            loaded.append(ui)
+            guard let ui = await CoverLoader.downloadPhoto(url, maxPixelSize: Self.decodeMaxPixel) else { continue }
+            loaded.append(Self.sharpened(ui, context: context))
             images = loaded
         }
         ArtistPhotoCache.shared.store(loaded, for: key)
+    }
+
+    /// 🔴 v2.6.9：解码上限。
+    /// 酷狗写真原图是 750×1334，之前按 1200 解码会被**再缩小 10%**（白白丢细节）；
+    /// 按 1600 解码则保持原图不缩不放，清晰度最大化。
+    private static let decodeMaxPixel: CGFloat = 1600
+
+    /// 轻微锐化 —— 源图 750px 宽要铺满 1125pt 宽的屏，放大 1.5 倍后边缘发软；
+    /// 先在**原图**上做一道轻锐化，"糊"的感觉会明显减轻（比放大后再锐化有效）。
+    static func sharpened(_ image: UIImage, context: CIContext, amount: Float = 0.35) -> UIImage {
+        guard let ci = CIImage(image: image),
+              let filter = CIFilter(name: "CISharpenLuminance") else { return image }
+        filter.setValue(ci, forKey: kCIInputImageKey)
+        filter.setValue(amount, forKey: "inputSharpness")
+        guard let output = filter.outputImage else { return image }
+        guard let cg = context.createCGImage(output, from: output.extent) else { return image }
+        return UIImage(cgImage: cg)
     }
 
     /// 从图库里均匀抽 count 张（首尾都覆盖，风格差异大一点）
