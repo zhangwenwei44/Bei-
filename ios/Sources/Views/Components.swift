@@ -425,8 +425,8 @@ struct ArtistPhotoBackdrop: View {
         // 🔴 v2.6.8：取多张 —— 优先酷狗「歌手写真」图库（几十~几百张），
         // 均匀抽几张（避免连着取到风格雷同的图）。
         var picked: [URL] = []
-        if let gallery = await KugouClient.shared.singerPhotoURLs(name: key, title: title),
-           !gallery.isEmpty {
+        let gallery = await KugouClient.shared.singerPhotoURLs(name: key, title: title)
+        if !gallery.isEmpty {
             picked = Self.spread(gallery, count: maxPhotos)
         }
         if picked.isEmpty,
