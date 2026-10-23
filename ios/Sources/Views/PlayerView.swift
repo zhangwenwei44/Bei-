@@ -1058,8 +1058,8 @@ struct PlayerView: View {
                 Image(systemName: store.mode.icon)
                     .font(.system(size: 21, weight: .medium))
                     .foregroundStyle(store.mode == .order ? .white : dominantColor)
-                    // 🔴 v2.7.1：边距改小 52→42（与竖屏一致，用户要求）
-                    .frame(width: 42, height: 54)
+                    // 🔴 v2.7.2：边距继续改小 42→36（与竖屏一致，用户要求再收一点）
+                    .frame(width: 36, height: 52)
                     .contentShape(Rectangle())
                     .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
             }
@@ -1103,8 +1103,8 @@ struct PlayerView: View {
                 Image(systemName: "list.bullet")
                     .font(.system(size: 21, weight: .medium))
                     .foregroundStyle(showLandscapeQueue ? dominantColor : .white)
-                    // 🔴 v2.7.1：边距改小 52→42（与竖屏一致，用户要求）
-                    .frame(width: 42, height: 54)
+                    // 🔴 v2.7.2：边距继续改小 42→36（与竖屏一致，用户要求再收一点）
+                    .frame(width: 36, height: 52)
                     .contentShape(Rectangle())
                     .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
             }
@@ -1794,50 +1794,56 @@ private struct LyricsBottomBar: View {
             .buttonStyle(.plain)
 
             if !chromeHidden {
-            // 进度条
-            GeometryReader { geo in
-                let w = geo.size.width
-                let pf = max(0, min(1, playback.progress))
-                let bf = max(0, min(1, playback.bufferedFraction))
-                let px = pf * w
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.22)).frame(height: 3)
-                    Capsule().fill(.white.opacity(0.32)).frame(width: bf * w, height: 3)
-                    Capsule().fill(.white).frame(width: px, height: 3)
-                    Circle().fill(.white)
-                        .frame(width: 12, height: 12)
-                        .offset(x: px - 6)
-                        .opacity(isScrubbing ? 1 : 0)
-                        .shadow(color: .black.opacity(0.4), radius: 4)
-                }
-                .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 0)
-                    .onChanged { v in
-                        guard playback.duration > 0, w > 0 else { return }
-                        if !isScrubbing {
-                            isScrubbing = true
-                            scrubValue = playback.currentTime
-                            Haptics.light()
-                        }
-                        scrubValue = min(1, max(0, v.location.x / w)) * playback.duration
-                    }
-                    .onEnded { _ in
-                        store.seek(to: scrubValue)
-                        isScrubbing = false
-                    })
-            }
-            // 🔴 触摸区高 28pt（视觉仍是 3pt 细条，contentShape 撑满整行）：
-            // 16pt 太窄，手指很难按准进度条
-            .frame(height: 28)
-
-            HStack {
+            // 🔴 v2.7.2：进度条改成和【竖屏播放器】同一套版式 ——
+            // 「已播时间 —— 细白进度条 —— 总时长」同一行，时间贴两侧
+            // （之前歌词页是进度条一行、时间另起一行，跟播放页不一致）。
+            HStack(spacing: 12) {
                 Text(displayTime.clockString)
-                    .font(.system(size: 11, design: .monospaced))
-                Spacer()
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .frame(minWidth: 38, alignment: .leading)
+
+                GeometryReader { geo in
+                    let w = geo.size.width
+                    let pf = max(0, min(1, playback.progress))
+                    let bf = max(0, min(1, playback.bufferedFraction))
+                    let px = pf * w
+                    let trackH: CGFloat = 4
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.30)).frame(height: trackH)
+                        Capsule().fill(.white.opacity(0.42)).frame(width: bf * w, height: trackH)
+                        Capsule().fill(.white).frame(width: px, height: trackH)
+                        Circle().fill(.white)
+                            .frame(width: isScrubbing ? 18 : 12, height: isScrubbing ? 18 : 12)
+                            .offset(x: px - (isScrubbing ? 9 : 6))
+                            .opacity(isScrubbing ? 1 : 0)
+                            .shadow(color: .black.opacity(0.4), radius: 4)
+                    }
+                    .contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 0)
+                        .onChanged { v in
+                            guard playback.duration > 0, w > 0 else { return }
+                            if !isScrubbing {
+                                isScrubbing = true
+                                scrubValue = playback.currentTime
+                                Haptics.light()
+                            }
+                            scrubValue = min(1, max(0, v.location.x / w)) * playback.duration
+                        }
+                        .onEnded { _ in
+                            store.seek(to: scrubValue)
+                            isScrubbing = false
+                        })
+                }
+                // 🔴 触摸区高 28pt（视觉仍是 4pt 细条，contentShape 撑满整行）：
+                // 太窄手指很难按准进度条
+                .frame(height: 28)
+
                 Text(playback.duration.clockString)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .frame(minWidth: 38, alignment: .trailing)
             }
-            .foregroundStyle(.white.opacity(0.7))
 
             // 控制键：上一首 / 播放 / 下一首（与播放页同款 PlayButton，白字白圈，任意背景可见）
             // 🔴 v2.7.0：左右两侧加「顺序模式」和「播放列表」按钮（与播放页一致）。
@@ -1850,8 +1856,8 @@ private struct LyricsBottomBar: View {
                     Image(systemName: modeIcon)
                         .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(modeActive ? Color.white.opacity(0.95) : .white.opacity(0.7))
-                        // 🔴 v2.7.1：边距改小 44→34（用户要求）
-                        .frame(width: 34, height: 46)
+                        // 🔴 v2.7.2：边距继续改小 34→28（用户要求再收一点）
+                        .frame(width: 28, height: 44)
                         .contentShape(Rectangle())
                         .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
                 }
@@ -1883,8 +1889,8 @@ private struct LyricsBottomBar: View {
                     Image(systemName: "list.bullet")
                         .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(.white.opacity(0.85))
-                        // 🔴 v2.7.1：边距改小 44→34（用户要求）
-                        .frame(width: 34, height: 46)
+                        // 🔴 v2.7.2：边距继续改小 34→28（用户要求再收一点）
+                        .frame(width: 28, height: 44)
                         .contentShape(Rectangle())
                         .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
                 }
