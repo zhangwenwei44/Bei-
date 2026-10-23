@@ -1342,8 +1342,13 @@ private struct PlayButton: View {
                     .fill(.white.opacity(0.16))
                     .frame(width: 52, height: 52)
                     .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 1))
-                    .scaleEffect(pulse ? 1.16 : 1)
-                    .opacity(pulse ? 0 : 0.55)
+                    // 🔴 v2.7.0：圆圈**恒定可见**。
+                    // 旧写法是 `.opacity(pulse ? 0 : 0.55)` —— 播放中 pulse=true
+                    // 直接把圆圈透明度设成 0，整个圆圈消失（用户反馈"播放暂停按钮
+                    // 圆圈按几下就消失不显示"）。现在只保留轻微的呼吸缩放。
+                    .scaleEffect(pulse ? 1.06 : 1)
+                    .opacity(0.55)
+                    .animation(.easeInOut(duration: 0.25), value: pulse)
 
                 // 🔴 暂停时绝不显示转圈：暂停后 isPlaybackLikelyToKeepUp 会转 false，
                 // 旧写法会让播放键卡在 ProgressView（"按一下就卡住"）。
@@ -1649,21 +1654,14 @@ struct LyricsPageView: View {
                     Button {
                         withAnimation(.easeInOut(duration: 0.3)) { isShown = false }
                     } label: {
-                        // 🔴 v2.6.7：左上角返回按钮要看得见 ——
-                        // 之前整个顶栏套了 .opacity(0.5)，返回箭头在亮色写真上
-                        // 几乎隐形（用户反馈"左上角帮我加入返回按钮"）。
-                        // 现在单独给按钮加半透明圆形底 + 阴影，恒定可见。
-                        ZStack {
-                            Circle()
-                                .fill(Color.black.opacity(0.28))
-                                .frame(width: 34, height: 34)
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundStyle(.white)
-                        }
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                        .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
+                        // 🔴 v2.7.0：返回按钮去掉圆圈底（用户要求），只留箭头 + 阴影。
+                        // 之前套了半透明黑圆，在亮色写真上像一个小黑点。
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                            .shadow(color: .black.opacity(0.55), radius: 4, y: 1)
                     }
                     .buttonStyle(.plain)
 
@@ -1764,8 +1762,27 @@ private struct LyricsBottomBar: View {
 
     private var displayTime: Double { isScrubbing ? scrubValue : playback.currentTime }
 
+    /// 🔴 v2.7.0：进度条 + 播放控件是否收起（收起后只留一个展开按钮）
+    @State private var controlsHidden = false
+
     var body: some View {
         VStack(spacing: 10) {
+            // 🔴 v2.7.0：进度条上方的「收起控件」按钮。
+            // 点一下把进度条 + 播放控件整块收起（只留这个按钮），再点展开 ——
+            // 歌词页想沉浸看歌词时用得上。
+            Button {
+                withAnimation(.easeInOut(duration: 0.22)) { controlsHidden.toggle() }
+                Haptics.light()
+            } label: {
+                Image(systemName: controlsHidden ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .frame(width: 44, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if !controlsHidden {
             // 进度条
             GeometryReader { geo in
                 let w = geo.size.width
@@ -1812,7 +1829,22 @@ private struct LyricsBottomBar: View {
             .foregroundStyle(.white.opacity(0.7))
 
             // 控制键：上一首 / 播放 / 下一首（与播放页同款 PlayButton，白字白圈，任意背景可见）
+            // 🔴 v2.7.0：左右两侧加「顺序模式」和「播放列表」按钮（与播放页一致）。
             HStack(spacing: 0) {
+                // 左：顺序模式（列表循环 / 单曲循环 / 随机）
+                Button {
+                    store.cycleMode()
+                    Haptics.light()
+                } label: {
+                    Image(systemName: modeIcon)
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(modeActive ? Color.white.opacity(0.95) : .white.opacity(0.7))
+                        .frame(width: 44, height: 48)
+                        .contentShape(Rectangle())
+                        .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+                }
+                .buttonStyle(.plain)
+
                 Spacer(minLength: 0)
                 Button { store.step(-1) } label: {
                     Image(systemName: "backward.end.fill")
@@ -1830,11 +1862,38 @@ private struct LyricsBottomBar: View {
                         .frame(width: 56, height: 52)
                 }
                 Spacer(minLength: 0)
+
+                // 右：播放列表
+                Button {
+                    store.isQueuePresented = true
+                    Haptics.light()
+                } label: {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(width: 44, height: 48)
+                        .contentShape(Rectangle())
+                        .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+                }
+                .buttonStyle(.plain)
             }
             .buttonStyle(.plain)
+            }   // 🔴 v2.7.0：if !controlsHidden 结束（收起时整块不占位）
         }
         .foregroundStyle(.white)
     }
+
+    /// 顺序模式图标（与播放页 classicModeButton 同款）
+    private var modeIcon: String {
+        switch store.mode {
+        case .shuffle: return "shuffle"
+        case .single: return "repeat.1"
+        case .order: return "repeat"
+        }
+    }
+
+    /// 非「列表循环」时高亮（单曲循环 / 随机）
+    private var modeActive: Bool { store.mode != .order }
 }
 
 /// 全屏歌词页专用大字歌词流。当前行 30pt 纯白垂直居中，其他行 20pt 浅灰，行间距拉大到 40pt。
@@ -1855,7 +1914,8 @@ private struct BigLyricsView: View {
             ScrollView(showsIndicators: false) {
                 // LazyVStack：只渲染屏幕可见的几行 —— 100 行歌词 ≈ 同时渲染 8-10 行，
                 // 对比 VStack 全量渲染 100 行，滚动时 body 重建量直接砍到 1/10。
-                LazyVStack(alignment: .center, spacing: 40) {
+                // 🔴 v2.7.0：行间距 40 → 26（用户要求上下间距改小，一屏能多看几行）
+                LazyVStack(alignment: .center, spacing: 26) {
                     if lyrics.isEmpty {
                         Text("纯音乐 · 暂无歌词")
                             .font(.system(size: 14))
@@ -1916,29 +1976,30 @@ private struct BigLyricsView: View {
         let activeIdx = currentIndex
         let isActive = activeIdx == idx
         let isNear = activeIdx != nil && abs(idx - activeIdx!) <= 1
-        return VStack(spacing: 7) {
-            // 🔴 用户要求字号调小：当前句 30→26，其他行 20→17
+        // 🔴 v2.7.0：行内间距 7→4，行距 4→2
+        return VStack(spacing: 4) {
+            // 🔴 v2.7.0：字号再调小 —— 当前句 26→22，其他行 17→15
             if isActive {
                 // 🔴 v2.5.46：竖屏歌词页整行高亮（白、加粗），不再逐字卡拉OK填充
                 // （横屏歌词块保持逐字不变 —— 用户要求只改竖屏）
                 Text(line.text)
-                    .font(.system(size: 26, weight: .bold))
+                    .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
             } else {
                 Text(line.text)
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(.white.opacity(isNear ? 0.45 : 0.28))
                     .multilineTextAlignment(.center)
             }
             if showsTranslation, let translation = line.translation, !translation.isEmpty {
                 Text(translation)
-                    .font(.system(size: isActive ? 14 : 11))
+                    .font(.system(size: isActive ? 12 : 10))
                     .foregroundStyle(isActive ? .white.opacity(0.78) : .white.opacity(0.3))
                     .multilineTextAlignment(.center)
             }
         }
-        .lineSpacing(4)
+        .lineSpacing(2)
         .frame(maxWidth: .infinity, alignment: .center)
         .id(line.id)
     }

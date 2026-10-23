@@ -344,8 +344,8 @@ final class ArtistPhotoCache {
     private let cache = NSCache<NSString, NSArray>()
 
     // 🔴 v2.6.8：缓存按「歌手」存一组写真，内存占用不小（每张约 3~4MB 解码后），
-    // 只缓存最近 3 个歌手，避免长期使用把内存吃满。
-    private init() { cache.countLimit = 3 }
+    // 只缓存最近 2 个歌手（每个歌手 6 张 × 约 4MB），避免长期使用把内存吃满。
+    private init() { cache.countLimit = 2 }
 
     func images(for name: String) -> [UIImage] {
         (cache.object(forKey: name as NSString) as? [UIImage]) ?? []
@@ -386,8 +386,9 @@ struct ArtistPhotoBackdrop: View {
 
     /// 轮播间隔（秒）
     private let rotateInterval: UInt64 = 8_000_000_000
-    /// 一次最多展示的写真张数（3 张轮播；每张解码后约 4MB，兼顾效果与内存）
-    private let maxPhotos = 3
+    /// 🔴 v2.7.0：一次最多展示的写真张数（用户要求 6 张轮播；
+    /// 每张解码后约 4MB，6 张 ≈ 24MB，所以歌手缓存只留最近 2 个）
+    private let maxPhotos = 6
 
     var body: some View {
         ZStack {
