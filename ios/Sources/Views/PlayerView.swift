@@ -893,12 +893,16 @@ struct PlayerView: View {
         }
     }
 
-    /// 🔴 v2.6.4：横屏底部动态波纹 —— 参考酷狗横屏的声波条：
-    /// 波形的相位直接取【AVPlayer 实时播放头】（store.preciseTime），
-    /// 所以波纹严格跟着这首歌的时间轴走，暂停时播放头静止 → 波纹自然停住，
-    /// 不再是"一直在动"的假动画。振幅按 144BPM 的节拍包络起伏，
-    /// 每一拍的强弱由拍号哈希决定（同一拍内稳定，不会逐帧抖动）。
-    /// 纯装饰层，allowsHitTesting(false) 不吃任何触摸。
+    /// 🔴 v2.6.4/v2.6.7：横屏底部动态波纹 —— 参考酷狗横屏的声波条。
+    ///
+    /// 🔴 v2.6.7 修复"不会动"：
+    /// 之前相位直接取 AVPlayer 播放头（preciseTime），一旦播放头推进慢、
+    /// 或者取到的是静止值（暂停/缓冲），波形就几乎看不出在动。
+    /// 现在改成两个时间源分工：
+    /// · **相位**用 TimelineView 的墙钟 —— 每帧都推进，波形一定在动；
+    /// · **振幅**用播放头算出的节拍包络 —— 波纹的起伏节奏仍然跟着音乐走，
+    ///   音乐停了（暂停）TimelineView 直接 paused，整层冻住。
+    /// 可见度也提上来了（透明度 + 亮色冠部），之前太淡基本看不见。
     private struct LandscapeRippleView: View {
         let isPlaying: Bool
         /// 每帧读取实时播放头（闭包形式：TimelineView 每次刷新都会重新调用）
@@ -907,25 +911,26 @@ struct PlayerView: View {
         var body: some View {
             TimelineView(.animation(minimumInterval: 1.0 / 40.0, paused: !isPlaying)) { timeline in
                 Canvas { context, size in
-                    let t = timeProvider()
+                    // 墙钟相位：保证每帧都在动
+                    let phase = timeline.date.timeIntervalSinceReferenceDate
+                    // 音乐节拍：振幅跟着歌曲时间轴起伏
+                    let beat = Self.beatEnergy(timeProvider())
                     let h = size.height
                     for layer in 0...2 {
                         let layerD = Double(layer)
-                        let speed = 1.0 + layerD * 0.55
-                        let ampBase = h * (0.30 - 0.07 * layerD)
-                        // 节拍能量：整体音量随拍起伏，三层错开相位
-                        let beat = Self.beatEnergy(t, phaseOffset: layerD * 0.35)
-                        let alpha = (0.17 - layerD * 0.05) * beat
+                        let speed = 2.2 + layerD * 1.3
+                        let ampBase = h * (0.26 - 0.05 * layerD)
+                        let alpha = (0.30 - 0.07 * layerD) * (0.45 + 0.55 * beat)
                         guard alpha > 0.004 else { continue }
                         var path = Path()
                         var x: CGFloat = 0
                         var first = true
                         while x <= size.width + 6 {
-                            let nx = Double(x) / 64.0
+                            let nx = Double(x) / 58.0
                             // 两列正弦叠加：波形有起伏变化，不像单一正弦那么机械
-                            let w = sin(nx * 2.1 + t * speed + layerD * 1.9) * 0.7
-                                  + sin(nx * 4.6 - t * speed * 1.6 + layerD * 0.8) * 0.3
-                            let y = h - ampBase * (0.22 + 0.78 * beat) * (0.45 + 0.55 * w)
+                            let w = sin(nx * 2.1 + phase * speed + layerD * 1.9) * 0.7
+                                  + sin(nx * 4.6 - phase * speed * 0.7 + layerD * 0.8) * 0.3
+                            let y = h - ampBase * (0.28 + 0.72 * beat) * (0.45 + 0.55 * w)
                             if first { path.move(to: CGPoint(x: x, y: y)); first = false }
                             else { path.addLine(to: CGPoint(x: x, y: y)) }
                             x += 6
@@ -944,10 +949,10 @@ struct PlayerView: View {
 
         /// 拍点能量 0...1：144BPM 网格，每拍一个确定的强弱（哈希拍号得到），
         /// 拍内用指数衰减包络 —— 看起来像真的在跟着节拍跳。
-        private static func beatEnergy(_ t: Double, phaseOffset: Double) -> Double {
-            guard t.isFinite, t >= 0 else { return 0.35 }
+        private static func beatEnergy(_ t: Double) -> Double {
+            guard t.isFinite, t >= 0 else { return 0.4 }
             let bpm = 2.4                      // 每秒 2.4 拍 ≈ 144 BPM
-            let beat = t * bpm + phaseOffset
+            let beat = t * bpm
             let index = beat.rounded(.down)
             let frac = beat - index
             // 拍号哈希：同一拍内每帧结果一致（不会抖）
@@ -955,7 +960,7 @@ struct PlayerView: View {
             h ^= h >> 33
             let noise = Double((h >> 11) & 0xFFFF) / 65535.0
             let env = exp(-frac * 3.4)         // 攻击后快速衰减
-            return 0.28 + 0.72 * (0.35 + 0.65 * noise) * env
+            return 0.3 + 0.7 * (0.35 + 0.65 * noise) * env
         }
     }
 
@@ -1635,16 +1640,28 @@ struct LyricsPageView: View {
             // 下滑手势会和按钮 / 进度条抢手势且易误触。关闭统一由左上角 chevron.left 按钮完成。
 
             VStack(spacing: 0) {
-                // 顶栏：降低存在感
+                // 顶栏：返回按钮清晰可见，标题文字保持低存在感
                 HStack(spacing: 0) {
                     Button {
                         withAnimation(.easeInOut(duration: 0.3)) { isShown = false }
                     } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 20, weight: .semibold))
-                            .frame(width: 44, height: 44)
+                        // 🔴 v2.6.7：左上角返回按钮要看得见 ——
+                        // 之前整个顶栏套了 .opacity(0.5)，返回箭头在亮色写真上
+                        // 几乎隐形（用户反馈"左上角帮我加入返回按钮"）。
+                        // 现在单独给按钮加半透明圆形底 + 阴影，恒定可见。
+                        ZStack {
+                            Circle()
+                                .fill(Color.black.opacity(0.28))
+                                .frame(width: 34, height: 34)
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                        .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
                     }
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
 
                     Spacer()
 
@@ -1658,6 +1675,7 @@ struct LyricsPageView: View {
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity)
+                    .opacity(0.62)   // 🔴 v2.6.7：只让标题文字低调，按钮保持清晰
                     .padding(.horizontal, 8)
 
                     Spacer()
@@ -1674,7 +1692,9 @@ struct LyricsPageView: View {
                 }
                 .foregroundStyle(.white)
                 .padding(.top, safeTop)
-                .opacity(0.5)  // 顶栏低存在感
+                // 🔴 v2.6.7：不再给整个顶栏套 opacity(0.5) —— 那会把左上角
+                // 返回按钮和右上角横屏按钮一起变得几乎看不见。
+                // 改成只让中间的「歌名/歌手」文字保持低存在感。
 
                 // 纯正文歌词滚动区（flex 占满剩余高度，底部留给控制条）
                 // 🔴 显式宽度：超长歌词行会把 LazyVStack 的理想宽度撑到 570pt+，
@@ -1850,25 +1870,25 @@ private struct BigLyricsView: View {
                                 startPoint: .top,
                                 endPoint: .bottom))
             .onAppear {
-                // 🔴 打开歌词页时若正在播放，立即把当前演唱行滚到【中间】：
+                // 🔴 打开歌词页时若正在播放，立即把当前演唱行滚到【偏上位置】：
                 // 不能只靠 onChange(currentIndex) —— 打开瞬间 currentIndex 已是当前值（没变化），
-                // onChange 不会触发，于是停在顶端。这里显式滚一次，配合下方 onChange 保持居中。
+                // onChange 不会触发，于是停在顶端。这里显式滚一次，配合下方 onChange 保持位置。
                 if let id = activeId {
-                    proxy.scrollTo(id, anchor: .center)
+                    proxy.scrollTo(id, anchor: Self.activeAnchor)
                 } else {
-                    proxy.scrollTo(lyrics.first?.id, anchor: .center)
+                    proxy.scrollTo(lyrics.first?.id, anchor: Self.activeAnchor)
                 }
             }
             .onChange(of: currentIndex) { _ in
                 guard let id = activeId else { return }
                 withAnimation(.easeInOut(duration: 0.5)) {
-                    proxy.scrollTo(id, anchor: .center)
+                    proxy.scrollTo(id, anchor: Self.activeAnchor)
                 }
             }
             .onChange(of: lyrics) { _ in
-                // 切歌：滚到当前行（而非顶端），保持高亮行居中
-                if let id = activeId { proxy.scrollTo(id, anchor: .center) }
-                else { proxy.scrollTo(lyrics.first?.id, anchor: .center) }
+                // 切歌：滚到当前行（而非顶端），保持高亮行在偏上位置
+                if let id = activeId { proxy.scrollTo(id, anchor: Self.activeAnchor) }
+                else { proxy.scrollTo(lyrics.first?.id, anchor: Self.activeAnchor) }
             }
         }
         // 容器级统一动画 —— 只有一个 animation 作用在 LazyVStack 上，
@@ -1880,6 +1900,11 @@ private struct BigLyricsView: View {
         guard let index = currentIndex, lyrics.indices.contains(index) else { return nil }
         return lyrics[index].id
     }
+
+    /// 🔴 v2.6.7：高亮行往上挪一行 —— 之前 anchor 是 .center（屏幕正中），
+    /// 现在用 y=0.38 让当前句落在偏上位置（≈ 上移一行歌词的高度），
+    /// 和酷狗/网易云的歌词页习惯一致，底部控制条上方也能多露出几行歌词。
+    private static let activeAnchor = UnitPoint(x: 0.5, y: 0.38)
 
     /// 单行歌词视图（抽出独立函数，降低 body 的类型推导复杂度，
     /// 避免 "compiler is unable to type-check this expression in reasonable time"）。

@@ -343,8 +343,11 @@ final class ArtistPhotoCache {
 }
 
 /// 🔴 v2.6.2：歌手写真背景（歌词页）。
-/// 取到写真就全屏铺底（scaledToFill + 轻模糊 + 暗色遮罩，保证歌词可读）；
-/// 取不到就整层不显示，由调用方原来的取色渐变兜底。
+/// 取到写真就全屏铺底；取不到就整层不显示，由调用方原来的取色渐变兜底。
+///
+/// 🔴 v2.6.7：改用酷狗官方「歌手写真」图库（KugouClient.singerPhotoURLs），
+/// 不再是歌手主页的小头像；并且**不做模糊**（用户要求"写真不要模糊显示出来"）。
+/// 为保证歌词可读，用「上下加重的暗色渐变」压住照片，而不是把照片本身糊掉。
 struct ArtistPhotoBackdrop: View {
     let artist: String
     let title: String
@@ -356,19 +359,16 @@ struct ArtistPhotoBackdrop: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-                    // 🔴 先向外扩 60pt 再模糊：blur 会把边缘羽化成半透明，
-                    // 直接在原尺寸上模糊会让屏幕四周露出一圈透底的边。
+                    // 🔴 先向外扩 60pt 再裁：照片比屏幕宽高比窄/宽时，
+                    // 不外扩会在四周露出底色。
                     .padding(-60)
-                    .blur(radius: 14)
-                    // 🔴 v2.6.6：写真自带压暗层。写真铺在暗色渐变【上层】
-                    // （v2.6.4 调整后写真不再被原渐变压暗），亮色写真上
-                    // 白色歌词会糊成一片（用户截图：底部几行几乎看不见）。
-                    // 基础遮罩 + 上下加重的渐变，保证任何亮度的写真下歌词都读得清。
-                    .overlay(Color.black.opacity(0.34))
+                    .clipped()
+                    // 🔴 v2.6.7：不模糊了（用户要求写真清晰显示）。
+                    // 可读性靠下面这层「上下加重」的暗色渐变来保证。
                     .overlay(
-                        LinearGradient(colors: [.black.opacity(0.30),
-                                                .black.opacity(0.12),
-                                                .black.opacity(0.38)],
+                        LinearGradient(colors: [.black.opacity(0.42),
+                                                .black.opacity(0.18),
+                                                .black.opacity(0.52)],
                                        startPoint: .top, endPoint: .bottom)
                     )
             }
@@ -382,24 +382,29 @@ struct ArtistPhotoBackdrop: View {
     private func load() async {
         let key = artist.trimmingCharacters(in: .whitespaces)
         guard !key.isEmpty else { image = nil; return }
-        if let cached = ArtistPhotoCache.shared.image(for: key) {
+        // 🔴 v2.6.7：缓存键带上歌名 —— 写真按歌名稳定挑选，
+        // 同一歌手的不同歌应该看到不同的写真，而不是一直同一张。
+        let cacheKey = "\(key)|\(title)"
+        if let cached = ArtistPhotoCache.shared.image(for: cacheKey) {
             image = cached
             return
         }
-        guard let url = await KugouClient.shared.artistPhotoStrict(name: key, title: title) else {
+        // 🔴 v2.6.7：优先取酷狗「歌手写真」图库里的图（多张，按歌名稳定挑一张）；
+        // 取不到再回退老路径（歌手头像），保证至少有图。
+        var url = await KugouClient.shared.singerPhoto(name: key, title: title)
+        if url == nil {
+            url = await KugouClient.shared.artistPhotoStrict(name: key, title: title)
+        }
+        guard let url else {
             Log.info("歌词写真", "没取到歌手写真：\(key)")
             return
         }
-        // 🔴 v2.6.4：必须用 CoverLoader 下载，不能用裸 URLSession.data(from:)。
-        // 裸 URLSession 有三个静默失败的坑：① http 链接被 ATS 直接拦掉；
-        // ② 酷狗图片 CDN 要 Referer，缺了返回 403；③ URL 里残留 {size} 占位符返回 404。
-        // 三者都是 try? 静默返回 nil → 歌词页永远看不到写真（用户实测两版都没图）。
-        // CoverLoader 内部会试 https/http 双协议、带 UA+Referer、替换占位符并换 CDN 兜底。
-        guard let ui = await CoverLoader.download(url, maxPixelSize: 900) else {
+        // 用统一封面下载器取图（会试 https/http、带 UA+Referer、换 CDN 兜底）
+        guard let ui = await CoverLoader.download(url, maxPixelSize: 1200) else {
             Log.warn("歌词写真", "写真下载失败：\(url.absoluteString)")
             return
         }
-        ArtistPhotoCache.shared.store(ui, for: key)
+        ArtistPhotoCache.shared.store(ui, for: cacheKey)
         withAnimation(.easeOut(duration: 0.35)) { image = ui }
     }
 }

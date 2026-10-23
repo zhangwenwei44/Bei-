@@ -408,6 +408,115 @@ final class KugouClient {
         return parts.contains { $0.caseInsensitiveCompare(b) == .orderedSame }
     }
 
+    /// 🔴 v2.6.7：歌手写真（酷狗官方图库，**多张**）。
+    ///
+    /// 用户反馈："我要的是酷狗音乐歌手写真的图片，不是歌手主页的歌手图片"。
+    /// 之前拿的是 mixedSearch 里的歌手头像（softhead 小头像），不是写真。
+    ///
+    /// 两步走：
+    /// ① /api/v3/search/singer 按歌手名拿 singerid（精确匹配名字）
+    /// ② openapicdnretry.kugou.com/kmr/v1/author/extend 拿该歌手的**全部写真**
+    ///    （authorimg_type=4,5 = 手机端写真；实测周深 207 张、周杰伦 268 张，
+    ///     单张 750×1333 竖版大图，imge.kugou.com 域名）
+    ///
+    /// 选图策略：按「歌手+歌名」哈希稳定挑一张 —— 同一首歌每次进歌词页是同一张，
+    /// 不同歌会挑到不同写真，不会每首歌都糊同一张脸。
+    func singerPhotoURLs(name: String, title: String = "") async -> [URL] {
+        let artist = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !artist.isEmpty else { return [] }
+
+        // 缓存：歌手名 → 写真列表（URL 数组）
+        if let cached = photoGalleryCache.object(forKey: artist as NSString) as? [URL] {
+            return cached
+        }
+        guard let singerID = await singerID(for: artist) else {
+            Log.info("歌手写真", "搜不到歌手 id：\(artist)")
+            return []
+        }
+        let urls = await singerPhotoList(singerID: singerID)
+        if !urls.isEmpty {
+            photoGalleryCache.setObject(urls as NSArray, forKey: artist as NSString)
+        }
+        return urls
+    }
+
+    /// 按名字稳定挑一张写真。
+    func singerPhoto(name: String, title: String = "") async -> URL? {
+        let urls = await singerPhotoURLs(name: name, title: title)
+        guard !urls.isEmpty else { return nil }
+        let seed = "\(name)|\(title)"
+        var hash: UInt64 = 5381
+        for byte in seed.utf8 { hash = (hash &* 33) &+ UInt64(byte) }
+        return urls[Int(hash % UInt64(urls.count))]
+    }
+
+    /// ① 歌手名 → singerid（精确匹配；同名的取粉丝/命中最靠前的）
+    private func singerID(for name: String) async -> String? {
+        let params: [String: String] = [
+            "keyword": name,
+            "page": "1",
+            "pagesize": "10",
+            "version": "9108",
+            "plat": "0",
+            "area_code": "1",
+            "api_ver": "1",
+            "correct": "1",
+            "with_res_tag": "1",
+        ]
+        guard let json = try? await getJSON(path: "/api/v3/search/singer",
+                                            host: "https://mobiles.kugou.com",
+                                            params: params,
+                                            headers: [
+                                                "User-Agent": searchUA,
+                                                "Referer": "https://www.kugou.com/",
+                                            ]),
+              let rows = json["data"] as? [[String: Any]] else { return nil }
+        for row in rows {
+            guard let singerName = Self.string(row["singername"]) else { continue }
+            if Self.nameMatches(singerName, name) {
+                return Self.string(row["singerid"]) ?? Self.string(row["author_id"])
+            }
+        }
+        // 没有精确匹配就取第一个（同名歌手很多时也不至于取不到）
+        return Self.string(rows.first?["singerid"]) ?? Self.string(rows.first?["author_id"])
+    }
+
+    /// ② singerid → 写真图片列表
+    private func singerPhotoList(singerID: String) async -> [URL] {
+        let params: [String: String] = [
+            "fields_pack": "allimages",
+            "authorimg_type": "4,5",
+            "entity_id": singerID,
+        ]
+        guard let json = try? await getJSON(path: "/kmr/v1/author/extend",
+                                            host: "https://openapicdnretry.kugou.com",
+                                            params: params,
+                                            headers: [
+                                                "User-Agent": searchUA,
+                                                "Referer": "https://www.kugou.com/",
+                                            ]),
+              let rows = json["data"] as? [[String: Any]] else { return [] }
+
+        var urls: [URL] = []
+        for row in rows {
+            guard let imgs = row["imgs"] as? [[String: Any]] else { continue }
+            for img in imgs {
+                guard let file = Self.string(img["file"]) ?? Self.string(img["url"]) else { continue }
+                // 酷狗这里返回 http（设备上 ATS 会拦），统一升 https
+                var raw = file
+                if raw.hasPrefix("//") { raw = "https:" + raw }
+                else if raw.hasPrefix("http://") { raw = "https://" + raw.dropFirst(7) }
+                guard let url = URL(string: raw) else { continue }
+                if !urls.contains(url) { urls.append(url) }
+            }
+        }
+        Log.info("歌手写真", "singerid=\(singerID) 取到 \(urls.count) 张写真")
+        return urls
+    }
+
+    /// 🔴 v2.6.7：歌手写真图库缓存（歌手名 → 写真 URL 数组）。
+    private let photoGalleryCache = NSCache<NSString, NSArray>()
+
     /// 统一判断 URL 看起来是图片（扩展名或域名）
     private static func looksLikeImage(_ url: URL) -> Bool {
         let ext = url.pathExtension.lowercased()

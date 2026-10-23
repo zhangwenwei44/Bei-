@@ -67,7 +67,6 @@ struct DiscoverView: View {
     @State private var newSongPage = 0
 
     /// 🔴 v2.5.50：热门歌手横向翻页的当前页码（每页 5 行）
-    @State private var artistPage = 0
 
     /// 猜你喜欢的抽词池。
     static let guessPool: [String] = [
@@ -303,11 +302,10 @@ struct DiscoverView: View {
     private var recommendContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             bigCardsGrid
-            // 🔴 v2.5.50：热门歌手移到新歌推荐上面，同样横向翻页（每页 5 行）
-            moodGreeting
-            artistPagerSection
+            // 🔴 v2.6.7：热门歌手改成横向头像排（不再是翻页列表），
+            // 整页只保留「新歌推荐」一个翻页器，视觉噪音小很多。
+            artistStripSection
             // 三个新推荐板块 —— 点"更多"push 进完整榜单页（复用已加载好的歌曲，省一次请求）
-            // 🔴 v2.5.49：新歌推荐改横向翻页（每页 4 首 × 7 页 = 28 首）
             newSongSection
             songSection(title: "经典推荐", moreDestination: {
                 NavigationLink {
@@ -338,19 +336,17 @@ struct DiscoverView: View {
         }
     }
 
-    // 🔴 v2.5.49：新歌推荐 —— 横向翻页版式（参考用户截图）：
-    // 每页 4 首歌（封面 + 歌名 + 歌手 + 收藏心形），共 28 首 = 7 页，左右滑切换，
-    // 底部页码圆点指示当前页。
+    // 🔴 v2.6.7：新歌推荐 —— 由「每页 4 行纯文字列表」改成 **2×2 封面宫格**。
+    //
+    // 纯文字列表看着像「榜单」，不像「推荐」；2×2 封面宫格有视觉层次，
+    // 和上面的封面大卡、下面的头像排形成统一的"图多字少"的首页节奏。
+    // 仍然是左右翻页（每页 4 首），底部保留页码圆点。
     private var newSongSection: some View {
         let pages = stride(from: 0, to: newSongs.count, by: 4).map {
             Array(newSongs[$0..<min($0 + 4, newSongs.count)])
         }
         return VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("新歌推荐")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(AppStyle.primaryText)
-                Spacer()
+            sectionHeader("新歌推荐") {
                 NavigationLink {
                     PlaylistDetailView(
                         playlist: Playlist(id: "local-new", name: "新歌推荐",
@@ -363,9 +359,6 @@ struct DiscoverView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 18)
-            .padding(.bottom, 8)
 
             if pages.isEmpty {
                 HStack {
@@ -375,28 +368,42 @@ struct DiscoverView: View {
             } else {
                 TabView(selection: $newSongPage) {
                     ForEach(Array(pages.enumerated()), id: \.offset) { pageIndex, pageSongs in
-                        VStack(spacing: 0) {
-                            ForEach(Array(pageSongs.enumerated()), id: \.element.id) { index, song in
-                                FeedSongRow(song: song)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        guard let start = newSongs.firstIndex(where: { $0.id == song.id }) else { return }
-                                        store.play(newSongs, startAt: start)
-                                        Haptics.soft()
+                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
+                                            GridItem(.flexible(), spacing: 12)],
+                                  spacing: 16) {
+                            ForEach(pageSongs) { song in
+                                Button {
+                                    guard let start = newSongs.firstIndex(where: { $0.id == song.id }) else { return }
+                                    store.play(newSongs, startAt: start)
+                                    Haptics.soft()
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        CoverImage(url: song.artworkURL,
+                                                   fallbackKeys: song.coverFallbackKeys,
+                                                   seed: "\(song.artist)-\(song.title)",
+                                                   size: 164,
+                                                   corner: 10)
+                                        Text(song.title)
+                                            .font(.system(size: 13, weight: .medium))
+                                            .foregroundStyle(AppStyle.primaryText)
+                                            .lineLimit(1)
+                                        Text(song.artist)
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(AppStyle.tertiaryText)
+                                            .lineLimit(1)
                                     }
-                                if index < pageSongs.count - 1 {
-                                    Divider().padding(.leading, 14)
+                                    .contentShape(Rectangle())
                                 }
+                                .buttonStyle(.plain)
                             }
                         }
-                        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .padding(.horizontal, 16)
                         .tag(pageIndex)
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
-                // 4 行（每行 76pt）+ 3 条分隔线
-                .frame(height: 308)
+                // 封面 164 + 标题 16 + 歌手 14 + 间距 ≈ 206 一行，两行 + 16 = 428
+                .frame(height: 428)
                 .onChange(of: newSongPage) { _ in Haptics.soft() }
 
                 // 页码圆点（与榜单宫格同款：当前页蓝色短条）
@@ -414,20 +421,27 @@ struct DiscoverView: View {
         }
     }
 
+    // 🔴 v2.6.7：统一板块标题（标题 + 右侧「更多」）——
+    // 之前每个板块各写各的（字号 16/17 不一、上下间距 8/10/18/22/24 不一），
+    // 整页看起来很乱。现在全页共用这一套。
+    private func sectionHeader(_ title: String, @ViewBuilder more: () -> some View) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(AppStyle.primaryText)
+            Spacer()
+            more()
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 20)
+        .padding(.bottom, 10)
+    }
+
     // 通用歌曲板块：标题 + 更多按钮 + 5首歌曲列表
     private func songSection(title: String, @ViewBuilder moreDestination: () -> some View, allSongs: [Song]) -> some View {
         let shown = Array(allSongs.prefix(5))
         return VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text(title)
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(AppStyle.primaryText)
-                Spacer()
-                moreDestination()
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 18)
-            .padding(.bottom, 8)
+            sectionHeader(title) { moreDestination() }
 
             if shown.isEmpty {
                 HStack {
@@ -623,79 +637,61 @@ struct DiscoverView: View {
 
     // MARK: 心情问候
 
-    private var moodGreeting: some View {
-        HStack {
-            Text(greetingText)
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(AppStyle.primaryText)
-            Spacer()
-            // 热门歌手右侧"更多"按钮：进入完整歌手列表
-            NavigationLink {
-                MoreArtistsView(initial: hotArtists)
-            } label: {
-                HStack(spacing: 2) {
-                    Text("更多").font(.system(size: 12))
-                    Image(systemName: "chevron.right").font(.system(size: 10))
-                }
-                .foregroundStyle(AppStyle.tertiaryText)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 22)
-        .padding(.bottom, 10)
-    }
-
-    private var greetingText: String {
-        "热门歌手"
-    }
-
-    // MARK: 热门歌手列表（🔴 v2.5.50 改横向翻页：每页 5 行，与「新歌推荐」同款交互）
-
-    private var artistPagerSection: some View {
+    /// 🔴 v2.6.7：热门歌手 —— 由「每页 5 行的翻页列表」改成**横向头像排**。
+    ///
+    /// 之前页面上同时有「歌手翻页」和「新歌翻页」两个翻页器 + 两组页码圆点，
+    /// 视觉噪音很大（用户反馈"主页推荐页不好看"）。歌手用头像排更直观，
+    /// 一屏能看到 7~8 个，也不用再翻页。
+    private var artistStripSection: some View {
         Group {
             if !hotArtists.isEmpty {
-                let pages = stride(from: 0, to: hotArtists.count, by: 5).map {
-                    Array(hotArtists[$0..<min($0 + 5, hotArtists.count)])
-                }
-                VStack(spacing: 0) {
-                    TabView(selection: $artistPage) {
-                        ForEach(Array(pages.enumerated()), id: \.offset) { pageIndex, pageArtists in
-                            VStack(spacing: 0) {
-                                ForEach(Array(pageArtists.enumerated()), id: \.element.id) { index, artist in
-                                    NavigationLink {
-                                        ArtistDetailView(artist: artist)
-                                    } label: {
-                                        ArtistRow(artist: artist,
-                                                  isPlaying: playingArtistID == artist.id)
-                                    }
-                                    .buttonStyle(.plain)
-                                    if index < pageArtists.count - 1 {
-                                        Divider().padding(.leading, 68)
+                VStack(alignment: .leading, spacing: 0) {
+                    sectionHeader("热门歌手") {
+                        NavigationLink {
+                            MoreArtistsView(initial: hotArtists)
+                        } label: {
+                            HStack(spacing: 2) {
+                                Text("更多").font(.system(size: 12))
+                                Image(systemName: "chevron.right").font(.system(size: 10))
+                            }
+                            .foregroundStyle(AppStyle.tertiaryText)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 14) {
+                            ForEach(hotArtists) { artist in
+                                NavigationLink {
+                                    ArtistDetailView(artist: artist)
+                                } label: {
+                                    VStack(spacing: 6) {
+                                        CoverImage(url: artist.coverURL,
+                                                   fallbackKeys: [artist.id],
+                                                   seed: artist.name,
+                                                   size: 60,
+                                                   corner: 30)
+                                            .overlay(alignment: .bottomTrailing) {
+                                                if playingArtistID == artist.id {
+                                                    PlayingBarsIndicator(isPlaying: store.isPlaying)
+                                                        .padding(3)
+                                                        .background(AppStyle.accent, in: Circle())
+                                                        .offset(x: 3, y: 3)
+                                                }
+                                            }
+                                        Text(artist.name)
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(AppStyle.primaryText)
+                                            .lineLimit(1)
+                                            .frame(width: 60)
                                     }
                                 }
+                                .buttonStyle(.plain)
                             }
-                            .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .padding(.horizontal, 16)
-                            .tag(pageIndex)
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 6)
                     }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
-                    // 5 行（每行 66pt）+ 4 条分隔线
-                    .frame(height: 336)
-                    .onChange(of: artistPage) { _ in Haptics.soft() }
-
-                    // 页码圆点（与新歌推荐同款：当前页蓝色短条）
-                    HStack(spacing: 5) {
-                        ForEach(0..<pages.count, id: \.self) { idx in
-                            Capsule()
-                                .fill(idx == artistPage ? AppStyle.accent : AppStyle.secondaryText.opacity(0.25))
-                                .frame(width: idx == artistPage ? 16 : 6, height: 6)
-                        }
-                    }
-                    .animation(.easeInOut(duration: 0.2), value: artistPage)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 8)
                 }
             }
         }
