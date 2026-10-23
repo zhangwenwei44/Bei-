@@ -1058,7 +1058,8 @@ struct PlayerView: View {
                 Image(systemName: store.mode.icon)
                     .font(.system(size: 21, weight: .medium))
                     .foregroundStyle(store.mode == .order ? .white : dominantColor)
-                    .frame(width: 52, height: 56)
+                    // 🔴 v2.7.1：边距改小 52→42（与竖屏一致，用户要求）
+                    .frame(width: 42, height: 54)
                     .contentShape(Rectangle())
                     .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
             }
@@ -1102,7 +1103,8 @@ struct PlayerView: View {
                 Image(systemName: "list.bullet")
                     .font(.system(size: 21, weight: .medium))
                     .foregroundStyle(showLandscapeQueue ? dominantColor : .white)
-                    .frame(width: 52, height: 56)
+                    // 🔴 v2.7.1：边距改小 52→42（与竖屏一致，用户要求）
+                    .frame(width: 42, height: 54)
                     .contentShape(Rectangle())
                     .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
             }
@@ -1589,6 +1591,9 @@ struct LyricsPageView: View {
     var onEnterLandscape: (() -> Void)? = nil
     /// 🔴 v2.6.2：歌词页歌手写真背景开关（设置页可关，默认开）
     @AppStorage("aurora.lyricsArtistPhoto") private var showArtistPhoto: Bool = true
+    /// 🔴 v2.7.1：沉浸模式 —— 收起时进度条 + 播放控件 + **顶栏的返回/横屏按钮**
+    /// 一起隐藏（用户要求），只留底部的展开按钮可以恢复。
+    @State private var chromeHidden = false
 
     private var safeTop: CGFloat {
         // 🔴 复用 PlayerView.safeAreaInsets（过滤第三方注入窗口），不再直接读 keyWindow
@@ -1664,6 +1669,9 @@ struct LyricsPageView: View {
                             .shadow(color: .black.opacity(0.55), radius: 4, y: 1)
                     }
                     .buttonStyle(.plain)
+                    // 🔴 v2.7.1：沉浸模式时顶栏按钮一起隐藏（保留占位，标题不跑位）
+                    .opacity(chromeHidden ? 0 : 1)
+                    .allowsHitTesting(!chromeHidden)
 
                     Spacer()
 
@@ -1691,6 +1699,9 @@ struct LyricsPageView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    // 🔴 v2.7.1：沉浸模式时顶栏按钮一起隐藏
+                    .opacity(chromeHidden ? 0 : 1)
+                    .allowsHitTesting(!chromeHidden)
                 }
                 .foregroundStyle(.white)
                 .padding(.top, safeTop)
@@ -1714,7 +1725,7 @@ struct LyricsPageView: View {
                     .padding(.top, 12)
 
                 // 底部播放控件条：进度 + 上一首/播放/下一首（固定高度，安全区内置，不挤出屏幕）
-                LyricsBottomBar()
+                LyricsBottomBar(chromeHidden: $chromeHidden)
                     .frame(width: sz.width - 52)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 8)
@@ -1762,19 +1773,19 @@ private struct LyricsBottomBar: View {
 
     private var displayTime: Double { isScrubbing ? scrubValue : playback.currentTime }
 
-    /// 🔴 v2.7.0：进度条 + 播放控件是否收起（收起后只留一个展开按钮）
-    @State private var controlsHidden = false
+    /// 🔴 v2.7.1：沉浸模式开关（收起进度条 + 播放控件 + 顶栏按钮）
+    @Binding var chromeHidden: Bool
 
     var body: some View {
         VStack(spacing: 10) {
             // 🔴 v2.7.0：进度条上方的「收起控件」按钮。
-            // 点一下把进度条 + 播放控件整块收起（只留这个按钮），再点展开 ——
-            // 歌词页想沉浸看歌词时用得上。
+            // 🔴 v2.7.1：收起时顶栏的返回/横屏按钮也一起隐藏（沉浸看歌词），
+            // 只留这个展开按钮可以恢复。
             Button {
-                withAnimation(.easeInOut(duration: 0.22)) { controlsHidden.toggle() }
+                withAnimation(.easeInOut(duration: 0.22)) { chromeHidden.toggle() }
                 Haptics.light()
             } label: {
-                Image(systemName: controlsHidden ? "chevron.up" : "chevron.down")
+                Image(systemName: chromeHidden ? "chevron.up" : "chevron.down")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(.white.opacity(0.75))
                     .frame(width: 44, height: 22)
@@ -1782,7 +1793,7 @@ private struct LyricsBottomBar: View {
             }
             .buttonStyle(.plain)
 
-            if !controlsHidden {
+            if !chromeHidden {
             // 进度条
             GeometryReader { geo in
                 let w = geo.size.width
@@ -1839,7 +1850,8 @@ private struct LyricsBottomBar: View {
                     Image(systemName: modeIcon)
                         .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(modeActive ? Color.white.opacity(0.95) : .white.opacity(0.7))
-                        .frame(width: 44, height: 48)
+                        // 🔴 v2.7.1：边距改小 44→34（用户要求）
+                        .frame(width: 34, height: 46)
                         .contentShape(Rectangle())
                         .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
                 }
@@ -1871,14 +1883,15 @@ private struct LyricsBottomBar: View {
                     Image(systemName: "list.bullet")
                         .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(.white.opacity(0.85))
-                        .frame(width: 44, height: 48)
+                        // 🔴 v2.7.1：边距改小 44→34（用户要求）
+                        .frame(width: 34, height: 46)
                         .contentShape(Rectangle())
                         .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
                 }
                 .buttonStyle(.plain)
             }
             .buttonStyle(.plain)
-            }   // 🔴 v2.7.0：if !controlsHidden 结束（收起时整块不占位）
+            }   // 🔴 v2.7.1：if !chromeHidden 结束（收起时整块不占位）
         }
         .foregroundStyle(.white)
     }
