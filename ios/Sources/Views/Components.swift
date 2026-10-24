@@ -759,29 +759,10 @@ struct SongMenu: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // 🔴 v2.8.0：长按菜单只保留「添加到酷狗歌单 / 保存到歌单」——
+            // 下一首播放 / 加入播放列表 / 收藏 / 下载 在播放页都有入口，菜单里重复了；
+            // 「移除」由歌单详情页自己的 contextMenu 提供（酷狗歌单=移出歌单，本地歌单=从歌单移除）。
             .contextMenu {
-                Button {
-                    store.playNow([song])
-                } label: {
-                    Label("下一首播放", systemImage: "text.insert")
-                }
-                Button {
-                    store.append([song])
-                } label: {
-                    Label("添加到播放列表", systemImage: "text.badge.plus")
-                }
-                Button {
-                    _ = library.toggleFavorite(song)
-                } label: {
-                    Label(library.isFavorite(song) ? "取消收藏" : "收藏", systemImage: "heart")
-                }
-                if song.isRemote {
-                    Button {
-                        Task { _ = try? await downloads.download(song) }
-                    } label: {
-                        Label(downloads.isDownloaded(song) ? "已下载" : "下载", systemImage: "arrow.down.circle")
-                    }
-                }
                 // 🔴 v2.6.4：存进酷狗云歌单（需要已登录 + 歌曲有酷狗 hash）
                 if kugouAuth.isLoggedIn && !song.kugouHash.isEmpty {
                     Button {
@@ -796,7 +777,7 @@ struct SongMenu: ViewModifier {
                 }
                 // 之前 gate 在 !library.playlists.isEmpty，导致一个歌单都没有时
                 // 根本无法从歌曲菜单加歌，新建出来的歌单永远是空的
-                Menu("添加到歌单") {
+                Menu("保存到歌单") {
                     if library.playlists.isEmpty {
                         Text("还没有歌单")
                     }

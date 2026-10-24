@@ -12,59 +12,8 @@ struct LibraryView: View {
             .background(AppStyle.background)
             .navigationTitle("")  // 不要大字标题，保持顶栏简洁
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) { kugouAvatarButton }
-            }
-    }
-
-    // 🔴 顶栏右上角：酷狗登录头像（或登录按钮）
-    @ViewBuilder
-    private var kugouAvatarButton: some View {
-        if kugouAuth.isLoggedIn {
-            NavigationLink {
-                KugouAccountCenter()
-            } label: {
-                HStack(spacing: 6) {
-                    CoverImage(url: kugouAuth.avatarURL, seed: kugouAuth.nickname,
-                               size: 32, corner: 16)
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(kugouAuth.nickname.isEmpty ? kugouAuth.userId : kugouAuth.nickname)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(AppStyle.primaryText)
-                            .lineLimit(1)
-                        HStack(spacing: 4) {
-                            if kugouAuth.isVip {
-                                Text("VIP")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 4).padding(.vertical, 1)
-                                    .background(Color(red: 1.0, green: 0.85, blue: 0.2), in: Capsule())
-                            }
-                            Text("已登录酷狗")
-                                .font(.system(size: 10))
-                                .foregroundStyle(AppStyle.tertiaryText)
-                        }
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-        } else {
-            Button {
-                // 弹登录免责声明 → 再弹扫码登录
-                NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
-            } label: {
-                HStack(spacing: 4) {
-                    // 酷狗品牌登录图标（绿圆白话筒），与主页/设置页登录入口一致
-                    KugouLogoIcon(size: 18)
-                    Text("登录")
-                }
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(AppStyle.primaryText)
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(AppStyle.surface, in: Capsule())
-            }
-            .buttonStyle(.plain)
-        }
+            // 🔴 v2.8.0：顶栏右上角的账号头像移除（和页内账号卡片重复），
+            // 登录入口改由页内账号卡片承担（未登录时点卡片弹出扫码登录）。
     }
 }
 
@@ -74,51 +23,65 @@ private struct KugouProfileCard: View {
     @ObservedObject private var kugouAuth = KugouAuth.shared
 
     var body: some View {
-        NavigationLink {
-            KugouAccountCenter()
-        } label: {
-            HStack(spacing: 12) {
-                CoverImage(url: kugouAuth.avatarURL,
-                           fallbackKeys: ["kg-avatar"],
-                           seed: kugouAuth.nickname.isEmpty ? kugouAuth.userId : kugouAuth.nickname,
-                           size: 54, corner: 27)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(kugouAuth.nickname.isEmpty ? kugouAuth.userId : kugouAuth.nickname)
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(AppStyle.primaryText)
-                            .lineLimit(1)
-                        if kugouAuth.isVip {
-                            Text("VIP")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 5).padding(.vertical, 2)
-                                .background(Color(red: 1.0, green: 0.72, blue: 0.18), in: Capsule())
-                        }
-                    }
-                    Text(kugouAuth.isLoggedIn ? "已登录酷狗 · 音乐随行" : "登录后同步酷狗歌单")
-                        .font(.system(size: 11))
-                        .foregroundStyle(AppStyle.secondaryText)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(AppStyle.tertiaryText)
+        // 🔴 v2.8.0：未登录时点卡片直接弹扫码登录（顶栏登录按钮已移除，这里是登录入口）
+        if kugouAuth.isLoggedIn {
+            NavigationLink {
+                KugouAccountCenter()
+            } label: {
+                cardLabel
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(
-                LinearGradient(colors: [AppStyle.accent.opacity(0.18), AppStyle.accent.opacity(0.07)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing),
-                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(AppStyle.accent.opacity(0.15), lineWidth: 1)
-            )
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+        } else {
+            Button {
+                NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
+            } label: {
+                cardLabel
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+    }
+
+    private var cardLabel: some View {
+        HStack(spacing: 12) {
+            CoverImage(url: kugouAuth.avatarURL,
+                       fallbackKeys: ["kg-avatar"],
+                       seed: kugouAuth.nickname.isEmpty ? kugouAuth.userId : kugouAuth.nickname,
+                       size: 54, corner: 27)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(kugouAuth.isLoggedIn ? (kugouAuth.nickname.isEmpty ? kugouAuth.userId : kugouAuth.nickname) : "登录酷狗账号")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(AppStyle.primaryText)
+                        .lineLimit(1)
+                    if kugouAuth.isVip {
+                        Text("VIP")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(Color(red: 1.0, green: 0.72, blue: 0.18), in: Capsule())
+                    }
+                }
+                Text(kugouAuth.isLoggedIn ? "已登录酷狗 · 音乐随行" : "点这里扫码登录，同步酷狗歌单")
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.secondaryText)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(AppStyle.tertiaryText)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            LinearGradient(colors: [AppStyle.accent.opacity(0.18), AppStyle.accent.opacity(0.07)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing),
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(AppStyle.accent.opacity(0.15), lineWidth: 1)
+        )
+        .contentShape(Rectangle())
     }
 }
 
@@ -198,14 +161,14 @@ private struct KugouLibraryPage: View {
                 // 页内不再重复一整套登录 UI，只给一句提示。
                 EmptyStateView(icon: "person.crop.circle",
                                title: "未登录酷狗",
-                               message: "点右上角「登录」扫码，登录后这里会显示你的酷狗歌单")
+                               message: "点上方卡片扫码登录，登录后这里会显示你的酷狗歌单")
                     .padding(.top, 60)
             } else if kugouAuth.needsRelogin {
                 // 🔴 登录态失效（旧域签发的 token / 服务端返回 20017）：
                 // 不走歌单列表 —— 否则用户只会看到空列表，以为是歌单丢了。
                 EmptyStateView(icon: "exclamationmark.arrow.triangle.2.circlepath",
                                title: "登录已失效",
-                               message: "点右上角头像重新扫码，登录后这里会显示你的酷狗歌单")
+                               message: "登录已失效，点上方卡片重新扫码，登录后这里会显示你的酷狗歌单")
                     .padding(.top, 60)
             } else {
                 ScrollView {

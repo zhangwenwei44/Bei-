@@ -209,6 +209,23 @@ struct UpdateView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 16)
             }
+            // 🔴 v2.8.0：Release 正文是固定模板（安装说明），真正的更新日志按版本号
+            // 从内置 Changelog 取 —— 不然更新页只有一句安装说明，看不到改了什么。
+            if !builtinNotes(for: release).isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("更新内容")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(AppStyle.primaryText)
+                    ForEach(Array(builtinNotes(for: release).enumerated()), id: \.offset) { _, line in
+                        Text("· " + line)
+                            .font(.system(size: 12))
+                            .foregroundStyle(AppStyle.secondaryText)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.top, builtinNotesSectionTopPadding(for: release))
+            }
             installActions(for: release)
 
         case .downloading(let progress):
@@ -304,6 +321,16 @@ struct UpdateView: View {
                         message: message)
             actions
         }
+    }
+
+    /// 🔴 v2.8.0：按 Release tag（v2.8.0 → 2.8.0）取内置更新日志
+    private func builtinNotes(for release: AppUpdater.Release) -> [String] {
+        let v = release.tag_name.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
+        return Changelog.entries.first { $0.version == v }?.items ?? []
+    }
+
+    private func builtinNotesSectionTopPadding(for release: AppUpdater.Release) -> CGFloat {
+        AppUpdater.notes(from: release.body).isEmpty ? 16 : 8
     }
 
     private var actions: some View {
