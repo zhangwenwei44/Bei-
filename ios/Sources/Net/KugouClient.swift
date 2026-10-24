@@ -2515,6 +2515,87 @@ final class KugouClient {
         throw lastError ?? KugouError.parse("删除歌单失败，请稍后再试")
     }
 
+    /// 🔴 v2.7.7：重命名酷狗云歌单。
+    ///
+    /// 协议：`POST /v4/modify_list`（x-router: cloudlist.service.kugou.com，kugou_sdk 已实网验证）。
+    /// ⚠️ 这个接口的 token **不走明文**（明文会被服务端以 20010 拒掉）：
+    /// · 随机 6 位种子（0-9a-zA-Z）
+    /// · encstr = Base64( AES-128-CBC( {"token":"…"} ) )，key=MD5(seed)hex前16位、iv=后16位（UTF-8）
+    /// · enckey = RSA PKCS#1(seed 原文) 的大写 hex —— 公钥和登录 `p` 参数用的同一把（Lite SPKI）
+    /// body 其余字段：{userid, listid, total_ver:0, type:0, sort:0, tags:"", intro:"", name, is_pri:0}
+    func renamePlaylist(_ listid: String, name: String) async throws {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw KugouError.parse("歌单名不能为空") }
+        guard KugouAuth.shared.isLoggedIn else { throw KugouError.parse("请先登录酷狗") }
+        if KugouAuth.shared.dfid == "-" { await registerDevice() }
+
+        let userId = KugouAuth.shared.userId
+        let token = KugouAuth.shared.token
+
+        // 种子：官方是 62 位字母数字里取 6 位；这里用现成的小写字母数字生成器（子集，服务端只按原文解密）
+        guard let seed = Self.randomLower(6),
+              let encstr = Self.cloudlistEncstr(token: token, seed: seed),
+              let enckey = Self.cloudlistEnckey(seed: seed) else {
+            throw KugouError.parse("重命名失败：本地加密出错")
+        }
+
+        let body: [String: Any] = [
+            "userid": Int(userId) ?? 0,
+            "listid": Int(listid) ?? listid,
+            "total_ver": 0,
+            "type": 0,
+            "sort": 0,
+            "tags": "",
+            "intro": "",
+            "enckey": enckey,
+            "encstr": encstr,
+            "name": trimmed,
+            "is_pri": 0,
+        ]
+        let query: [String: String] = [
+            "dfid": dfid,
+            "mid": mid,
+            "uuid": "-",
+            "appid": gatewayAppID,
+            "clientver": gatewayClientVer,
+            "clienttime": "\(Int(Date().timeIntervalSince1970))",
+            "token": token,
+            "userid": userId,
+            "listid": listid,
+        ]
+
+        var lastError: Error?
+        for path in ["/v4/modify_list", "/cloudlist.service/v4/modify_list", "/v3/modify_list"] {
+            do {
+                let json = try await cloudlistPost(path: path, query: query, body: body)
+                try Self.checkCloudlistResult(json, action: "重命名歌单")
+                Log.info("酷狗", "重命名歌单成功：listid=\(listid) name=\(trimmed)")
+                return
+            } catch {
+                lastError = error
+                Log.error("酷狗", "重命名歌单 \(path) 失败：\(error.localizedDescription)")
+            }
+        }
+        throw lastError ?? KugouError.parse("重命名歌单失败，请稍后再试")
+    }
+
+    /// modify_list 的 encstr：Base64(AES-128-CBC(JSON {"token":"…"}))，
+    /// key/iv = MD5(seed)hex 的前/后 16 位（UTF-8 字节）—— 复用 aesCBC（传 seed 当 password）。
+    private static func cloudlistEncstr(token: String, seed: String) -> String? {
+        let escaped = token
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let plain = "{\"token\":\"\(escaped)\"}"
+        guard let data = aesCBC(Data(plain.utf8), encrypt: true, password: seed) else { return nil }
+        return data.base64EncodedString()
+    }
+
+    /// modify_list 的 enckey：RSA PKCS#1(seed 原文) 的大写 hex。
+    private static func cloudlistEnckey(seed: String) -> String? {
+        guard let ct = rsaEncryptPKCS1(Data(seed.utf8), publicKeyBase64: kugouRSAPublicKeyBase64) else { return nil }
+        return ct.map { String(format: "%02x", $0) }.joined().uppercased()
+    }
+
     // MARK: - 酷狗歌单详情（拉取歌单内歌曲）
 
     /// 根据 listid 拉取歌单内所有歌曲（分页 + 🔴 gateway.kugou.com 接口必须带 webSign）

@@ -151,6 +151,8 @@ final class LibraryStore: ObservableObject {
         favorites.insert(song, at: 0)
         persist(favorites, key: key("favorites"))
         remember(song)
+        // 🔴 v2.7.7：收藏自动同步到酷狗「默认收藏」歌单（fire-and-forget）
+        KugouFavoriteSync.shared.songFavorited(song)
         return true
     }
 
@@ -324,6 +326,8 @@ final class LibraryStore: ObservableObject {
         }
         albumFavorites.insert(album, at: 0)
         persist(albumFavorites, key: key("albumFavorites"))
+        // 🔴 v2.7.7：收藏专辑 → 专辑里的歌同步存到酷狗「默认收藏」（fire-and-forget）
+        KugouFavoriteSync.shared.albumFavorited(album)
         return true
     }
 
