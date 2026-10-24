@@ -485,6 +485,14 @@ private struct KugouLibraryPage: View {
     // 🔴 v2.6.4：已加载标记 —— 之前每次切到「酷狗音乐」Tab 都会重新拉一遍歌单，
     // 用户反馈"每次进都刷新"。现在只有首次进入 / 登录成功 / 下拉刷新才请求。
     @State private var hasLoaded = false
+    /// 🔴 v2.7.6：新建歌单（弹窗输入歌单名）
+    @State private var showCreate = false
+    @State private var newPlaylistName = ""
+    /// 待删除的歌单（点了删除先确认）
+    @State private var pendingDelete: KugouClient.KugouPlaylist?
+    /// 新建/删除失败的提示
+    @State private var actionError: String?
+    @State private var isWorking = false
 
     var body: some View {
         Group {
@@ -509,7 +517,34 @@ private struct KugouLibraryPage: View {
                     }
                 }
                 .refreshable { await reloadPlaylists() }
+                // 删除歌单的确认弹窗挂在这里（和新建弹窗挂在不同节点上，
+                // 同一层叠多个 alert 会出现「只有一个弹得出来」的问题）
+                .alert("删除歌单",
+                       isPresented: Binding(get: { pendingDelete != nil },
+                                            set: { if !$0 { pendingDelete = nil } }),
+                       presenting: pendingDelete) { playlist in
+                    Button("删除", role: .destructive) {
+                        let target = playlist
+                        Task { await confirmDelete(target) }
+                    }
+                    Button("取消", role: .cancel) { }
+                } message: { playlist in
+                    Text("确定删除「\(playlist.name)」吗？歌单里的歌曲会一起移除，且不可撤销。")
+                }
             }
+        }
+        .alert("新建歌单", isPresented: $showCreate) {
+            TextField("歌单名称", text: $newPlaylistName)
+            Button("创建") { Task { await submitCreate() } }
+            Button("取消", role: .cancel) { }
+        } message: {
+            Text("在你的酷狗账号下创建一个新的云歌单")
+        }
+        .alert("操作失败", isPresented: Binding(get: { actionError != nil },
+                                               set: { if !$0 { actionError = nil } })) {
+            Button("好", role: .cancel) { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
         }
         .task(id: kugouAuth.isLoggedIn) {
             // 🔴 v2.6.4：只在「还没加载过」时拉一次 —— 反复切 Tab 不再重新请求。
@@ -539,10 +574,26 @@ private struct KugouLibraryPage: View {
             EmptyStateView(icon: "music.note.list", title: "还没有酷狗歌单", message: "在酷狗 App 里创建一个吧").padding(.top, 60)
         } else {
             VStack(alignment: .leading, spacing: 0) {
-                HStack {
+                HStack(spacing: 8) {
                     Text("我的酷狗歌单").font(.system(size: 15, weight: .bold)).foregroundStyle(AppStyle.primaryText)
-                    Spacer()
+                    Spacer(minLength: 6)
+                    if isWorking { ProgressView().scaleEffect(0.8) }
                     Text("\(playlists.count) 个").font(.system(size: 11)).foregroundStyle(AppStyle.tertiaryText)
+                    // 🔴 v2.7.6：新建歌单
+                    Button {
+                        newPlaylistName = ""
+                        showCreate = true
+                        Haptics.light()
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(AppStyle.accent)
+                            .frame(width: 26, height: 26)
+                            .background(AppStyle.accent.opacity(0.14), in: Circle())
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isWorking)
                 }.padding(.horizontal, 16).padding(.bottom, 8)
                 ForEach(playlists) { playlist in
                     NavigationLink {
@@ -566,6 +617,15 @@ private struct KugouLibraryPage: View {
                         }
                         .padding(.horizontal, 16).padding(.vertical, 10).contentShape(Rectangle())
                     }.buttonStyle(.plain)
+                    // 🔴 v2.7.6：长按删除歌单（列表是 ScrollView，没有 List 的 swipeActions，
+                    // 用长按菜单 —— 点了先弹确认，避免误删）
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            pendingDelete = playlist
+                        } label: {
+                            Label("删除歌单", systemImage: "trash")
+                        }
+                    }
                     Divider().padding(.leading, 82)
                 }
             }
@@ -582,6 +642,37 @@ private struct KugouLibraryPage: View {
             hasLoaded = true
         } catch {
             errorMsg = error.localizedDescription
+        }
+    }
+
+    // MARK: 🔴 v2.7.6 新建 / 删除歌单
+
+    private func submitCreate() async {
+        let name = newPlaylistName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            _ = try await KugouClient.shared.createPlaylist(name: name)
+            newPlaylistName = ""
+            Haptics.light()
+            await reloadPlaylists()
+        } catch {
+            actionError = error.localizedDescription
+            Log.error("酷狗", "新建歌单失败：\(error.localizedDescription)")
+        }
+    }
+
+    private func confirmDelete(_ playlist: KugouClient.KugouPlaylist) async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            try await KugouClient.shared.deletePlaylist(playlist.id)
+            Haptics.light()
+            await reloadPlaylists()
+        } catch {
+            actionError = error.localizedDescription
+            Log.error("酷狗", "删除歌单失败：\(error.localizedDescription)")
         }
     }
 }
@@ -602,6 +693,12 @@ struct KugouPlaylistDetail: View {
     @State private var showKugouPicker = false
     /// 🔴 v2.6.4：移出歌单失败的提示
     @State private var removeError: String?
+    /// 🔴 v2.7.6：歌单内「下载全部」
+    @State private var isDownloading = false
+    @State private var downloadDone = 0
+    @State private var downloadTotal = 0
+    @State private var downloadFinished = false
+    @State private var downloadResult: String?
 
     var body: some View {
         ScrollView {
@@ -625,44 +722,122 @@ struct KugouPlaylistDetail: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            CoverImage(url: coverURL.flatMap { URL(string: $0) },
-                       fallbackKeys: ["kg-list:\(listid)"],
-                       seed: name, size: 64, corner: 10)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(name).font(.system(size: 16, weight: .bold)).foregroundStyle(AppStyle.primaryText).lineLimit(1)
-                Text("酷狗歌单 · \(songs.count) 首").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
-            }
-            Spacer()
-            if !songs.isEmpty {
-                // 🔴 v2.6.4：把这首歌单里的歌一并加入我的其它酷狗歌单
-                Button {
-                    showKugouPicker = true
-                } label: {
-                    Image(systemName: "icloud.and.arrow.up")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(AppStyle.accent)
-                        .frame(width: 34, height: 34)
-                        .contentShape(Rectangle())
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                CoverImage(url: coverURL.flatMap { URL(string: $0) },
+                           fallbackKeys: ["kg-list:\(listid)"],
+                           seed: name, size: 64, corner: 10)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(name).font(.system(size: 16, weight: .bold)).foregroundStyle(AppStyle.primaryText).lineLimit(1)
+                    Text("酷狗歌单 · \(songs.count) 首").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
                 }
-                .buttonStyle(.plain)
+                Spacer(minLength: 0)
+            }
 
-                Button {
-                    Haptics.soft()
-                    store.queueID = "kugou-list:\(listid)"
-                    store.play(songs, startAt: 0)
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "play.fill").font(.system(size: 10, weight: .bold))
-                        Text("播放全部").font(.system(size: 12, weight: .semibold))
+            if !songs.isEmpty {
+                HStack(spacing: 10) {
+                    Button {
+                        Haptics.soft()
+                        store.queueID = "kugou-list:\(listid)"
+                        store.play(songs, startAt: 0)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "play.fill").font(.system(size: 10, weight: .bold))
+                            Text("播放全部").font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Capsule().fill(AppStyle.accent))
+                    }.buttonStyle(.plain)
+
+                    // 🔴 v2.7.6：把这个歌单的歌全部下载到本地
+                    Button {
+                        Task { await downloadAll() }
+                    } label: {
+                        HStack(spacing: 5) {
+                            if isDownloading {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                                    .frame(width: 12, height: 12)
+                                    .tint(AppStyle.accent)
+                            } else {
+                                Image(systemName: downloadFinished ? "checkmark.circle"
+                                                                   : "arrow.down.circle")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            Text(downloadButtonTitle).font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundStyle(AppStyle.accent)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Capsule().stroke(AppStyle.accent, lineWidth: 1))
+                        .contentShape(Rectangle())
                     }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(Capsule().fill(AppStyle.accent))
-                }.buttonStyle(.plain)
+                    .buttonStyle(.plain)
+                    .disabled(isDownloading)
+
+                    Spacer(minLength: 0)
+
+                    // 🔴 v2.6.4：把这个歌单里的歌一并加入我的其它酷狗歌单
+                    Button {
+                        showKugouPicker = true
+                    } label: {
+                        Image(systemName: "icloud.and.arrow.up")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(AppStyle.accent)
+                            .frame(width: 34, height: 34)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
+        // 下载结果提示挂在这里（和「移出歌单失败」的 alert 挂在不同节点上）
+        .alert("下载全部", isPresented: Binding(get: { downloadResult != nil },
+                                               set: { if !$0 { downloadResult = nil } })) {
+            Button("好", role: .cancel) { downloadResult = nil }
+        } message: {
+            Text(downloadResult ?? "")
+        }
+    }
+
+    private var downloadButtonTitle: String {
+        if isDownloading { return "\(downloadDone)/\(downloadTotal)" }
+        return downloadFinished ? "已下载" : "下载全部"
+    }
+
+    /// 🔴 v2.7.6：顺序下载歌单里的全部歌曲（已在本地的跳过）。
+    /// 一首一首来，不并发 —— 酷狗的下载接口并发高了会直接拒，
+    /// 而且几十首同时下会把播放的带宽抢光。
+    private func downloadAll() async {
+        guard !isDownloading else { return }
+        let snapshot = songs
+        guard !snapshot.isEmpty else { return }
+        isDownloading = true
+        downloadFinished = false
+        downloadDone = 0
+        downloadTotal = snapshot.count
+        defer { isDownloading = false }
+
+        var failures = 0
+        for song in snapshot {
+            if DownloadManager.shared.isDownloaded(song) {
+                downloadDone += 1
+                continue
+            }
+            do {
+                _ = try await DownloadManager.shared.download(song)
+                downloadDone += 1
+            } catch {
+                failures += 1
+                Log.error("下载", "《\(song.cleanTitle)》下载失败：\(error.localizedDescription)")
+            }
+        }
+        downloadFinished = failures == 0
+        Haptics.light()
+        downloadResult = failures == 0
+            ? "已下载 \(snapshot.count) 首歌，可在「本地音乐 → 下载」里查看。"
+            : "下载完成：成功 \(snapshot.count - failures) 首，失败 \(failures) 首（多为无版权或需要会员）。"
     }
 
     @ViewBuilder

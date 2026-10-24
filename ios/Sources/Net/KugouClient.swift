@@ -2162,6 +2162,13 @@ final class KugouClient {
         if let cached = photoGalleryByIDCache.object(forKey: sid as NSString) as? [URL] {
             return cached
         }
+        // 🔴 v2.7.6：磁盘缓存（写真加载慢的第一个瓶颈就在这里 ——
+        // 每次冷启动都要 song/info + author/extend 两次往返才拿得到图址）。
+        // 写真图址基本不变，落盘后冷启动/切歌时这一步是 0 网络开销。
+        if let cached = Self.diskGallery(for: sid) {
+            photoGalleryByIDCache.setObject(cached as NSArray, forKey: sid as NSString)
+            return cached
+        }
         let params: [String: String] = [
             "fields_pack": "allimages",
             "authorimg_type": "4,5",
@@ -2190,12 +2197,34 @@ final class KugouClient {
         }
         if !urls.isEmpty {
             photoGalleryByIDCache.setObject(urls as NSArray, forKey: sid as NSString)
+            Self.saveDiskGallery(urls, for: sid)
         }
         return urls
     }
 
     /// 🔴 v2.7.5：按歌手 id 缓存的写真列表
     private let photoGalleryByIDCache = NSCache<NSString, NSArray>()
+
+    // MARK: 写真图址磁盘缓存（🔴 v2.7.6）
+
+    private static let galleryDiskKey = "aurora.kugou.photogallery.v1"
+    /// 最多缓存多少个歌手的图址（防止 UserDefaults 无限膨胀）
+    private static let galleryDiskLimit = 300
+
+    private static func diskGallery(for singerID: String) -> [URL]? {
+        guard let dict = UserDefaults.standard.dictionary(forKey: galleryDiskKey),
+              let list = dict[singerID] as? [String] else { return nil }
+        let urls = list.compactMap { URL(string: $0) }
+        return urls.isEmpty ? nil : urls
+    }
+
+    private static func saveDiskGallery(_ urls: [URL], for singerID: String) {
+        var dict = UserDefaults.standard.dictionary(forKey: galleryDiskKey) ?? [:]
+        // 超限就整体清空重建 —— 图址很轻，重建代价远低于无限膨胀
+        if dict.count >= galleryDiskLimit { dict = [:] }
+        dict[singerID] = urls.map { $0.absoluteString }
+        UserDefaults.standard.set(dict, forKey: galleryDiskKey)
+    }
 
     /// 🔴 v2.7.5：把歌曲加入指定酷狗歌单。
     ///
@@ -2370,6 +2399,120 @@ final class KugouClient {
     /// 兼容旧调用点
     func addCurrentSongToPlaylist(_ listid: String, song: Song) async throws {
         try await addSongToPlaylist(listid, song: song)
+    }
+
+    // MARK: - 酷狗歌单：新建 / 删除（🔴 v2.7.6）
+
+    /// 新建一个酷狗云歌单，返回新歌单的 listid（接口没给就返回空串，调用方刷新列表即可）。
+    ///
+    /// 协议（照官方客户端）：
+    /// `POST /v5/add_list`（x-router: cloudlist.service.kugou.com）
+    /// · query: last_time / last_area=gztx / userid / token
+    /// · body : {userid, token, total_ver:0, name, type:0, source:1, is_pri:0,
+    ///           list_create_userid:0, list_create_listid:0, list_create_gid:"", from_shupinmv:0}
+    ///
+    /// ⚠️ 路由版本历史上有 v3/v4/v5，v5 是现在官方在用的；
+    /// 老账号/老服务端可能只认低版本 —— 逐个试，第一个真正成功（error_code=0）的算数。
+    func createPlaylist(name: String) async throws -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw KugouError.parse("歌单名不能为空") }
+        guard KugouAuth.shared.isLoggedIn else { throw KugouError.parse("请先登录酷狗") }
+        if KugouAuth.shared.dfid == "-" { await registerDevice() }
+
+        let userId = KugouAuth.shared.userId
+        let token = KugouAuth.shared.token
+        let clienttime = "\(Int(Date().timeIntervalSince1970))"
+
+        let body: [String: Any] = [
+            "userid": Int(userId) ?? 0,
+            "token": token,
+            "total_ver": 0,
+            "name": trimmed,
+            "type": 0,                 // 0=新建（1=收藏别人的歌单）
+            "source": 1,
+            "is_pri": 0,                // 0=公开，1=隐私
+            "list_create_userid": 0,
+            "list_create_listid": 0,
+            "list_create_gid": "",
+            "from_shupinmv": 0,
+        ]
+        let query: [String: String] = [
+            "dfid": dfid,
+            "mid": mid,
+            "uuid": "-",
+            "appid": gatewayAppID,
+            "clientver": gatewayClientVer,
+            "clienttime": clienttime,
+            "token": token,
+            "userid": userId,
+            "last_time": clienttime,
+            "last_area": "gztx",
+        ]
+
+        var lastError: Error?
+        for path in ["/v5/add_list", "/cloudlist.service/v5/add_list", "/v4/add_list"] {
+            do {
+                let json = try await cloudlistPost(path: path, query: query, body: body)
+                try Self.checkCloudlistResult(json, action: "新建歌单")
+                let listid = Self.deepString(json, path: ["data", "listid"])
+                    ?? Self.deepString(json, path: ["listid"])
+                    ?? Self.deepString(json, path: ["data", "info", "listid"])
+                    ?? ""
+                Log.info("酷狗", "新建歌单成功：\(trimmed) listid=[\(listid)]")
+                return listid
+            } catch {
+                lastError = error
+                Log.error("酷狗", "新建歌单 \(path) 失败：\(error.localizedDescription)")
+            }
+        }
+        throw lastError ?? KugouError.parse("新建歌单失败，请稍后再试")
+    }
+
+    /// 删除（或取消收藏）一个酷狗云歌单。
+    ///
+    /// 协议：`POST /v3/delete_list`（x-router: cloudlist.service.kugou.com）
+    /// body: {userid, token, listid, total_ver:0, type:0}
+    /// 同样做多版本路由兜底（v3 → v2 → v5），只认 error_code=0。
+    func deletePlaylist(_ listid: String) async throws {
+        guard KugouAuth.shared.isLoggedIn else { throw KugouError.parse("请先登录酷狗") }
+        if KugouAuth.shared.dfid == "-" { await registerDevice() }
+
+        let userId = KugouAuth.shared.userId
+        let token = KugouAuth.shared.token
+        let clienttime = "\(Int(Date().timeIntervalSince1970))"
+
+        let body: [String: Any] = [
+            "userid": Int(userId) ?? 0,
+            "token": token,
+            "listid": Int(listid) ?? listid,
+            "total_ver": 0,
+            "type": 0,                  // 0=自己创建的歌单，1=收藏的歌单
+        ]
+        let query: [String: String] = [
+            "dfid": dfid,
+            "mid": mid,
+            "uuid": "-",
+            "appid": gatewayAppID,
+            "clientver": gatewayClientVer,
+            "clienttime": clienttime,
+            "token": token,
+            "userid": userId,
+            "listid": listid,
+        ]
+
+        var lastError: Error?
+        for path in ["/v3/delete_list", "/cloudlist.service/v3/delete_list", "/v2/delete_list"] {
+            do {
+                let json = try await cloudlistPost(path: path, query: query, body: body)
+                try Self.checkCloudlistResult(json, action: "删除歌单")
+                Log.info("酷狗", "删除歌单成功：listid=\(listid)")
+                return
+            } catch {
+                lastError = error
+                Log.error("酷狗", "删除歌单 \(path) 失败：\(error.localizedDescription)")
+            }
+        }
+        throw lastError ?? KugouError.parse("删除歌单失败，请稍后再试")
     }
 
     // MARK: - 酷狗歌单详情（拉取歌单内歌曲）
@@ -2572,12 +2715,23 @@ final class KugouClient {
                 durationSec = Double(d) / 1000.0
             } else { durationSec = 0 }
 
-            let cover = Self.string(item["pic"])
+            // 🔴 v2.7.6：歌单条目里**同时**会给出专辑图和歌手头像，
+            // 之前不区分，谁在前用谁 → 歌单里显示的是「歌手照片」而不是专辑封面。
+            // 现在：先把候选里的歌手头像剔掉，只保留真正的专辑图。
+            let coverA: String? = Self.string(item["album_sizable_cover"])
+                ?? Self.string(item["sizable_cover"])
+                ?? Self.string(item["album_cover"])
+                ?? Self.string(item["album_img"])
+                ?? Self.string(item["cover"])
+            let coverB: String? = Self.string(item["pic"])
                 ?? Self.string(item["img"])
                 ?? Self.string(item["image"])
-                ?? Self.string(item["cover"])
-                ?? Self.string(item["album_sizable_cover"])
-                ?? nil
+                ?? Self.string(item["pic_url"])
+                ?? Self.string(item["img_url"])
+                ?? Self.string(extra?["cover"])
+                ?? Self.string(extra?["pic"])
+            let coverRaw: String? = coverA ?? coverB
+            let cover = coverRaw.flatMap { Self.looksLikeSingerPortrait($0) ? nil : $0 }
 
             if !hash.isEmpty, !title.isEmpty {
                 songs.append(Song(
@@ -2610,9 +2764,50 @@ final class KugouClient {
         // 也有些条目的 filename 被用户改成了奇怪的内容（拆出来的"歌手"其实是歌词句）。
         // 用 hash 反查 /api/v3/song/info 拿权威的歌名/歌手补齐 —— 一次一个，
         // 只查「歌手缺失」和「歌手明显可疑」的条目，并发 4 路，失败不阻塞。
-        let enriched = await enrichSongArtists(songs)
-        Log.info("酷狗", "歌单 \(listid) 反查补齐歌手后：\(enriched.filter { !$0.artist.isEmpty }.count)/\(enriched.count) 首有歌手")
+        let withArtists = await enrichSongArtists(songs)
+        // 🔴 v2.7.6：缺封面的按专辑 id 补真正的专辑封面（不能拿歌手头像顶上）。
+        let enriched = await enrichSongCovers(withArtists)
+        Log.info("酷狗", "歌单 \(listid) 反查补齐后：\(enriched.filter { !$0.artist.isEmpty }.count)/\(enriched.count) 首有歌手，"
+                 + "\(enriched.filter { $0.artworkURL != nil }.count)/\(enriched.count) 首有封面")
         return enriched
+    }
+
+    /// 🔴 v2.7.6：按专辑 id 批量补齐歌单里缺封面的歌曲（并发 6，带缓存去重）。
+    ///
+    /// 「歌手头像当封面」的修复分两步：① 解析时剔除歌手头像 URL；② 这里按 album_id
+    /// 走 album/info 取真实专辑封面。只有专辑 id 也没有的歌才留空（显示占位音符）。
+    private func enrichSongCovers(_ songs: [Song]) async -> [Song] {
+        var result = songs
+        var candidates: [(Int, String)] = songs.enumerated()
+            .filter { $0.element.artworkURL == nil && !$0.element.kugouAlbumID.isEmpty }
+            .map { ($0.offset, $0.element.kugouAlbumID) }
+        guard !candidates.isEmpty else { return result }
+
+        let maxConcurrent = 6
+        while !candidates.isEmpty {
+            let batch = Array(candidates.prefix(maxConcurrent))
+            candidates.removeFirst(min(maxConcurrent, candidates.count))
+            let updates = await withTaskGroup(of: (Int, URL?).self,
+                                              returning: [(Int, URL?)].self) { group in
+                for entry in batch {
+                    group.addTask { [weak self] in
+                        guard let self else { return (entry.0, nil) }
+                        let url = await self.albumCover(albumID: entry.1)
+                        return (entry.0, url)
+                    }
+                }
+                var collected: [(Int, URL?)] = []
+                for await item in group { collected.append(item) }
+                return collected
+            }
+            for (offset, url) in updates {
+                if let url, offset < result.count, result[offset].artworkURL == nil {
+                    result[offset].artworkURL = url
+                }
+            }
+        }
+        Log.info("酷狗", "封面补齐：\(result.filter { $0.artworkURL != nil }.count)/\(result.count) 首有封面")
+        return result
     }
 
     /// 🔴 v2.7.5：用 song/info 补齐歌单歌曲的歌手（并顺带拿 singerid 供写真用）。
@@ -2652,8 +2847,15 @@ final class KugouClient {
                         }
                         if song.album.isEmpty && !info.albumName.isEmpty { song.album = info.albumName }
                         if song.kugouAlbumID.isEmpty && !info.albumID.isEmpty { song.kugouAlbumID = info.albumID }
-                        if song.artworkURL == nil && !info.imgURL.isEmpty {
-                            song.artworkURL = URL(string: info.imgURL.replacingOccurrences(of: "{size}", with: "300"))
+                        // 🔴 v2.7.6：song/info 的 imgurl 是**歌手头像**
+                        // （singerimg.kugou.com/uploadpic/softhead/...），不是专辑图！
+                        // 之前拿它补封面 → 歌单里全是歌手照片（用户反馈）。
+                        // 现在改用专辑 id 走 album/info 拿真正的专辑封面。
+                        if song.artworkURL == nil {
+                            let aid = song.kugouAlbumID.isEmpty ? info.albumID : song.kugouAlbumID
+                            if !aid.isEmpty, let url = await self.albumCover(albumID: aid) {
+                                song.artworkURL = url
+                            }
                         }
                         return (i, song)
                     }
@@ -2678,6 +2880,22 @@ final class KugouClient {
         guard !t.isEmpty else { return false }
         if t.count > 8 { return true }
         if t.contains(where: { "，,。.！!？?、；;\"'“”‘’（）()".contains($0) }) { return true }
+        return false
+    }
+
+    /// 🔴 v2.7.6：判断一个封面地址是不是「歌手头像」而不是专辑图。
+    ///
+    /// 酷狗很多接口（尤其是 `song/info` 的 `imgurl`、云歌单条目里的 `pic`）
+    /// 在拿不到专辑图时会塞一张歌手头像回来，域名/路径特征非常固定：
+    /// · `singerimg.kugou.com` —— 歌手图片专用域名
+    /// · 路径里带 `softhead` / `authorhead` / `uploadpic`
+    /// 之前不区分 → 歌单列表显示的是「歌手照片」而不是专辑封面（用户反馈）。
+    static func looksLikeSingerPortrait(_ text: String) -> Bool {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !t.isEmpty else { return true }
+        if t.contains("singerimg.kugou.com") { return true }
+        if t.contains("softhead") || t.contains("authorhead") { return true }
+        if t.contains("/uploadpic/") { return true }
         return false
     }
 

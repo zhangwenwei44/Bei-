@@ -384,6 +384,11 @@ final class PlayerStore: ObservableObject {
         artistPhoto = nil
         refreshArtwork(for: song)
         loadLyrics(for: song)
+        // 🔴 v2.7.6：一开始播就把歌手写真预取下来 —— 用户切到歌词页时直接命中缓存，
+        // 不再先显示一会「专辑取色背景」才慢慢浮出写真。
+        ArtistPhotoPrefetcher.shared.prefetch(artist: song.artist,
+                                              title: song.title,
+                                              hash: song.kugouHash)
 
         // 缓存命中 —— 短时间内切回来或 stall 后重试同一首歌，不再重新解析
         let now = Date()
