@@ -2119,7 +2119,9 @@ final class KugouClient {
         let h = hash.trimmingCharacters(in: .whitespacesAndNewlines)
         guard h.count >= 16 else { return nil }
         // 内存缓存：同一首歌在多处被用到（列表/播放/写真），别反复请求
-        if let cached = songInfoCache.object(forKey: h as NSString) as? SongInfo {
+        // ⚠️ NSCache<NSString, SongInfo>.object(forKey:) 已经返回 SongInfo?，
+        // 再写 `as? SongInfo` 编译器会报"conditional downcast does nothing"警告。
+        if let cached = songInfoCache.object(forKey: h as NSString) {
             return cached
         }
         let params: [String: String] = [
@@ -2632,14 +2634,17 @@ final class KugouClient {
         while !pending.isEmpty {
             let batch = Array(pending.prefix(maxConcurrent))
             pending.removeFirst(min(maxConcurrent, pending.count))
+            // ⚠️ 必须用 let 快照：并发任务里捕获 var 会报
+            // "reference to captured var in concurrently-executing code"（Swift 6 是错误）。
+            let snapshot = result
             let updates = await withTaskGroup(of: (Int, Song)?.self,
                                               returning: [(Int, Song)].self) { group in
                 for i in batch {
                     group.addTask { [weak self] in
                         guard let self else { return nil }
-                        let hash = result[i].kugouHash
+                        let hash = snapshot[i].kugouHash
                         guard let info = await self.songInfo(hash: hash) else { return nil }
-                        var song = result[i]
+                        var song = snapshot[i]
                         // 反查结果更权威：歌手直接覆盖（连"歌词句"那种错值也一并纠正）
                         if !info.singername.isEmpty { song.artist = info.singername }
                         if song.title.isEmpty || Self.looksLikeLyric(song.title) {
