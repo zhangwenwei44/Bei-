@@ -70,7 +70,9 @@ final class UpdateDownloader: NSObject, URLSessionDownloadDelegate {
                 }
                 try FileManager.default.moveItem(at: temp, to: destination)
                 Log.info("更新", "下载完成：\(destination.lastPathComponent)（\(size) 字节）")
-                onProgress(1)
+                // ⚠️ 这里**不要**再发 onProgress(1)：
+                // 上层拿到返回值后会把 phase 置为 .ready，而 progress 回调是异步的，
+                // 晚到的那一下会把 .ready 改回 .downloading(1.0) → 卡在 100% 不弹窗。
                 return destination
             } catch is CancellationError {
                 throw CancellationError()

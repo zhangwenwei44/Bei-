@@ -421,7 +421,7 @@ final class KugouClient {
     ///
     /// 选图策略：按「歌手+歌名」哈希稳定挑一张 —— 同一首歌每次进歌词页是同一张，
     /// 不同歌会挑到不同写真，不会每首歌都糊同一张脸。
-    func singerPhotoURLs(name: String, title: String = "") async -> [URL] {
+    func singerPhotoURLs(name: String, title: String = "", hash: String = "") async -> [URL] {
         let artist = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !artist.isEmpty else { return [] }
 
@@ -429,11 +429,22 @@ final class KugouClient {
         if let cached = photoGalleryCache.object(forKey: artist as NSString) as? [URL] {
             return cached
         }
-        guard let singerID = await singerID(for: artist) else {
+
+        // 🔴 v2.7.5：优先用**歌曲 hash 反查**出的 singerid —— 精确、无歧义。
+        // 之前只按歌手名去 search/singer 搜，遇到"苏艺馨 Chency"这类带后缀的
+        // 名字就匹配不上 → 取不到写真（用户反馈"两个歌手的歌曲取不到写真"）。
+        var resolvedID: String?
+        if !hash.isEmpty, let info = await songInfo(hash: hash), !info.singerid.isEmpty {
+            resolvedID = info.singerid
+        }
+        if resolvedID == nil {
+            resolvedID = await singerID(for: artist)
+        }
+        guard let singerID = resolvedID else {
             Log.info("歌手写真", "搜不到歌手 id：\(artist)")
             return []
         }
-        let urls = await singerPhotoList(singerID: singerID)
+        let urls = await photoURLs(forSingerID: singerID)
         if !urls.isEmpty {
             photoGalleryCache.setObject(urls as NSArray, forKey: artist as NSString)
         }
@@ -471,38 +482,8 @@ final class KugouClient {
         return Self.string(rows.first?["singerid"]) ?? Self.string(rows.first?["author_id"])
     }
 
-    /// ② singerid → 写真图片列表
-    private func singerPhotoList(singerID: String) async -> [URL] {
-        let params: [String: String] = [
-            "fields_pack": "allimages",
-            "authorimg_type": "4,5",
-            "entity_id": singerID,
-        ]
-        guard let json = try? await getJSON(path: "/kmr/v1/author/extend",
-                                            host: "https://openapicdnretry.kugou.com",
-                                            params: params,
-                                            headers: [
-                                                "User-Agent": searchUA,
-                                                "Referer": "https://www.kugou.com/",
-                                            ]),
-              let rows = json["data"] as? [[String: Any]] else { return [] }
-
-        var urls: [URL] = []
-        for row in rows {
-            guard let imgs = row["imgs"] as? [[String: Any]] else { continue }
-            for img in imgs {
-                guard let file = Self.string(img["file"]) ?? Self.string(img["url"]) else { continue }
-                // 酷狗这里返回 http（设备上 ATS 会拦），统一升 https
-                var raw = file
-                if raw.hasPrefix("//") { raw = "https:" + raw }
-                else if raw.hasPrefix("http://") { raw = "https://" + raw.dropFirst(7) }
-                guard let url = URL(string: raw) else { continue }
-                if !urls.contains(url) { urls.append(url) }
-            }
-        }
-        Log.info("歌手写真", "singerid=\(singerID) 取到 \(urls.count) 张写真")
-        return urls
-    }
+    // 🔴 v2.7.5：singerid → 写真图片列表的实现已并入 photoURLs(forSingerID:)，
+    // 避免两份重复代码。（按歌手名取写真时也统一走它。）
 
     /// 🔴 v2.6.7：歌手写真图库缓存（歌手名 → 写真 URL 数组）。
     private let photoGalleryCache = NSCache<NSString, NSArray>()
@@ -2106,7 +2087,115 @@ final class KugouClient {
         string(item["listid"]) ?? string(item["list_id"]) ?? string(item["id"])
     }
 
-    /// 🔴 v2.7.4：把歌曲加入指定酷狗歌单。
+    /// 🔴 v2.7.5：按 hash 反查歌曲信息 —— 酷狗**云歌单**的条目常常不给
+    /// songname / singername / filename（只有 hash + fileid），所以歌单里
+    /// 一片"未知歌手"（用户反馈"酷狗歌单获取不到歌手信息"）。
+    ///
+    /// `/api/v3/song/info?hash=xxx` 一次只支持一个 hash（逗号分隔会返回空），
+    /// 但返回很轻（~700B），含权威的 songname / singername / **singerid**。
+    /// singerid 还能直接用于取歌手写真（比按名字搜索匹配准得多）。
+    /// ⚠️ 必须是 class：NSCache 的 ValueType 约束是 AnyObject，struct 存不进去。
+    final class SongInfo {
+        var songname = ""
+        var singername = ""
+        var singerid = ""
+        var albumName = ""
+        var albumID = ""
+        var imgURL = ""
+
+        init(songname: String = "", singername: String = "", singerid: String = "",
+             albumName: String = "", albumID: String = "", imgURL: String = "") {
+            self.songname = songname
+            self.singername = singername
+            self.singerid = singerid
+            self.albumName = albumName
+            self.albumID = albumID
+            self.imgURL = imgURL
+        }
+    }
+
+    /// 按 hash 查歌曲信息；查不到返回 nil（调用方自行决定是否降级）。
+    func songInfo(hash: String) async -> SongInfo? {
+        let h = hash.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard h.count >= 16 else { return nil }
+        // 内存缓存：同一首歌在多处被用到（列表/播放/写真），别反复请求
+        if let cached = songInfoCache.object(forKey: h as NSString) as? SongInfo {
+            return cached
+        }
+        let params: [String: String] = [
+            "hash": h,
+            "version": "9108",
+        ]
+        guard let json = try? await getJSON(path: "/api/v3/song/info",
+                                            host: "https://mobiles.kugou.com",
+                                            params: params,
+                                            headers: [
+                                                "User-Agent": searchUA,
+                                                "Referer": "https://www.kugou.com/",
+                                            ]),
+              let data = json["data"] as? [String: Any] else { return nil }
+
+        let info = SongInfo(
+            songname: Self.string(data["songname"]) ?? "",
+            singername: Self.string(data["singername"]) ?? "",
+            singerid: Self.string(data["singerid"]) ?? "",
+            albumName: Self.string(data["album_name"]) ?? "",
+            albumID: Self.string(data["album_id"]) ?? "",
+            imgURL: Self.string(data["imgurl"]) ?? ""
+        )
+        guard !info.songname.isEmpty || !info.singername.isEmpty else { return nil }
+        songInfoCache.setObject(info, forKey: h as NSString)
+        return info
+    }
+
+    /// 🔴 v2.7.5：歌曲信息缓存（hash → SongInfo）
+    private let songInfoCache = NSCache<NSString, SongInfo>()
+
+    /// 🔴 v2.7.5：歌手写真（按歌手 id 取，精确）。
+    /// 有了 song/info 返回的 singerid 就不用再靠名字搜索匹配，
+    /// 之前名字对不上（比如"苏艺馨 Chency"）就会取到别人的写真或取不到。
+    func photoURLs(forSingerID singerID: String) async -> [URL] {
+        let sid = singerID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sid.isEmpty else { return [] }
+        if let cached = photoGalleryByIDCache.object(forKey: sid as NSString) as? [URL] {
+            return cached
+        }
+        let params: [String: String] = [
+            "fields_pack": "allimages",
+            "authorimg_type": "4,5",
+            "entity_id": sid,
+        ]
+        guard let json = try? await getJSON(path: "/kmr/v1/author/extend",
+                                            host: "https://openapicdnretry.kugou.com",
+                                            params: params,
+                                            headers: [
+                                                "User-Agent": searchUA,
+                                                "Referer": "https://www.kugou.com/",
+                                            ]),
+              let rows = json["data"] as? [[String: Any]] else { return [] }
+
+        var urls: [URL] = []
+        for row in rows {
+            guard let imgs = row["imgs"] as? [[String: Any]] else { continue }
+            for img in imgs {
+                guard let file = Self.string(img["file"]) ?? Self.string(img["url"]) else { continue }
+                var raw = file
+                if raw.hasPrefix("//") { raw = "https:" + raw }
+                else if raw.hasPrefix("http://") { raw = "https://" + raw.dropFirst(7) }
+                guard let url = URL(string: raw) else { continue }
+                if !urls.contains(url) { urls.append(url) }
+            }
+        }
+        if !urls.isEmpty {
+            photoGalleryByIDCache.setObject(urls as NSArray, forKey: sid as NSString)
+        }
+        return urls
+    }
+
+    /// 🔴 v2.7.5：按歌手 id 缓存的写真列表
+    private let photoGalleryByIDCache = NSCache<NSString, NSArray>()
+
+    /// 🔴 v2.7.5：把歌曲加入指定酷狗歌单。
     ///
     /// ## 之前为什么"保存不进去"
     /// 旧实现打的是 `GET /v5/add_song_to_list`（路由还在，但**接口早废弃**），
@@ -2514,7 +2603,77 @@ final class KugouClient {
             }
         }
         Log.info("酷狗", "歌单 \(listid) 解析出 \(songs.count) 首歌")
-        return songs
+
+        // 🔴 v2.7.5：云歌单里大量条目**不给** singername（歌手栏一片空白），
+        // 也有些条目的 filename 被用户改成了奇怪的内容（拆出来的"歌手"其实是歌词句）。
+        // 用 hash 反查 /api/v3/song/info 拿权威的歌名/歌手补齐 —— 一次一个，
+        // 只查「歌手缺失」和「歌手明显可疑」的条目，并发 4 路，失败不阻塞。
+        let enriched = await enrichSongArtists(songs)
+        Log.info("酷狗", "歌单 \(listid) 反查补齐歌手后：\(enriched.filter { !$0.artist.isEmpty }.count)/\(enriched.count) 首有歌手")
+        return enriched
+    }
+
+    /// 🔴 v2.7.5：用 song/info 补齐歌单歌曲的歌手（并顺带拿 singerid 供写真用）。
+    private func enrichSongArtists(_ songs: [Song]) async -> [Song] {
+        var result = songs
+        var pending: [Int] = []
+        for (i, song) in songs.enumerated() {
+            let artist = song.artist.trimmingCharacters(in: .whitespaces)
+            if artist.isEmpty || Self.looksLikeLyric(artist) {
+                pending.append(i)
+            }
+        }
+        guard !pending.isEmpty else { return result }
+
+        // 分批并发 4 路反查（接口很轻，但歌单可能几百首，别把并发拉满）。
+        // ⚠️ 结果用 task group 的返回值收集，**不在并发任务里改捕获的数组** ——
+        // Swift 并发检查会报 "mutation of captured var"，CI 零警告即失败。
+        let maxConcurrent = 4
+        while !pending.isEmpty {
+            let batch = Array(pending.prefix(maxConcurrent))
+            pending.removeFirst(min(maxConcurrent, pending.count))
+            let updates = await withTaskGroup(of: (Int, Song)?.self,
+                                              returning: [(Int, Song)].self) { group in
+                for i in batch {
+                    group.addTask { [weak self] in
+                        guard let self else { return nil }
+                        let hash = result[i].kugouHash
+                        guard let info = await self.songInfo(hash: hash) else { return nil }
+                        var song = result[i]
+                        // 反查结果更权威：歌手直接覆盖（连"歌词句"那种错值也一并纠正）
+                        if !info.singername.isEmpty { song.artist = info.singername }
+                        if song.title.isEmpty || Self.looksLikeLyric(song.title) {
+                            if !info.songname.isEmpty { song.title = info.songname }
+                        }
+                        if song.album.isEmpty && !info.albumName.isEmpty { song.album = info.albumName }
+                        if song.kugouAlbumID.isEmpty && !info.albumID.isEmpty { song.kugouAlbumID = info.albumID }
+                        if song.artworkURL == nil && !info.imgURL.isEmpty {
+                            song.artworkURL = URL(string: info.imgURL.replacingOccurrences(of: "{size}", with: "300"))
+                        }
+                        return (i, song)
+                    }
+                }
+                var collected: [(Int, Song)] = []
+                for await update in group {
+                    if let update = update { collected.append(update) }
+                }
+                return collected
+            }
+            for (i, song) in updates {
+                result[i] = song
+            }
+        }
+        return result
+    }
+
+    /// 🔴 v2.7.5：判断一个字符串"像不像歌词句"而不是歌手名。
+    /// 特征：偏长（>8 字）、含中文标点/问号叹号、或整句是歌词。
+    private static func looksLikeLyric(_ text: String) -> Bool {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return false }
+        if t.count > 8 { return true }
+        if t.contains(where: { "，,。.！!？?、；;\"'“”‘’（）()".contains($0) }) { return true }
+        return false
     }
 
     // MARK: - 深值提取工具（简化版，支持 a.b.c 路径链式取值）

@@ -307,7 +307,14 @@ final class AppUpdater: ObservableObject {
                     assetName: asset.name,
                     expectedSize: Int64(asset.size)
                 ) { [weak self] ratio in
-                    Task { @MainActor [weak self] in self?.phase = .downloading(progress: ratio) }
+                    Task { @MainActor [weak self] in
+                        // 🔴 v2.7.5：只在「下载中」状态才更新进度。
+                        // 之前无条件写 .downloading(progress:)，而这个 Task 是异步的 ——
+                        // 下载完成后的 .ready 会被它晚到的那一下改回 .downloading(1.0)，
+                        // 界面就永远卡在「正在下载更新… 100%」，安装弹窗也不弹（用户实测）。
+                        guard let self, case .downloading = self.phase else { return }
+                        self.phase = .downloading(progress: ratio)
+                    }
                 }
                 self.phase = .ready(localURL)
             } catch is CancellationError {

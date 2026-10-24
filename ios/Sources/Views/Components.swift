@@ -379,6 +379,9 @@ final class ArtistPhotoCache {
 struct ArtistPhotoBackdrop: View {
     let artist: String
     let title: String
+    /// 🔴 v2.7.5：歌曲 hash —— 用它反查精确的 singerid 取写真，
+    /// 避免"苏艺馨 Chency"这类带后缀的歌手名匹配不上（用户反馈取不到写真）。
+    var hash: String = ""
     /// 已加载的写真（多张轮播）
     @State private var images: [UIImage] = []
     /// 当前显示第几张
@@ -421,7 +424,7 @@ struct ArtistPhotoBackdrop: View {
         // 纯背景层，绝不能吃掉歌词滚动和点击
         .allowsHitTesting(false)
         // 🔴 v2.6.4：id 带上歌名 —— 同一歌手连唱多首时也要重新取图
-        .task(id: artist + "|" + title) { await load() }
+        .task(id: artist + "|" + title + "|" + hash) { await load() }
         // 🔴 v2.6.8：写真轮播（图片数量变化时重启计时）
         .task(id: images.count) { await rotate() }
     }
@@ -444,7 +447,7 @@ struct ArtistPhotoBackdrop: View {
         // 🔴 v2.6.8：取多张 —— 优先酷狗「歌手写真」图库（几十~几百张），
         // 均匀抽几张（避免连着取到风格雷同的图）。
         var picked: [URL] = []
-        let gallery = await KugouClient.shared.singerPhotoURLs(name: key, title: title)
+        let gallery = await KugouClient.shared.singerPhotoURLs(name: key, title: title, hash: hash)
         if !gallery.isEmpty {
             picked = Self.spread(gallery, count: maxPhotos)
         }

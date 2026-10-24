@@ -63,8 +63,10 @@ struct QualitySettingsView: View {
                 }
 
                 // ── 底部：按网络环境设置 ──────────────────────────────
-                Button {
-                    networkSheet = true
+                // 🔴 v2.7.5：用 NavigationLink push，不套 sheet ——
+                // UpdateView 那边踩过：iOS 16 上 sheet 套 sheet 经常弹不出来。
+                NavigationLink {
+                    NetworkQualityView()
                 } label: {
                     HStack(spacing: 4) {
                         Text("设置不同网络环境下的播放音质")
@@ -75,6 +77,7 @@ struct QualitySettingsView: View {
                     .foregroundStyle(AppStyle.secondaryText)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
@@ -83,12 +86,7 @@ struct QualitySettingsView: View {
         .background(AppStyle.background)
         .navigationTitle("音质")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $networkSheet) {
-            networkQualitySheet
-        }
     }
-
-    @State private var networkSheet = false
 
     // MARK: - 顶部特性卡
 
@@ -156,34 +154,6 @@ struct QualitySettingsView: View {
         .contentShape(Rectangle())
     }
 
-    // MARK: - 按网络环境
-
-    private var networkQualitySheet: some View {
-        CompatNavigationStack {
-            Form {
-                Section {
-                    Toggle(isOn: $sourceStore.cellularFallback) {
-                        Text("蜂窝网络自动降为高品音质")
-                    }
-                    .tint(AppStyle.accent)
-                } header: {
-                    Text("流量环境")
-                } footer: {
-                    Text(network.isCellular
-                         ? "当前正在使用蜂窝网络，关闭后仍按所选音质播放（更耗流量）。"
-                         : "当前不是蜂窝网络。开启后，用 4G/5G 播放时会自动降到高品音质以省流量。")
-                        .font(.system(size: 12))
-                }
-            }
-            .navigationTitle("按网络环境")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { networkSheet = false }
-                }
-            }
-        }
-    }
 }
 
 // MARK: - 档位展示信息
@@ -239,5 +209,32 @@ extension MusicQuality {
         case .standard, .higher: return false
         case .exHigh, .lossless, .hires: return true
         }
+    }
+}
+
+
+/// 🔴 v2.7.5：按网络环境设置（从音质页 push 进来，不套 sheet）。
+private struct NetworkQualityView: View {
+    @ObservedObject private var sourceStore = SourceStore.shared
+    @ObservedObject private var network = NetworkStatus.shared
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle(isOn: $sourceStore.cellularFallback) {
+                    Text("蜂窝网络自动降为高品音质")
+                }
+                .tint(AppStyle.accent)
+            } header: {
+                Text("流量环境")
+            } footer: {
+                Text(network.isCellular
+                     ? "当前正在使用蜂窝网络，关闭后仍按所选音质播放（更耗流量）。"
+                     : "当前不是蜂窝网络。开启后，用 4G/5G 播放时会自动降到高品音质以省流量。")
+                    .font(.system(size: 12))
+            }
+        }
+        .navigationTitle("按网络环境")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

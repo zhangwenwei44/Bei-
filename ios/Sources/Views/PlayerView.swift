@@ -387,17 +387,12 @@ struct PlayerView: View {
             classicActionButton(glyph: .more) { showMoreMenu = true }
         }
         .frame(maxWidth: .infinity)
-        .confirmationDialog("音质", isPresented: $showQualityMenu, titleVisibility: .visible) {
-            ForEach(MusicQuality.allCases) { q in
-                // 🔴 v2.5.46：title 自带「音质」二字（至臻母带/至臻2.0 除外），不再额外拼接
-                Button(q == SourceStore.shared.quality ? "✓ \(q.title)" : "\(q.title)") {
-                    if q != SourceStore.shared.quality {
-                        SourceStore.shared.quality = q
-                        show("已切换到\(q.title)")
-                    }
-                }
+        // 🔴 v2.7.5：原来这里是 confirmationDialog 弹出的系统菜单（用户反馈"音质列表没改到"，
+        // 弹出来的还是老式 action sheet）。现在改成弹出整页的酷狗风格音质页。
+        .sheet(isPresented: $showQualityMenu) {
+            CompatNavigationStack {
+                QualitySettingsView()
             }
-            Button("取消", role: .cancel) {}
         }
         .confirmationDialog("更多", isPresented: $showMoreMenu, titleVisibility: .visible) {
             Button("完整歌词") { openLyricsPage() }
@@ -1639,7 +1634,9 @@ struct LyricsPageView: View {
                 // 🔴 v2.6.7：写真不再模糊；🔴 v2.6.8：多张写真轮播。
                 if showArtistPhoto {
                     ArtistPhotoBackdrop(artist: store.current?.artist ?? "",
-                                        title: store.current?.title ?? "")
+                                        title: store.current?.title ?? "",
+                                        // 🔴 v2.7.5：带上 hash，用它反查精确 singerid 取写真
+                                        hash: store.current?.kugouHash ?? "")
                         .ignoresSafeArea()
                 }
             }
