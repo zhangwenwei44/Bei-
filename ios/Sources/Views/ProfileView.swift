@@ -139,12 +139,20 @@ struct ProfileView: View {
             }
 
             Section {
-                Picker(selection: $sourceStore.quality) {
-                    ForEach(MusicQuality.allCases) { quality in
-                        Text(quality.title).tag(quality)
-                    }
+                // 🔴 v2.7.4：改成一整页（酷狗风格的音质页），
+                // 原来的系统 Picker 只有一行、看不到各档位差别。
+                NavigationLink {
+                    QualitySettingsView()
                 } label: {
-                    Label("播放音质", systemImage: "waveform")
+                    HStack {
+                        Label("播放音质", systemImage: "waveform")
+                        Spacer()
+                        Text(sourceStore.quality.title)
+                            .foregroundStyle(AppStyle.tertiaryText)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                    }
                 }
 
                 HStack {

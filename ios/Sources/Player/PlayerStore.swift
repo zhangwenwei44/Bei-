@@ -419,7 +419,8 @@ final class PlayerStore: ObservableObject {
             if let local = DownloadManager.shared.localURL(for: song) {
                 outcome = Outcome(url: local, name: "已下载", label: "本地", isThirdParty: false)
             } else if let audio = await SourceResolver.resolve(song: song,
-                                                                 quality: SourceStore.shared.quality,
+                                                                 // 🔴 v2.7.4：蜂窝网络下按设置降档
+                                                                 quality: SourceStore.shared.effectiveQuality,
                                                                  excludedHosts: excluded) {
                 outcome = Outcome(url: audio.url,
                                   name: audio.sourceName,
@@ -624,7 +625,8 @@ final class PlayerStore: ObservableObject {
             guard let self else { return }
             guard let audio = await SourceResolver.resolve(
                 song: next,
-                quality: SourceStore.shared.quality,
+                // 🔴 v2.7.4：蜂窝网络下按设置降档
+                quality: SourceStore.shared.effectiveQuality,
                 excludedHosts: self.failedHosts
             ) else {
                 Log.warn("预加载", "下一首 URL 解析失败：\(next.title.prefix(20))")

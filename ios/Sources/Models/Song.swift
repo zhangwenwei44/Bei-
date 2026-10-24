@@ -112,6 +112,10 @@ struct Song: Identifiable, Hashable, Codable {
     /// 酷狗的 album audio id，部分接口需要。
     var kugouAudioID: String = ""
     var kugouAlbumID: String = ""
+    /// 🔴 v2.7.4：酷狗歌单里的 fileid —— **从歌单里移出歌曲必须用它**
+    /// （/v4/delete_songs 的 data[] 只认 fileid，不认 hash）。
+    /// 只有从云歌单接口（/v4/get_list_all_file）拿到的歌才有这个值。
+    var kugouFileID: String = ""
     var playCount: Int = 0
 
     init(id: String? = nil,
@@ -127,6 +131,7 @@ struct Song: Identifiable, Hashable, Codable {
          kugouHash: String = "",
          kugouAudioID: String = "",
          kugouAlbumID: String = "",
+         kugouFileID: String = "",
          playCount: Int = 0) {
         let resolvedHash = kugouHash.isEmpty ? (id ?? UUID().uuidString) : kugouHash
         self.id = id ?? (source == .local ? "local:\(resolvedHash)" : "kg:\(resolvedHash)")
@@ -142,6 +147,7 @@ struct Song: Identifiable, Hashable, Codable {
         self.kugouHash = kugouHash
         self.kugouAudioID = kugouAudioID
         self.kugouAlbumID = kugouAlbumID
+        self.kugouFileID = kugouFileID
         self.playCount = playCount
     }
 

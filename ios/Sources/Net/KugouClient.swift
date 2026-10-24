@@ -2106,46 +2106,174 @@ final class KugouClient {
         string(item["listid"]) ?? string(item["list_id"]) ?? string(item["id"])
     }
 
-    /// 🔴 v2.6.4：把歌曲加入指定酷狗歌单。
+    /// 🔴 v2.7.4：把歌曲加入指定酷狗歌单。
+    ///
+    /// ## 之前为什么"保存不进去"
+    /// 旧实现打的是 `GET /v5/add_song_to_list`（路由还在，但**接口早废弃**），
+    /// 服务端返回 `{"status":0,"error_code":20006}`，而旧代码**只看 HTTP 状态码、
+    /// 不看 body 里的 error_code** → 界面以为成功了，实际一首都没加进去（用户反馈）。
+    ///
+    /// ## 现在
+    /// 按官方客户端的真实协议来：
+    /// `POST /v4/add_song`（x-router: cloudlist.service.kugou.com）
+    /// · query: last_time / last_area=gztx / userid / token
+    /// · body : {userid, token, listid, list_ver:0, type:0, slow_upload:1,
+    ///          scene:"false;null", data:[{number,name,hash,size,sort,timelen,bitrate,album_id,mixsongid}]}
+    /// 并且**严格检查 body 里的 status/error_code**，失败就抛错（不再"假成功"）。
     func addSongToPlaylist(_ listid: String, song: Song) async throws {
         guard KugouAuth.shared.isLoggedIn else { throw KugouError.parse("请先登录酷狗") }
         guard !song.kugouHash.isEmpty else { throw KugouError.parse("这首歌没有酷狗 ID，加不进云歌单") }
+        if KugouAuth.shared.dfid == "-" { await registerDevice() }
+
         let userId = KugouAuth.shared.userId
         let token = KugouAuth.shared.token
+        let clienttime = "\(Int(Date().timeIntervalSince1970))"
 
-        let params = [
-            "listid": listid,
-            "userid": userId,
-            "token": token,
-            "resource_id": song.kugouHash,
-            "source": "1",
+        // data 每一项的字段名是酷狗定的，不能自己发挥（改了就匹配不上）
+        let item: [String: Any] = [
+            "number": 1,
+            "name": song.cleanTitle,
+            "hash": song.kugouHash,
+            "size": 0,
+            "sort": 0,
+            "timelen": 0,                       // 不知道就填 0，酷狗按 hash 自己匹配
+            "bitrate": 0,
+            "album_id": Int(song.kugouAlbumID) ?? 0,
+            "mixsongid": Int(song.kugouAudioID) ?? 0,
         ]
-        let _ = try await getRaw(path: "/v5/add_song_to_list",
-                                  host: "https://gateway.kugou.com",
-                                  params: params,
-                                  headers: ["x-router": "cloudlist.service.kugou.com"])
+        let body: [String: Any] = [
+            "userid": Int(userId) ?? 0,
+            "token": token,
+            "listid": Int(listid) ?? listid,
+            "list_ver": 0,
+            "type": 0,
+            "slow_upload": 1,
+            "scene": "false;null",
+            "data": [item],
+        ]
+        let query: [String: String] = [
+            "dfid": dfid,
+            "mid": mid,
+            "uuid": "-",
+            "appid": gatewayAppID,
+            "clientver": gatewayClientVer,
+            "clienttime": clienttime,
+            "token": token,
+            "userid": userId,
+            "listid": listid,
+            "last_time": clienttime,
+            "last_area": "gztx",
+        ]
+        let json = try await cloudlistPost(path: "/v4/add_song", query: query, body: body)
+        try Self.checkCloudlistResult(json, action: "加入歌单")
         Log.info("酷狗", "歌曲《\(song.cleanTitle)》已保存到歌单 \(listid)")
     }
 
-    /// 🔴 v2.6.4：把歌曲从酷狗歌单里移出（删除歌单内歌曲）。
+    /// 🔴 v2.7.4：把歌曲从酷狗歌单里移出。
+    ///
+    /// ## 之前为什么报 404
+    /// 旧实现打的是 `GET /v5/delete_song_from_list` —— **这个路由根本不存在**
+    /// （实测 v3/v4/v5/v6 全是 404 HTML），所以必然失败。
+    ///
+    /// ## 现在
+    /// `POST /v4/delete_songs`，body: {listid, userid, token, type:0, list_ver:0,
+    /// data:[{fileid}]} —— **必须用 fileid**（不是 hash）。
+    /// fileid 从云歌单歌曲接口解析时一起带出来（Song.kugouFileID）。
     func removeSongFromPlaylist(_ listid: String, song: Song) async throws {
         guard KugouAuth.shared.isLoggedIn else { throw KugouError.parse("请先登录酷狗") }
-        guard !song.kugouHash.isEmpty else { throw KugouError.parse("这首歌没有酷狗 ID，移不出歌单") }
+        if KugouAuth.shared.dfid == "-" { await registerDevice() }
+
+        let fileID = Int(song.kugouFileID) ?? 0
+        guard fileID > 0 else {
+            throw KugouError.parse("这首歌没有歌单 fileid（刷新一下歌单再试）")
+        }
+
         let userId = KugouAuth.shared.userId
         let token = KugouAuth.shared.token
+        let clienttime = "\(Int(Date().timeIntervalSince1970))"
 
-        let params = [
-            "listid": listid,
-            "userid": userId,
+        let body: [String: Any] = [
+            "listid": Int(listid) ?? listid,
+            "userid": Int(userId) ?? 0,
             "token": token,
-            "resource_id": song.kugouHash,
-            "source": "1",
+            "type": 0,
+            "list_ver": 0,
+            "data": [["fileid": fileID]],
         ]
-        let _ = try await getRaw(path: "/v5/delete_song_from_list",
-                                  host: "https://gateway.kugou.com",
-                                  params: params,
-                                  headers: ["x-router": "cloudlist.service.kugou.com"])
+        let query: [String: String] = [
+            "dfid": dfid,
+            "mid": mid,
+            "uuid": "-",
+            "appid": gatewayAppID,
+            "clientver": gatewayClientVer,
+            "clienttime": clienttime,
+            "token": token,
+            "userid": userId,
+            "listid": listid,
+        ]
+        let json = try await cloudlistPost(path: "/v4/delete_songs", query: query, body: body)
+        try Self.checkCloudlistResult(json, action: "移出歌单")
         Log.info("酷狗", "歌曲《\(song.cleanTitle)》已移出歌单 \(listid)")
+    }
+
+    /// 🔴 v2.7.4：云歌单写操作的统一 POST（JSON body + android 签名 + 一整套 header）。
+    /// 照搬 /v4/get_list_all_file 的请求形态 —— 这套 header 缺一个就会被风控挡掉。
+    private func cloudlistPost(path: String,
+                               query: [String: String],
+                               body: [String: Any]) async throws -> [String: Any] {
+        let bodyData = try JSONSerialization.data(withJSONObject: body)
+        let bodyStr = String(data: bodyData, encoding: .utf8) ?? ""
+        var final = query
+        final["signature"] = androidSign(final, data: bodyStr)
+
+        guard let base = URL(string: "https://gateway.kugou.com\(path)") else {
+            throw KugouError.parse("接口地址无效")
+        }
+        var comps = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        comps?.queryItems = final.map { URLQueryItem(name: $0.key, value: $0.value) }
+        guard let url = comps?.url else { throw KugouError.parse("接口地址无效") }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = bodyData
+        request.setValue(gatewayUA, forHTTPHeaderField: "User-Agent")
+        request.setValue("cloudlist.service.kugou.com", forHTTPHeaderField: "x-router")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("1", forHTTPHeaderField: "kg-rc")
+        request.setValue("5d816a0", forHTTPHeaderField: "kg-thash")
+        request.setValue("1", forHTTPHeaderField: "kg-rec")
+        request.setValue("B9EDA08A64250DEFFBCADDEE00F8F25F", forHTTPHeaderField: "kg-rf")
+        request.setValue(dfid, forHTTPHeaderField: "dfid")
+        request.setValue(mid, forHTTPHeaderField: "mid")
+        request.setValue(final["clienttime"] ?? "", forHTTPHeaderField: "clienttime")
+        let cookie = KugouAuth.shared.cookieHeader
+        if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+
+        let (data, resp) = try await session.data(for: request)
+        let httpCode = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        let raw = String(data: data, encoding: .utf8) ?? ""
+        Log.info("酷狗", "\(path) HTTP=\(httpCode) body=\(String(raw.prefix(160)))")
+        guard (200...299).contains(httpCode) else {
+            throw KugouError.httpStatus(httpCode)
+        }
+        return Self.extractJSONP(raw)
+            ?? (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+            ?? [:]
+    }
+
+    /// 🔴 v2.7.4：云歌单接口的 body 里带 status/error_code，
+    /// **HTTP 200 不代表成功**（失败也是 200 + error_code）。必须检查，否则就是"假成功"。
+    private static func checkCloudlistResult(_ json: [String: Any], action: String) throws {
+        let status = deepInt(json, path: ["status"]) ?? 0
+        let errcode = deepInt(json, path: ["error_code"]) ?? -1
+        let errmsg = deepString(json, path: ["error_msg"]) ?? deepString(json, path: ["message"]) ?? ""
+        // status=1 是成功；errcode=0 也是成功
+        if status == 1 || errcode == 0 { return }
+        if errcode == 20006 || errcode == 20017 {
+            KugouAuth.shared.markTokenRejected()
+            throw KugouError.parse("\(action)失败：登录状态已失效，请重新登录酷狗")
+        }
+        throw KugouError.parse("\(action)失败\(errmsg.isEmpty ? "" : "：\(errmsg)")（错误码 \(errcode)）")
     }
 
     /// 兼容旧调用点
@@ -2372,7 +2500,14 @@ final class KugouClient {
                     artworkURL: cover.flatMap { URL(string: $0.hasPrefix("http") ? $0 : "https://\($0)") },
                     source: .kugou,
                     kugouHash: hash,
-                    kugouAlbumID: Self.string(item["album_id"]) ?? Self.string(item["albumid"]) ?? ""
+                    kugouAlbumID: Self.string(item["album_id"]) ?? Self.string(item["albumid"]) ?? "",
+                    // 🔴 v2.7.4：歌单里的 fileid —— 从歌单移出歌曲必须用它
+                    // （/v4/delete_songs 的 data[] 只认 fileid）。
+                    kugouFileID: Self.string(item["fileid"])
+                        ?? Self.string(item["file_id"])
+                        ?? Self.string(item["FileID"])
+                        ?? Self.string(item["FileId"])
+                        ?? ""
                 ))
             } else if songs.isEmpty {
                 Log.info("酷狗", "🔴 歌单条目缺 hash 或 title：keys=[\(item.keys.sorted().joined(separator: ","))]")

@@ -160,10 +160,26 @@ final class SourceStore: ObservableObject {
     private let defaults = UserDefaults.standard
     private let storeKey = "aurora.sources.v1"
     private let qualityKey = "aurora.playbackQuality"
+    private let cellularFallbackKey = "aurora.cellularQualityFallback"
 
     /// 播放音质偏好。
     @Published var quality: MusicQuality {
         didSet { defaults.set(quality.rawValue, forKey: qualityKey) }
+    }
+
+    /// 🔴 v2.7.4：蜂窝网络下自动降档（省流量）。
+    /// 音质页底部「设置不同网络环境下的播放音质」控制这个开关。
+    @Published var cellularFallback: Bool {
+        didSet { defaults.set(cellularFallback, forKey: cellularFallbackKey) }
+    }
+
+    /// 🔴 v2.7.4：**实际生效**的音质 —— 蜂窝网络 + 开了降档 → 降到高品音质。
+    /// 播放解析走这里，而不是直接读 quality。
+    var effectiveQuality: MusicQuality {
+        if cellularFallback, NetworkStatus.shared.isCellular {
+            return .standard
+        }
+        return quality
     }
 
     var enabledSources: [ThirdPartySource] {
@@ -181,6 +197,7 @@ final class SourceStore: ObservableObject {
         } else {
             quality = .exHigh
         }
+        cellularFallback = defaults.object(forKey: cellularFallbackKey) as? Bool ?? true
     }
 
     private func persist() {
