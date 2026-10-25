@@ -24,7 +24,7 @@ struct ProfileView: View {
     }
     /// 「检查更新」和「关于」点了完全没反应，只有排在最后的更新日志能弹出来。
     private enum Sheet: String, Identifiable {
-        case about, update, changelog, kugouImport, kugouLogin
+        case about, update, changelog, kugouImport, kugouLogin, licenseMaker
         var id: String { rawValue }
     }
 
@@ -306,7 +306,9 @@ struct ProfileView: View {
                     }
                 }
             } header: {
+                // 🔴 v2.9.1：连点 7 次「版本」进授权码生成器（隐藏入口，进去了还有口令）
                 headerText("版本")
+                    .onTapGesture(count: 7) { sheet = .licenseMaker }
             }
 
             Section {
@@ -401,6 +403,7 @@ struct ProfileView: View {
                     kugouImportSheet
                 }
             case .kugouLogin: KugouLoginSheet()
+            case .licenseMaker: LicenseGeneratorView()
             }
         }
         .task {

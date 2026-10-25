@@ -8,6 +8,7 @@ struct LockScreenView: View {
     @State private var input = ""
     @State private var errorMessage: String?
     @State private var shake = false
+    @State private var showGenerator = false
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -28,6 +29,8 @@ struct LockScreenView: View {
                     Image(systemName: "lock.shield.fill")
                         .font(.system(size: 46))
                         .foregroundStyle(.white.opacity(0.92))
+                        // 🔴 v2.9.1：连点 7 次应急进生成器（本机没激活时也能给别人签授权码）
+                        .onTapGesture(count: 7) { showGenerator = true }
 
                     VStack(spacing: 6) {
                         Text("AuroraMusic")
@@ -116,6 +119,9 @@ struct LockScreenView: View {
             }
         }
         .onTapGesture { focused = false }
+        .sheet(isPresented: $showGenerator) {
+            LicenseGeneratorView()
+        }
     }
 
     private func attempt() {
