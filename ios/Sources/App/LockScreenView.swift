@@ -72,7 +72,7 @@ struct LockScreenView: View {
                         TextField("输入授权码", text: $input)
                             .font(.system(size: 16, design: .monospaced))
                             .foregroundStyle(.white)
-                            .autocapitalization(.characters)
+                            .textInputAutocapitalization(.characters)
                             .disableAutocorrection(true)
                             .submitLabel(.go)
                             .focused($focused)
