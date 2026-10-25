@@ -149,7 +149,8 @@ struct PlayerView: View {
         }
         .onAppear {
             isLandscape = OrientationLock.shared.isLandscapePlayer
-            UIApplication.shared.isIdleTimerDisabled = isLandscape
+            // 🔴 v2.8.3：常亮统一走 IdleTimerKeeper（多原因登记），不再直接改全局 bool
+            IdleTimerKeeper.shared.set("player-landscape", isLandscape)
         }
         // 🔴 横屏播放器时隐藏系统状态栏（沉浸播放）；退出横屏自动恢复。
         // 🔴 加 !isLyricsPage：从横屏进歌词页时 isLandscapePlayer 不会置回 false，isLandscape 仍为 true，
@@ -158,7 +159,8 @@ struct PlayerView: View {
         // 🔴 关闭播放页时恢复竖屏 + 恢复自动熄屏（避免退出后整 App 卡横屏/永远不熄屏）
         .onDisappear {
             OrientationLock.shared.resetToPortrait()
-            UIApplication.shared.isIdleTimerDisabled = false
+            // 🔴 v2.8.3：只撤销自己的常亮原因，不再一票否决其它模块（下载/歌词页）的常亮
+            IdleTimerKeeper.shared.set("player-landscape", false)
         }
         // 🔴 播放列表 sheet：必须挂在播放页自己身上。此前只挂在 RootView 迷你条上，
         // 它在播放页 fullScreenCover 之下 —— 播放页打开时 sheet 弹不出来（点了没反应）。
@@ -727,7 +729,7 @@ struct PlayerView: View {
             isLandscape = false
             // 🔴 v2.5.44：进出横屏都收起内嵌队列面板
             showLandscapeQueue = false
-            UIApplication.shared.isIdleTimerDisabled = false
+            IdleTimerKeeper.shared.set("player-landscape", false)
         } else {
             OrientationLock.shared.enterLandscape()
             // 🔴 立即置 isLandscape = true（由方向锁权威驱动），不等方向通知 ——
@@ -736,7 +738,7 @@ struct PlayerView: View {
             // 浮层（关闭按钮 + 底部横条）默认隐藏，点击屏幕显出
             landscapeChromeVisible = false
             // 横屏播放屏幕常亮
-            UIApplication.shared.isIdleTimerDisabled = true
+            IdleTimerKeeper.shared.set("player-landscape", true)
         }
     }
 
@@ -970,7 +972,7 @@ struct PlayerView: View {
                 OrientationLock.shared.exitLandscape()
                 isLandscape = false
                 // 离开横屏取消屏幕常亮
-                UIApplication.shared.isIdleTimerDisabled = false
+                IdleTimerKeeper.shared.set("player-landscape", false)
                 // 🔴 v2.5.44：退出横屏时收起内嵌队列面板
                 showLandscapeQueue = false
                 Haptics.light()
@@ -1614,13 +1616,14 @@ struct LyricsPageView: View {
             // ②删掉模糊专辑图浮层 —— 它在歌词正后方形成一团"幽灵唱片"，
             // 用户误以为是播放页透出来（实测截图可见盘面轮廓）。底部再垫纯色。
             ZStack {
-                // dark 本身就是 Color，不能再包一层 Color(:) —— 那是 iOS 17 才有的
-                // Color.init(_:) 重载，iOS 15 部署目标直接编译失败（run #385）。
-                store.currentPalette.dark
-
-                LinearGradient(colors: store.currentPalette.gradient,
-                               startPoint: .topLeading,
-                               endPoint: .bottomTrailing)
+                // 🔴 v2.8.3：兜底背景换成固定的「蓝色耳机」海报图，不再用专辑取色渐变
+                // （用户要求：写真取不到时也别显示取色背景）。
+                // 写真取到时 ArtistPhotoBackdrop 铺在最上层把它盖住。
+                Image("LyricsFallback")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: sz.width, height: sz.height)
+                    .clipped()
 
                 LinearGradient(colors: [.black.opacity(0.35),
                                         .black.opacity(0.18),
@@ -1738,9 +1741,14 @@ struct LyricsPageView: View {
         // 所以 15 上不处理。
         .modifier(LyricsStatusBarHider(hidden: chromeHidden))
         // 🔴 v2.7.3：沉浸模式屏幕常亮 —— 看歌词时手机不熄屏。
+        // 🔴 v2.8.3：改走 IdleTimerKeeper，且退出沉浸要**撤销**原因（原来无论进出都设 true），
+        // 歌词页关闭时也要撤销，别把常亮永久留在全局。
         .onChange(of: chromeHidden) { hidden in
-            UIApplication.shared.isIdleTimerDisabled = true
+            IdleTimerKeeper.shared.set("lyrics-immersive", hidden)
             Log.info("歌词页", hidden ? "进入沉浸模式（隐藏状态栏 + 常亮）" : "退出沉浸模式")
+        }
+        .onDisappear {
+            IdleTimerKeeper.shared.set("lyrics-immersive", false)
         }
         // 🔴 整页下滑关闭手势已移到背景层（.gesture）：highPriorityGesture 会把
         // 进度条的拖动手势整个吃掉（进度条拖不动的根因），不能再挂在这。

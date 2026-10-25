@@ -1889,6 +1889,10 @@ final class KugouClient {
         var coverURL: String? = nil
         /// 歌单里的歌曲数（接口给的权威值，比本地解析出的准）。
         var songCount: Int = 0
+        /// 🔴 v2.8.3：是否「收藏的歌单」（而非自己创建）。
+        /// get_all_list 返回的条目里 `is_collect == 1` 表示订阅/收藏的歌单，0 为自己创建。
+        /// 曲库页据此把歌单拆成「自建歌单 / 收藏歌单」两个板块。
+        var isFav: Bool = false
     }
 
     /// 拉取当前登录用户的所有歌单
@@ -2062,7 +2066,14 @@ final class KugouClient {
                 ?? Self.deepInt(item, path: ["file_count"])
                 ?? 0
 
-            playlists.append(KugouPlaylist(id: listid, name: name, songs: [], coverURL: coverURL, songCount: songCount))
+            // 🔴 v2.8.3：is_collect 标识「是否收藏（订阅）的歌单」。
+            // 字段名在客户端版本间可能不同，多候选兜底；都取不到就默认 false（归入「自建歌单」）。
+            let isFav = (Self.deepInt(item, path: ["is_collect"])
+                ?? Self.deepInt(item, path: ["collect"])
+                ?? Self.deepInt(item, path: ["is_fav"])
+                ?? 0) == 1
+
+            playlists.append(KugouPlaylist(id: listid, name: name, songs: [], coverURL: coverURL, songCount: songCount, isFav: isFav))
         }
         Log.info("酷狗", "拉到 \(playlists.count) 个云端歌单，带封面 \(playlists.filter { $0.coverURL != nil }.count) 个")
         return playlists

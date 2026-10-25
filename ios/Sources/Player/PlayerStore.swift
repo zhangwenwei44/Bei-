@@ -194,6 +194,11 @@ final class PlayerStore: ObservableObject {
     private var stalledSongID: String?
 
     var current: Song? { queue.indices.contains(currentIndex) ? queue[currentIndex] : nil }
+
+    /// 🔴 v2.8.3：今日听歌首数去重用的「上一首已计数」id。
+    /// 同一首歌在暂停/续播、单曲循环时不重复计数；换歌才 +1。
+    private var lastCountedSongID: String?
+
     var sleepTimerRemaining: TimeInterval? {
         guard let sleepTimerEnd else { return nil }
         return max(0, sleepTimerEnd.timeIntervalSinceNow)
@@ -301,6 +306,71 @@ final class PlayerStore: ObservableObject {
         queue.append(contentsOf: songs)
     }
 
+    // MARK: 🔴 v2.8.3 播放队列元数据补齐
+
+    /// 已经反查过元数据的歌曲 id（每个 id 只查一次，songInfo 另有内存缓存）
+    private var metadataEnrichedSongIDs = Set<String>()
+
+    /// 按 hash 反查歌曲信息，把歌手名/歌名/专辑/封面补进队列里所有同 id 的歌。
+    /// 补齐后再触发一次写真预取（第一次因 artist 为空被跳过了）。
+    private func enrichQueueMetadata(for song: Song) {
+        guard metadataEnrichedSongIDs.insert(song.id).inserted else { return }
+        let hash = song.kugouHash
+        Task { [weak self] in
+            guard let self else { return }
+            guard let info = await KugouClient.shared.songInfo(hash: hash) else { return }
+            // song/info 的 imgurl 是歌手头像，不能当封面；封面走 albumID 反查真专辑图
+            var cover: URL?
+            if !info.albumID.isEmpty {
+                cover = await KugouClient.shared.albumCover(albumID: info.albumID)
+            }
+            self.applyMetadata(songID: song.id,
+                               artist: info.singername,
+                               title: info.songname,
+                               album: info.albumName,
+                               albumID: info.albumID,
+                               cover: cover)
+            // 元数据补齐后重新预取写真（这次 artist 非空，不会再被跳过）
+            if !info.singername.isEmpty {
+                ArtistPhotoPrefetcher.shared.prefetch(artist: info.singername,
+                                                      title: info.songname,
+                                                      hash: hash)
+            }
+        }
+    }
+
+    /// 把反查结果写回队列（current 由 queue 派生，同步生效；queue didSet 会刷新迷你播放条）。
+    private func applyMetadata(songID: String,
+                               artist: String,
+                               title: String,
+                               album: String,
+                               albumID: String,
+                               cover: URL?) {
+        var changed = false
+        var newQueue = queue
+        for i in newQueue.indices where newQueue[i].id == songID {
+            var s = newQueue[i]
+            if !artist.isEmpty { s.artist = artist }
+            if !title.isEmpty && s.title != title { s.title = title }
+            if !album.isEmpty && s.album.isEmpty { s.album = album }
+            if !albumID.isEmpty && s.kugouAlbumID.isEmpty { s.kugouAlbumID = albumID }
+            if let cover, s.artworkURL == nil { s.artworkURL = cover }
+            if s != newQueue[i] {
+                newQueue[i] = s
+                changed = true
+            }
+        }
+        guard changed else { return }
+        queue = newQueue
+        // 当前正在播的这首歌元数据变了：刷新收藏态 / 封面取色 / 歌词
+        if let idx = queue.firstIndex(where: { $0.id == songID }), idx == currentIndex {
+            let s = queue[idx]
+            isLiked = LibraryStore.shared.isFavorite(s)
+            refreshArtwork(for: s)
+            loadLyrics(for: s)
+        }
+    }
+
     func playNow(_ songs: [Song]) {
         guard !songs.isEmpty else { return }
         let position = currentIndex >= 0 ? currentIndex + 1 : 0
@@ -389,6 +459,14 @@ final class PlayerStore: ObservableObject {
         ArtistPhotoPrefetcher.shared.prefetch(artist: song.artist,
                                               title: song.title,
                                               hash: song.kugouHash)
+        // 🔴 v2.8.3：云歌单解析出来的歌可能**没有歌手名**（接口只给 filename，
+        // 很多条目连 filename 都拆不出来）。歌单详情页的后台补齐只更新视图数组，
+        // 播放队列是**值拷贝**，拿不到补齐结果 —— 结果写真的预取因 artist 为空
+        // 直接跳过，歌词页永远只有专辑取色背景。
+        // 播放时按 hash 反查一次（songInfo 自带缓存），把结果补进 current + 整个队列。
+        if song.artist.trimmingCharacters(in: .whitespaces).isEmpty, !song.kugouHash.isEmpty {
+            enrichQueueMetadata(for: song)
+        }
 
         // 缓存命中 —— 短时间内切回来或 stall 后重试同一首歌，不再重新解析
         let now = Date()
@@ -905,6 +983,18 @@ final class PlayerStore: ObservableObject {
             // 4fps 下每次只做 7 次比较（100 行歌词），完全不是瓶颈
             self.refreshLyric(at: rawTime)
 
+            // 🔴 v2.8.3：今日听歌统计 —— 正在播放就按 tick（0.1s）累加时长，
+            // 切换到一首新歌时首数 +1。「当前歌曲 id」变化即视为换歌，
+            // 覆盖 play / 上一首下一首 / 随机 / 单曲循环各种路径。
+            // 累加放进独立对象 TodayListenStats，避免每拍触发 PlayerStore 主树重算（TabBar 卡死）。
+            if self.isPlaying {
+                TodayListenStats.shared.addPlaying(0.1)
+                if self.current?.id != self.lastCountedSongID {
+                    self.lastCountedSongID = self.current?.id
+                    TodayListenStats.shared.addSong()
+                }
+            }
+
             if let end = self.sleepTimerEnd, Date() >= end {
                 self.sleepTimerEnd = nil
                 self.pause()
@@ -1184,5 +1274,88 @@ enum Haptics {
 
     static func success() {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+}
+
+// MARK: - 🔴 v2.8.3 今日听歌统计
+
+/// 今日听歌时长（秒）+ 听歌首数。
+/// 独立成 ObservableObject（参照 PlaybackProgress 的设计）：累加频率是每 0.1s 一拍，
+/// 若直接塞进 PlayerStore 会让四个主页面跟着整树重算（TabBar 卡死）。这里只在
+/// 切歌 / 每 15s 落盘时手动发送一次 objectWillChange，UI 不会因此抖动。
+/// ⚠️ seconds / songs 故意**不**用 @Published：每拍都发布会拖垮主页面，
+/// 改为手动在 flush 时 objectWillChange.send()。
+final class TodayListenStats: ObservableObject {
+    static let shared = TodayListenStats()
+
+    private(set) var seconds: Int = 0
+    private(set) var songs: Int = 0
+
+    private let keySec   = "aurora.todayListen.seconds"
+    private let keySongs = "aurora.todayListen.songs"
+    private let keyDate  = "aurora.todayListen.date"
+    private var lastFlush = Date()
+
+    private init() { load() }
+
+    private func load() {
+        let d = UserDefaults.standard
+        let today = Self.todayKey()
+        let savedDate = d.string(forKey: keyDate) ?? ""
+        if savedDate == today {
+            seconds = d.integer(forKey: keySec)
+            songs   = d.integer(forKey: keySongs)
+        } else {
+            // 跨天：清零并记上当天的日期戳
+            seconds = 0; songs = 0
+            d.set(today, forKey: keyDate)
+            d.set(0, forKey: keySec)
+            d.set(0, forKey: keySongs)
+        }
+    }
+
+    /// 由 PlayerStore 的 0.1s 时间观察器调用：正在播放就按 tick 近似累加时长。
+    func addPlaying(_ delta: Double) {
+        seconds += Int(delta.rounded())
+        maybeFlush()
+    }
+
+    /// 一首新歌开始播放时调用：首数 +1 并立刻落盘发布。
+    func addSong() {
+        songs += 1
+        flush(force: true)
+    }
+
+    /// 切到后台 / 退出前手动落盘，避免统计丢失。
+    func flush(force: Bool) {
+        lastFlush = Date()
+        let d = UserDefaults.standard
+        d.set(seconds, forKey: keySec)
+        d.set(songs,   forKey: keySongs)
+        d.set(Self.todayKey(), forKey: keyDate)
+        if force { objectWillChange.send() }
+    }
+
+    private func maybeFlush() {
+        let now = Date()
+        if now.timeIntervalSince(lastFlush) >= 15 {
+            flush(force: true)
+        }
+    }
+
+    static func todayKey() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: Date())
+    }
+
+    /// 形如「2 小时 13 分」/「13 分」/「45 秒」。
+    var formattedDuration: String {
+        let s = max(0, seconds)
+        let h = s / 3600
+        let m = (s % 3600) / 60
+        if h > 0 { return "\(h) 小时 \(m) 分" }
+        if m > 0 { return "\(m) 分" }
+        return "\(s) 秒"
     }
 }

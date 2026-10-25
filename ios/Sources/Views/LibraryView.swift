@@ -21,6 +21,8 @@ struct LibraryView: View {
 
 private struct KugouProfileCard: View {
     @ObservedObject private var kugouAuth = KugouAuth.shared
+    // 🔴 v2.8.3：今日听歌统计（首数 + 时长），独立对象、低频发布，不会拖累主页面
+    @ObservedObject private var today = TodayListenStats.shared
 
     var body: some View {
         // 🔴 v2.8.0：未登录时点卡片直接弹扫码登录（顶栏登录按钮已移除，这里是登录入口）
@@ -42,33 +44,50 @@ private struct KugouProfileCard: View {
     }
 
     private var cardLabel: some View {
-        HStack(spacing: 12) {
-            CoverImage(url: kugouAuth.avatarURL,
-                       fallbackKeys: ["kg-avatar"],
-                       seed: kugouAuth.nickname.isEmpty ? kugouAuth.userId : kugouAuth.nickname,
-                       size: 54, corner: 27)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(kugouAuth.isLoggedIn ? (kugouAuth.nickname.isEmpty ? kugouAuth.userId : kugouAuth.nickname) : "登录酷狗账号")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(AppStyle.primaryText)
-                        .lineLimit(1)
-                    if kugouAuth.isVip {
-                        Text("VIP")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 5).padding(.vertical, 2)
-                            .background(Color(red: 1.0, green: 0.72, blue: 0.18), in: Capsule())
+        VStack(alignment: .leading, spacing: 12) {
+            // 头像 + 昵称 + VIP + 副标题 + 箭头
+            HStack(spacing: 12) {
+                CoverImage(url: kugouAuth.avatarURL,
+                           fallbackKeys: ["kg-avatar"],
+                           seed: kugouAuth.nickname.isEmpty ? kugouAuth.userId : kugouAuth.nickname,
+                           size: 54, corner: 27)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(kugouAuth.isLoggedIn ? (kugouAuth.nickname.isEmpty ? kugouAuth.userId : kugouAuth.nickname) : "登录酷狗账号")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(AppStyle.primaryText)
+                            .lineLimit(1)
+                        if kugouAuth.isVip {
+                            Text("VIP")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5).padding(.vertical, 2)
+                                .background(Color(red: 1.0, green: 0.72, blue: 0.18), in: Capsule())
+                        }
+                    }
+                    Text(kugouAuth.isLoggedIn ? "已登录酷狗 · 音乐随行" : "点这里扫码登录，同步酷狗歌单")
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppStyle.secondaryText)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppStyle.tertiaryText)
+            }
+
+            // 🔴 v2.8.3：今日听歌统计 + 标签
+            if kugouAuth.isLoggedIn {
+                Divider()
+                HStack(spacing: 12) {
+                    statItem(icon: "music.note", value: "\(today.songs)", unit: "首")
+                    statItem(icon: "clock", value: today.formattedDuration, unit: "")
+                    Spacer(minLength: 0)
+                    HStack(spacing: 6) {
+                        if kugouAuth.isVip { tagChip("会员") }
+                        tagChip("今日 \(today.songs) 首")
                     }
                 }
-                Text(kugouAuth.isLoggedIn ? "已登录酷狗 · 音乐随行" : "点这里扫码登录，同步酷狗歌单")
-                    .font(.system(size: 11))
-                    .foregroundStyle(AppStyle.secondaryText)
             }
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(AppStyle.tertiaryText)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -83,11 +102,45 @@ private struct KugouProfileCard: View {
         )
         .contentShape(Rectangle())
     }
+
+    private func statItem(icon: String, value: String, unit: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(AppStyle.accent)
+            Text(value)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(AppStyle.primaryText)
+            if !unit.isEmpty {
+                Text(unit)
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.secondaryText)
+            }
+        }
+    }
+
+    private func tagChip(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(AppStyle.accent)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(AppStyle.accent.opacity(0.12), in: Capsule())
+    }
 }
 
-// MARK: - 下载歌曲页（🔴 v2.7.7：入口挪到酷狗歌单列表后面）
+// MARK: - 🔴 v2.8.3 曲库板块（自建歌单 / 收藏歌单 / 下载歌曲）
 
-private struct DownloadsPage: View {
+private enum KugouSection: String, CaseIterable, Identifiable {
+    case created = "自建歌单"
+    case fav = "收藏歌单"
+    case download = "下载歌曲"
+    var id: String { rawValue }
+    var title: String { rawValue }
+}
+
+// MARK: - 下载歌曲列表（🔴 v2.8.3：从独立页面改为可内嵌的列表，供「下载歌曲」板块直接展示）
+
+private struct DownloadsList: View {
     @EnvironmentObject private var store: PlayerStore
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var downloads = DownloadManager.shared
@@ -96,36 +149,31 @@ private struct DownloadsPage: View {
         Group {
             if library.downloads.isEmpty {
                 EmptyStateView(icon: "arrow.down.circle", title: "还没有下载", message: "在歌曲菜单里选「下载」")
-                    .padding(.top, 80)
+                    .padding(.top, 60)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(library.downloads) { song in
-                            // 左滑删除（删本地文件 + 移出下载列表）
-                            SwipeToDeleteRow {
-                                downloads.delete(song)
-                                Haptics.light()
-                            } content: {
-                                SongRow(song: song, isCurrent: store.current?.id == song.id, isPlaying: store.isPlaying)
-                                    .equatable().songMenu(song)
-                                    .onTapGesture {
-                                        guard let index = library.downloads.firstIndex(where: { $0.id == song.id }) else { return }
-                                        store.play(library.downloads, startAt: index); Haptics.soft()
-                                    }
-                                    // 不透明底：盖住身后的红色删除按钮（页面背景同色）
-                                    .background(AppStyle.background)
-                            }
-                            .padding(.horizontal, 16)
+                LazyVStack(spacing: 0) {
+                    ForEach(library.downloads) { song in
+                        // 左滑删除（删本地文件 + 移出下载列表）
+                        SwipeToDeleteRow {
+                            downloads.delete(song)
+                            Haptics.light()
+                        } content: {
+                            SongRow(song: song, isCurrent: store.current?.id == song.id, isPlaying: store.isPlaying)
+                                .equatable().songMenu(song)
+                                .onTapGesture {
+                                    guard let index = library.downloads.firstIndex(where: { $0.id == song.id }) else { return }
+                                    store.play(library.downloads, startAt: index); Haptics.soft()
+                                }
+                                // 不透明底：盖住身后的红色删除按钮（页面背景同色）
+                                .background(AppStyle.background)
                         }
+                        .padding(.horizontal, 16)
                     }
-                    // 底部留出迷你播放条的高度，最后一行不被挡
-                    .padding(.bottom, 110)
                 }
+                // 底部留出迷你播放条的高度，最后一行不被挡
+                .padding(.bottom, 110)
             }
         }
-        .background(AppStyle.background)
-        .navigationTitle("下载歌曲")
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -153,6 +201,8 @@ private struct KugouLibraryPage: View {
     /// 🔴 v2.7.7：重命名歌单
     @State private var renameID: String?
     @State private var renameName = ""
+    /// 🔴 v2.8.3：曲库板块滑块（自建歌单 / 收藏歌单 / 下载歌曲）
+    @State private var section: KugouSection = .created
 
     var body: some View {
         Group {
@@ -248,101 +298,129 @@ private struct KugouLibraryPage: View {
             VStack { ProgressView().padding(.top, 60) }
         } else if let err = errorMsg {
             EmptyStateView(icon: "exclamationmark.triangle", title: "加载失败", message: err).padding(.top, 60)
-        } else if playlists.isEmpty {
-            EmptyStateView(icon: "music.note.list", title: "还没有酷狗歌单", message: "在酷狗 App 里创建一个吧").padding(.top, 60)
         } else {
             VStack(alignment: .leading, spacing: 0) {
-                // 🔴 v2.8.1：账号卡片已提到 ScrollView 外面做固定顶栏，这里不再放。
-                HStack(spacing: 8) {
-                    Text("我的酷狗歌单").font(.system(size: 15, weight: .bold)).foregroundStyle(AppStyle.primaryText)
-                    Spacer(minLength: 6)
-                    if isWorking { ProgressView().scaleEffect(0.8) }
-                    Text("\(playlists.count) 个").font(.system(size: 11)).foregroundStyle(AppStyle.tertiaryText)
-                    // 🔴 v2.7.6：新建歌单
-                    Button {
-                        newPlaylistName = ""
-                        showCreate = true
-                        Haptics.light()
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(AppStyle.accent)
-                            .frame(width: 26, height: 26)
-                            .background(AppStyle.accent.opacity(0.14), in: Circle())
-                            .contentShape(Rectangle())
+                // 🔴 v2.8.3：板块切换滑块（自建歌单 / 收藏歌单 / 下载歌曲）
+                Picker("板块", selection: $section) {
+                    ForEach(KugouSection.allCases) { s in
+                        Text(s.title).tag(s)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(isWorking)
-                }.padding(.horizontal, 16).padding(.bottom, 8)
-                ForEach(playlists) { playlist in
-                    NavigationLink {
-                        KugouPlaylistDetail(listid: playlist.id, name: playlist.name, coverURL: playlist.coverURL)
-                    } label: {
-                        HStack(spacing: 12) {
-                            // 🔴 之前硬编码 url: nil —— 歌单列表全是灰色占位块。
-                            CoverImage(url: playlist.coverURL.flatMap { URL(string: $0) },
-                                       fallbackKeys: ["kg-list:\(playlist.id)"],
-                                       seed: playlist.name, size: 54, corner: 8)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(playlist.name)
-                                    .font(.system(size: 15, weight: .medium))
-                                    .foregroundStyle(AppStyle.primaryText).lineLimit(1)
-                                Text(playlist.songCount > 0 ? "酷狗歌单 · \(playlist.songCount) 首" : "酷狗歌单")
-                                    .font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 12, weight: .semibold)).foregroundStyle(AppStyle.tertiaryText)
-                        }
-                        .padding(.horizontal, 16).padding(.vertical, 10).contentShape(Rectangle())
-                    }.buttonStyle(.plain)
-                    // 🔴 v2.7.6：长按删除歌单（列表是 ScrollView，没有 List 的 swipeActions，
-                    // 用长按菜单 —— 点了先弹确认，避免误删）
-                    .contextMenu {
-                        Button {
-                            renameID = playlist.id
-                            renameName = playlist.name
-                        } label: {
-                            Label("重命名", systemImage: "pencil")
-                        }
-                        Button(role: .destructive) {
-                            pendingDelete = playlist
-                        } label: {
-                            Label("删除歌单", systemImage: "trash")
-                        }
-                    }
-                    Divider().padding(.leading, 82)
                 }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
 
-                // 🔴 v2.7.7：下载歌曲入口（用户要求放在酷狗音乐后面）
-                Divider().padding(.leading, 82)
-                NavigationLink {
-                    DownloadsPage()
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(AppStyle.accent)
-                            .frame(width: 28, height: 28)
-                            .background(AppStyle.accent.opacity(0.12),
-                                        in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                        Text("下载歌曲")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(AppStyle.primaryText)
-                        Spacer()
-                        Text("\(library.downloads.count) 首")
-                            .font(.system(size: 12))
-                            .foregroundStyle(AppStyle.tertiaryText)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(AppStyle.tertiaryText)
-                    }
-                    .padding(.horizontal, 16).padding(.vertical, 10).contentShape(Rectangle())
+                switch section {
+                case .created:
+                    createdSection
+                case .fav:
+                    favSection
+                case .download:
+                    DownloadsList()
                 }
-                .buttonStyle(.plain)
             }
             // 🔴 v2.7.7：底部留出迷你播放条的高度 —— 之前最后一行歌单被迷你播放条挡住
             .padding(.bottom, 110)
+        }
+    }
+
+    // MARK: 🔴 v2.8.3 三个板块
+
+    @ViewBuilder
+    private var createdSection: some View {
+        let created = playlists.filter { !$0.isFav }
+        if created.isEmpty {
+            EmptyStateView(icon: "music.note.list",
+                           title: "还没有自建歌单",
+                           message: "点右上角 + 新建一个吧").padding(.top, 40)
+        } else {
+            sectionHeader(title: "自建歌单", count: created.count, showAdd: true)
+            ForEach(created) { playlist in
+                playlistRow(playlist)
+                Divider().padding(.leading, 82)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var favSection: some View {
+        let favs = playlists.filter { $0.isFav }
+        if favs.isEmpty {
+            EmptyStateView(icon: "heart",
+                           title: "还没有收藏歌单",
+                           message: "在酷狗里收藏喜欢的歌单，会显示在这里").padding(.top, 40)
+        } else {
+            sectionHeader(title: "收藏歌单", count: favs.count, showAdd: false)
+            ForEach(favs) { playlist in
+                playlistRow(playlist)
+                Divider().padding(.leading, 82)
+            }
+        }
+    }
+
+    private func sectionHeader(title: String, count: Int, showAdd: Bool) -> some View {
+        HStack(spacing: 8) {
+            Text(title).font(.system(size: 15, weight: .bold)).foregroundStyle(AppStyle.primaryText)
+            Spacer(minLength: 6)
+            if isWorking { ProgressView().scaleEffect(0.8) }
+            Text("\(count) 个").font(.system(size: 11)).foregroundStyle(AppStyle.tertiaryText)
+            // 🔴 v2.7.6：新建歌单（只出现在「自建歌单」板块）
+            if showAdd {
+                Button {
+                    newPlaylistName = ""
+                    showCreate = true
+                    Haptics.light()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(AppStyle.accent)
+                        .frame(width: 26, height: 26)
+                        .background(AppStyle.accent.opacity(0.14), in: Circle())
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isWorking)
+            }
+        }
+        .padding(.horizontal, 16).padding(.bottom, 8)
+    }
+
+    private func playlistRow(_ playlist: KugouClient.KugouPlaylist) -> some View {
+        NavigationLink {
+            KugouPlaylistDetail(listid: playlist.id, name: playlist.name, coverURL: playlist.coverURL)
+        } label: {
+            HStack(spacing: 12) {
+                // 🔴 之前硬编码 url: nil —— 歌单列表全是灰色占位块。
+                CoverImage(url: playlist.coverURL.flatMap { URL(string: $0) },
+                           fallbackKeys: ["kg-list:\(playlist.id)"],
+                           seed: playlist.name, size: 54, corner: 8)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(playlist.name)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(AppStyle.primaryText).lineLimit(1)
+                    Text(playlist.songCount > 0 ? "酷狗歌单 · \(playlist.songCount) 首" : "酷狗歌单")
+                        .font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(AppStyle.tertiaryText)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // 🔴 v2.7.6：长按删除歌单（列表是 ScrollView，没有 List 的 swipeActions，用长按菜单）
+        .contextMenu {
+            Button {
+                renameID = playlist.id
+                renameName = playlist.name
+            } label: {
+                Label("重命名", systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                pendingDelete = playlist
+            } label: {
+                Label("删除歌单", systemImage: "trash")
+            }
         }
     }
 
@@ -626,6 +704,8 @@ struct KugouPlaylistDetail: View {
             try await KugouClient.shared.removeSongFromPlaylist(listid, song: song)
             withAnimation(.easeOut(duration: 0.2)) {
                 songs.removeAll { $0.id == song.id }
+                // 🔴 v2.8.3：同步进详情缓存，否则重进页面又会看到被删的歌
+                Self.detailCache[listid] = songs
             }
             Haptics.light()
         } catch {
@@ -634,8 +714,24 @@ struct KugouPlaylistDetail: View {
         }
     }
 
+    // MARK: 🔴 v2.8.3 详情缓存：退出再进不再重新加载
+
+    /// listid → 已解析+补齐的歌曲。详情页退出再进直接秒显，不再转圈重拉。
+    private static var detailCache: [String: [Song]] = [:]
+    private static var cacheTime: [String: Date] = [:]
+    /// 缓存有效期：超过这个时间，下次进入时旧数据先显示、再在后台静默刷新
+    private static let cacheTTL: TimeInterval = 300
+
     private func load() async {
-        isLoading = true
+        let cached = Self.detailCache[listid] ?? []
+        if !cached.isEmpty {
+            songs = cached
+            isLoading = false
+            // 缓存还新鲜 → 直接用，完全不重新加载
+            if let at = Self.cacheTime[listid], Date().timeIntervalSince(at) < Self.cacheTTL { return }
+        } else {
+            isLoading = true
+        }
         defer { isLoading = false }
         do {
             // 🔴 v2.8.2：网络请求放进**非结构化** Task —— .task 在用户快速退出页面时
@@ -645,12 +741,17 @@ struct KugouPlaylistDetail: View {
             // 🔴 v2.8.2：二次进入/刷新时保留已补齐的歌手/封面，不把之前的反查成果打回占位
             let merged = mergePreservingEnriched(parsed)
             songs = merged
+            Self.detailCache[listid] = merged
+            Self.cacheTime[listid] = Date()
             // 🔴 v2.8.1/v2.8.2：歌手/封面在后台补齐，`onBatch` 每反查完一小批就把
-            // 快照写回 songs —— 逐批随到随填，几百首的歌单不用再等全部跑完才见结果。
+            // 快照写回 songs —— 逐批随到随填；v2.8.3 起快照同步进缓存。
             Task { [merged] in
-                await KugouClient.shared.enrichPlaylistSongs(merged) { snapshot in
+                let final = await KugouClient.shared.enrichPlaylistSongs(merged) { snapshot in
                     songs = snapshot
+                    Self.detailCache[listid] = snapshot
                 }
+                Self.detailCache[listid] = final
+                Self.cacheTime[listid] = Date()
             }
         } catch {
             // 🔴 v2.8.2：取消类错误不显示成「加载失败：已取消」

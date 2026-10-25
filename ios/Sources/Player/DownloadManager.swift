@@ -17,7 +17,12 @@ struct DownloadItem: Identifiable, Equatable {
 final class DownloadManager: NSObject, ObservableObject {
     static let shared = DownloadManager()
 
-    @Published private(set) var items: [DownloadItem] = []
+    @Published private(set) var items: [DownloadItem] = [] {
+        didSet {
+            // 🔴 v2.8.3：有下载任务进行中就保持屏幕常亮（熄屏会把下载挂起）
+            IdleTimerKeeper.shared.set("song-downloads", !items.isEmpty)
+        }
+    }
 
     private final class Pending {
         let song: Song

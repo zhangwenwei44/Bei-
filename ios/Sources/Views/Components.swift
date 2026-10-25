@@ -432,7 +432,15 @@ struct ArtistPhotoBackdrop: View {
     // MARK: 取图
 
     private func load() async {
-        let key = artist.trimmingCharacters(in: .whitespaces)
+        var key = artist.trimmingCharacters(in: .whitespaces)
+        var titleKey = title
+        // 🔴 v2.8.3：播放队列里的歌可能还没补上歌手名（歌单详情页的补齐是后台异步，
+        // 队列是值拷贝）。artist 为空时用 hash 反查一次兜底 —— 别直接放弃写真。
+        if key.isEmpty, !hash.isEmpty,
+           let info = await KugouClient.shared.songInfo(hash: hash) {
+            key = info.singername
+            if !info.songname.isEmpty { titleKey = info.songname }
+        }
         guard !key.isEmpty else { images = []; return }
         images = []
         currentIndex = 0
@@ -447,12 +455,12 @@ struct ArtistPhotoBackdrop: View {
         // 🔴 v2.6.8：取多张 —— 优先酷狗「歌手写真」图库（几十~几百张），
         // 均匀抽几张（避免连着取到风格雷同的图）。
         var picked: [URL] = []
-        let gallery = await KugouClient.shared.singerPhotoURLs(name: key, title: title, hash: hash)
+        let gallery = await KugouClient.shared.singerPhotoURLs(name: key, title: titleKey, hash: hash)
         if !gallery.isEmpty {
             picked = Self.spread(gallery, count: maxPhotos)
         }
         if picked.isEmpty,
-           let fallback = await KugouClient.shared.artistPhotoStrict(name: key, title: title) {
+           let fallback = await KugouClient.shared.artistPhotoStrict(name: key, title: titleKey) {
             picked = [fallback]
         }
         guard !picked.isEmpty else {

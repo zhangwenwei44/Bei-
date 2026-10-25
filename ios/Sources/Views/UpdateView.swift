@@ -11,8 +11,6 @@ struct UpdateView: View {
     @State private var sharedURL: URL?
     @State private var shareFailed = false
     @State private var showUpdatePrompt = false
-    /// 🔴 v2.7.5：进页面时的常亮状态，离开时还原
-    @State private var previousIdleTimer = false
 
     var body: some View {
         CompatNavigationStack {
@@ -39,13 +37,19 @@ struct UpdateView: View {
             // 🔴 v2.7.5：更新页保持屏幕常亮。
             // 之前没常亮：下载 5.7MB 要一会儿，屏幕一黑屏系统就把 App 挂起，
             // 下载中断；用户再点亮屏幕时又是「正在下载 0%」，看起来像从头下载。
+            // 🔴 v2.8.3：改走 IdleTimerKeeper 多原因登记 —— 之前直接改全局 bool，
+            // 播放页 onDisappear 一跑就把这里的常亮关掉，下载中照样熄屏。
             .onAppear {
-                previousIdleTimer = UIApplication.shared.isIdleTimerDisabled
-                UIApplication.shared.isIdleTimerDisabled = true
+                IdleTimerKeeper.shared.set("update-download", true)
             }
             .onDisappear {
-                // 恢复原值（播放页开着的话它本来就要求常亮，别误关）
-                UIApplication.shared.isIdleTimerDisabled = previousIdleTimer
+                IdleTimerKeeper.shared.set("update-download", false)
+            }
+            .onChange(of: updater.phase) { phase in
+                // 🔴 v2.8.3：下载进行中即便页面被关掉也保持常亮（下载在后台继续）
+                if case .downloading = phase {
+                    IdleTimerKeeper.shared.set("update-download", true)
+                }
             }
             // 下载完成后用户可能把本页关掉再重开：那时 phase 已经是 .ready，
             // onChange 不会再触发，URL 状态会一直是 nil，点「选择软件安装」

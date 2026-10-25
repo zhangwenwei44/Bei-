@@ -1,12 +1,1 @@
-{
-  "images" : [
-    {
-      "filename" : "LaunchImage.png",
-      "idiom" : "universal"
-    }
-  ],
-  "info" : {
-    "author" : "xcode",
-    "version" : 1
-  }
-}
+{"images": [{"filename": "LaunchImage.jpg", "idiom": "universal"}], "info": {"author": "xcode", "version": 1}}
