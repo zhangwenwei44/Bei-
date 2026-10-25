@@ -206,14 +206,7 @@ private struct KugouLibraryPage: View {
 
     var body: some View {
         Group {
-            if !kugouAuth.isLoggedIn {
-                // 🔴 v2.6.4：登录状态统一放在【顶栏】（导航栏右上角头像/登录按钮），
-                // 页内不再重复一整套登录 UI，只给一句提示。
-                EmptyStateView(icon: "person.crop.circle",
-                               title: "未登录酷狗",
-                               message: "点上方卡片扫码登录，登录后这里会显示你的酷狗歌单")
-                    .padding(.top, 60)
-            } else if kugouAuth.needsRelogin {
+            if kugouAuth.needsRelogin {
                 // 🔴 登录态失效（旧域签发的 token / 服务端返回 20017）：
                 // 不走歌单列表 —— 否则用户只会看到空列表，以为是歌单丢了。
                 EmptyStateView(icon: "exclamationmark.arrow.triangle.2.circlepath",
@@ -330,61 +323,77 @@ private struct KugouLibraryPage: View {
 
     @ViewBuilder
     private var createdSection: some View {
-        let created = playlists.filter { !$0.isFav }
-        if created.isEmpty {
-            EmptyStateView(icon: "music.note.list",
-                           title: "还没有自建歌单",
-                           message: "点右上角 + 新建一个吧").padding(.top, 40)
+        if !kugouAuth.isLoggedIn {
+            // 🔴 v2.8.6：未登录不再整页空白 —— 顶栏卡片就是扫码入口，
+            // 下载歌曲板块不登录也能用，自建/收藏板块给登录引导。
+            EmptyStateView(icon: "person.crop.circle",
+                           title: "未登录酷狗",
+                           message: "点上方卡片扫码登录，登录后这里会显示你的酷狗歌单")
+                .padding(.top, 40)
         } else {
-            sectionHeader(title: "自建歌单", count: created.count, showAdd: true)
-            ForEach(created) { playlist in
-                playlistRow(playlist)
-                Divider().padding(.leading, 82)
+            let created = playlists.filter { !$0.isFav }
+            if created.isEmpty {
+                EmptyStateView(icon: "music.note.list",
+                               title: "还没有自建歌单",
+                               message: "点下方「新建歌单」创建一个吧").padding(.top, 40)
+            } else {
+                ForEach(created) { playlist in
+                    playlistRow(playlist)
+                    Divider().padding(.leading, 82)
+                }
             }
+            // 🔴 v2.8.6：新建歌单入口从顶部标题行挪到列表底部
+            newPlaylistButton
         }
     }
 
     @ViewBuilder
     private var favSection: some View {
-        let favs = playlists.filter { $0.isFav }
-        if favs.isEmpty {
-            EmptyStateView(icon: "heart",
-                           title: "还没有收藏歌单",
-                           message: "在酷狗里收藏喜欢的歌单，会显示在这里").padding(.top, 40)
+        if !kugouAuth.isLoggedIn {
+            EmptyStateView(icon: "person.crop.circle",
+                           title: "未登录酷狗",
+                           message: "点上方卡片扫码登录，登录后这里会显示你的酷狗歌单")
+                .padding(.top, 40)
         } else {
-            sectionHeader(title: "收藏歌单", count: favs.count, showAdd: false)
-            ForEach(favs) { playlist in
-                playlistRow(playlist)
-                Divider().padding(.leading, 82)
+            let favs = playlists.filter { $0.isFav }
+            if favs.isEmpty {
+                EmptyStateView(icon: "heart",
+                               title: "还没有收藏歌单",
+                               message: "在酷狗里收藏喜欢的歌单，会显示在这里").padding(.top, 40)
+            } else {
+                ForEach(favs) { playlist in
+                    playlistRow(playlist)
+                    Divider().padding(.leading, 82)
+                }
             }
         }
     }
 
-    private func sectionHeader(title: String, count: Int, showAdd: Bool) -> some View {
-        HStack(spacing: 8) {
-            Text(title).font(.system(size: 15, weight: .bold)).foregroundStyle(AppStyle.primaryText)
-            Spacer(minLength: 6)
-            if isWorking { ProgressView().scaleEffect(0.8) }
-            Text("\(count) 个").font(.system(size: 11)).foregroundStyle(AppStyle.tertiaryText)
-            // 🔴 v2.7.6：新建歌单（只出现在「自建歌单」板块）
-            if showAdd {
-                Button {
-                    newPlaylistName = ""
-                    showCreate = true
-                    Haptics.light()
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(AppStyle.accent)
-                        .frame(width: 26, height: 26)
-                        .background(AppStyle.accent.opacity(0.14), in: Circle())
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(isWorking)
+    /// 🔴 v2.8.6：新建歌单按钮（列表底部整行，替代原顶部标题行里的 +）
+    private var newPlaylistButton: some View {
+        Button {
+            newPlaylistName = ""
+            showCreate = true
+            Haptics.light()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(AppStyle.accent)
+                    .frame(width: 40, height: 40)
+                    .background(AppStyle.accent.opacity(0.12),
+                                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Text("新建歌单")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(AppStyle.primaryText)
+                Spacer()
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 16).padding(.bottom, 8)
+        .buttonStyle(.plain)
+        .disabled(isWorking)
     }
 
     private func playlistRow(_ playlist: KugouClient.KugouPlaylist) -> some View {

@@ -1295,6 +1295,8 @@ final class TodayListenStats: ObservableObject {
     private let keySongs = "aurora.todayListen.songs"
     private let keyDate  = "aurora.todayListen.date"
     private var lastFlush = Date()
+    /// 🔴 v2.8.6：不足 1 秒的零头（0.1s 一拍凑整用）
+    private var pendingSeconds: Double = 0
 
     private init() { load() }
 
@@ -1315,9 +1317,16 @@ final class TodayListenStats: ObservableObject {
     }
 
     /// 由 PlayerStore 的 0.1s 时间观察器调用：正在播放就按 tick 近似累加时长。
+    /// 🔴 v2.8.6：之前 `Int(delta.rounded())` 把每拍 0.1s 取整成 0 —— 听歌时长永远 0 秒。
+    /// 改成小数累加、凑满 1 秒才进整数字段。
     func addPlaying(_ delta: Double) {
-        seconds += Int(delta.rounded())
-        maybeFlush()
+        pendingSeconds += delta
+        if pendingSeconds >= 1 {
+            let whole = Int(pendingSeconds)
+            seconds += whole
+            pendingSeconds -= Double(whole)
+            maybeFlush()
+        }
     }
 
     /// 一首新歌开始播放时调用：首数 +1 并立刻落盘发布。
