@@ -8,6 +8,8 @@ struct ProfileView: View {
     @ObservedObject private var downloads = DownloadManager.shared
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var kugouAuth = KugouAuth.shared
+    // 🔴 v2.9.0：一机一码授权状态
+    @ObservedObject private var license = LicenseManager.shared
     /// 订阅迷你播放条可见性，只为在播放时给设置列表底部留出安全间距（见下方 List 的 bottom padding）。
     @ObservedObject private var mini = PlayerStore.shared.mini
     @StateObject private var updater = AppUpdater.shared
@@ -318,6 +320,24 @@ struct ProfileView: View {
                             .font(.system(size: 12))
                             .foregroundStyle(AppStyle.tertiaryText)
                         Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                    }
+                    .foregroundStyle(AppStyle.primaryText)
+                }
+
+                // 🔴 v2.9.0：授权状态 —— 点一下复制设备码（换授权码时要用）
+                Button {
+                    UIPasteboard.general.string = license.deviceID
+                    Haptics.light()
+                } label: {
+                    HStack {
+                        Label("授权状态", systemImage: "lock.shield")
+                        Spacer()
+                        Text(license.isActivated ? "已激活" : "未激活")
+                            .font(.system(size: 12))
+                            .foregroundStyle(license.isActivated ? AppStyle.accent : Color.red)
+                        Image(systemName: "doc.on.doc")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(AppStyle.tertiaryText)
                     }

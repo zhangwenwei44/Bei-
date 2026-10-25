@@ -25,6 +25,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 🔴 v2.9.0：授权密钥注入。仓库是公开的，源码里保留一份默认密钥保证随时能构建；
+      # 在 Settings → Secrets → Actions 配置 LICENSE_SECRET 后，这里用真实密钥覆盖
+      # ios/Sources/App/LicenseSecret.swift，别人就没法照着公开源码自己签发授权码。
+      # （切换密钥后旧授权码会失效，需要重新发放）
+      - name: Inject license secret
+        env:
+          LICENSE_SECRET: ${{ secrets.LICENSE_SECRET }}
+        run: |
+          if [ -n "$LICENSE_SECRET" ]; then
+            printf 'import Foundation\n\nenum LicenseSecret {\n    private static let parts = ["%s"]\n    static var value: String { parts.joined() }\n}\n' "$LICENSE_SECRET" > ios/Sources/App/LicenseSecret.swift
+            echo "已注入仓库 Secret 作为授权密钥"
+          else
+            echo "未配置 LICENSE_SECRET，使用源码里的默认授权密钥"
+          fi
+
       # 🔴 内置音源不走 git —— 第三方脚本没有 license 声明，仓库无权再分发，
       # 所以 ios/BundledSources/*.js 被 .gitignore 排除，checkout 拿不到。
       #
