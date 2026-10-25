@@ -2905,8 +2905,8 @@ final class KugouClient {
                     result[offset].artworkURL = url
                 }
             }
-            // 🔴 v2.8.2：每批补完立刻上屏，不等全部跑完
-            onBatch?(result)
+            // 🔴 v2.8.2：每批补完立刻上屏，不等全部跑完（@MainActor 闭包，跨隔离要 await）
+            await onBatch?(result)
         }
         Log.info("酷狗", "封面补齐：\(result.filter { $0.artworkURL != nil }.count)/\(result.count) 首有封面")
         return result
@@ -2966,8 +2966,8 @@ final class KugouClient {
             for (i, song) in updates {
                 result[i] = song
             }
-            // 🔴 v2.8.2：每批反查完立刻上屏，不等全部跑完
-            onBatch?(result)
+            // 🔴 v2.8.2：每批反查完立刻上屏，不等全部跑完（@MainActor 闭包，跨隔离要 await）
+            await onBatch?(result)
         }
         return result
     }
