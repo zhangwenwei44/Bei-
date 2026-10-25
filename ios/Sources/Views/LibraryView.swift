@@ -171,12 +171,20 @@ private struct KugouLibraryPage: View {
                                message: "登录已失效，点上方卡片重新扫码，登录后这里会显示你的酷狗歌单")
                     .padding(.top, 60)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        kugouContent
+                VStack(spacing: 0) {
+                    // 🔴 v2.8.1：账号卡片改为固定顶栏 —— 放在 ScrollView 外面，
+                    // 这样它不会随歌单列表一起上滑，始终钉在页面顶部。
+                    KugouProfileCard()
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
+                        .padding(.bottom, 8)
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            kugouContent
+                        }
                     }
+                    .refreshable { await reloadPlaylists() }
                 }
-                .refreshable { await reloadPlaylists() }
                 // 删除歌单的确认弹窗挂在这里（和新建弹窗挂在不同节点上，
                 // 同一层叠多个 alert 会出现「只有一个弹得出来」的问题）
                 .alert("删除歌单",
@@ -244,10 +252,7 @@ private struct KugouLibraryPage: View {
             EmptyStateView(icon: "music.note.list", title: "还没有酷狗歌单", message: "在酷狗 App 里创建一个吧").padding(.top, 60)
         } else {
             VStack(alignment: .leading, spacing: 0) {
-                // 🔴 v2.7.7：默认收藏上面的账号卡片
-                KugouProfileCard()
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 12)
+                // 🔴 v2.8.1：账号卡片已提到 ScrollView 外面做固定顶栏，这里不再放。
                 HStack(spacing: 8) {
                     Text("我的酷狗歌单").font(.system(size: 15, weight: .bold)).foregroundStyle(AppStyle.primaryText)
                     Spacer(minLength: 6)
@@ -624,7 +629,15 @@ struct KugouPlaylistDetail: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            songs = try await KugouClient.shared.playlistSongs(listid: listid)
+            // 🔴 v2.8.1：playlistSongs 现在只做「解析」，很快返回；
+            // 歌手/封面补齐放到后台，列表先出来（文字 + 占位封面），页面秒开，
+            // 封面/歌手随后台反查完成随到随填，不再「转圈等加载」。
+            let parsed = try await KugouClient.shared.playlistSongs(listid: listid)
+            songs = parsed
+            Task {
+                let enriched = await KugouClient.shared.enrichPlaylistSongs(parsed)
+                songs = enriched
+            }
         } catch {
             errorMsg = error.localizedDescription
         }

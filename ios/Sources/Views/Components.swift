@@ -747,10 +747,9 @@ extension SongRow: Equatable {
 
 // MARK: - 歌曲操作菜单
 
-/// 列表项通用的操作菜单（收藏 / 下载 / 下一首播放 / 加入歌单）。
+/// 列表项通用的操作菜单（🔴 v2.8.1：只保留「添加到酷狗歌单」，移除本地「保存到歌单」）。
 struct SongMenu: ViewModifier {
     @EnvironmentObject private var store: PlayerStore
-    @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var downloads = DownloadManager.shared
     @ObservedObject private var kugouAuth = KugouAuth.shared
     let song: Song
@@ -759,8 +758,9 @@ struct SongMenu: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            // 🔴 v2.8.0：长按菜单只保留「添加到酷狗歌单 / 保存到歌单」——
-            // 下一首播放 / 加入播放列表 / 收藏 / 下载 在播放页都有入口，菜单里重复了；
+            // 🔴 v2.8.1：长按菜单只保留「添加到酷狗歌单」——
+            // 下一首播放 / 加入播放列表 / 收藏 / 下载 在播放页都有入口；
+            // 本地「保存到歌单」已移除，统一走酷狗云歌单（需求：只保留添加到酷狗歌单）。
             // 「移除」由歌单详情页自己的 contextMenu 提供（酷狗歌单=移出歌单，本地歌单=从歌单移除）。
             .contextMenu {
                 // 🔴 v2.6.4：存进酷狗云歌单（需要已登录 + 歌曲有酷狗 hash）
@@ -774,15 +774,12 @@ struct SongMenu: ViewModifier {
                     } label: {
                         Label("添加到酷狗歌单", systemImage: "icloud.and.arrow.up")
                     }
-                }
-                // 之前 gate 在 !library.playlists.isEmpty，导致一个歌单都没有时
-                // 根本无法从歌曲菜单加歌，新建出来的歌单永远是空的
-                Menu("保存到歌单") {
-                    if library.playlists.isEmpty {
-                        Text("还没有歌单")
-                    }
-                    ForEach(library.playlists) { playlist in
-                        Button(playlist.name) { library.add(song, toPlaylist: playlist.id) }
+                } else if !song.kugouHash.isEmpty {
+                    // 未登录时给个提示入口，点一下弹扫码登录
+                    Button {
+                        NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
+                    } label: {
+                        Label("登录后添加到酷狗歌单", systemImage: "icloud.and.arrow.up")
                     }
                 }
             }

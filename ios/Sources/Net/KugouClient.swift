@@ -2841,14 +2841,26 @@ final class KugouClient {
         }
         Log.info("酷狗", "歌单 \(listid) 解析出 \(songs.count) 首歌")
 
+        // 🔴 v2.8.1：不再在这里同步补齐歌手/封面 —— 那要按 hash/albumID 逐个反查
+        // （几十~上百个网络往返，受 httpMaximumConnectionsPerHost=5 限制更慢），
+        // 会卡住详情页首屏。改由调用方先拿这份解析结果秒开列表，再在后台调
+        // `enrichPlaylistSongs` 补齐（封面/歌手随到随填，页面不再转圈等加载）。
+        return songs
+    }
+
+    /// 🔴 v2.8.1：把「解析歌单」和「补齐歌手/封面」拆开。
+    /// 解析很快（一次 get_list_all_file），补齐要按 hash/albumID 逐个反查，不能挡首屏。
+    /// 详情页先拿 `playlistSongs` 的解析结果秒开列表，再在后台调这个方法补齐，
+    /// 封面/歌手随到随填，页面不再「转圈等加载」。
+    func enrichPlaylistSongs(_ songs: [Song]) async -> [Song] {
         // 🔴 v2.7.5：云歌单里大量条目**不给** singername（歌手栏一片空白），
         // 也有些条目的 filename 被用户改成了奇怪的内容（拆出来的"歌手"其实是歌词句）。
-        // 用 hash 反查 /api/v3/song/info 拿权威的歌名/歌手补齐 —— 一次一个，
-        // 只查「歌手缺失」和「歌手明显可疑」的条目，并发 4 路，失败不阻塞。
+        // 用 hash 反查 /api/v3/song/info 拿权威的歌名/歌手补齐 —— 只查「歌手缺失」
+        // 和「歌手明显可疑」的条目，失败不阻塞。
         let withArtists = await enrichSongArtists(songs)
         // 🔴 v2.7.6：缺封面的按专辑 id 补真正的专辑封面（不能拿歌手头像顶上）。
         let enriched = await enrichSongCovers(withArtists)
-        Log.info("酷狗", "歌单 \(listid) 反查补齐后：\(enriched.filter { !$0.artist.isEmpty }.count)/\(enriched.count) 首有歌手，"
+        Log.info("酷狗", "歌单反查补齐后：\(enriched.filter { !$0.artist.isEmpty }.count)/\(enriched.count) 首有歌手，"
                  + "\(enriched.filter { $0.artworkURL != nil }.count)/\(enriched.count) 首有封面")
         return enriched
     }
@@ -2928,16 +2940,10 @@ final class KugouClient {
                         }
                         if song.album.isEmpty && !info.albumName.isEmpty { song.album = info.albumName }
                         if song.kugouAlbumID.isEmpty && !info.albumID.isEmpty { song.kugouAlbumID = info.albumID }
-                        // 🔴 v2.7.6：song/info 的 imgurl 是**歌手头像**
-                        // （singerimg.kugou.com/uploadpic/softhead/...），不是专辑图！
-                        // 之前拿它补封面 → 歌单里全是歌手照片（用户反馈）。
-                        // 现在改用专辑 id 走 album/info 拿真正的专辑封面。
-                        if song.artworkURL == nil {
-                            let aid = song.kugouAlbumID.isEmpty ? info.albumID : song.kugouAlbumID
-                            if !aid.isEmpty, let url = await self.albumCover(albumID: aid) {
-                                song.artworkURL = url
-                            }
-                        }
+                        // 🔴 v2.7.6/v2.8.1：song/info 的 imgurl 是**歌手头像**
+                        // （singerimg.kugou.com/uploadpic/softhead/...），不是专辑图，
+                        // 绝不能用它补封面（否则歌单里全是歌手照片，用户反馈过）。
+                        // 封面统一交给 enrichSongCovers 按 albumID 走 album/info 取，这里不碰。
                         return (i, song)
                     }
                 }
