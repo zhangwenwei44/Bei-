@@ -351,10 +351,19 @@ private struct KugouLibraryPage: View {
         errorMsg = nil
         defer { isLoading = false }
         do {
-            playlists = try await KugouClient.shared.userPlaylists()
+            // 🔴 v2.8.2：网络请求放进**非结构化** Task —— .refreshable 的任务在刷新
+            // 控件被收起（刷新中途滚动列表）时会被 SwiftUI 取消，取消顺着结构化并发
+            // 传进 URLSession，请求被掐断报 URLError.cancelled → 页面「加载失败：已取消」。
+            // 非结构化 Task 不受影响：就算刷新动画被收起，结果也照常落地。
+            let task = Task { try await KugouClient.shared.userPlaylists() }
+            playlists = try await task.value
             hasLoaded = true
         } catch {
-            errorMsg = error.localizedDescription
+            // 🔴 v2.8.2：取消类错误（用户主动收起刷新/切页）不算失败，静默处理
+            let cancelled = (error as? URLError)?.code == .cancelled || error is CancellationError
+            if !cancelled, !Task.isCancelled {
+                errorMsg = error.localizedDescription
+            }
         }
     }
 
@@ -629,17 +638,42 @@ struct KugouPlaylistDetail: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            // 🔴 v2.8.1：playlistSongs 现在只做「解析」，很快返回；
-            // 歌手/封面补齐放到后台，列表先出来（文字 + 占位封面），页面秒开，
-            // 封面/歌手随后台反查完成随到随填，不再「转圈等加载」。
-            let parsed = try await KugouClient.shared.playlistSongs(listid: listid)
-            songs = parsed
-            Task {
-                let enriched = await KugouClient.shared.enrichPlaylistSongs(parsed)
-                songs = enriched
+            // 🔴 v2.8.2：网络请求放进**非结构化** Task —— .task 在用户快速退出页面时
+            // 会被取消，取消传进 URLSession 会把请求掐断报「已取消」→ 详情页变加载失败。
+            let task = Task { try await KugouClient.shared.playlistSongs(listid: listid) }
+            let parsed = try await task.value
+            // 🔴 v2.8.2：二次进入/刷新时保留已补齐的歌手/封面，不把之前的反查成果打回占位
+            let merged = mergePreservingEnriched(parsed)
+            songs = merged
+            // 🔴 v2.8.1/v2.8.2：歌手/封面在后台补齐，`onBatch` 每反查完一小批就把
+            // 快照写回 songs —— 逐批随到随填，几百首的歌单不用再等全部跑完才见结果。
+            Task { [merged] in
+                await KugouClient.shared.enrichPlaylistSongs(merged) { snapshot in
+                    songs = snapshot
+                }
             }
         } catch {
-            errorMsg = error.localizedDescription
+            // 🔴 v2.8.2：取消类错误不显示成「加载失败：已取消」
+            let cancelled = (error as? URLError)?.code == .cancelled || error is CancellationError
+            if !cancelled {
+                errorMsg = error.localizedDescription
+            }
+        }
+    }
+
+    /// 🔴 v2.8.2：拿「裸解析」覆盖列表时，保留旧条目里已反查到的字段。
+    private func mergePreservingEnriched(_ parsed: [Song]) -> [Song] {
+        guard !songs.isEmpty, songs.count == parsed.count else { return parsed }
+        let oldByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return parsed.map { p in
+            guard let old = oldByID[p.id] else { return p }
+            var m = p
+            if m.artist.trimmingCharacters(in: .whitespaces).isEmpty { m.artist = old.artist }
+            if m.title.isEmpty { m.title = old.title }
+            if m.album.isEmpty { m.album = old.album }
+            if m.artworkURL == nil { m.artworkURL = old.artworkURL }
+            if m.kugouAlbumID.isEmpty { m.kugouAlbumID = old.kugouAlbumID }
+            return m
         }
     }
 }

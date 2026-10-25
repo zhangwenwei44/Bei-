@@ -50,7 +50,10 @@ final class KugouClient {
     init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 20
-        config.timeoutIntervalForResource = 30
+        // 🔴 v2.8.2：资源超时 30s → 120s。30s 是「从建任务到整个请求完成」的总预算，
+        // 后台补齐歌手/封面占满 5 路连接时，刷新歌单的请求排队一起算进去，
+        // 很容易被这个总预算杀掉（表现为「加载失败：已取消」）。
+        config.timeoutIntervalForResource = 120
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         // 🔴 对齐 Beans：禁用 URLSession 自动 Cookie 管理！
         // 登录接口的 Set-Cookie 会被自动存进共享 cookieStore，之后请求 gateway 时
@@ -2850,16 +2853,19 @@ final class KugouClient {
 
     /// 🔴 v2.8.1：把「解析歌单」和「补齐歌手/封面」拆开。
     /// 解析很快（一次 get_list_all_file），补齐要按 hash/albumID 逐个反查，不能挡首屏。
-    /// 详情页先拿 `playlistSongs` 的解析结果秒开列表，再在后台调这个方法补齐，
-    /// 封面/歌手随到随填，页面不再「转圈等加载」。
-    func enrichPlaylistSongs(_ songs: [Song]) async -> [Song] {
+    /// 详情页先拿 `playlistSongs` 的解析结果秒开列表，再在后台调这个方法补齐。
+    /// 🔴 v2.8.2：新增 `onBatch` —— 每反查完一小批就把当前快照回调给页面，
+    /// 歌手/封面**逐批随到随填**。之前是全部批次跑完才一次性写回，
+    /// 几百首的歌单要等好几分钟才看得到补齐结果，看起来就像「一直获取不到歌手名」。
+    func enrichPlaylistSongs(_ songs: [Song],
+                             onBatch: (@MainActor @Sendable ([Song]) -> Void)? = nil) async -> [Song] {
         // 🔴 v2.7.5：云歌单里大量条目**不给** singername（歌手栏一片空白），
         // 也有些条目的 filename 被用户改成了奇怪的内容（拆出来的"歌手"其实是歌词句）。
         // 用 hash 反查 /api/v3/song/info 拿权威的歌名/歌手补齐 —— 只查「歌手缺失」
         // 和「歌手明显可疑」的条目，失败不阻塞。
-        let withArtists = await enrichSongArtists(songs)
+        let withArtists = await enrichSongArtists(songs, onBatch: onBatch)
         // 🔴 v2.7.6：缺封面的按专辑 id 补真正的专辑封面（不能拿歌手头像顶上）。
-        let enriched = await enrichSongCovers(withArtists)
+        let enriched = await enrichSongCovers(withArtists, onBatch: onBatch)
         Log.info("酷狗", "歌单反查补齐后：\(enriched.filter { !$0.artist.isEmpty }.count)/\(enriched.count) 首有歌手，"
                  + "\(enriched.filter { $0.artworkURL != nil }.count)/\(enriched.count) 首有封面")
         return enriched
@@ -2869,7 +2875,8 @@ final class KugouClient {
     ///
     /// 「歌手头像当封面」的修复分两步：① 解析时剔除歌手头像 URL；② 这里按 album_id
     /// 走 album/info 取真实专辑封面。只有专辑 id 也没有的歌才留空（显示占位音符）。
-    private func enrichSongCovers(_ songs: [Song]) async -> [Song] {
+    private func enrichSongCovers(_ songs: [Song],
+                                  onBatch: (@MainActor @Sendable ([Song]) -> Void)? = nil) async -> [Song] {
         var result = songs
         var candidates: [(Int, String)] = songs.enumerated()
             .filter { $0.element.artworkURL == nil && !$0.element.kugouAlbumID.isEmpty }
@@ -2898,13 +2905,16 @@ final class KugouClient {
                     result[offset].artworkURL = url
                 }
             }
+            // 🔴 v2.8.2：每批补完立刻上屏，不等全部跑完
+            onBatch?(result)
         }
         Log.info("酷狗", "封面补齐：\(result.filter { $0.artworkURL != nil }.count)/\(result.count) 首有封面")
         return result
     }
 
     /// 🔴 v2.7.5：用 song/info 补齐歌单歌曲的歌手（并顺带拿 singerid 供写真用）。
-    private func enrichSongArtists(_ songs: [Song]) async -> [Song] {
+    private func enrichSongArtists(_ songs: [Song],
+                                   onBatch: (@MainActor @Sendable ([Song]) -> Void)? = nil) async -> [Song] {
         var result = songs
         var pending: [Int] = []
         for (i, song) in songs.enumerated() {
@@ -2956,6 +2966,8 @@ final class KugouClient {
             for (i, song) in updates {
                 result[i] = song
             }
+            // 🔴 v2.8.2：每批反查完立刻上屏，不等全部跑完
+            onBatch?(result)
         }
         return result
     }
