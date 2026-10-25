@@ -108,10 +108,31 @@ struct LockScreenView: View {
                     .buttonStyle(.plain)
                     .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-                    Text("把上方设备码发给作者，换取对应的授权码。\n一个设备码对应一个授权码，换手机需重新获取。")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.5))
-                        .multilineTextAlignment(.center)
+                    // 🔴 v2.9.2：QQ 群获取授权码提示（点一下复制群号）
+                    VStack(spacing: 10) {
+                        Button {
+                            UIPasteboard.general.string = "1124217335"
+                            Haptics.light()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "person.2.fill")
+                                    .font(.system(size: 12))
+                                Text("加 QQ 群 1124217335 获取授权码")
+                                    .font(.system(size: 13, weight: .medium))
+                                Image(systemName: "doc.on.doc")
+                                    .font(.system(size: 11))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(.white.opacity(0.14), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        Text("把上方设备码发到群里即可。\n一个设备码对应一个授权码，换手机需重新获取。")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.5))
+                            .multilineTextAlignment(.center)
+                    }
 
                     Spacer(minLength: 24)
                 }

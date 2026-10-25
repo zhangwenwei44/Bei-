@@ -68,7 +68,8 @@ final class LicenseRecordStore: ObservableObject {
 
 enum LicenseAdmin {
     /// 🔴 生成器的口令（连点 7 次版本区进入后要输一次，通过之后本机不再问）
-    static let passcode = "8866"
+    /// 🔴 v2.9.2：8866 曾随更新日志公开，作废换新
+    static let passcode = "5201314880"
     private static let unlockedKey = "aurora.license.adminUnlocked"
 
     static var isUnlocked: Bool { UserDefaults.standard.bool(forKey: unlockedKey) }
