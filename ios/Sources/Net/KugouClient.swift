@@ -2066,12 +2066,41 @@ final class KugouClient {
                 ?? Self.deepInt(item, path: ["file_count"])
                 ?? 0
 
-            // 🔴 v2.8.3：is_collect 标识「是否收藏（订阅）的歌单」。
-            // 字段名在客户端版本间可能不同，多候选兜底；都取不到就默认 false（归入「自建歌单」）。
-            let isFav = (Self.deepInt(item, path: ["is_collect"])
+            // 🔴 v2.8.4：区分「自建歌单」和「收藏歌单」——v2.8.3 只认 is_collect，
+            // 实测 get_all_list 压根不给这个字段，收藏的歌单全被塞进「自建歌单」。
+            // 现在三层判定：
+            // ① 显式标记：is_collect / collect / is_fav / is_collected == 1 → 收藏；
+            // ② 创建者对比：条目里 fuserid（founder userid）是歌单创建者，
+            //    收藏来的歌单创建者不是自己（fuserid != 登录 userid → 收藏）；
+            // ③ 条目只带 userid 时同理：userid == 登录者 → 自建，否则收藏。
+            // 都取不到才默认 false（归自建），并把首个条目的字段打进日志方便继续排查。
+            let myUID = Int(userId) ?? 0
+            let favFlag = Self.deepInt(item, path: ["is_collect"])
                 ?? Self.deepInt(item, path: ["collect"])
                 ?? Self.deepInt(item, path: ["is_fav"])
-                ?? 0) == 1
+                ?? Self.deepInt(item, path: ["is_collected"])
+                ?? -1
+            let creatorID = Self.deepInt(item, path: ["fuserid"])
+                ?? Self.deepInt(item, path: ["f_user_id"])
+                ?? Self.deepInt(item, path: ["create_userid"])
+                ?? Self.deepInt(item, path: ["founder_userid"])
+                ?? Self.deepInt(item, path: ["creator_userid"])
+                ?? -1
+            let itemUserID = Self.deepInt(item, path: ["userid"]) ?? -1
+            let isFav: Bool
+            if favFlag >= 0 {
+                isFav = favFlag == 1
+            } else if creatorID >= 0 && myUID > 0 {
+                isFav = creatorID != myUID
+            } else if itemUserID >= 0 && myUID > 0 {
+                isFav = itemUserID != myUID
+            } else {
+                isFav = false
+            }
+            if playlists.isEmpty {
+                let keys = item.keys.sorted().joined(separator: ",")
+                Log.info("酷狗", "get_all_list 条目字段：[\(keys)] favFlag=\(favFlag) creator=\(creatorID) itemUser=\(itemUserID) my=\(myUID) → isFav=\(isFav)")
+            }
 
             playlists.append(KugouPlaylist(id: listid, name: name, songs: [], coverURL: coverURL, songCount: songCount, isFav: isFav))
         }
@@ -2798,6 +2827,35 @@ final class KugouClient {
             // 🔴 v2.6.4：歌名末尾的 .mp3 一律去掉（接口直给的 songname 也可能带）
             title = Self.stripAudioExtension(title)
             artist = Self.stripAudioExtension(artist)
+
+            // 🔴 v2.8.4：有的接口把「歌手 - 歌名」整串塞进 name/title 字段（songname 为空），
+            // 结果列表第一行显示成「歌手名 歌名」、下面歌手列反而空着。两步规整：
+            // ① artist 已知且标题以「artist + 分隔符」开头 → 剥掉前缀，标题只留歌名；
+            // ② artist 为空且标题恰好按分隔符拆成两段 → 前段归 artist、后段归 title
+            //    （只在两段时拆，避免误伤本来就带分隔符的混音版歌名）。
+            if !artist.isEmpty {
+                for sep in [" - ", " – ", " — ", "—", "－", "_"] {
+                    if title.hasPrefix(artist + sep) {
+                        let rest = title.dropFirst(artist.count + sep.count)
+                            .trimmingCharacters(in: .whitespaces)
+                        if !rest.isEmpty { title = rest }
+                        break
+                    }
+                }
+            } else {
+                for sep in [" - ", " – ", " — ", "—", "－"] {
+                    let comps = title.components(separatedBy: sep)
+                    if comps.count == 2 {
+                        let a = comps[0].trimmingCharacters(in: .whitespaces)
+                        let t = comps[1].trimmingCharacters(in: .whitespaces)
+                        if !a.isEmpty, !t.isEmpty, a.count <= 40 {
+                            artist = a
+                            title = t
+                        }
+                        break
+                    }
+                }
+            }
 
             let album = Self.string(item["album_name"])
                 ?? Self.string(item["albumname"])

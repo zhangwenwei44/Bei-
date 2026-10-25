@@ -50,7 +50,7 @@ private struct KugouProfileCard: View {
                 CoverImage(url: kugouAuth.avatarURL,
                            fallbackKeys: ["kg-avatar"],
                            seed: kugouAuth.nickname.isEmpty ? kugouAuth.userId : kugouAuth.nickname,
-                           size: 54, corner: 27)
+                           size: 54, corner: 12)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(kugouAuth.isLoggedIn ? (kugouAuth.nickname.isEmpty ? kugouAuth.userId : kugouAuth.nickname) : "登录酷狗账号")
@@ -228,6 +228,17 @@ private struct KugouLibraryPage: View {
                         .padding(.horizontal, 12)
                         .padding(.top, 8)
                         .padding(.bottom, 8)
+                    // 🔴 v2.8.4：板块滑块挪到固定顶栏（ScrollView 外）——
+                    // 之前放在滚动内容顶部，上滑列表时手指起点压在滑块上很容易误触切换板块；
+                    // 固定后滑块不参与滚动，滑动手势不会再误触发。
+                    Picker("板块", selection: $section) {
+                        ForEach(KugouSection.allCases) { s in
+                            Text(s.title).tag(s)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 10)
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             kugouContent
@@ -300,16 +311,7 @@ private struct KugouLibraryPage: View {
             EmptyStateView(icon: "exclamationmark.triangle", title: "加载失败", message: err).padding(.top, 60)
         } else {
             VStack(alignment: .leading, spacing: 0) {
-                // 🔴 v2.8.3：板块切换滑块（自建歌单 / 收藏歌单 / 下载歌曲）
-                Picker("板块", selection: $section) {
-                    ForEach(KugouSection.allCases) { s in
-                        Text(s.title).tag(s)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
-
+                // 🔴 v2.8.4：板块滑块已挪到固定顶栏（ScrollView 外），这里不再重复放
                 switch section {
                 case .created:
                     createdSection
@@ -790,10 +792,12 @@ struct KugouAccountCenter: View {
             ScrollView {
                 VStack(spacing: 18) {
                     ZStack {
-                        Circle().fill(AppStyle.accent.opacity(0.12)).frame(width: 80, height: 80)
+                        // 🔴 v2.8.4：头像改方形（圆角矩形底），之前是圆形
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(AppStyle.accent.opacity(0.12)).frame(width: 80, height: 80)
                         CoverImage(url: kugouAuth.avatarURL,
                                    fallbackKeys: ["kg-user:\(kugouAuth.userId)"],
-                                   seed: kugouAuth.nickname, size: 64, corner: 32)
+                                   seed: kugouAuth.nickname, size: 64, corner: 14)
                     }
                     Text(kugouAuth.nickname.isEmpty ? "酷狗用户 \(kugouAuth.userId)" : kugouAuth.nickname)
                         .font(.system(size: 18, weight: .bold)).foregroundStyle(AppStyle.primaryText)

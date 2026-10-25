@@ -45,7 +45,7 @@ struct ProfileView: View {
                         CoverImage(url: kugouAuth.avatarURL,
                                    fallbackKeys: ["kg-user:\(kugouAuth.userId)"],
                                    seed: kugouAuth.nickname,
-                                   size: 48, corner: 24)
+                                   size: 48, corner: 10)  // 🔴 v2.8.4 头像改方形
                         VStack(alignment: .leading, spacing: 3) {
                             Text(kugouAuth.nickname.isEmpty ? "酷狗用户 \(kugouAuth.userId)" : kugouAuth.nickname)
                                 .font(.system(size: 16, weight: .semibold))

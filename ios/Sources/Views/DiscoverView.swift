@@ -167,7 +167,7 @@ struct DiscoverView: View {
                     CoverImage(url: kugouAuth.avatarURL,
                                fallbackKeys: ["kg-user:\(kugouAuth.userId)"],
                                seed: kugouAuth.nickname,
-                               size: 30, corner: 15)  // 🔴 改大 24→30
+                               size: 30, corner: 8)  // 🔴 v2.8.4 头像改方形
                     Text(kugouAuth.nickname.isEmpty ? "酷狗" : kugouAuth.nickname)
                         .font(.system(size: 13, weight: .medium))  // 12→13
                         .foregroundStyle(AppStyle.secondaryText)

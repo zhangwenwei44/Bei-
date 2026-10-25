@@ -76,8 +76,9 @@ struct AuroraMusicApp: App {
                             .zIndex(100)
                     }
                 }
+                // 🔴 v2.8.4：启动图至少显示 5 秒（之前 2 秒）
                 .task {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
                     withAnimation(.easeOut(duration: 0.35)) { splashVisible = false }
                 }
                 // 🔴 v2.6.5：前台回来补一次更新检查（自带 5 分钟节流）
@@ -91,7 +92,10 @@ struct AuroraMusicApp: App {
 }
 
 /// 🔴 v2.6.3：启动 splash 层 —— 与 LaunchScreen.storyboard 同款视觉
-/// （蓝色底 + LaunchImage 全屏铺满），衔接系统启动图不跳变。
+/// （蓝色底 + LaunchImage），衔接系统启动图不跳变。
+/// 🔴 v2.8.4：改 scaledToFit —— 之前 scaledToFill 会把海报放大裁切，
+/// 竖版海报在屏幕上「挤出屏幕」两边被裁掉；现在完整显示整张海报，
+/// 蓝色底补齐上下/左右留白。
 private struct LaunchSplashView: View {
     var body: some View {
         ZStack {
@@ -99,7 +103,7 @@ private struct LaunchSplashView: View {
             if let ui = UIImage(named: "LaunchImage") {
                 Image(uiImage: ui)
                     .resizable()
-                    .scaledToFill()
+                    .scaledToFit()
                     .ignoresSafeArea()
             }
         }
