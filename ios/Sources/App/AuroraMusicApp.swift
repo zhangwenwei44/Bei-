@@ -93,18 +93,23 @@ struct AuroraMusicApp: App {
 
 /// 🔴 v2.6.3：启动 splash 层 —— 与 LaunchScreen.storyboard 同款视觉
 /// （蓝色底 + LaunchImage），衔接系统启动图不跳变。
-/// 🔴 v2.8.4：改 scaledToFit —— 之前 scaledToFill 会把海报放大裁切，
-/// 竖版海报在屏幕上「挤出屏幕」两边被裁掉；现在完整显示整张海报，
-/// 蓝色底补齐上下/左右留白。
+/// 🔴 v2.8.5：改回全屏铺满（scaledToFill + 固定屏幕尺寸 + clipped）——
+/// 用户要求海报铺满整个屏幕、不要上下蓝边。之前 v2.8.3 的「挤出屏幕」
+/// 其实是 scaledToFill 无尺寸约束导致布局膨胀，这次用 GeometryReader
+/// 锁死屏幕尺寸再裁切，视觉与 storyboard 的 aspectFill 完全一致。
 private struct LaunchSplashView: View {
     var body: some View {
         ZStack {
             Color(red: 0.291, green: 0.552, blue: 0.983).ignoresSafeArea()
             if let ui = UIImage(named: "LaunchImage") {
-                Image(uiImage: ui)
-                    .resizable()
-                    .scaledToFit()
-                    .ignoresSafeArea()
+                GeometryReader { geo in
+                    Image(uiImage: ui)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
+                }
+                .ignoresSafeArea()
             }
         }
         .transition(.opacity)

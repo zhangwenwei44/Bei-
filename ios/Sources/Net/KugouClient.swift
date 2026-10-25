@@ -1890,7 +1890,7 @@ final class KugouClient {
         /// 歌单里的歌曲数（接口给的权威值，比本地解析出的准）。
         var songCount: Int = 0
         /// 🔴 v2.8.3：是否「收藏的歌单」（而非自己创建）。
-        /// get_all_list 返回的条目里 `is_collect == 1` 表示订阅/收藏的歌单，0 为自己创建。
+        /// 🔴 v2.8.5：get_all_list 条目自带 `type`：0=自己创建，1=收藏别人的歌单。
         /// 曲库页据此把歌单拆成「自建歌单 / 收藏歌单」两个板块。
         var isFav: Bool = false
     }
@@ -2066,15 +2066,13 @@ final class KugouClient {
                 ?? Self.deepInt(item, path: ["file_count"])
                 ?? 0
 
-            // 🔴 v2.8.4：区分「自建歌单」和「收藏歌单」——v2.8.3 只认 is_collect，
-            // 实测 get_all_list 压根不给这个字段，收藏的歌单全被塞进「自建歌单」。
-            // 现在三层判定：
-            // ① 显式标记：is_collect / collect / is_fav / is_collected == 1 → 收藏；
-            // ② 创建者对比：条目里 fuserid（founder userid）是歌单创建者，
-            //    收藏来的歌单创建者不是自己（fuserid != 登录 userid → 收藏）；
-            // ③ 条目只带 userid 时同理：userid == 登录者 → 自建，否则收藏。
-            // 都取不到才默认 false（归自建），并把首个条目的字段打进日志方便继续排查。
+            // 🔴 v2.8.5：区分「自建歌单」和「收藏歌单」——决定性修复。
+            // get_all_list 每个条目自带 `type` 字段：0=自己创建，1=收藏别人的歌单
+            // （请求体里的 type=2 是「全量同步」语义，跟条目字段不是一回事——
+            //  v2.8.4 因此把收藏的全塞进了自建）。
+            // 兜底链：条目 type → 显式收藏标记 → 创建者 fuserid/create_userid 对比 → 条目 userid 对比。
             let myUID = Int(userId) ?? 0
+            let entryType = Self.deepInt(item, path: ["type"])
             let favFlag = Self.deepInt(item, path: ["is_collect"])
                 ?? Self.deepInt(item, path: ["collect"])
                 ?? Self.deepInt(item, path: ["is_fav"])
@@ -2088,7 +2086,9 @@ final class KugouClient {
                 ?? -1
             let itemUserID = Self.deepInt(item, path: ["userid"]) ?? -1
             let isFav: Bool
-            if favFlag >= 0 {
+            if let t = entryType, t == 0 || t == 1 {
+                isFav = t == 1
+            } else if favFlag >= 0 {
                 isFav = favFlag == 1
             } else if creatorID >= 0 && myUID > 0 {
                 isFav = creatorID != myUID
@@ -2099,7 +2099,7 @@ final class KugouClient {
             }
             if playlists.isEmpty {
                 let keys = item.keys.sorted().joined(separator: ",")
-                Log.info("酷狗", "get_all_list 条目字段：[\(keys)] favFlag=\(favFlag) creator=\(creatorID) itemUser=\(itemUserID) my=\(myUID) → isFav=\(isFav)")
+                Log.info("酷狗", "get_all_list 条目字段：[\(keys)] entryType=\(entryType.map(String.init) ?? "nil") favFlag=\(favFlag) creator=\(creatorID) itemUser=\(itemUserID) my=\(myUID) → isFav=\(isFav)")
             }
 
             playlists.append(KugouPlaylist(id: listid, name: name, songs: [], coverURL: coverURL, songCount: songCount, isFav: isFav))
