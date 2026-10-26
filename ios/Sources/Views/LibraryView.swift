@@ -571,6 +571,20 @@ struct KugouPlaylistDetail: View {
         .sheet(isPresented: $showKugouPicker) {
             KugouPlaylistPicker(songs: songs, title: "加入我的酷狗歌单")
         }
+        // 🔴 v2.9.5：歌单详情页开着时又存了歌进来 —— 直接插到列表顶部，
+        // 不用退出重进（否则要等缓存过期才能看到刚存的那首）。
+        .onReceive(NotificationCenter.default.publisher(for: .auroraKugouSongsAdded)) { note in
+            guard let listID = note.userInfo?["listID"] as? String, listID == listid,
+                  let added = note.userInfo?["songs"] as? [Song] else { return }
+            let existing = Set(songs.map(\.id))
+            let fresh = added.filter { !existing.contains($0.id) }
+            guard !fresh.isEmpty else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                songs = fresh + songs
+                Self.detailCache[listid] = songs
+            }
+            Haptics.light()
+        }
         .alert("移出歌单失败", isPresented: Binding(get: { removeError != nil }, set: { if !$0 { removeError = nil } })) {
             Button("好", role: .cancel) { removeError = nil }
         } message: {
@@ -781,8 +795,10 @@ struct KugouPlaylistDetail: View {
             let parsed = try await task.value
             // 🔴 v2.8.2：二次进入/刷新时保留已补齐的歌手/封面，不把之前的反查成果打回占位
             let merged = mergePreservingEnriched(parsed)
-            songs = merged
-            Self.detailCache[listid] = merged
+            // 🔴 v2.9.5：刚存进来的歌排到第一位（其余保持服务端原顺序）
+            let ordered = await KugouRecentAdditions.shared.ordered(merged, forListID: listid)
+            songs = ordered
+            Self.detailCache[listid] = ordered
             Self.cacheTime[listid] = Date()
             // 🔴 v2.8.1/v2.8.2：歌手/封面在后台补齐，`onBatch` 每反查完一小批就把
             // 快照写回 songs —— 逐批随到随填；v2.8.3 起快照同步进缓存。
@@ -953,4 +969,6 @@ extension Notification.Name {
     static let auroraKugouLoginSuccess = Notification.Name("aurora.kugouLoginSuccess")
     /// 服务端拒绝 token（20017/20006）—— 需要重新扫码登录
     static let auroraKugouTokenRejected = Notification.Name("aurora.kugouTokenRejected")
+    /// 🔴 v2.9.5：有歌曲被存进某个酷狗歌单，userInfo = ["listID": String, "songs": [Song]]
+    static let auroraKugouSongsAdded = Notification.Name("aurora.kugouSongsAdded")
 }

@@ -129,6 +129,18 @@ struct KugouPlaylistPicker: View {
         }
         workingID = nil
         let ok = songs.count - failed
+        if ok > 0 {
+            let added = Array(songs.prefix(ok))
+            // 🔴 v2.9.5：记下来，歌单详情页据此把刚存的歌排到第一位
+            //（酷狗服务端一律追加到末尾，不记就只能滑到最底下才看得到）
+            await KugouRecentAdditions.shared.add(listID: playlist.id,
+                                                  songIDs: added.map(\.id))
+            // 已经打开着的歌单详情页收到通知后立刻把歌插到顶部
+            NotificationCenter.default.post(
+                name: .auroraKugouSongsAdded,
+                object: nil,
+                userInfo: ["listID": playlist.id, "songs": added])
+        }
         if failed == 0 {
             Haptics.light()
             dismiss()
