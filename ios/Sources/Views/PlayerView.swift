@@ -428,7 +428,7 @@ struct PlayerView: View {
     /// 下载中 → 环形进度（禁用，提示「正在下载…」）；
     /// 已下载 → 已下载对勾（点一下提示「已经下载好了」）。
     private var classicDownloadButton: some View {
-        let item = store.current.map { downloads.item(for: $0) }
+        let item = store.current.flatMap { downloads.item(for: $0) }
         let state = item?.state
         let isActive = state?.isActive == true
         return Button {

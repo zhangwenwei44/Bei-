@@ -838,11 +838,13 @@ final class PlayerStore: ObservableObject {
            let text = String(data: data, encoding: .utf8), !text.isEmpty {
             let result = LRCParser.parse(text, songTitle: song.cleanTitle, songArtist: song.artist)
             if !result.lines.isEmpty {
-                await MainActor.run { [weak self] in
+                Task { [weak self] in
                     guard let self else { return }
-                    self.lyrics = result.lines
-                    self.lyricMetadata = result.metadata
-                    self.refreshLyric()
+                    await MainActor.run {
+                        self.lyrics = result.lines
+                        self.lyricMetadata = result.metadata
+                        self.refreshLyric()
+                    }
                 }
             }
             return
@@ -904,9 +906,11 @@ final class PlayerStore: ObservableObject {
         // 🔴 v2.9.3：离线优先读本地写真侧车（已下载歌曲断网也能看歌手写真）。
         if let photoURL = DownloadManager.shared.localArtistPhotoURL(for: song),
            let image = UIImage(contentsOfFile: photoURL.path) {
-            await MainActor.run { [weak self] in
+            Task { [weak self] in
                 guard let self else { return }
-                self.artistPhoto = image
+                await MainActor.run {
+                    self.artistPhoto = image
+                }
             }
             return
         }

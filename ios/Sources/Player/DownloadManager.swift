@@ -214,10 +214,11 @@ final class DownloadManager: NSObject, ObservableObject {
             // 给 Song 加 local URL 和 isLocal 标记
             let localURL = folder.appendingPathComponent(fileName)
             let song = Song(id: songID, title: title, artist: artist,
-                            url: localURL, isLocal: true, source: .local,
+                            url: localURL, isLocal: true,
+                            artworkURL: sidecarURL("art.png", for: songID),
+                            source: .local,
                             kugouHash: (object["hash"] as? String) ?? "",
-                            kugouAlbumID: (object["albumID"] as? String) ?? "",
-                            artworkURL: sidecarURL("art.png", for: songID))
+                            kugouAlbumID: (object["albumID"] as? String) ?? "")
             return song
         }
         // LibraryStore 里可能也有持久化的下载列表（UserDefaults），取并集。
