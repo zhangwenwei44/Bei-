@@ -37,7 +37,7 @@ struct DiscoverView: View {
     @State private var ktvSongs: [Song] = []
     @State private var classicSongs: [Song] = []
     @State private var newSongs: [Song] = []
-    /// 🔴 v2.9.4：「至臻名人堂」横滑大卡的歌曲
+    /// 🔴 v2.9.6：「至臻音质」主题歌单的歌曲（供「歌单推荐」大卡使用）
     @State private var hallSongs: [Song] = []
 
     /// 榜单 Tab 展示的榜单（按酷狗「排行榜」页顺序排列）。
@@ -91,14 +91,23 @@ struct DiscoverView: View {
                 }
             }
             .padding(.bottom, 24)
+            // 🔴 v2.9.6：顶部淡蓝渐变带（画在内容底层，跟着内容一起滚走）
+            .kugouTopFade(height: 200)
         }
+        // 🔴 v2.9.6：酷狗风格背景 —— 顶部淡蓝渐变，往下淡出到白色。
+        // 渐变画在滚动内容底层（跟着内容一起滚走），白卡片和文字都不受影响。
         .background(AppStyle.background)
         .refreshable { await load(force: true) }
         .task { if feed.isEmpty { await load() } }
         .navigationBarTitleDisplayMode(.inline)
+        // 🔴 v2.9.6：状态栏/导航栏那一段刷成淡蓝，和下面的渐变带连成一片
+        .kugouNavigationBarTint()
         .safeAreaInset(edge: .top, spacing: 0) {
             tabBar
-                .background(AppStyle.background)
+                // 🔴 v2.9.6：这一行（刷歌/推荐/乐库…）是钉在顶部的，
+                // 不在滚动内容里，所以渐变带盖不到它 —— 单独刷成同一个淡蓝，
+                // 和下面内容的渐变起点颜色一致，衔接处看不出硬边。
+                .background(AppStyle.pageGradientTop)
         }
         // 🔴 底部留白已由 RootView 的 .safeAreaInset(edge:.bottom) 统一处理
         // （播放条现在是 TabView 的 inset 内容，不是浮层）。
@@ -306,8 +315,8 @@ struct DiscoverView: View {
             artistStripSection
             // 三个新推荐板块 —— 点"更多"push 进完整榜单页（复用已加载好的歌曲，省一次请求）
             newSongSection
-            // 🔴 v2.9.4：新歌推荐下面是「至臻名人堂」（横滑大卡）→「歌单推荐」（横滑歌单卡）
-            hallOfFameSection
+            // 🔴 v2.9.6：新歌推荐下面是「推荐用户的歌单」（横滑歌单卡）→「歌单推荐」（横滑大卡）
+            userPlaylistSection
             playlistRecommendSection
             songSection(title: "经典推荐", moreDestination: {
                 NavigationLink {
@@ -341,7 +350,7 @@ struct DiscoverView: View {
     // 🔴 v2.9.4：新歌推荐 —— 由「2×2 翻页宫格」改成 **单行横向滚动**。
     //
     // 翻页要按页码来回切，横滑一屏能看到更多，也不再需要底部页码圆点。
-    // 下面是「至臻名人堂」（同样单排横滑，卡片更大）与「歌单推荐」（大卡横滑）。
+    // 下面是「推荐用户的歌单」（同样单排横滑）与「歌单推荐」（大卡横滑）。
     private var newSongSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             sectionHeader("新歌推荐") {
@@ -377,7 +386,7 @@ struct DiscoverView: View {
         }
     }
 
-    /// 横滑歌曲卡：封面 + 歌名 + 歌手（「新歌推荐」「至臻名人堂」共用）。
+    /// 横滑歌曲卡：封面 + 歌名 + 歌手（「新歌推荐」用）。
     private func slideSongCard(_ song: Song, queue: [Song], size: CGFloat) -> some View {
         Button {
             guard let start = queue.firstIndex(where: { $0.id == song.id }) else { return }
@@ -405,18 +414,17 @@ struct DiscoverView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: 🔴 v2.9.4 至臻名人堂
+    // MARK: 🔴 v2.9.6 推荐用户的歌单
 
-    /// 至臻名人堂：单排横滑大卡（封面 + 歌名 / 歌手）。
-    private var hallOfFameSection: some View {
+    /// 「推荐用户的歌单」：酷狗歌单广场里用户创建的歌单，单排横滑。
+    ///
+    /// 显示方式与上面的「新歌推荐」一致（一行横滑、无页码点）：
+    /// 封面 + 歌单名 + 创建者。数据复用首页已经加载好的 recommendedPlaylists，不额外发请求。
+    private var userPlaylistSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("至臻名人堂") {
-                NavigationLink {
-                    PlaylistDetailView(
-                        playlist: Playlist(id: "local-hall", name: "至臻名人堂",
-                                           coverURL: nil, trackCount: hallSongs.count,
-                                           creatorName: "Aurora 推荐", source: .kugou),
-                        initialSongs: hallSongs)
+            sectionHeader("推荐用户的歌单") {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { selectedTab = .playlists }
                 } label: {
                     HStack(spacing: 2) { Text("更多").font(.system(size: 12)); Image(systemName: "chevron.right").font(.system(size: 10)) }
                         .foregroundStyle(AppStyle.tertiaryText)
@@ -424,7 +432,7 @@ struct DiscoverView: View {
                 .buttonStyle(.plain)
             }
 
-            if hallSongs.isEmpty {
+            if recommendedPlaylists.isEmpty {
                 HStack {
                     ProgressView().controlSize(.small)
                         .frame(maxWidth: .infinity).padding(.vertical, 20)
@@ -432,8 +440,8 @@ struct DiscoverView: View {
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 12) {
-                        ForEach(hallSongs) { song in
-                            slideSongCard(song, queue: hallSongs, size: 132)
+                        ForEach(Array(recommendedPlaylists.prefix(12))) { playlist in
+                            slidePlaylistCard(playlist)
                         }
                     }
                     .padding(.horizontal, 16)
@@ -441,6 +449,32 @@ struct DiscoverView: View {
                 }
             }
         }
+    }
+
+    /// 横滑歌单卡：封面 + 歌单名 + 创建者（与「新歌推荐」的横滑歌曲卡同一套版式）。
+    private func slidePlaylistCard(_ playlist: Playlist) -> some View {
+        NavigationLink {
+            PlaylistDetailView(playlist: playlist)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                CoverImage(url: playlist.coverURL,
+                           fallbackKeys: [playlist.id],
+                           seed: playlist.name,
+                           size: 108,
+                           corner: 10)
+                Text(playlist.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(AppStyle.primaryText)
+                    .lineLimit(1)
+                Text(playlist.creatorName.isEmpty ? "酷狗音乐" : playlist.creatorName)
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.tertiaryText)
+                    .lineLimit(1)
+            }
+            .frame(width: 108)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: 🔴 v2.9.4 歌单推荐
@@ -460,7 +494,7 @@ struct DiscoverView: View {
             guard songs.count >= 2 else { return }
             buckets.append(RecommendBucket(id: id, title: title, songs: songs))
         }
-        add("hall", "至臻名人堂", hallSongs)
+        add("hall", "至臻音质", hallSongs)
         add("new", "新歌推荐", newSongs)
         add("ktv", "KTV必点曲", ktvSongs)
         add("classic", "经典推荐", classicSongs)
@@ -494,9 +528,18 @@ struct DiscoverView: View {
 
     private func playlistRecommendCard(_ bucket: RecommendBucket) -> some View {
         let preview = Array(bucket.songs.prefix(2))
+        // 🔴 v2.9.6：卡片左边补一张「第一首歌的封面」——
+        // 之前整张卡是纯白的，看着很空；有了封面图才有歌单的感觉。
+        let coverSong = bucket.songs.first
         let card =
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .center, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                CoverImage(url: coverSong?.artworkURL,
+                           fallbackKeys: coverSong?.coverFallbackKeys ?? [],
+                           seed: coverSong.map { "\($0.artist)-\($0.title)" } ?? bucket.title,
+                           size: 62,
+                           corner: 8)
+
+                VStack(alignment: .leading, spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(bucket.title)
                             .font(.system(size: 15, weight: .bold))
@@ -506,32 +549,31 @@ struct DiscoverView: View {
                             .font(.system(size: 11))
                             .foregroundStyle(AppStyle.tertiaryText)
                     }
-                    Spacer(minLength: 0)
-                }
 
-                VStack(spacing: 6) {
-                    ForEach(Array(preview.enumerated()), id: \.element.id) { index, song in
-                        HStack(spacing: 6) {
-                            Text("\(index + 1)")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(index == 0 ? AppStyle.accent : AppStyle.tertiaryText)
-                                .frame(width: 12, alignment: .leading)
-                            Text(song.cleanTitle)
-                                .font(.system(size: 12))
-                                .foregroundStyle(AppStyle.primaryText)
-                                .lineLimit(1)
-                            Text("- \(song.artist)")
-                                .font(.system(size: 11))
-                                .foregroundStyle(AppStyle.tertiaryText)
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
+                    VStack(spacing: 6) {
+                        ForEach(Array(preview.enumerated()), id: \.element.id) { index, song in
+                            HStack(spacing: 6) {
+                                Text("\(index + 1)")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(index == 0 ? AppStyle.accent : AppStyle.tertiaryText)
+                                    .frame(width: 12, alignment: .leading)
+                                Text(song.cleanTitle)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(AppStyle.primaryText)
+                                    .lineLimit(1)
+                                Text("- \(song.artist)")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(AppStyle.tertiaryText)
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
                         }
                     }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
             }
             .padding(12)
-            .frame(width: 190, height: 118, alignment: .topLeading)
+            .frame(width: 250, height: 118, alignment: .topLeading)
             .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
         return ZStack(alignment: .topTrailing) {
@@ -563,7 +605,7 @@ struct DiscoverView: View {
             .buttonStyle(.plain)
             .padding(10)
         }
-        .frame(width: 190)
+        .frame(width: 250)
     }
 
     // 🔴 v2.6.7：统一板块标题（标题 + 右侧「更多」）——
@@ -1303,7 +1345,7 @@ struct DiscoverView: View {
             // 保证每页都是整整齐齐 4 首（28 首 = 7 页）。
             newSongs = Array(fetched.prefix(fetched.count / 4 * 4))
         }
-        // 🔴 v2.9.4：「至臻名人堂」
+        // 🔴 v2.9.6：「至臻音质」主题歌单（供「歌单推荐」大卡用）
         if hallSongs.isEmpty {
             hallSongs = (try? await KugouClient.shared.searchSongs(keyword: "至臻音质 臻品母带", limit: 20)) ?? []
         }

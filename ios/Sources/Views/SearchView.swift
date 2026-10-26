@@ -56,9 +56,12 @@ struct SearchView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        // 🔴 v2.9.6：顶部淡蓝渐变带（画在内容底层）
+        .kugouTopFade(height: 130)
         .background(AppStyle.background)
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
+        .kugouNavigationBarTint()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 if isSelecting {

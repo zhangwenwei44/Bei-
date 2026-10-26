@@ -44,6 +44,89 @@ enum AppStyle {
     static let primaryText = dynamic(light: hex(0x14181F), dark: hex(0xFFFFFF))
     static let secondaryText = dynamic(light: hex(0x5B6472), dark: hex(0xFFFFFF).withAlphaComponent(0.62))
     static let tertiaryText = dynamic(light: hex(0x98A1AF), dark: hex(0xFFFFFF).withAlphaComponent(0.38))
+
+    // MARK: 🔴 v2.9.6：酷狗风格页面背景（顶部蓝色渐变 → 底部白）
+
+    /// 页面顶部渐变的最深色。
+    /// 酷狗首页顶部是**淡蓝**（不是饱和品牌蓝）—— 状态栏是深色文字，
+    /// 用饱和蓝会看不清，所以这里取一个很浅的天蓝。
+    static let pageGradientTop = dynamic(light: hex(0xC2DEFF), dark: hex(0x18293C))
+    /// 渐变中段（过渡色），避免蓝→白断层太生硬。
+    static let pageGradientMid = dynamic(light: hex(0xE7F2FF), dark: hex(0x101923))
+    /// 渐变淡出后的目标色 —— 与页面底色一致，接缝看不出来。
+    static let pageGradientBottom = dynamic(light: hex(0xF6F7F9), dark: hex(0x0E0E11))
+}
+
+/// 🔴 v2.9.6：酷狗风格的顶部淡蓝 → 白色渐变带。
+///
+/// 酷狗首页顶部是**淡蓝 → 白色**的渐变：状态栏、顶部导航栏、搜索框那一带
+/// 是淡蓝，往下渐渐淡成白色正文区。
+///
+/// 画在**滚动内容的底层**（`background(alignment: .top)`）：
+/// - 画在底层 → 白卡片、白文字都保持原样，只有卡片之间的空隙透出淡蓝；
+/// - 画在顶层 → 整片内容都被染蓝，文字和卡片全糊掉。
+///
+/// 而且因为它是内容的一部分，往上滑就会跟着滚走 —— 和酷狗首页一个手感。
+struct KugouTopFade: View {
+    /// 渐变带高度（`fill` 模式忽略此值）
+    var height: CGFloat = 200
+    /// true = 铺满所在容器的整个高度（用于固定顶栏那种"高度不定"的场景）
+    var fill: Bool = false
+
+    private var gradient: LinearGradient {
+        LinearGradient(
+            colors: [
+                AppStyle.pageGradientTop,
+                AppStyle.pageGradientMid,
+                AppStyle.pageGradientBottom,
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    var body: some View {
+        if fill {
+            gradient.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            gradient.frame(height: height).frame(maxWidth: .infinity)
+        }
+    }
+}
+
+extension View {
+    /// 🔴 v2.9.6：在**滚动内容底层**铺一条酷狗风格的淡蓝渐变带。
+    ///
+    /// 挂在滚动内容容器（LazyVStack / VStack）上，渐变会跟着内容一起滚走。
+    func kugouTopFade(height: CGFloat = 200) -> some View {
+        background(alignment: .top) {
+            KugouTopFade(height: height)
+        }
+    }
+
+    /// 🔴 v2.9.6：淡蓝渐变**铺满**当前容器（用于高度不定的固定顶栏）。
+    ///
+    /// 固定顶栏（比如「我的音乐」的账号卡片 + 板块滑块）高度随内容变，
+    /// 用固定高度的渐变带会溢出到下面的列表上，所以这里改成铺满自身高度。
+    func kugouTopFadeFill() -> some View {
+        background {
+            KugouTopFade(fill: true)
+        }
+    }
+
+    /// 🔴 v2.9.6：把导航栏背景刷成酷狗那种淡蓝。
+    ///
+    /// 导航栏是**固定**的，正文顶部的渐变是**跟着内容滚**的，
+    /// 两段都要是同一个淡蓝，衔接处才看不出硬边。
+    @ViewBuilder
+    func kugouNavigationBarTint() -> some View {
+        if #available(iOS 16.0, *) {
+            toolbarBackground(AppStyle.pageGradientTop, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+        } else {
+            self
+        }
+    }
 }
 
 /// 主题模式。

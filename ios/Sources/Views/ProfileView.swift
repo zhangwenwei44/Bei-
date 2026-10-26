@@ -365,12 +365,17 @@ struct ProfileView: View {
         }
         .listStyle(.insetGrouped)
         .compatScrollContentBackground(.hidden)
+        // 🔴 v2.9.6：顶部淡蓝渐变带（画在列表底层）
+        .kugouTopFade(height: 200)
         .background(AppStyle.background)
         // 🔴 播放时迷你播放条占据底部安全区，给列表末尾（"关于 Aurora Music" 等）留出安全间距，
         // 避免被播放条挡住。未播放时 mini 不显示，padding 为 0，不留多余空白。
         .padding(.bottom, mini.isVisible ? 60 : 0)
         .navigationTitle("设置")
         .navigationBarTitleDisplayMode(.large)
+        // 🔴 v2.9.6：大标题导航栏刷成淡蓝，和列表顶部的渐变带连成一片
+        // （不刷的话大标题区是白的，下面列表顶部却是淡蓝，中间会有一条硬边）。
+        .kugouNavigationBarTint()
         // 🔴 底部留白已由 RootView 的 .safeAreaInset(edge:.bottom) 统一处理
         // （播放条现在是 TabView 的 inset 内容，不是浮层盖在列表上）。
         // 这里再手动 inset 会造成双重留白。

@@ -12,6 +12,7 @@ struct LibraryView: View {
             .background(AppStyle.background)
             .navigationTitle("")  // 不要大字标题，保持顶栏简洁
             .navigationBarTitleDisplayMode(.inline)
+            .kugouNavigationBarTint()
             // 🔴 v2.8.0：顶栏右上角的账号头像移除（和页内账号卡片重复），
             // 登录入口改由页内账号卡片承担（未登录时点卡片弹出扫码登录）。
     }
@@ -245,23 +246,30 @@ private struct KugouLibraryPage: View {
                     .padding(.top, 60)
             } else {
                 VStack(spacing: 0) {
-                    // 🔴 v2.8.1：账号卡片改为固定顶栏 —— 放在 ScrollView 外面，
-                    // 这样它不会随歌单列表一起上滑，始终钉在页面顶部。
-                    KugouProfileCard()
-                        .padding(.horizontal, 12)
-                        .padding(.top, 8)
-                        .padding(.bottom, 8)
-                    // 🔴 v2.8.4：板块滑块挪到固定顶栏（ScrollView 外）——
-                    // 之前放在滚动内容顶部，上滑列表时手指起点压在滑块上很容易误触切换板块；
-                    // 固定后滑块不参与滚动，滑动手势不会再误触发。
-                    Picker("板块", selection: $section) {
-                        ForEach(KugouSection.allCases) { s in
-                            Text(s.title).tag(s)
+                    // 🔴 v2.9.6：固定顶栏（账号卡片 + 板块滑块）整体刷一层淡蓝渐变。
+                    // 它是钉在顶部的，不随列表滚动，所以渐变得画在这一层，
+                    // 下面列表自己的渐变带负责往正文方向淡出。
+                    VStack(spacing: 0) {
+                        // 🔴 v2.8.1：账号卡片改为固定顶栏 —— 放在 ScrollView 外面，
+                        // 这样它不会随歌单列表一起上滑，始终钉在页面顶部。
+                        KugouProfileCard()
+                            .padding(.horizontal, 12)
+                            .padding(.top, 8)
+                            .padding(.bottom, 8)
+                        // 🔴 v2.8.4：板块滑块挪到固定顶栏（ScrollView 外）——
+                        // 之前放在滚动内容顶部，上滑列表时手指起点压在滑块上很容易误触切换板块；
+                        // 固定后滑块不参与滚动，滑动手势不会再误触发。
+                        Picker("板块", selection: $section) {
+                            ForEach(KugouSection.allCases) { s in
+                                Text(s.title).tag(s)
+                            }
                         }
+                        .pickerStyle(.segmented)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 10)
                     }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 10)
+                    .kugouTopFadeFill()
+
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             kugouContent
@@ -269,6 +277,7 @@ private struct KugouLibraryPage: View {
                     }
                     .refreshable { await reloadPlaylists() }
                 }
+                .background(AppStyle.background)
                 // 删除歌单的确认弹窗挂在这里（和新建弹窗挂在不同节点上，
                 // 同一层叠多个 alert 会出现「只有一个弹得出来」的问题）
                 .alert("删除歌单",
