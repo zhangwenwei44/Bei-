@@ -438,7 +438,8 @@ struct PlayerView: View {
         } label: {
             if isActive {
                 ProgressView(value: max(0, min(1, item?.progress ?? 0)))
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .progressViewStyle(CircularProgressViewStyle())
+                    .tint(.white)
                     .frame(width: 44, height: 44)
             } else if state == .done {
                 PlayerActionIcon(glyph: .downloaded, tint: AppStyle.accent, size: 24)
