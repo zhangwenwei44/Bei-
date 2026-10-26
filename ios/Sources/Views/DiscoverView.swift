@@ -37,6 +37,8 @@ struct DiscoverView: View {
     @State private var ktvSongs: [Song] = []
     @State private var classicSongs: [Song] = []
     @State private var newSongs: [Song] = []
+    /// 🔴 v2.9.4：「至臻名人堂」横滑大卡的歌曲
+    @State private var hallSongs: [Song] = []
 
     /// 榜单 Tab 展示的榜单（按酷狗「排行榜」页顺序排列）。
     /// 截图里 15 个榜：未音原创榜 / AI音乐榜 / 华语流行音乐原创榜 / 原创音乐榜
@@ -62,9 +64,6 @@ struct DiscoverView: View {
         "24971",  // DJ热歌榜
         "85432",  // 百万收藏榜
     ]
-
-    /// 🔴 v2.5.49：新歌推荐横向翻页的当前页码（每页 4 首，共 28 首 = 7 页）
-    @State private var newSongPage = 0
 
     /// 🔴 v2.5.50：热门歌手横向翻页的当前页码（每页 5 行）
 
@@ -307,6 +306,9 @@ struct DiscoverView: View {
             artistStripSection
             // 三个新推荐板块 —— 点"更多"push 进完整榜单页（复用已加载好的歌曲，省一次请求）
             newSongSection
+            // 🔴 v2.9.4：新歌推荐下面是「至臻名人堂」（横滑大卡）→「歌单推荐」（横滑歌单卡）
+            hallOfFameSection
+            playlistRecommendSection
             songSection(title: "经典推荐", moreDestination: {
                 NavigationLink {
                     PlaylistDetailView(
@@ -336,16 +338,12 @@ struct DiscoverView: View {
         }
     }
 
-    // 🔴 v2.6.7：新歌推荐 —— 由「每页 4 行纯文字列表」改成 **2×2 封面宫格**。
+    // 🔴 v2.9.4：新歌推荐 —— 由「2×2 翻页宫格」改成 **单行横向滚动**。
     //
-    // 纯文字列表看着像「榜单」，不像「推荐」；2×2 封面宫格有视觉层次，
-    // 和上面的封面大卡、下面的头像排形成统一的"图多字少"的首页节奏。
-    // 仍然是左右翻页（每页 4 首），底部保留页码圆点。
+    // 翻页要按页码来回切，横滑一屏能看到更多，也不再需要底部页码圆点。
+    // 下面是「至臻名人堂」（同样单排横滑，卡片更大）与「歌单推荐」（大卡横滑）。
     private var newSongSection: some View {
-        let pages = stride(from: 0, to: newSongs.count, by: 4).map {
-            Array(newSongs[$0..<min($0 + 4, newSongs.count)])
-        }
-        return VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             sectionHeader("新歌推荐") {
                 NavigationLink {
                     PlaylistDetailView(
@@ -360,65 +358,212 @@ struct DiscoverView: View {
                 .buttonStyle(.plain)
             }
 
-            if pages.isEmpty {
+            if newSongs.isEmpty {
                 HStack {
                     ProgressView().controlSize(.small)
                         .frame(maxWidth: .infinity).padding(.vertical, 20)
                 }.padding(.horizontal, 16)
             } else {
-                TabView(selection: $newSongPage) {
-                    ForEach(Array(pages.enumerated()), id: \.offset) { pageIndex, pageSongs in
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
-                                            GridItem(.flexible(), spacing: 12)],
-                                  spacing: 16) {
-                            ForEach(pageSongs) { song in
-                                Button {
-                                    guard let start = newSongs.firstIndex(where: { $0.id == song.id }) else { return }
-                                    store.play(newSongs, startAt: start)
-                                    Haptics.soft()
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        CoverImage(url: song.artworkURL,
-                                                   fallbackKeys: song.coverFallbackKeys,
-                                                   seed: "\(song.artist)-\(song.title)",
-                                                   size: 164,
-                                                   corner: 10)
-                                        Text(song.title)
-                                            .font(.system(size: 13, weight: .medium))
-                                            .foregroundStyle(AppStyle.primaryText)
-                                            .lineLimit(1)
-                                        Text(song.artist)
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(AppStyle.tertiaryText)
-                                            .lineLimit(1)
-                                    }
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                            }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 12) {
+                        ForEach(newSongs) { song in
+                            slideSongCard(song, queue: newSongs, size: 108)
                         }
-                        .padding(.horizontal, 16)
-                        .tag(pageIndex)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 2)
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                // 封面 164 + 标题 16 + 歌手 14 + 间距 ≈ 206 一行，两行 + 16 = 428
-                .frame(height: 428)
-                .onChange(of: newSongPage) { _ in Haptics.soft() }
-
-                // 页码圆点（与榜单宫格同款：当前页蓝色短条）
-                HStack(spacing: 5) {
-                    ForEach(0..<pages.count, id: \.self) { idx in
-                        Capsule()
-                            .fill(idx == newSongPage ? AppStyle.accent : AppStyle.secondaryText.opacity(0.25))
-                            .frame(width: idx == newSongPage ? 16 : 6, height: 6)
-                    }
-                }
-                .animation(.easeInOut(duration: 0.2), value: newSongPage)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 8)
             }
         }
+    }
+
+    /// 横滑歌曲卡：封面 + 歌名 + 歌手（「新歌推荐」「至臻名人堂」共用）。
+    private func slideSongCard(_ song: Song, queue: [Song], size: CGFloat) -> some View {
+        Button {
+            guard let start = queue.firstIndex(where: { $0.id == song.id }) else { return }
+            store.play(queue, startAt: start)
+            Haptics.soft()
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                CoverImage(url: song.artworkURL,
+                           fallbackKeys: song.coverFallbackKeys,
+                           seed: "\(song.artist)-\(song.title)",
+                           size: size,
+                           corner: 10)
+                Text(song.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(AppStyle.primaryText)
+                    .lineLimit(1)
+                Text(song.artist)
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.tertiaryText)
+                    .lineLimit(1)
+            }
+            .frame(width: size)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: 🔴 v2.9.4 至臻名人堂
+
+    /// 至臻名人堂：单排横滑大卡（封面 + 歌名 / 歌手）。
+    private var hallOfFameSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionHeader("至臻名人堂") {
+                NavigationLink {
+                    PlaylistDetailView(
+                        playlist: Playlist(id: "local-hall", name: "至臻名人堂",
+                                           coverURL: nil, trackCount: hallSongs.count,
+                                           creatorName: "Aurora 推荐", source: .kugou),
+                        initialSongs: hallSongs)
+                } label: {
+                    HStack(spacing: 2) { Text("更多").font(.system(size: 12)); Image(systemName: "chevron.right").font(.system(size: 10)) }
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if hallSongs.isEmpty {
+                HStack {
+                    ProgressView().controlSize(.small)
+                        .frame(maxWidth: .infinity).padding(.vertical, 20)
+                }.padding(.horizontal, 16)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 12) {
+                        ForEach(hallSongs) { song in
+                            slideSongCard(song, queue: hallSongs, size: 132)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+    }
+
+    // MARK: 🔴 v2.9.4 歌单推荐
+
+    /// 歌单推荐里的一张卡：一个主题歌单（标题 + 首数 + 播放 + 前 2 首预览）。
+    private struct RecommendBucket: Identifiable {
+        let id: String
+        let title: String
+        let songs: [Song]
+    }
+
+    /// 歌单推荐的数据：把首页已经加载好的几个歌曲池打包成「歌单」，
+    /// 不再额外发请求 —— 点进去就是完整列表，点右侧播放键直接整张连播。
+    private var recommendBuckets: [RecommendBucket] {
+        var buckets: [RecommendBucket] = []
+        func add(_ id: String, _ title: String, _ songs: [Song]) {
+            guard songs.count >= 2 else { return }
+            buckets.append(RecommendBucket(id: id, title: title, songs: songs))
+        }
+        add("hall", "至臻名人堂", hallSongs)
+        add("new", "新歌推荐", newSongs)
+        add("ktv", "KTV必点曲", ktvSongs)
+        add("classic", "经典推荐", classicSongs)
+        add("hall-fallback", "每日推荐", dailySongs)
+        return buckets
+    }
+
+    private var playlistRecommendSection: some View {
+        let buckets = recommendBuckets
+        return VStack(alignment: .leading, spacing: 0) {
+            sectionHeader("歌单推荐") { EmptyView() }
+
+            if buckets.isEmpty {
+                HStack {
+                    ProgressView().controlSize(.small)
+                        .frame(maxWidth: .infinity).padding(.vertical, 20)
+                }.padding(.horizontal, 16)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 12) {
+                        ForEach(buckets) { bucket in
+                            playlistRecommendCard(bucket)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+    }
+
+    private func playlistRecommendCard(_ bucket: RecommendBucket) -> some View {
+        let preview = Array(bucket.songs.prefix(2))
+        let card =
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .center, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(bucket.title)
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(AppStyle.primaryText)
+                            .lineLimit(1)
+                        Text("\(bucket.songs.count) 首")
+                            .font(.system(size: 11))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                VStack(spacing: 6) {
+                    ForEach(Array(preview.enumerated()), id: \.element.id) { index, song in
+                        HStack(spacing: 6) {
+                            Text("\(index + 1)")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(index == 0 ? AppStyle.accent : AppStyle.tertiaryText)
+                                .frame(width: 12, alignment: .leading)
+                            Text(song.cleanTitle)
+                                .font(.system(size: 12))
+                                .foregroundStyle(AppStyle.primaryText)
+                                .lineLimit(1)
+                            Text("- \(song.artist)")
+                                .font(.system(size: 11))
+                                .foregroundStyle(AppStyle.tertiaryText)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .frame(width: 190, height: 118, alignment: .topLeading)
+            .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+        return ZStack(alignment: .topTrailing) {
+            // 整张卡 → 进入完整列表（用零尺寸 NavigationLink 叠在最上层之下，
+            // 播放按钮在 ZStack 上层，不会被跳转吞掉）
+            card.overlay(alignment: .center) {
+                NavigationLink {
+                    PlaylistDetailView(
+                        playlist: Playlist(id: "local-rec-\(bucket.id)", name: bucket.title,
+                                           coverURL: bucket.songs.first?.artworkURL,
+                                           trackCount: bucket.songs.count,
+                                           creatorName: "Aurora 推荐", source: .kugou),
+                        initialSongs: bucket.songs)
+                } label: { Color.clear }
+                .buttonStyle(.plain)
+            }
+
+            Button {
+                Haptics.soft()
+                store.play(bucket.songs, startAt: 0)
+            } label: {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(AppStyle.accent, in: Circle())
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(10)
+        }
+        .frame(width: 190)
     }
 
     // 🔴 v2.6.7：统一板块标题（标题 + 右侧「更多」）——
@@ -1157,6 +1302,10 @@ struct DiscoverView: View {
             // 🔴 v2.5.50：接口偶尔多回 2 首，尾页只剩 2 行很难看 —— 裁成 4 的倍数，
             // 保证每页都是整整齐齐 4 首（28 首 = 7 页）。
             newSongs = Array(fetched.prefix(fetched.count / 4 * 4))
+        }
+        // 🔴 v2.9.4：「至臻名人堂」
+        if hallSongs.isEmpty {
+            hallSongs = (try? await KugouClient.shared.searchSongs(keyword: "至臻音质 臻品母带", limit: 20)) ?? []
         }
         let whitelistedSlices = filteredLists
         await loadTrackCounts(for: whitelistedSlices.prefix(5))

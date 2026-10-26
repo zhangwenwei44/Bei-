@@ -425,8 +425,12 @@ struct PlayerView: View {
 
     /// 下载动作按钮：根据当前歌曲的下载状态切换图标。
     /// 未下载 → 下载箭头（点一下开始下载）；
-    /// 下载中 → 环形进度（禁用，提示「正在下载…」）；
-    /// 已下载 → 已下载对勾（点一下提示「已经下载好了」）。
+    /// 下载中 → 下载箭头 + 外圈细环进度（禁用，提示「正在下载…」）；
+    /// 已下载 → 下载托盘 + 对勾（点一下提示「已经下载好了」）。
+    ///
+    /// 🔴 v2.9.4：三个状态全部用同一套自绘线条图标（同线宽、同坐标、纯白），
+    /// 之前「下载中」是系统 ProgressView（灰轨道 + 粗环）、「已下载」是实心圆底，
+    /// 跟旁边四个线条图标明显不是一路的。
     private var classicDownloadButton: some View {
         let item = store.current.flatMap { downloads.item(for: $0) }
         let state = item?.state
@@ -437,16 +441,27 @@ struct PlayerView: View {
             else { download() }
         } label: {
             if isActive {
-                ProgressView(value: max(0, min(1, item?.progress ?? 0)))
-                    .progressViewStyle(CircularProgressViewStyle())
-                    .tint(.white)
-                    .frame(width: 44, height: 44)
+                // 下载中：弱化的下载箭头 + 外圈细环进度（线宽与其它图标一致）
+                ZStack {
+                    PlayerActionIcon(glyph: .download, size: 20)
+                        .opacity(0.35)
+                    Circle()
+                        .trim(from: 0, to: max(0.02, min(1, item?.progress ?? 0)))
+                        .stroke(Color.white,
+                                style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: 30, height: 30)
+                }
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
             } else if state == .done {
-                PlayerActionIcon(glyph: .downloaded, tint: AppStyle.accent, size: 24)
+                PlayerActionIcon(glyph: .downloaded, size: 24)
                     .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             } else {
                 PlayerActionIcon(glyph: .download, size: 24)
                     .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
         }
         .buttonStyle(.plain)

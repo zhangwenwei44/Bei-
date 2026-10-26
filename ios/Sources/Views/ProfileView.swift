@@ -1,11 +1,10 @@
 import SwiftUI
 
-/// 我的：音源、播放偏好、存储。
+/// 我的：音源、播放偏好、版本与授权。
 struct ProfileView: View {
     @EnvironmentObject private var store: PlayerStore
     @EnvironmentObject private var auth: AuthService
     @ObservedObject private var sourceStore = SourceStore.shared
-    @ObservedObject private var downloads = DownloadManager.shared
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var kugouAuth = KugouAuth.shared
     // 🔴 v2.9.0：一机一码授权状态
@@ -259,22 +258,6 @@ struct ProfileView: View {
                 }
             } header: {
                 headerText("我的音乐")
-            }
-
-            Section {
-                HStack {
-                    Label("已下载", systemImage: "internaldrive")
-                    Spacer()
-                    Text("\(library.downloads.count) 首")
-                        .foregroundStyle(AppStyle.tertiaryText)
-                }
-                Button(role: .destructive) {
-                    downloads.clearAll()
-                } label: {
-                    Label("清空下载", systemImage: "trash")
-                }
-            } header: {
-                headerText("存储")
             }
 
             Section {
@@ -671,52 +654,32 @@ struct AboutView: View {
                     Text("Aurora Music")
                         .font(.system(size: 22, weight: .bold))
                         .foregroundStyle(AppStyle.primaryText)
-                    Text("一个用于学习的第三方音乐播放器。界面与播放交互参考酷狗音乐，音源接口思路来自开源项目 Beans-Music。")
+                    Text("一个用于学习的第三方音乐播放器。界面与播放交互参考酷狗音乐，仅供个人学习与技术研究使用。")
                         .font(.system(size: 14))
                         .foregroundStyle(AppStyle.secondaryText)
 
+                    // 🔴 v2.9.4：原「第三方音源怎么用」「第三方音源署名」整块移除，
+                    // 换成免责声明 —— 关于页只交代产品定位与使用责任，不再涉及音源来源细节。
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("第三方音源怎么用")
+                        Text("免责声明")
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(AppStyle.primaryText)
-                        ForEach(steps.indices, id: \.self) { index in
+                        ForEach(disclaimerItems.indices, id: \.self) { index in
                             HStack(alignment: .top, spacing: 8) {
-                                Text("\(index + 1)")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(AppStyle.onAccent)
-                                    .frame(width: 18, height: 18)
-                                    .background(AppStyle.accent, in: Circle())
-                                Text(steps[index])
+                                Circle()
+                                    .fill(AppStyle.tertiaryText.opacity(0.5))
+                                    .frame(width: 4, height: 4)
+                                    .padding(.top, 6)
+                                Text(disclaimerItems[index])
                                     .font(.system(size: 13))
                                     .foregroundStyle(AppStyle.secondaryText)
                             }
                         }
                     }
 
-                    Text("本项目仅供个人学习与研究使用，请遵守各平台服务条款，不要用于商业分发。")
+                    Text("继续使用即表示你已阅读并同意上述条款。本项目仅供个人学习与研究使用，请遵守各平台服务条款，不要用于商业分发。")
                         .font(.system(size: 12))
                         .foregroundStyle(AppStyle.tertiaryText)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("第三方音源署名")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(AppStyle.primaryText)
-                        ForEach(BundledSources.available) { preset in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("\(preset.displayName) \(preset.version)")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundStyle(AppStyle.secondaryText)
-                                Text([preset.author, preset.license, preset.homepage]
-                                        .compactMap { $0 }
-                                        .joined(separator: " · "))
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(AppStyle.tertiaryText)
-                            }
-                        }
-                        Text("音源脚本由原作者开发并提供服务，本应用只做分发，不保证可用。详见仓库的 THIRD_PARTY_NOTICES.md。")
-                            .font(.system(size: 11))
-                            .foregroundStyle(AppStyle.tertiaryText)
-                    }
                 }
                 .padding(20)
             }
@@ -731,10 +694,11 @@ struct AboutView: View {
         }
     }
 
-    private let steps = [
-        "在「我的 - 第三方音源」里新增一条音源，接口模板和 JS 脚本两种都行。",
-        "接口模板填请求地址；返回播放地址的字段路径填在「地址字段」里，多个用 | 分隔，例如 data.url|url。",
-        "如果地址里有 {apiKey}，在「请求头」里加一行 apiKey=xxx，多个用逗号分隔，程序会挨个尝试并记住能用的那个。",
-        "保存后打开开关，回到播放页即可。歌曲优先走官方接口，解析不到才会用这里的音源。",
+    private let disclaimerItems = [
+        "本应用仅用于个人学习与技术交流，不提供任何音乐资源的存储、上传或分发服务。",
+        "歌曲播放地址由用户自行配置，本应用不保证其可用性、合法性与稳定性。",
+        "所有音乐内容的版权归各自权利人所有，如有侵权请联系相关权利人，本应用不承担责任。",
+        "本应用与酷狗音乐官方无关，界面与交互仅为学习参考，不用于任何商业用途。",
+        "用户应对自己的使用行为承担全部责任，请在遵守当地法律法规的前提下使用。",
     ]
 }
