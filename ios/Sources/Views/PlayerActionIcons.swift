@@ -14,6 +14,7 @@ enum PlayerActionGlyph {
     case lyric      // 歌词（六边形 + 「词」）
     case translate  // 翻译（「文」字骨架）
     case more       // 更多（三个实心圆点，竖排）
+    case downloaded // 已下载（实心圆 + 对勾）
 }
 
 /// 统一规格的动作图标：24×24 画布坐标 → 实际 size，线宽随 size 等比缩放。
@@ -53,6 +54,12 @@ struct PlayerActionIcon: View {
                 TranslateGlyph().stroke(tint, style: stroke)
             case .more:
                 MoreGlyph().fill(tint)
+            case .downloaded:
+                ZStack {
+                    Circle().fill(tint)
+                    DownloadedGlyph().stroke(.white, style: StrokeStyle(lineWidth: lineWidth * 1.5,
+                                                                         lineCap: .round, lineJoin: .round))
+                }
             }
         }
         .frame(width: size, height: size)
@@ -160,6 +167,18 @@ private struct MoreGlyph: Shape {
             p.addEllipse(in: CGRect(x: b.x(12) - r, y: b.y(vy) - r,
                                     width: r * 2, height: r * 2))
         }
+        return p
+    }
+}
+
+/// 已下载：对勾（落在实心圆内，由上层用白色描边）
+private struct DownloadedGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        let b = GlyphBox(rect: rect)
+        var p = Path()
+        p.move(to: b.p(7.4, 12.4))
+        p.addLine(to: b.p(10.8, 15.8))
+        p.addLine(to: b.p(16.8, 8.4))
         return p
     }
 }

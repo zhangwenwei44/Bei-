@@ -47,10 +47,20 @@ private struct KugouProfileCard: View {
         VStack(alignment: .leading, spacing: 12) {
             // 头像 + 昵称 + VIP + 副标题 + 箭头
             HStack(spacing: 12) {
-                CoverImage(url: kugouAuth.avatarURL,
-                           fallbackKeys: ["kg-avatar"],
-                           seed: kugouAuth.nickname.isEmpty ? kugouAuth.userId : kugouAuth.nickname,
-                           size: 54, corner: 12)
+                // 🔴 v2.9.3：未登录也展示酷狗品牌图标（之前 fallback 成通用音符占位）。
+                if kugouAuth.isLoggedIn {
+                    CoverImage(url: kugouAuth.avatarURL,
+                               fallbackKeys: ["kg-avatar"],
+                               seed: kugouAuth.nickname.isEmpty ? kugouAuth.userId : kugouAuth.nickname,
+                               size: 54, corner: 12)
+                } else {
+                    Image("KugouLogo")
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 54, height: 54)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .background(Color.white.opacity(0.001)) // 透明底，避免 clip 露出背景
+                }
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(kugouAuth.isLoggedIn ? (kugouAuth.nickname.isEmpty ? kugouAuth.userId : kugouAuth.nickname) : "登录酷狗账号")
@@ -158,7 +168,27 @@ private struct DownloadsList: View {
                             downloads.delete(song)
                             Haptics.light()
                         } content: {
-                            SongRow(song: song, isCurrent: store.current?.id == song.id, isPlaying: store.isPlaying)
+                            SongRow(song: song, isCurrent: store.current?.id == song.id, isPlaying: store.isPlaying,
+                                    trailing: AnyView(
+                                        HStack(spacing: 4) {
+                                            // 收藏（保留）
+                                            Button {
+                                                _ = library.toggleFavorite(song)
+                                                Haptics.light()
+                                            } label: {
+                                                Image(systemName: library.isFavorite(song) ? "heart.fill" : "heart")
+                                                    .font(.system(size: 16))
+                                                    .foregroundStyle(library.isFavorite(song) ? AppStyle.like : AppStyle.tertiaryText)
+                                                    .frame(width: 36, height: 36)
+                                            }
+                                            .buttonStyle(.plain)
+                                            // 🔴 v2.9.3：已下载列表不再显示下载按钮，改为「已下载」图标
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .font(.system(size: 16))
+                                                .foregroundStyle(AppStyle.accent)
+                                                .frame(width: 36, height: 36)
+                                        }
+                                    ))
                                 .equatable().songMenu(song)
                                 .onTapGesture {
                                     guard let index = library.downloads.firstIndex(where: { $0.id == song.id }) else { return }

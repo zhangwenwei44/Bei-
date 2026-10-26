@@ -832,6 +832,21 @@ final class PlayerStore: ObservableObject {
 
     private func loadLyrics(for song: Song) {
         lyricTaskID = song.id
+        // 🔴 v2.9.3：离线优先读本地歌词侧车（已下载歌曲断网也能看词）。
+        if let lrcURL = DownloadManager.shared.localLyricsURL(for: song),
+           let data = try? Data(contentsOf: lrcURL),
+           let text = String(data: data, encoding: .utf8), !text.isEmpty {
+            let result = LRCParser.parse(text, songTitle: song.cleanTitle, songArtist: song.artist)
+            if !result.lines.isEmpty {
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.lyrics = result.lines
+                    self.lyricMetadata = result.metadata
+                    self.refreshLyric()
+                }
+            }
+            return
+        }
         guard !song.kugouHash.isEmpty else { return }
         Task { [weak self] in
             let lrc = await KugouClient.shared.lyric(hash: song.kugouHash, duration: song.duration)
@@ -886,6 +901,15 @@ final class PlayerStore: ObservableObject {
             .first?
             .trimmingCharacters(in: .whitespaces) ?? song.artist
         guard !lead.isEmpty else { return }
+        // 🔴 v2.9.3：离线优先读本地写真侧车（已下载歌曲断网也能看歌手写真）。
+        if let photoURL = DownloadManager.shared.localArtistPhotoURL(for: song),
+           let image = UIImage(contentsOfFile: photoURL.path) {
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.artistPhoto = image
+            }
+            return
+        }
         Task { [weak self] in
             guard let url = await KugouClient.shared.artistPhoto(name: lead, title: song.title) else { return }
             guard let image = await CoverLoader.download(url) else { return }
@@ -919,6 +943,11 @@ final class PlayerStore: ObservableObject {
     }
 
     private static func loadArtwork(for song: Song) async -> UIImage? {
+        // 🔴 v2.9.3：已下载歌曲离线优先读本地封面侧车，断网也不空白。
+        if let local = DownloadManager.shared.localArtworkURL(for: song),
+           let img = UIImage(contentsOfFile: local.path) {
+            return img
+        }
         // 榜单歌曲不带封面地址，先按专辑 id 联网补一次
         var url = song.artworkURL
         if url == nil {

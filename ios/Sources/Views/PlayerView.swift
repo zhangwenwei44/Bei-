@@ -3,6 +3,9 @@ import UIKit
 
 struct PlayerView: View {
     @EnvironmentObject private var store: PlayerStore
+    /// 🔴 v2.9.3：订阅下载管理器，让动作行的「下载」按钮实时反映
+    /// 当前歌曲的下载状态（未下载 / 下载中 / 已下载）。
+    @ObservedObject private var downloads = DownloadManager.shared
     /// 🔴 刻意用 `let` 不用 @ObservedObject（v2.5.35 关键修复）：
     /// playback.currentTime 播放时 4fps 变化，若 PlayerView 订阅它，整棵播放页树
     /// （含横屏全部按钮/进度/歌词）每秒被重建 4 次 —— SwiftUI 在持续 re-diff 期间
@@ -376,8 +379,8 @@ struct PlayerView: View {
             }
             .buttonStyle(.plain)
             Spacer(minLength: 0)
-            // ② 下载
-            classicActionButton(glyph: .download) { download() }
+            // ② 下载 / 下载中 / 已下载（状态图标）
+            classicDownloadButton
             Spacer(minLength: 0)
             // ③ 音质（v2.5.45：原「评论」改为「音质」—— 点开音质选择）
             classicActionButton(glyph: .quality) { showQualityMenu = true }
@@ -418,6 +421,34 @@ struct PlayerView: View {
             }
             Button("取消", role: .cancel) {}
         }
+    }
+
+    /// 下载动作按钮：根据当前歌曲的下载状态切换图标。
+    /// 未下载 → 下载箭头（点一下开始下载）；
+    /// 下载中 → 环形进度（禁用，提示「正在下载…」）；
+    /// 已下载 → 已下载对勾（点一下提示「已经下载好了」）。
+    private var classicDownloadButton: some View {
+        let item = store.current.map { downloads.item(for: $0) }
+        let state = item?.state
+        let isActive = state?.isActive == true
+        return Button {
+            if isActive { show("正在下载…") }
+            else if state == .done { show("已经下载好了") }
+            else { download() }
+        } label: {
+            if isActive {
+                ProgressView(value: max(0, min(1, item?.progress ?? 0)))
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .frame(width: 44, height: 44)
+            } else if state == .done {
+                PlayerActionIcon(glyph: .downloaded, tint: AppStyle.accent, size: 24)
+                    .frame(width: 44, height: 44)
+            } else {
+                PlayerActionIcon(glyph: .download, size: 24)
+                    .frame(width: 44, height: 44)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     /// 动作按钮（参考图：只有图标没有文字，44×44 命中区）

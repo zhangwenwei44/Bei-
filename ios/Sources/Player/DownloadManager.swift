@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import UIKit
 
 struct DownloadItem: Identifiable, Equatable {
     var id: String { song.id }
@@ -144,11 +145,58 @@ final class DownloadManager: NSObject, ObservableObject {
     }
 
     private func writeIndex(song: Song, file: String) {
-        let object: [String: Any] = ["id": song.id, "title": song.title, "artist": song.artist, "file": file]
+        // 🔴 v2.9.3：多存 hash / albumID —— 离线重建歌曲时仍能走歌词/写真兜底逻辑。
+        let object: [String: Any] = ["id": song.id, "title": song.title, "artist": song.artist,
+                                     "file": file, "hash": song.kugouHash, "albumID": song.kugouAlbumID]
         guard let data = try? JSONSerialization.data(withJSONObject: object) else { return }
         try? data.write(to: DownloadManager.directory()
             .appendingPathComponent(DownloadManager.indexName(for: song.id)), options: .atomic)
     }
+
+    // MARK: - 离线元数据侧车文件（🔴 v2.9.3）
+
+    /// 下载时把「封面 / 歌词 / 歌手写真」一并落盘，保证断网后已下载歌曲仍能展示。
+    /// 命名规则：`<songID>.art.png` / `<songID>.lrc` / `<songID>.photo.png`。
+    /// 全部尽力而为，失败静默跳过（不影响音频本身）。
+    private func saveSidecars(for song: Song) async {
+        let folder = DownloadManager.directory()
+        let base = DownloadManager.sanitize(song.id)
+
+        // ① 封面：歌曲本身带 artworkURL 时直接下载存盘（榜单类无地址的跳过，靠兜底）。
+        if let url = song.artworkURL,
+           let image = await CoverLoader.download(url) {
+            let dest = folder.appendingPathComponent("\(base).art.png")
+            _ = try? image.pngData()?.write(to: dest, options: .atomic)
+        }
+
+        // ② 歌词：有酷狗 hash 才能取到 LRC。
+        if !song.kugouHash.isEmpty,
+           let lrc = await KugouClient.shared.lyric(hash: song.kugouHash, duration: song.duration),
+           !lrc.isEmpty {
+            let dest = folder.appendingPathComponent("\(base).lrc")
+            _ = try? Data(lrc.utf8).write(to: dest, options: .atomic)
+        }
+
+        // ③ 歌手写真：取主歌手精确匹配。
+        let lead = song.artist.components(separatedBy: CharacterSet(charactersIn: "、/&，,"))
+            .first?.trimmingCharacters(in: .whitespaces) ?? song.artist
+        if !lead.isEmpty,
+           let photoURL = await KugouClient.shared.artistPhoto(name: lead, title: song.title),
+           let image = await CoverLoader.download(photoURL) {
+            let dest = folder.appendingPathComponent("\(base).photo.png")
+            _ = try? image.pngData()?.write(to: dest, options: .atomic)
+        }
+    }
+
+    /// 侧车文件地址（存在才返回），供 PlayerStore 离线加载用。
+    private func sidecarURL(_ ext: String, for songID: String) -> URL? {
+        let url = DownloadManager.directory().appendingPathComponent("\(DownloadManager.sanitize(songID)).\(ext)")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    func localArtworkURL(for song: Song) -> URL? { sidecarURL("art.png", for: song.id) }
+    func localLyricsURL(for song: Song) -> URL? { sidecarURL("lrc", for: song.id) }
+    func localArtistPhotoURL(for song: Song) -> URL? { sidecarURL("photo.png", for: song.id) }
 
     /// 启动时调用：重建下载列表。
     /// 优先从磁盘 .json 索引直接重建 Song 列表（绕过 LibraryStore 持久化可能不一致的问题），
@@ -166,14 +214,19 @@ final class DownloadManager: NSObject, ObservableObject {
             // 给 Song 加 local URL 和 isLocal 标记
             let localURL = folder.appendingPathComponent(fileName)
             let song = Song(id: songID, title: title, artist: artist,
-                            url: localURL, isLocal: true, source: .local)
+                            url: localURL, isLocal: true, source: .local,
+                            kugouHash: (object["hash"] as? String) ?? "",
+                            kugouAlbumID: (object["albumID"] as? String) ?? "",
+                            artworkURL: sidecarURL("art.png", for: songID))
             return song
         }
-        // LibraryStore 里可能也有持久化的下载列表（UserDefaults），取并集
+        // LibraryStore 里可能也有持久化的下载列表（UserDefaults），取并集。
+        // 🔴 v2.9.3：优先用磁盘重建的 Song（带本地封面 / hash / albumID），
+        // 因此 fromDisk 排在前，同 id 时它胜出。
         let fromLib = LibraryStore.shared.downloads
         var merged: [Song] = []
         var seen = Set<String>()
-        for s in fromLib + fromDisk where !seen.contains(s.id) {
+        for s in fromDisk + fromLib where !seen.contains(s.id) {
             seen.insert(s.id)
             merged.append(s)
         }
@@ -244,6 +297,8 @@ final class DownloadManager: NSObject, ObservableObject {
             apply(DownloadItem(song: song, progress: 0, state: .downloading))
             task.resume()
         }
+        // 🔴 v2.9.3：音频落盘后顺手把封面/歌词/写真存好，断网也能看。
+        await saveSidecars(for: song)
         return destination
     }
 
