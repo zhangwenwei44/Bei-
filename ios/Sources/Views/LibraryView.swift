@@ -809,7 +809,7 @@ struct KugouPlaylistDetail: View {
             // 🔴 v2.8.2：二次进入/刷新时保留已补齐的歌手/封面，不把之前的反查成果打回占位
             let merged = mergePreservingEnriched(parsed)
             // 🔴 v2.9.5：刚存进来的歌排到第一位（其余保持服务端原顺序）
-            let ordered = await KugouRecentAdditions.shared.ordered(merged, forListID: listid)
+            let ordered = KugouRecentAdditions.shared.ordered(merged, forListID: listid)
             songs = ordered
             Self.detailCache[listid] = ordered
             Self.cacheTime[listid] = Date()

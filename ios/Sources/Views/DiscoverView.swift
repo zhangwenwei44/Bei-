@@ -750,9 +750,17 @@ struct DiscoverView: View {
                         // 原来的 `?? filteredLists.first` 会兜底到毫不相干的第一个榜
                         // （比如 80后热歌榜），点「每日推荐」进去却是另一个榜 —— 跟小方块
                         // 一个毛病。找不到对应的榜就不跳。
-                        if let t = filteredLists.first(where: { $0.kugouRankID == "8888" }) {
-                            PlaylistDetailView(playlist: t)
-                        } else { EmptyView() }
+                        // ⚠️ 必须用 Group 包一层：if/else 直接当单表达式时，
+                        // 两个分支的具体类型不同（PlaylistDetailView / EmptyView），
+                        // Swift 推不出统一的 some View，会报
+                        // "type '()' cannot conform to 'View'"。
+                        Group {
+                            if let t = filteredLists.first(where: { $0.kugouRankID == "8888" }) {
+                                PlaylistDetailView(playlist: t)
+                            } else {
+                                EmptyView()
+                            }
+                        }
                     },
                     label: {
                         CoverFeatureCard(
@@ -776,9 +784,14 @@ struct DiscoverView: View {
                 navigable(
                     destination: {
                         // 🔴 v2.9.7：只跳「短视频热歌榜」(52144) 这个对应的榜，不兜底到别的榜
-                        if let t = filteredLists.first(where: { $0.kugouRankID == "52144" }) {
-                            PlaylistDetailView(playlist: t)
-                        } else { EmptyView() }
+                        // ⚠️ 同上：必须用 Group 包，两个分支具体类型不同，推不出统一 some View
+                        Group {
+                            if let t = filteredLists.first(where: { $0.kugouRankID == "52144" }) {
+                                PlaylistDetailView(playlist: t)
+                            } else {
+                                EmptyView()
+                            }
+                        }
                     },
                     label: {
                         CoverFeatureCard(
