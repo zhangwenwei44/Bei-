@@ -56,9 +56,8 @@ struct SearchView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        // 🔴 v2.9.6：顶部淡蓝渐变带（画在内容底层）
-        .kugouTopFade(height: 130)
-        .background(AppStyle.background)
+        // 🔴 v2.9.6(修正)：顶部淡蓝渐变钉在页面顶部，上滑不消失。
+        .kugouPinnedTopFade(height: 200)
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
         .kugouNavigationBarTint()

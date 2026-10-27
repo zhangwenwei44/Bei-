@@ -91,12 +91,10 @@ struct DiscoverView: View {
                 }
             }
             .padding(.bottom, 24)
-            // 🔴 v2.9.6：顶部淡蓝渐变带（画在内容底层，跟着内容一起滚走）
-            .kugouTopFade(height: 200)
         }
-        // 🔴 v2.9.6：酷狗风格背景 —— 顶部淡蓝渐变，往下淡出到白色。
-        // 渐变画在滚动内容底层（跟着内容一起滚走），白卡片和文字都不受影响。
-        .background(AppStyle.background)
+        // 🔴 v2.9.6(修正)：酷狗风格背景 —— 顶部淡蓝渐变钉在页面顶部，上滑不消失。
+        // 渐变挂在 ScrollView 自身的背景上（相对可视区域固定），而不是滚动内容里。
+        .kugouPinnedTopFade(height: 280)
         .refreshable { await load(force: true) }
         .task { if feed.isEmpty { await load() } }
         .navigationBarTitleDisplayMode(.inline)

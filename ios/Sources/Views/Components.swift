@@ -66,7 +66,10 @@ enum AppStyle {
 /// - 画在底层 → 白卡片、白文字都保持原样，只有卡片之间的空隙透出淡蓝；
 /// - 画在顶层 → 整片内容都被染蓝，文字和卡片全糊掉。
 ///
-/// 而且因为它是内容的一部分，往上滑就会跟着滚走 —— 和酷狗首页一个手感。
+/// 而且因为它是内容的一部分，往上滑就会跟着滚走。
+/// ⚠️ 这正是 v2.9.6 被用户吐槽"上滑蓝色渐变会消失"的原因。
+/// 现在**页面主背景统一改用 `kugouPinnedTopFade`**（渐变挂在滚动容器背景上、钉在顶部不消失）；
+/// 这里保留 `KugouTopFade` 仅作底层积木，别再直接挂到滚动内容上了。
 struct KugouTopFade: View {
     /// 渐变带高度（`fill` 模式忽略此值）
     var height: CGFloat = 200
@@ -111,6 +114,26 @@ extension View {
     func kugouTopFadeFill() -> some View {
         background {
             KugouTopFade(fill: true)
+        }
+    }
+
+    /// 🔴 v2.9.6(修正)：把淡蓝渐变**固定在页面顶部**，上滑不消失。
+    ///
+    /// 之前的 `kugouTopFade` 把渐变挂在「滚动内容的底层」，内容一上滑渐变就跟着滚走
+    ///（用户反馈"上滑蓝色渐变会消失"）。这个版本把渐变挂到**滚动容器
+    /// （ScrollView / List / 页面根 VStack）自身的背景**上 —— 背景相对可视区域是固定的，
+    /// 所以渐变钉在顶部、上滑不消失。
+    ///
+    /// 顶部一段 `height` 高的淡蓝→白色渐变带，下面用 `pageGradientBottom`（=页面底色）
+    /// 一直铺到底；整体延伸到安全区顶部，和导航栏淡蓝无缝衔接。
+    func kugouPinnedTopFade(height: CGFloat = 300) -> some View {
+        background(alignment: .top) {
+            VStack(spacing: 0) {
+                KugouTopFade(height: height)
+                AppStyle.pageGradientBottom
+                    .frame(maxHeight: .infinity)
+            }
+            .ignoresSafeArea(.top)
         }
     }
 
