@@ -91,6 +91,7 @@ struct SearchView: View {
                         results = SearchResults()
                         isSelecting = false
                         selectedIDs.removeAll()
+                        refreshSearchHint()   // 🔴 v2.9.7(二)：换个新的「猜你想搜」
                     }
                     .font(.system(size: 13))
                 }
@@ -98,6 +99,8 @@ struct SearchView: View {
         }
         .onAppear {
             history = Self.loadHistory()
+            // 🔴 v2.9.7(二)：进页面换一个「猜你想搜」提示词
+            refreshSearchHint()
             if !initialKeyword.isEmpty, submitted.isEmpty {
                 keyword = initialKeyword
                 runSearch(initialKeyword)
@@ -113,7 +116,8 @@ struct SearchView: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 14))
                     .foregroundStyle(AppStyle.secondaryText)
-                TextField("歌曲、歌手、歌单", text: $keyword)
+                // 🔴 v2.9.7(二)：搜索框加入「猜你想搜」—— 空闲时占位符显示一个随机热词
+                TextField(searchHint.isEmpty ? "歌曲、歌手、歌单" : "猜你想搜：\(searchHint)", text: $keyword)
                     .font(.system(size: 14))
                     .foregroundStyle(AppStyle.primaryText)
                     .focused($isFieldFocused)
@@ -140,6 +144,7 @@ struct SearchView: View {
                     keyword = ""
                     results = SearchResults()
                     isFieldFocused = false
+                    refreshSearchHint()   // 🔴 v2.9.7(二)：换个新的「猜你想搜」
                 }
                 .font(.system(size: 13))
                 .foregroundStyle(AppStyle.secondaryText)
@@ -401,6 +406,14 @@ struct SearchView: View {
         "伤感情歌", "欧美流行", "网络热歌", "轻音乐", "邓紫棋",
         "90后回忆", "KTV必点", "民谣", "说唱", "影视金曲", "深夜循环",
     ]
+
+    /// 🔴 v2.9.7(二)：「猜你想搜」—— 搜索框的随机提示词（从热门词里随机挑一个）。
+    /// 每次进入搜索页 / 清空搜索时换一个。
+    @State private var searchHint: String = ""
+
+    private func refreshSearchHint() {
+        searchHint = Self.hotKeywords.randomElement() ?? ""
+    }
 
     // MARK: 行为
 

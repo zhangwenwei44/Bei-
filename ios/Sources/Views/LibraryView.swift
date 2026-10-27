@@ -183,11 +183,30 @@ private struct DownloadsList: View {
                                                     .frame(width: 36, height: 36)
                                             }
                                             .buttonStyle(.plain)
-                                            // 🔴 v2.9.3：已下载列表不再显示下载按钮，改为「已下载」图标
-                                            Image(systemName: "checkmark.circle.fill")
-                                                .font(.system(size: 16))
-                                                .foregroundStyle(AppStyle.accent)
-                                                .frame(width: 36, height: 36)
+                                            // 🔴 v2.9.7：已下载图标改成三点竖排「更多」按钮（用户要求）。
+                                            // 点开菜单：播放 / 删除下载（原来只是个不可点的对勾）。
+                                            Menu {
+                                                Button {
+                                                    if let index = library.downloads.firstIndex(where: { $0.id == song.id }) {
+                                                        store.play(library.downloads, startAt: index)
+                                                    }
+                                                    Haptics.soft()
+                                                } label: {
+                                                    Label("播放", systemImage: "play")
+                                                }
+                                                Button(role: .destructive) {
+                                                    downloads.delete(song)
+                                                    Haptics.light()
+                                                } label: {
+                                                    Label("删除下载", systemImage: "trash")
+                                                }
+                                            } label: {
+                                                Image(systemName: "ellipsis")
+                                                    .font(.system(size: 16, weight: .medium))
+                                                    .foregroundStyle(AppStyle.secondaryText)
+                                                    .frame(width: 36, height: 36)
+                                                    .rotationEffect(.degrees(90))
+                                            }
                                         }
                                     ))
                                 .equatable().songMenu(song)

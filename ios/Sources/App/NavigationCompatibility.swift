@@ -45,6 +45,15 @@ extension View {
             toolbarColorScheme(.dark, for: .navigationBar)
         } else { self }
     }
+
+    /// 🔴 v2.9.7(二)：状态栏内容颜色**动态**切换 —— 歌手页收起前大图在顶（白字），
+    /// 收起后白底导航栏（黑字）。@State 驱动，重渲染时自动生效。
+    @ViewBuilder
+    func compatToolbarDynamicScheme(dark: Bool) -> some View {
+        if #available(iOS 16.0, *) {
+            toolbarColorScheme(dark ? .dark : .light, for: .navigationBar)
+        } else { self }
+    }
 }
 
 // 🔴 v2.9.6：原来的 `compatToolbarOpaqueBackground(_:)` 已删除。

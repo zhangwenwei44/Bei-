@@ -23,6 +23,13 @@ struct ArtistDetailView: View {
     @State private var isSelecting = false
     @State private var selectedIDs: Set<String> = []
 
+    // 🔴 v2.9.7(二)：大图是否已滚过（收起）—— 酷狗同款：
+    // 收起后导航栏从透明变白底，显示歌手名 + 收藏按钮 + 更多。
+    @State private var collapsed = false
+
+    /// 酷狗同款收藏按钮的黄色
+    private static let collectYellow = Color(red: 0.98, green: 0.87, blue: 0.20)
+
     // 歌曲分页
     @State private var songPage = 1
     @State private var hasMoreSongs = true
@@ -54,8 +61,11 @@ struct ArtistDetailView: View {
                 // 那一块；外层用负 margin 把它挪回原位，不占额外滚动空间。
                 GeometryReader { geo in
                     let pull = max(0, geo.frame(in: .named("artistScroll")).minY)
+                    let minY = geo.frame(in: .named("artistScroll")).minY
                     immersiveHeader(height: headerBaseHeight + pull)
                         .offset(y: -pull)
+                        // 🔴 v2.9.7(二)：把头部滚动偏移传出去，驱动导航栏收起状态
+                        .preference(key: ArtistHeaderOffsetKey.self, value: minY)
                 }
                 // 🔴 v2.9.7：容器高度加一个状态栏 —— 头部整体上移了那么多，
                 // 容器不跟着加高，底部就会漏出一段页面背景色。
@@ -71,21 +81,30 @@ struct ArtistDetailView: View {
         .coordinateSpace(name: "artistScroll")
         .background(AppStyle.background)
         .navigationBarTitleDisplayMode(.inline)
-        // 🔴 v2.9.7：状态栏/返回键用浅色 —— 压在深色大图上必须是白字才看得清。
-        .compatToolbarLightContent()
-        // 🔴 v2.5.48：顶栏锁定不透明（原透明压在图上）—— 实底不透明，
-        // 滚动时始终固定，图片从顶栏下方开始。
-        // 🔴 v2.9.6(修正)：改成 per-item 的白色导航栏（和其余二级页统一）。
-        // 原来用的 `compatToolbarOpaqueBackground` 走 SwiftUI 的 toolbarBackground，
-        // 会覆盖 appearance 代理、跟 per-item 机制打架，两者不能同时用。
-        // 🔴 v2.9.7：改成**透明**导航栏 —— 大图顶到状态栏（通知栏）区域，
-        // 返回键浮在图片上（和酷狗歌手页一致）。
-        .kugouTransparentNavigationBar()
+        // 🔴 v2.9.7(二)：酷狗同款「收起」—— 大图滚过之后导航栏变白底，
+        // 显示歌手名 + 收藏；状态栏文字从白变黑。
+        .onPreferenceChange(ArtistHeaderOffsetKey.self) { offset in
+            let nowCollapsed = offset < -(headerBaseHeight - 60)
+            if nowCollapsed != collapsed { collapsed = nowCollapsed }
+        }
+        // 状态栏：未收起 = 白字（压在深色大图上）；收起后白底栏 = 黑字。
+        .compatToolbarDynamicScheme(dark: !collapsed)
+        // 导航栏底色：未收起 = 完全透明（浮在大图上）；收起后 = 白色实底。
+        // ⚠️ 走 navigationItem 逐项外观 + @State 驱动的 updateUIViewController 刷新，
+        // 不用 toolbarBackground（run 534/535 的老坑）。
+        .kugouNavigationBarBackground(collapsed ? AppStyle.plainNavigationBarBackgroundUIColor : .clear,
+                                     transparent: !collapsed)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 if isSelecting {
                     Text("已选 \(selectedIDs.count) 首")
                         .font(.system(size: 16, weight: .semibold))
+                } else if collapsed {
+                    // 🔴 v2.9.7(二)：收起后导航栏中间显示歌手名（酷狗同款）
+                    Text(artist.name)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(AppStyle.primaryText)
+                        .lineLimit(1)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -99,6 +118,47 @@ struct ArtistDetailView: View {
                     } label: {
                         Text(selectedIDs.count == displaySongs.count ? "取消全选" : "全选")
                             .font(.system(size: 14, weight: .medium))
+                    }
+                } else {
+                    // 🔴 v2.9.7(二)：右上角 = ⋮ 更多（酷狗同款）；
+                    // 收起后旁边多一个黄色收藏胶囊。
+                    HStack(spacing: 12) {
+                        if collapsed {
+                            Button {
+                                Haptics.soft()
+                                library.toggleArtistFavorite(artist)
+                            } label: {
+                                Text(library.isFavoriteArtist(artist) ? "已收藏" : "收藏")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.black.opacity(0.85))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 6)
+                                    .background(Capsule().fill(Self.collectYellow))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Menu {
+                            Button {
+                                Haptics.soft()
+                                library.toggleArtistFavorite(artist)
+                            } label: {
+                                Label(library.isFavoriteArtist(artist) ? "取消收藏" : "收藏歌手",
+                                      systemImage: library.isFavoriteArtist(artist) ? "heart.slash" : "heart")
+                            }
+                            Button {
+                                isSelecting = true
+                                selectedIDs.removeAll()
+                            } label: {
+                                Label("多选下载", systemImage: "checkmark.circle")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 16, weight: .semibold))
+                                .rotationEffect(.degrees(90))
+                                .foregroundStyle(collapsed ? AppStyle.primaryText : .white)
+                                .frame(width: 30, height: 30)
+                                .contentShape(Rectangle())
+                        }
                     }
                 }
             }
@@ -237,17 +297,17 @@ struct ArtistDetailView: View {
 
                     Spacer()
 
-                    // 🔴 v2.5.47：收藏改蓝色胶囊（原黄色）
+                    // 🔴 v2.9.7(二)：收藏改回黄色胶囊（酷狗同款，用户截图指定）
                     Button {
                         Haptics.soft()
                         library.toggleArtistFavorite(artist)
                     } label: {
                         Text(library.isFavoriteArtist(artist) ? "已收藏" : "收藏")
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(.black.opacity(0.85))
                             .padding(.horizontal, 22)
                             .padding(.vertical, 9)
-                            .background(Capsule().fill(AppStyle.accent))
+                            .background(Capsule().fill(Self.collectYellow))
                     }
                     .buttonStyle(.plain)
                 }
@@ -584,6 +644,15 @@ struct ArtistDetailView: View {
     private func formatFans(_ n: Int) -> String {
         if n >= 10000 { return String(format: "%.1f万", Double(n) / 10000) }
         return "\(n)"
+    }
+}
+
+// MARK: - 🔴 v2.9.7(二) 头部滚动偏移（驱动导航栏「收起」状态）
+
+private struct ArtistHeaderOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 

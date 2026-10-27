@@ -240,8 +240,13 @@ extension View {
     /// 也不影响同一导航栈里的其它页面 —— 正是"只改这一页"需要的语义。
     ///
     /// ⚠️ `navigationItem.standardAppearance` 等属性 iOS 13+ 可用，部署目标 15.0 没问题。
-    func kugouNavigationBarBackground(_ color: UIColor = AppStyle.plainNavigationBarBackgroundUIColor) -> some View {
-        background(NavigationBarItemAppearance(color: color))
+    ///
+    /// - Parameter transparent: true = 完全透明（无背景无毛玻璃，`configureWithTransparentBackground`）；
+    ///   false = 不透明实底。歌手页用它做「未收起 = 透明 / 收起后 = 白底」的动态切换 ——
+    ///   @State 变化会触发 updateUIViewController 重新刷外观。
+    func kugouNavigationBarBackground(_ color: UIColor = AppStyle.plainNavigationBarBackgroundUIColor,
+                                     transparent: Bool = false) -> some View {
+        background(NavigationBarItemAppearance(color: color, transparent: transparent))
     }
 
     /// 🔴 v2.9.7：把当前页的导航栏变成**完全透明**。

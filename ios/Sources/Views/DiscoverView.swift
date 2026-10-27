@@ -36,6 +36,8 @@ struct DiscoverView: View {
     // 三个新推荐板块
     @State private var ktvSongs: [Song] = []
     @State private var classicSongs: [Song] = []
+    /// 🔴 v2.9.7(二)：「DJ推荐」板块数据池（经典推荐下面新加的板块）
+    @State private var djSongs: [Song] = []
     @State private var newSongs: [Song] = []
     /// 🔴 v2.9.6：「至臻音质」主题歌单的歌曲（供「歌单推荐」大卡使用）
     @State private var hallSongs: [Song] = []
@@ -312,9 +314,11 @@ struct DiscoverView: View {
             // 🔴 v2.6.7：热门歌手改成横向头像排（不再是翻页列表），
             // 整页只保留「新歌推荐」一个翻页器，视觉噪音小很多。
             artistStripSection
-            // 🔴 v2.9.7：「新歌推荐」→「歌单推荐」（横滑歌单卡）→「专辑推荐」（横滑大卡）→「榜单推荐」
-            // 「经典推荐」「KTV必点曲」两个板块已按用户要求移除。
+            // 🔴 v2.9.7(二)：用户要求「新歌推荐」下面加回「经典推荐」，
+            // 经典推荐下面再加「DJ推荐」，然后才接「歌单推荐」→「专辑推荐」→「榜单推荐」。
             newSongSection
+            classicSection
+            djSection
             userPlaylistSection
             playlistRecommendSection
             rankRecommendSection
@@ -657,6 +661,67 @@ struct DiscoverView: View {
         }
     }
 
+    // MARK: 🔴 v2.9.7(二) 经典推荐 / DJ推荐（歌曲列表板块，新歌推荐下面）
+
+    /// 通用歌曲列表板块：标题 + 更多按钮 + 前 5 首。
+    /// 「更多」push 进完整列表页（复用已加载好的歌曲，省一次请求）。
+    private func songSection(title: String, playlistID: String, songs: [Song]) -> some View {
+        let shown = Array(songs.prefix(5))
+        return VStack(alignment: .leading, spacing: 0) {
+            sectionHeader(title) {
+                NavigationLink {
+                    PlaylistDetailView(
+                        playlist: Playlist(id: playlistID, name: title,
+                                           coverURL: nil, trackCount: songs.count,
+                                           creatorName: "Aurora 推荐", source: .kugou),
+                        initialSongs: songs)
+                } label: {
+                    HStack(spacing: 2) {
+                        Text("更多").font(.system(size: 12))
+                        Image(systemName: "chevron.right").font(.system(size: 10))
+                    }
+                    .foregroundStyle(AppStyle.tertiaryText)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if shown.isEmpty {
+                HStack {
+                    ProgressView().controlSize(.small)
+                        .frame(maxWidth: .infinity).padding(.vertical, 20)
+                }.padding(.horizontal, 16)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(shown.enumerated()), id: \.element.id) { index, song in
+                        SongRow(song: song,
+                                isCurrent: store.current?.id == song.id,
+                                isPlaying: store.isPlaying)
+                            .equatable()
+                            .songMenu(song)
+                            .padding(.horizontal, 16)
+                            .onTapGesture {
+                                guard let start = songs.firstIndex(where: { $0.id == song.id }) else { return }
+                                store.play(songs, startAt: start); Haptics.soft()
+                            }
+                        if index < shown.count - 1 {
+                            Divider().padding(.leading, 60)
+                        }
+                    }
+                }
+                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    private var classicSection: some View {
+        songSection(title: "经典推荐", playlistID: "local-classic", songs: classicSongs)
+    }
+
+    private var djSection: some View {
+        songSection(title: "DJ推荐", playlistID: "local-dj", songs: djSongs)
+    }
+
     // MARK: 大卡横排（每日推荐 + 猜你喜欢）+ 精选榜单每2张小卡叠加
 
     private var bigCardsGrid: some View {
@@ -766,12 +831,11 @@ struct DiscoverView: View {
                         CoverFeatureCard(
                             width: bigWidth, height: bigHeight,
                             coverURL: (isPlayingDaily ? currentCover : nil)
-                                ?? dailyPicks.first?.artworkURL
+                                ?? dailyPick?.artworkURL
                                 ?? top500Playlist?.coverURL
                                 ?? filteredLists.first?.coverURL,
                             title: "每日推荐", subtitle: dailySubtitle,
                             isPlaying: isPlayingDaily,
-                            subtitleLineLimit: 3,
                             onPlay: { if isPlayingDaily { store.pause() } else { playDailyAll() } }
                         )
                     },
@@ -797,10 +861,9 @@ struct DiscoverView: View {
                         CoverFeatureCard(
                             width: bigWidth, height: bigHeight,
                             coverURL: (isPlayingGuess ? currentCover : nil)
-                                ?? guessPicks.first?.artworkURL,
+                                ?? guessPick?.artworkURL,
                             title: "猜你喜欢", subtitle: guessSubtitle,
                             isPlaying: isPlayingGuess,
-                            subtitleLineLimit: 3,
                             onPlay: { if isPlayingGuess { store.pause() } else { playGuessAll() } }
                         )
                     },
@@ -828,24 +891,19 @@ struct DiscoverView: View {
         feed.topLists.first { $0.kugouRankID == "8888" }
     }
 
-    /// 🔴 v2.9.7：随机挑几首歌（封面 + 副标题用同一批，避免图文对不上）。
-    private func randomPicks(_ songs: [Song], count: Int = 3) -> [Song] {
-        guard !songs.isEmpty else { return [] }
-        return Array(songs.shuffled().prefix(count))
-    }
-
-    private var guessPicks: [Song] { randomPicks(guessSongs) }
-    private var dailyPicks: [Song] { randomPicks(dailySongs) }
+    /// 🔴 v2.9.7：卡片上随机展示的那**一首**歌（用户要求：随机显示一首在卡片上面）。
+    /// ⚠️ 必须用 @State 存住 —— 之前是计算属性，body 每次重算都重新洗牌，
+    /// 播放/暂停一下卡片上的歌名就换，看着很跳。数据（重新）加载完成时才换。
+    @State private var dailyPick: Song?
+    @State private var guessPick: Song?
 
     private var guessSubtitle: String {
-        let names = guessPicks.map { "\($0.title) · \($0.artist)" }.joined(separator: "\n")
-        if !names.isEmpty { return names }
+        if let pick = guessPick { return "\(pick.title) · \(pick.artist)" }
         return personalizedHint
     }
 
     private var dailySubtitle: String {
-        let names = dailyPicks.map { "\($0.title) · \($0.artist)" }.joined(separator: "\n")
-        if !names.isEmpty { return names }
+        if let pick = dailyPick { return "\(pick.title) · \(pick.artist)" }
         return "酷狗TOP500 · 每日更新"
     }
 
@@ -1389,6 +1447,8 @@ struct DiscoverView: View {
         // 三个新推荐板块
         if ktvSongs.isEmpty { ktvSongs = (try? await KugouClient.shared.searchSongs(keyword: "KTV必点 经典", limit: 30)) ?? [] }
         if classicSongs.isEmpty { classicSongs = (try? await KugouClient.shared.searchSongs(keyword: "华语经典 怀旧", limit: 30)) ?? [] }
+        // 🔴 v2.9.7(二)：「DJ推荐」板块（经典推荐下面新加的）
+        if djSongs.isEmpty { djSongs = (try? await KugouClient.shared.searchSongs(keyword: "热门DJ 舞曲", limit: 30)) ?? [] }
         if newSongs.isEmpty {
             let fetched = (try? await KugouClient.shared.searchSongs(keyword: "新歌榜", limit: 28)) ?? []
             // 🔴 v2.5.50：接口偶尔多回 2 首，尾页只剩 2 行很难看 —— 裁成 4 的倍数，
@@ -1416,6 +1476,8 @@ struct DiscoverView: View {
             enriched[0].artworkURL = cover
         }
         dailySongs = enriched
+        // 🔴 v2.9.7：卡片上随机展示一首（封面/副标题同源），数据刷新才换
+        dailyPick = enriched.randomElement()
         Log.info("发现页", "每日推荐 \(enriched.count) 首，第一首：\(enriched[0].title) - \(enriched[0].artist)")
     }
 
@@ -1436,6 +1498,8 @@ struct DiscoverView: View {
             if songs.count >= 10 { break }
         }
         guessSongs = songs
+        // 🔴 v2.9.7：卡片上随机展示一首（封面/副标题同源），数据刷新才换
+        guessPick = songs.randomElement()
         if let first = songs.first {
             Log.info("发现页", "猜你喜欢 \(songs.count) 首，第一首封面: \(first.artworkURL?.absoluteString.prefix(60) ?? "nil")")
         } else {
