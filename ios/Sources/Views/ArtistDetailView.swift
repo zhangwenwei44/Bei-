@@ -66,9 +66,12 @@ struct ArtistDetailView: View {
         .coordinateSpace(name: "artistScroll")
         .background(AppStyle.background)
         .navigationBarTitleDisplayMode(.inline)
-        // 🔴 v2.5.48：顶栏锁定不透明（原透明压在图上）—— 应用背景色实底，
-        // 滚动时始终固定不透明，图片从顶栏下方开始
-        .compatToolbarOpaqueBackground(AppStyle.background)
+        // 🔴 v2.5.48：顶栏锁定不透明（原透明压在图上）—— 实底不透明，
+        // 滚动时始终固定，图片从顶栏下方开始。
+        // 🔴 v2.9.6(修正)：改成 per-item 的白色导航栏（和其余二级页统一）。
+        // 原来用的 `compatToolbarOpaqueBackground` 走 SwiftUI 的 toolbarBackground，
+        // 会覆盖 appearance 代理、跟 per-item 机制打架，两者不能同时用。
+        .kugouNavigationBarBackground()
         .toolbar {
             ToolbarItem(placement: .principal) {
                 if isSelecting {

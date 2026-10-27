@@ -59,6 +59,8 @@ struct SongListView: View {
         .background(AppStyle.background)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+        .kugouNavigationBarBackground()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -166,6 +168,8 @@ struct PlaylistDetailView: View {
         .background(AppStyle.background)
         .navigationTitle(playlist.name)
         .navigationBarTitleDisplayMode(.inline)
+        // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+        .kugouNavigationBarBackground()
         .onChange(of: isSelecting) { newValue in
             withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                 store.isAnyMultiSelecting = newValue
@@ -475,6 +479,8 @@ struct AlbumDetailView: View {
         .background(AppStyle.background)
         .navigationTitle(album.name)
         .navigationBarTitleDisplayMode(.inline)
+        // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+        .kugouNavigationBarBackground()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

@@ -21,6 +21,8 @@ struct UpdateView: View {
                 Spacer(minLength: 0)
             }
             .background(AppStyle.background)
+            // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+            .kugouNavigationBarBackground()
             .navigationTitle("检查更新")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

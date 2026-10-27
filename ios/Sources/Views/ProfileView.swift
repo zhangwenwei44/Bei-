@@ -543,6 +543,8 @@ struct ProfileView: View {
             }
             .navigationTitle("导入酷狗歌单")
             .navigationBarTitleDisplayMode(.inline)
+            // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+            .kugouNavigationBarBackground()
             .task {
                 if recommendedPlaylists.isEmpty {
                     await loadRecommended()
@@ -690,6 +692,8 @@ struct AboutView: View {
             .background(AppStyle.background)
             .navigationTitle("关于")
             .navigationBarTitleDisplayMode(.inline)
+            // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+            .kugouNavigationBarBackground()
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("完成") { dismiss() }

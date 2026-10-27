@@ -20,6 +20,8 @@ struct ChangelogView: View {
                 .padding(20)
             }
             .background(AppStyle.background)
+            // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+            .kugouNavigationBarBackground()
             .navigationTitle("更新日志")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

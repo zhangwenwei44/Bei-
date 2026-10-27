@@ -40,6 +40,8 @@ struct DiagnosticsView: View {
         .background(AppStyle.background)
         .navigationTitle("运行日志")
         .navigationBarTitleDisplayMode(.inline)
+        // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+        .kugouNavigationBarBackground()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {

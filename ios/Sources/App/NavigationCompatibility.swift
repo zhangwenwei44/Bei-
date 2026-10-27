@@ -33,17 +33,14 @@ extension View {
                 .toolbarColorScheme(.dark, for: .navigationBar)
         } else { self }
     }
-
-    /// 🔴 v2.5.48：顶栏锁定不透明 —— 指定实底背景色并强制可见。
-    /// iOS 16 以下导航条本来就是实底，直接原样返回。
-    @ViewBuilder
-    func compatToolbarOpaqueBackground(_ color: Color) -> some View {
-        if #available(iOS 16.0, *) {
-            toolbarBackground(color, for: .navigationBar)
-                .toolbarBackground(.visible, for: .navigationBar)
-        } else { self }
-    }
 }
+
+// 🔴 v2.9.6：原来的 `compatToolbarOpaqueBackground(_:)` 已删除。
+// 它走 SwiftUI 的 `toolbarBackground`，而那条路线有两个坑（run 534/535 实测）：
+// - `.visible` + 颜色：SwiftUI 用自己生成的外观覆盖 appearance 代理，系统分隔线（黑线）会回来；
+// - `.hidden`：导航栏丢失安全区，滚动内容顶到状态栏。
+// 现在二级页/弹窗统一走 `View.kugouNavigationBarBackground()`（UIKit 的 navigationItem 逐项外观），
+// 既能单独刷白这一页，又不丢安全区、没有黑线。
 
 // MARK: - FlowLayout / Layout protocol
 

@@ -578,6 +578,8 @@ struct KugouPlaylistDetail: View {
         .background(AppStyle.background)
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
+        // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+        .kugouNavigationBarBackground()
         .task { await load() }
         .sheet(isPresented: $showKugouPicker) {
             KugouPlaylistPicker(songs: songs, title: "加入我的酷狗歌单")
@@ -911,6 +913,8 @@ struct KugouAccountCenter: View {
         }
         .navigationTitle("酷狗账号")
         .navigationBarTitleDisplayMode(.inline)
+        // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+        .kugouNavigationBarBackground()
     }
 }
 

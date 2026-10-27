@@ -75,10 +75,14 @@ struct KugouLoginSheet: View {
                 .padding(24)
             }
             .navigationBarTitleDisplayMode(.inline)
+            // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+            .kugouNavigationBarBackground()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { stopPolling(); dismiss() }
-                        .foregroundStyle(.white)
+                        // 🔴 v2.9.6(修正)：顶栏改成白色后，白字按钮在白底上看不见 ——
+                        // 改用品牌蓝（和 App 里其它页面的取消按钮一致）。
+                        .foregroundStyle(AppStyle.accent)
                 }
             }
         }

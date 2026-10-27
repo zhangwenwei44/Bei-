@@ -137,6 +137,8 @@ struct QualitySettingsView: View {
         .background(AppStyle.background)
         .navigationTitle("音质")
         .navigationBarTitleDisplayMode(.inline)
+        // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+        .kugouNavigationBarBackground()
     }
 
     // MARK: - 顶部特性卡
@@ -332,5 +334,7 @@ private struct NetworkQualityView: View {
         }
         .navigationTitle("按网络环境")
         .navigationBarTitleDisplayMode(.inline)
+        // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+        .kugouNavigationBarBackground()
     }
 }

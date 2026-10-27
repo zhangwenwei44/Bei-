@@ -1737,6 +1737,8 @@ struct MoreArtistsView: View {
             .overlay(alignment: .trailing) { alphabetBar(proxy: proxy) }
             .navigationTitle("热门歌手")
             .navigationBarTitleDisplayMode(.inline)
+            // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+            .kugouNavigationBarBackground()
             // 顶部下拉刷新：清空后从第一页重新拉取
             .refreshable { await reload() }
             .task {

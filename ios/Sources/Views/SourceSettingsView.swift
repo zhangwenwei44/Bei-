@@ -534,6 +534,8 @@ struct SourceEditorView: View {
             }
             .navigationTitle(isNew ? "新增音源" : "编辑音源")
             .navigationBarTitleDisplayMode(.inline)
+            // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+            .kugouNavigationBarBackground()
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("取消") { dismiss() }
@@ -643,6 +645,8 @@ struct SourceImportView: View {
             .background(AppStyle.background)
             .navigationTitle("粘贴导入")
             .navigationBarTitleDisplayMode(.inline)
+            // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+            .kugouNavigationBarBackground()
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("取消") { dismiss() }
@@ -719,6 +723,8 @@ struct SourceExportView: View {
             .background(AppStyle.background)
             .navigationTitle("导出音源")
             .navigationBarTitleDisplayMode(.inline)
+            // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+            .kugouNavigationBarBackground()
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("完成") { dismiss() }
@@ -759,6 +765,8 @@ struct SourceURLImportView: View {
             }
             .navigationTitle("从网址导入")
             .navigationBarTitleDisplayMode(.inline)
+            // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
+            .kugouNavigationBarBackground()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
