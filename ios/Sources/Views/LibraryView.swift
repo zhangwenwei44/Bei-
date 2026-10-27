@@ -190,6 +190,15 @@ private struct DownloadsList: View {
                                                     .lineLimit(1)
                                                     .truncationMode(.tail)
                                                     .frame(maxWidth: .infinity, alignment: .leading)
+                                            }
+                                            // 🔴 v2.9.8(二)：「本地」标签从歌名行移到歌手行后面（用户要求）。
+                                            HStack(spacing: 6) {
+                                                Text(song.artist)
+                                                    .font(.system(size: 13))
+                                                    .foregroundStyle(AppStyle.secondaryText)
+                                                    .lineLimit(1)
+                                                    .truncationMode(.tail)
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
                                                 if song.source == .local {
                                                     Text("本地")
                                                         .font(.system(size: 9))
@@ -200,11 +209,6 @@ private struct DownloadsList: View {
                                                         .fixedSize()
                                                 }
                                             }
-                                            Text(song.artist)
-                                                .font(.system(size: 13))
-                                                .foregroundStyle(AppStyle.secondaryText)
-                                                .lineLimit(1)
-                                                .truncationMode(.tail)
                                         }
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                     }
