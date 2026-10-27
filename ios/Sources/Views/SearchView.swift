@@ -10,7 +10,6 @@ struct SearchView: View {
     @State private var keyword = ""
     @State private var submitted = ""
     @State private var results = SearchResults()
-    @State private var scope: Scope = .songs
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var history: [String] = []
@@ -27,22 +26,11 @@ struct SearchView: View {
     @State private var isSelecting = false
     @State private var selectedIDs: Set<String> = []
 
-    private enum Scope: Int, CaseIterable {
-        case songs, albums
-
-        var title: String {
-            switch self {
-            case .songs: return "单曲"
-            case .albums: return "专辑"
-            }
-        }
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             searchField
-            scopeBar
-
+            // 🔴 v2.9.7：原来这里有「单曲 / 专辑」两个切换按钮，用户要求移除。
+            // 单曲和专辑现在合成一份连续列表（先单曲、再专辑）。
             Group {
                 if submitted.isEmpty {
                     historyView
@@ -85,7 +73,10 @@ struct SearchView: View {
                         Text(selectedIDs.count == results.songs.count ? "取消全选" : "全选")
                             .font(.system(size: 14, weight: .medium))
                     }
-                } else if !submitted.isEmpty, scope == .songs, !results.songs.isEmpty {
+                } else if !submitted.isEmpty, !results.songs.isEmpty {
+                    // 🔴 v2.9.7：多选只对单曲有效（多选状态管的是 results.songs），
+                    // 原来靠 `scope == .songs` 判断，现在 scope 已删除，
+                    // 改成「有单曲结果时才显示」。
                     Button {
                         isSelecting = true
                         selectedIDs.removeAll()
@@ -158,56 +149,31 @@ struct SearchView: View {
         .padding(.bottom, 10)
     }
 
-    private var scopeBar: some View {
-        HStack(spacing: 18) {
-            ForEach(Scope.allCases, id: \.rawValue) { item in
-                Button {
-                    scope = item
-                } label: {
-                    Text(item.title)
-                        .font(.system(size: 14, weight: scope == item ? .semibold : .regular))
-                        .foregroundStyle(scope == item ? AppStyle.primaryText : AppStyle.secondaryText)
-                        .overlay(alignment: .bottom) {
-                            if scope == item {
-                                Capsule()
-                                    .fill(AppStyle.accent)
-                                    .frame(width: 16, height: 2)
-                                    .offset(y: 6)
-                            }
-                        }
-                }
-                .buttonStyle(.plain)
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
-    }
-
     // MARK: 结果
 
     @ViewBuilder
     private var resultList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                switch scope {
-                case .songs:
-                    ForEach(Array(results.songs.enumerated()), id: \.element.id) { idx, song in
-                        let selected = selectedIDs.contains(song.id)
-                        HStack(spacing: 12) {
-                            if isSelecting {
-                                Button {
-                                    if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
-                                } label: {
-                                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                                        .font(.system(size: 22))
-                                        .foregroundStyle(selected ? AppStyle.accent : AppStyle.tertiaryText)
-                                }
-                                .buttonStyle(.plain)
+                // 🔴 v2.9.7：原来上面有「单曲 / 专辑」两个切换按钮，用户要求移除。
+                // 改成一份连续列表：先列单曲，再列专辑 —— 两类结果都还在，
+                // 只是不用再点按钮切换。
+                ForEach(Array(results.songs.enumerated()), id: \.element.id) { idx, song in
+                    let selected = selectedIDs.contains(song.id)
+                    HStack(spacing: 12) {
+                        if isSelecting {
+                            Button {
+                                if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
+                            } label: {
+                                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 22))
+                                    .foregroundStyle(selected ? AppStyle.accent : AppStyle.tertiaryText)
                             }
-                            SongRow(song: song,
-                                    isCurrent: store.current?.id == song.id,
-                                    isPlaying: store.isPlaying)
+                            .buttonStyle(.plain)
+                        }
+                        SongRow(song: song,
+                                isCurrent: store.current?.id == song.id,
+                                isPlaying: store.isPlaying)
                                 .equatable()
                                 .songMenu(song)
                                 .onTapGesture {
@@ -215,38 +181,47 @@ struct SearchView: View {
                                         if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
                                     } else { play(song) }
                                 }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AppStyle.surface.opacity(0.5))
+                    .cornerRadius(10)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 2)
+                    .onAppear {
+                        // 滑到底部触发加载更多（倒数第 5 条时触发）
+                        if idx == results.songs.count - 5 {
+                            Task { await loadMoreSongs() }
                         }
+                    }
+
+                    Divider()
+                        .padding(.leading, 60)
+                }
+                // 底部加载指示器
+                HStack {
+                    Spacer()
+                    if isLoadingMore {
+                        ProgressView().controlSize(.small)
+                        Text("加载中...").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
+                    } else if !hasMoreSongs {
+                        Text("— 到底了 —").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 16)
+
+                // 🔴 v2.9.7：专辑结果接在单曲列表下面（原来靠「单曲/专辑」按钮切换，
+                // 按钮移除后直接顺排下来，中间加个小标题区分。
+                if !results.albums.isEmpty {
+                    Text("专辑")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(AppStyle.secondaryText)
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(AppStyle.surface.opacity(0.5))
-                        .cornerRadius(10)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 2)
-                        .onAppear {
-                            // 滑到底部触发加载更多（倒数第 5 条时触发）
-                            if idx == results.songs.count - 5 {
-                                Task { await loadMoreSongs() }
-                            }
-                        }
+                        .padding(.top, 4)
+                        .padding(.bottom, 6)
 
-                        Divider()
-                            .padding(.leading, 60)
-                    }
-                    // 底部加载指示器
-                    HStack {
-                        Spacer()
-                        if isLoadingMore {
-                            ProgressView().controlSize(.small)
-                            Text("加载中...").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
-                        } else if !hasMoreSongs {
-                            Text("— 到底了 —").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
-                        }
-                        Spacer()
-                    }
-                    .padding(.vertical, 16)
-
-                case .albums:
                     LazyVStack(alignment: .leading, spacing: 8) {
                         ForEach(results.albums) { album in
                             NavigationLink {

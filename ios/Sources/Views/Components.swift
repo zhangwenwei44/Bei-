@@ -243,6 +243,18 @@ extension View {
     func kugouNavigationBarBackground(_ color: UIColor = AppStyle.plainNavigationBarBackgroundUIColor) -> some View {
         background(NavigationBarItemAppearance(color: color))
     }
+
+    /// 🔴 v2.9.7：把当前页的导航栏变成**完全透明**。
+    ///
+    /// 用于「歌手主页」这类想让页面大图顶到状态栏（通知栏）区域的页面：
+    /// 配合页面自己把内容 `ignoresSafeArea(edges: .top)` 顶上去，
+    /// 图片就能铺到屏幕最上端，导航栏的返回键浮在图片上。
+    ///
+    /// ⚠️ 只对**当前这一页**生效（走 navigationItem 逐项外观），
+    /// 同一导航栈里的其它页面不受影响。
+    func kugouTransparentNavigationBar() -> some View {
+        background(NavigationBarItemAppearance(color: .clear, transparent: true))
+    }
 }
 
 /// 🔴 v2.9.6(修正)：通过 `UINavigationItem` 给**当前页**的导航栏单独刷底色。
@@ -253,21 +265,27 @@ extension View {
 /// 所以**只影响这一页** —— 同一个导航栈里的其它页面（以及主页那四个）照旧是淡蓝。
 struct NavigationBarItemAppearance: UIViewControllerRepresentable {
     let color: UIColor
+    /// 🔴 v2.9.7：透明模式 —— 导航栏完全透明，让页面内容（歌手大图）透到状态栏区域。
+    /// 这时必须配合页面自己把内容 `ignoresSafeArea(.top)` 顶上去。
+    var transparent: Bool = false
 
     func makeUIViewController(context: Context) -> Controller {
-        Controller(color: color)
+        Controller(color: color, transparent: transparent)
     }
 
     func updateUIViewController(_ controller: Controller, context: Context) {
         controller.color = color
+        controller.transparent = transparent
         controller.applyIfPossible()
     }
 
     final class Controller: UIViewController {
         var color: UIColor
+        var transparent: Bool
 
-        init(color: UIColor) {
+        init(color: UIColor, transparent: Bool) {
             self.color = color
+            self.transparent = transparent
             super.init(nibName: nil, bundle: nil)
         }
 
@@ -352,7 +370,19 @@ struct NavigationBarItemAppearance: UIViewControllerRepresentable {
             // 只认**当前正在显示的那一项**：绝不去动兄弟页面的 navigationItem
             guard nav.topViewController === host else { return }
 
-            let appearance = AppStyle.makeNavigationBarAppearance(background: color)
+            let appearance: UINavigationBarAppearance
+            if transparent {
+                // 🔴 v2.9.7：透明模式 —— 导航栏不画任何背景，
+                // 页面内容（歌手大图）直接透到状态栏那一块。
+                appearance = UINavigationBarAppearance()
+                appearance.configureWithTransparentBackground()
+                appearance.backgroundColor = .clear
+                appearance.backgroundEffect = nil
+                appearance.shadowColor = .clear
+                appearance.shadowImage = UIImage()
+            } else {
+                appearance = AppStyle.makeNavigationBarAppearance(background: color)
+            }
 
             // ① per-item：这才是"只改这一页"的正解。
             //    navigationItem 的 appearance 优先级高于导航栏本身、也高于全局代理，

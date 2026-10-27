@@ -33,6 +33,18 @@ extension View {
                 .toolbarColorScheme(.dark, for: .navigationBar)
         } else { self }
     }
+
+    /// 🔴 v2.9.7：导航栏/状态栏用**浅色**内容（深色图片上的状态栏必须是白字）。
+    ///
+    /// iOS 16+ 直接用 `toolbarColorScheme(.dark)`；
+    /// iOS 15 没有这个 API，改走 UIKit 的 `overrideUserInterfaceStyle`，
+    /// 由 `NavigationBarItemAppearance` 一并设置（见 Components.swift）。
+    @ViewBuilder
+    func compatToolbarLightContent() -> some View {
+        if #available(iOS 16.0, *) {
+            toolbarColorScheme(.dark, for: .navigationBar)
+        } else { self }
+    }
 }
 
 // 🔴 v2.9.6：原来的 `compatToolbarOpaqueBackground(_:)` 已删除。

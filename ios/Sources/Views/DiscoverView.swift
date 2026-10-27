@@ -641,7 +641,9 @@ struct DiscoverView: View {
                         NavigationLink {
                             PlaylistDetailView(playlist: item.playlist)
                         } label: {
-                            rankPreviewCard(playlist: item.playlist, displayName: item.displayName)
+                            rankPreviewCard(playlist: item.playlist,
+                                            displayName: item.displayName,
+                                            coverFromFirstSong: true)
                         }
                         .buttonStyle(.plain)
                     }
@@ -673,11 +675,21 @@ struct DiscoverView: View {
         let currentCover = store.current?.artworkURL
 
         // NavigationLink 塞进 overlay，零尺寸干扰
-        func navigable<Label: View>(destination: @escaping () -> some View, label: @escaping () -> Label) -> some View {
+        //
+        // 🔴 v2.9.7 修复：原来 label 是 `Color.clear`（零尺寸），点击区实际不存在，
+        // 小方块点了没反应。现在改成铺满整张卡片的透明 label，
+        // 卡片任意位置都能点进对应的歌单。
+        func navigable<Label: View>(destination: @escaping () -> some View,
+                                    label: () -> Label,
+                                    hitSize: CGSize) -> some View {
             label()
                 .overlay(alignment: .center) {
-                    NavigationLink { destination() } label: { Color.clear }
-                        .buttonStyle(.plain)
+                    NavigationLink { destination() } label: {
+                        Color.clear
+                            .frame(width: hitSize.width, height: hitSize.height)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
         }
 
@@ -718,7 +730,8 @@ struct DiscoverView: View {
                                 showPlayButton: false,
                                 showText: false
                             )
-                        }
+                        },
+                        hitSize: CGSize(width: smallCardHeight, height: smallCardHeight)
                     )
                 } else {
                     Color.clear
@@ -733,25 +746,28 @@ struct DiscoverView: View {
                 // ========== 1. 每日推荐（大卡） ==========
                 navigable(
                     destination: {
-                        Group {
-                            if let t = filteredLists.first(where: { $0.kugouRankID == "8888" })
-                                       ?? filteredLists.first {
-                                PlaylistDetailView(playlist: t)
-                            } else { EmptyView() }
-                        }
+                        // 🔴 v2.9.7：只跳「酷狗TOP500」(8888) 这个**对应**的榜。
+                        // 原来的 `?? filteredLists.first` 会兜底到毫不相干的第一个榜
+                        // （比如 80后热歌榜），点「每日推荐」进去却是另一个榜 —— 跟小方块
+                        // 一个毛病。找不到对应的榜就不跳。
+                        if let t = filteredLists.first(where: { $0.kugouRankID == "8888" }) {
+                            PlaylistDetailView(playlist: t)
+                        } else { EmptyView() }
                     },
                     label: {
                         CoverFeatureCard(
                             width: bigWidth, height: bigHeight,
                             coverURL: (isPlayingDaily ? currentCover : nil)
-                                ?? dailySongs.first?.artworkURL
+                                ?? dailyPicks.first?.artworkURL
                                 ?? top500Playlist?.coverURL
                                 ?? filteredLists.first?.coverURL,
                             title: "每日推荐", subtitle: dailySubtitle,
                             isPlaying: isPlayingDaily,
+                            subtitleLineLimit: 3,
                             onPlay: { if isPlayingDaily { store.pause() } else { playDailyAll() } }
                         )
-                    }
+                    },
+                    hitSize: CGSize(width: bigWidth, height: bigHeight)
                 )
                 .frame(width: bigWidth, height: bigHeight, alignment: .topLeading)
                 .frame(maxHeight: bigHeight, alignment: .top)
@@ -759,23 +775,23 @@ struct DiscoverView: View {
                 // ========== 2. 猜你喜欢（大卡） ==========
                 navigable(
                     destination: {
-                        Group {
-                            if let t = filteredLists.first(where: { $0.kugouRankID == "52144" })
-                                       ?? filteredLists.first {
-                                PlaylistDetailView(playlist: t)
-                            } else { EmptyView() }
-                        }
+                        // 🔴 v2.9.7：只跳「短视频热歌榜」(52144) 这个对应的榜，不兜底到别的榜
+                        if let t = filteredLists.first(where: { $0.kugouRankID == "52144" }) {
+                            PlaylistDetailView(playlist: t)
+                        } else { EmptyView() }
                     },
                     label: {
                         CoverFeatureCard(
                             width: bigWidth, height: bigHeight,
                             coverURL: (isPlayingGuess ? currentCover : nil)
-                                ?? guessSongs.first?.artworkURL,
+                                ?? guessPicks.first?.artworkURL,
                             title: "猜你喜欢", subtitle: guessSubtitle,
                             isPlaying: isPlayingGuess,
+                            subtitleLineLimit: 3,
                             onPlay: { if isPlayingGuess { store.pause() } else { playGuessAll() } }
                         )
-                    }
+                    },
+                    hitSize: CGSize(width: bigWidth, height: bigHeight)
                 )
                 .frame(width: bigWidth, height: bigHeight, alignment: .topLeading)
                 .frame(maxHeight: bigHeight, alignment: .top)
@@ -799,17 +815,24 @@ struct DiscoverView: View {
         feed.topLists.first { $0.kugouRankID == "8888" }
     }
 
+    /// 🔴 v2.9.7：随机挑几首歌（封面 + 副标题用同一批，避免图文对不上）。
+    private func randomPicks(_ songs: [Song], count: Int = 3) -> [Song] {
+        guard !songs.isEmpty else { return [] }
+        return Array(songs.shuffled().prefix(count))
+    }
+
+    private var guessPicks: [Song] { randomPicks(guessSongs) }
+    private var dailyPicks: [Song] { randomPicks(dailySongs) }
+
     private var guessSubtitle: String {
-        if let first = guessSongs.first {
-            return "\(first.title) · \(first.artist)"
-        }
+        let names = guessPicks.map { "\($0.title) · \($0.artist)" }.joined(separator: "\n")
+        if !names.isEmpty { return names }
         return personalizedHint
     }
 
     private var dailySubtitle: String {
-        if let first = dailySongs.first {
-            return "\(first.title) · \(first.artist)"
-        }
+        let names = dailyPicks.map { "\($0.title) · \($0.artist)" }.joined(separator: "\n")
+        if !names.isEmpty { return names }
         return "酷狗TOP500 · 每日更新"
     }
 
@@ -1040,8 +1063,17 @@ struct DiscoverView: View {
     /// 榜单预览大卡：榜名 + 更新频率 + 封面(播放量角标) + 前 3 首
     /// - Parameter displayName: 覆盖展示的榜名（nil = 用 playlist 自带的名字）。
     ///   推荐页的「榜单推荐」用它统一成用户指定的名称。
-    private func rankPreviewCard(playlist: Playlist, displayName: String? = nil) -> some View {
+    /// - Parameter coverFromFirstSong: 封面用**第一首歌的专辑图**而不是榜单自己的封面。
+    ///   榜单封面是「会员热歌榜」这种纯色文字图，看着不像歌；用首曲专辑图更像歌单。
+    private func rankPreviewCard(playlist: Playlist,
+                                 displayName: String? = nil,
+                                 coverFromFirstSong: Bool = false) -> some View {
         let songs = rankPreviewSongs[playlist.kugouRankID ?? ""] ?? []
+        // 🔴 v2.9.7：封面优先用第一首歌的专辑图（没有才退回榜单自身封面）
+        let coverURL: URL? = {
+            guard coverFromFirstSong else { return playlist.coverURL }
+            return songs.first?.artworkURL ?? playlist.coverURL
+        }()
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Text(displayName ?? playlist.name)
@@ -1056,7 +1088,7 @@ struct DiscoverView: View {
 
             HStack(alignment: .top, spacing: 14) {
                 ZStack(alignment: .bottomLeading) {
-                    CoverImage(url: playlist.coverURL,
+                    CoverImage(url: coverURL,
                                fallbackKeys: [playlist.id],
                                seed: playlist.name,
                                size: 92, corner: 8)
@@ -1484,6 +1516,8 @@ struct CoverFeatureCard: View {
     var isPlaying: Bool = false
     var showPlayButton: Bool = true
     var showText: Bool = true   // 小卡传 false 隐藏所有文字
+    /// 🔴 v2.9.7：副标题最多显示几行（默认 1；「每日推荐」「猜你喜欢」传 3 显示多首歌）
+    var subtitleLineLimit: Int = 1
     var onPlay: () -> Void = {}
 
     private var corner: CGFloat { 14 }
@@ -1523,7 +1557,9 @@ struct CoverFeatureCard: View {
                             Text(subtitle)
                                 .font(.system(size: width * 0.075))
                                 .foregroundStyle(.white.opacity(0.85))
-                                .lineLimit(1)
+                                // 🔴 v2.9.7：副标题可以放多首歌名（多行显示），
+                                // 单行时行为和以前一样。
+                                .lineLimit(subtitleLineLimit)
                                 .minimumScaleFactor(0.5)
                         }
                     }

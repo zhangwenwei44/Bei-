@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 歌手主页：酷狗同款大图头部（歌手名 + 粉丝 + 黄色收藏）+ 金色下划线分段
 /// 「单曲 / 专辑」+ 全部播放行（最新/最热排序）+ 扁平化编号歌曲列表 + 多选下载。
@@ -49,12 +50,16 @@ struct ArtistDetailView: View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 // 🔴 v2.5.48：下拉时歌手图片拉伸铺满，顶部不留白空隙
+                // 🔴 v2.9.7：头部整体上移一个状态栏高度，大图就盖住了通知栏（状态栏）
+                // 那一块；外层用负 margin 把它挪回原位，不占额外滚动空间。
                 GeometryReader { geo in
                     let pull = max(0, geo.frame(in: .named("artistScroll")).minY)
                     immersiveHeader(height: headerBaseHeight + pull)
                         .offset(y: -pull)
                 }
-                .frame(height: headerBaseHeight)
+                // 🔴 v2.9.7：容器高度加一个状态栏 —— 头部整体上移了那么多，
+                // 容器不跟着加高，底部就会漏出一段页面背景色。
+                .frame(height: headerBaseHeight + statusBarHeight)
                 tabBar
                 if tab == 0 {
                     songListSection
@@ -66,12 +71,16 @@ struct ArtistDetailView: View {
         .coordinateSpace(name: "artistScroll")
         .background(AppStyle.background)
         .navigationBarTitleDisplayMode(.inline)
+        // 🔴 v2.9.7：状态栏/返回键用浅色 —— 压在深色大图上必须是白字才看得清。
+        .compatToolbarLightContent()
         // 🔴 v2.5.48：顶栏锁定不透明（原透明压在图上）—— 实底不透明，
         // 滚动时始终固定，图片从顶栏下方开始。
         // 🔴 v2.9.6(修正)：改成 per-item 的白色导航栏（和其余二级页统一）。
         // 原来用的 `compatToolbarOpaqueBackground` 走 SwiftUI 的 toolbarBackground，
         // 会覆盖 appearance 代理、跟 per-item 机制打架，两者不能同时用。
-        .kugouNavigationBarBackground()
+        // 🔴 v2.9.7：改成**透明**导航栏 —— 大图顶到状态栏（通知栏）区域，
+        // 返回键浮在图片上（和酷狗歌手页一致）。
+        .kugouTransparentNavigationBar()
         .toolbar {
             ToolbarItem(placement: .principal) {
                 if isSelecting {
@@ -163,8 +172,26 @@ struct ArtistDetailView: View {
     /// 头部基础高度（下拉时由 body 里的 GeometryReader 拉伸放大）
     private let headerBaseHeight: CGFloat = 400
 
+    /// 🔴 v2.9.7：状态栏（通知栏）高度。
+    /// 大图要一直铺到屏幕最上端，所以要把状态栏那一块也算进头部高度里。
+    ///
+    /// 用 keyWindow 的 `safeAreaInsets.top` —— 它就是状态栏高度，
+    /// 比 `statusBarManager` 稳（后者在多窗口/未激活时可能返回 0）。
+    private var statusBarHeight: CGFloat {
+        let inset = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }?
+            .safeAreaInsets.top ?? 0
+        return inset > 0 ? inset : 20
+    }
+
     private func immersiveHeader(height: CGFloat) -> some View {
         let screenW = UIScreen.main.bounds.width
+        // 🔴 v2.9.7：大图向上多铺一个状态栏高度，盖住通知栏（状态栏）那一块。
+        // 整个头部容器跟着一起上移 + 加高 —— 图片、渐变、文字的相对位置不变，
+        // 只是整块内容顶到了屏幕最上端。
+        let topInset = statusBarHeight
         return ZStack(alignment: .bottom) {
             CoverImage(
                 url: hiResCoverURL,
@@ -173,15 +200,15 @@ struct ArtistDetailView: View {
                 size: max(screenW, 800),
                 corner: 0,
                 displayWidth: screenW,
-                displayHeight: height
+                displayHeight: height + topInset
             )
-            .frame(width: screenW, height: height)
+            .frame(width: screenW, height: height + topInset)
             .clipped()
 
             // 底部压暗渐变（保证白字可读）
             LinearGradient(colors: [.clear, Color.black.opacity(0.05), Color.black.opacity(0.72)],
                            startPoint: .top, endPoint: .bottom)
-                .frame(width: screenW, height: height)
+                .frame(width: screenW, height: height + topInset)
 
             VStack(alignment: .leading, spacing: 10) {
                 Text(artist.name)
@@ -228,7 +255,12 @@ struct ArtistDetailView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
         }
-        .frame(width: screenW, height: height)
+        // 🔴 v2.9.7：整体高度加一个状态栏 —— 大图向上多铺的那一截
+        .frame(width: screenW, height: height + topInset)
+        // 🔴 v2.9.7：整块头部向上平移一个状态栏高度 ——
+        // 图片就顶到了屏幕最上端（盖住通知栏那一块），返回键浮在图片上。
+        // 文字区（歌手名/收藏）也跟着上移，相对图片的位置不变。
+        .offset(y: -topInset)
     }
 
     // MARK: - 歌曲列表（酷狗同款：全部播放行 + 最新/最热 + 扁平编号列表）
