@@ -246,9 +246,10 @@ private struct KugouLibraryPage: View {
                     .padding(.top, 60)
             } else {
                 VStack(spacing: 0) {
-                    // 🔴 v2.9.6：固定顶栏（账号卡片 + 板块滑块）整体刷一层淡蓝渐变。
-                    // 它是钉在顶部的，不随列表滚动，所以渐变得画在这一层，
-                    // 下面列表自己的渐变带负责往正文方向淡出。
+                    // 🔴 v2.8.1/v2.8.4：固定顶栏（账号卡片 + 板块滑块）放在 ScrollView 外面，
+                    // 不随歌单列表一起上滑，始终钉在页面顶部。
+                    // 🔴 v2.9.6(修正)：整页固定渐变挂在下面这个 VStack 的背景上（kugouPinnedTopFade），
+                    // 顶栏就是这一层的一部分，蓝色渐变从顶部一直铺下来、上滑不消失。
                     VStack(spacing: 0) {
                         // 🔴 v2.8.1：账号卡片改为固定顶栏 —— 放在 ScrollView 外面，
                         // 这样它不会随歌单列表一起上滑，始终钉在页面顶部。
@@ -268,7 +269,6 @@ private struct KugouLibraryPage: View {
                         .padding(.horizontal, 16)
                         .padding(.bottom, 10)
                     }
-                    .kugouTopFadeFill()
 
                     ScrollView {
                         LazyVStack(spacing: 0) {
@@ -277,7 +277,9 @@ private struct KugouLibraryPage: View {
                     }
                     .refreshable { await reloadPlaylists() }
                 }
-                .background(AppStyle.background)
+                // 🔴 v2.9.6(修正)：整页固定渐变（与主页/搜索/设置一致），上滑不消失。
+                // 顶栏（账号卡+板块滑块）仍是固定的、不参与滚动，蓝色渐变带从顶部一直铺下来。
+                .kugouPinnedTopFade(height: 280)
                 // 删除歌单的确认弹窗挂在这里（和新建弹窗挂在不同节点上，
                 // 同一层叠多个 alert 会出现「只有一个弹得出来」的问题）
                 .alert("删除歌单",

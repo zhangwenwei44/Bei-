@@ -365,8 +365,8 @@ struct ProfileView: View {
         }
         .listStyle(.insetGrouped)
         .compatScrollContentBackground(.hidden)
-        // 🔴 v2.9.6(修正)：顶部淡蓝渐变钉在列表顶部，上滑不消失。
-        .kugouPinnedTopFade(height: 240)
+        // 🔴 v2.9.6(修正)：顶部淡蓝渐变钉在列表顶部，上滑不消失（与主页一致）。
+        .kugouPinnedTopFade(height: 280)
         // 🔴 播放时迷你播放条占据底部安全区，给列表末尾（"关于 Aurora Music" 等）留出安全间距，
         // 避免被播放条挡住。未播放时 mini 不显示，padding 为 0，不留多余空白。
         .padding(.bottom, mini.isVisible ? 60 : 0)
