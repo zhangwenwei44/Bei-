@@ -124,16 +124,19 @@ extension View {
     /// （ScrollView / List / 页面根 VStack）自身的背景**上 —— 背景相对可视区域是固定的，
     /// 所以渐变钉在顶部、上滑不消失。
     ///
-    /// 顶部一段 `height` 高的淡蓝→白色渐变带，下面用 `pageGradientBottom`（=页面底色）
-    /// 一直铺到底；整体延伸到安全区顶部，和导航栏淡蓝无缝衔接。
+    /// 顶部一段 `height` 高的淡蓝→白色渐变带，下面整页铺 `pageGradientBottom`（=页面底色）
+    /// 一直到屏幕底；渐变带末端色与页面底色相同，所以上蓝下白无缝衔接、不会露缝。
+    /// 渐变带从导航栏下方开始（导航栏本身用 `kugouNavigationBarTint()` 刷成同色淡蓝），
+    /// 上滑时背景相对可视区域固定，渐变钉在顶部不消失。
     func kugouPinnedTopFade(height: CGFloat = 300) -> some View {
-        background(alignment: .top) {
-            VStack(spacing: 0) {
-                KugouTopFade(height: height)
-                AppStyle.pageGradientBottom
-                    .frame(maxHeight: .infinity)
-            }
-            .ignoresSafeArea(edges: .top)
+        background {
+            // 整页底色先铺满（保证渐变带下方绝不会露出别的白，和页面底色完全一致），
+            // 再把淡蓝→白色渐变带钉在顶部。渐变带末端色 = pageGradientBottom = 页面底色，
+            // 所以顶部蓝和底部白无缝衔接，不会出现"上下颜色不一致"的接缝。
+            AppStyle.pageGradientBottom
+                .overlay(alignment: .top) {
+                    KugouTopFade(height: height)
+                }
         }
     }
 
