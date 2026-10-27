@@ -9,7 +9,9 @@ private struct QueueSheetModifier: ViewModifier {
                 if #available(iOS 16.0, *) {
                     QueueView()
                         .environmentObject(store)
-                        .presentationDetents([.medium, .large])
+                        // 🔴 只用 .large（全屏）—— 用户要求「当前播放」列表全屏显示，
+                        // 不再提供半屏档位（之前 [.medium, .large] 默认半屏）。
+                        .presentationDetents([.large])
                         .presentationDragIndicator(.visible)
                 } else {
                     QueueView()
