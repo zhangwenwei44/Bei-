@@ -307,17 +307,17 @@ struct ArtistDetailView: View {
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
-            // 锁定时整块文案淡出，名字交给导航栏显示，避免和顶栏按钮叠在一起。
-            .opacity(1 - collapsedFrac)
-        }
-        .frame(width: screenW, height: h)
-        .clipped()
-        // 🔴 v2.9.8：大图本身不接收手势，滑动手势穿透到下面的 ScrollView；
-        // 收藏 / 更多等交互全部放在导航栏里，互不干扰。
-        .allowsHitTesting(false)
-        // 🔴 v2.9.8：延伸到状态栏 + 导航栏那一整条（覆盖顶栏，列表不会从顶栏透出来）。
-        .ignoresSafeArea(.top)
+        // 锁定时整块文案淡出，名字交给导航栏显示，避免和顶栏按钮叠在一起。
+        .opacity(1 - collapsedFrac)
     }
+    .frame(width: screenW, height: h)
+    .clipped()
+    // 🔴 v2.9.8：大图本身不接收手势，滑动手势穿透到下面的 ScrollView；
+    // 收藏 / 更多等交互全部放在导航栏里，互不干扰。
+    .allowsHitTesting(false)
+    // 🔴 v2.9.8：延伸到状态栏 + 导航栏那一整条（覆盖顶栏，列表不会从顶栏透出来）。
+    .ignoresSafeArea(edges: .top)
+}
 
     // MARK: - 歌曲列表（酷狗同款：全部播放行 + 最新/最热 + 扁平编号列表）
 
