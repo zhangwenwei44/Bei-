@@ -169,56 +169,87 @@ private struct DownloadsList: View {
                             downloads.delete(song)
                             Haptics.light()
                         } content: {
-                            // 🔴 v2.9.8：整行改成 Button 承载「点击播放」，
-                            // 收藏/三点作为内部控件各自独立响应，点它们不会再误触到整行播放；
-                            // 三点热区也放大到 40×40 更好点。
-                            Button {
-                                guard let index = library.downloads.firstIndex(where: { $0.id == song.id }) else { return }
-                                store.play(library.downloads, startAt: index); Haptics.soft()
-                            } label: {
-                                SongRow(song: song, isCurrent: store.current?.id == song.id, isPlaying: store.isPlaying,
-                                        trailing: AnyView(
+                            HStack(spacing: 12) {
+                                // 🔴 v2.9.8：播放只绑在「封面 + 歌名」这一块上，
+                                // 收藏 / 三点作为兄弟按钮（不是嵌套在播放按钮里），
+                                // 三者点击区域互不重叠 → 彻底杜绝误触整行播放。
+                                Button {
+                                    guard let index = library.downloads.firstIndex(where: { $0.id == song.id }) else { return }
+                                    store.play(library.downloads, startAt: index); Haptics.soft()
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        CoverImage(url: song.artworkURL,
+                                                   fallbackKeys: song.coverFallbackKeys,
+                                                   seed: "\(song.artist)-\(song.title)",
+                                                   size: 50)
+                                        VStack(alignment: .leading, spacing: 4) {
                                             HStack(spacing: 6) {
-                                                // 收藏（保留）
-                                                Button {
-                                                    _ = library.toggleFavorite(song)
-                                                    Haptics.light()
-                                                } label: {
-                                                    Image(systemName: library.isFavorite(song) ? "heart.fill" : "heart")
-                                                        .font(.system(size: 16))
-                                                        .foregroundStyle(library.isFavorite(song) ? AppStyle.like : AppStyle.tertiaryText)
-                                                        .frame(width: 40, height: 40)
-                                                }
-                                                .buttonStyle(.plain)
-                                                // 🔴 v2.9.7：已下载图标改成三点竖排「更多」按钮（用户要求）。
-                                                // 点开菜单：播放 / 删除下载（原来只是个不可点的对勾）。
-                                                Menu {
-                                                    Button {
-                                                        if let index = library.downloads.firstIndex(where: { $0.id == song.id }) {
-                                                            store.play(library.downloads, startAt: index)
-                                                        }
-                                                        Haptics.soft()
-                                                    } label: {
-                                                        Label("播放", systemImage: "play")
-                                                    }
-                                                    Button(role: .destructive) {
-                                                        downloads.delete(song)
-                                                        Haptics.light()
-                                                    } label: {
-                                                        Label("删除下载", systemImage: "trash")
-                                                    }
-                                                } label: {
-                                                    Image(systemName: "ellipsis")
-                                                        .font(.system(size: 16, weight: .medium))
-                                                        .foregroundStyle(AppStyle.secondaryText)
-                                                        .frame(width: 40, height: 40)
-                                                        .rotationEffect(.degrees(90))
+                                                Text(song.cleanTitle)
+                                                    .font(.system(size: 15, weight: .medium))
+                                                    .foregroundStyle(store.current?.id == song.id ? AppStyle.accent : AppStyle.primaryText)
+                                                    .lineLimit(1)
+                                                    .truncationMode(.tail)
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                                if song.source == .local {
+                                                    Text("本地")
+                                                        .font(.system(size: 9))
+                                                        .foregroundStyle(AppStyle.accent)
+                                                        .padding(.horizontal, 4)
+                                                        .padding(.vertical, 1)
+                                                        .background(AppStyle.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 3))
+                                                        .fixedSize()
                                                 }
                                             }
-                                        ))
+                                            Text(song.artist)
+                                                .font(.system(size: 13))
+                                                .foregroundStyle(AppStyle.secondaryText)
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .buttonStyle(.plain)
+                                .layoutPriority(1)
+
+                                // 收藏（独立按钮，绝不触发播放）
+                                Button {
+                                    _ = library.toggleFavorite(song)
+                                    Haptics.light()
+                                } label: {
+                                    Image(systemName: library.isFavorite(song) ? "heart.fill" : "heart")
+                                        .font(.system(size: 16))
+                                        .foregroundStyle(library.isFavorite(song) ? AppStyle.like : AppStyle.tertiaryText)
+                                        .frame(width: 40, height: 40)
+                                }
+                                .buttonStyle(.plain)
+
+                                // 🔴 v2.9.7：已下载图标改成三点竖排「更多」按钮（用户要求）。
+                                // 点开菜单：播放 / 删除下载（原来只是个不可点的对勾）。
+                                Menu {
+                                    Button {
+                                        if let index = library.downloads.firstIndex(where: { $0.id == song.id }) {
+                                            store.play(library.downloads, startAt: index)
+                                        }
+                                        Haptics.soft()
+                                    } label: {
+                                        Label("播放", systemImage: "play")
+                                    }
+                                    Button(role: .destructive) {
+                                        downloads.delete(song)
+                                        Haptics.light()
+                                    } label: {
+                                        Label("删除下载", systemImage: "trash")
+                                    }
+                                } label: {
+                                    Image(systemName: "ellipsis")
+                                        .font(.system(size: 16, weight: .medium))
+                                        .foregroundStyle(AppStyle.secondaryText)
+                                        .frame(width: 40, height: 40)
+                                        .rotationEffect(.degrees(90))
+                                }
                             }
-                            .buttonStyle(.plain)
-                            .songMenu(song)
                             // 不透明底：盖住身后的红色删除按钮（页面背景同色）
                             .background(AppStyle.background)
                         }

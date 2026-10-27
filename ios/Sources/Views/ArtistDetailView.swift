@@ -27,6 +27,9 @@ struct ArtistDetailView: View {
     // 收起后导航栏从透明变白底，显示歌手名 + 收藏按钮 + 更多。
     @State private var collapsed = false
 
+    /// 🔴 v2.9.8：滚动偏移（<=0 表示已上滑；>0 表示下拉拉伸），驱动大图收缩 / 锁定。
+    @State private var headerScroll: CGFloat = 0
+
     /// 酷狗同款收藏按钮的黄色
     private static let collectYellow = Color(red: 0.98, green: 0.87, blue: 0.20)
 
@@ -54,56 +57,54 @@ struct ArtistDetailView: View {
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                // 🔴 v2.5.48：下拉时歌手图片拉伸铺满，顶部不留白空隙
-                // 🔴 v2.9.7：头部整体上移一个状态栏高度，大图就盖住了通知栏（状态栏）
-                // 那一块；外层用负 margin 把它挪回原位，不占额外滚动空间。
-                GeometryReader { geo in
-                    let pull = max(0, geo.frame(in: .named("artistScroll")).minY)
-                    let minY = geo.frame(in: .named("artistScroll")).minY
-                    immersiveHeader(height: headerBaseHeight + pull)
-                        .offset(y: -pull)
-                        // 🔴 v2.9.7(二)：把头部滚动偏移传出去，驱动导航栏收起状态
-                        .preference(key: ArtistHeaderOffsetKey.self, value: minY)
-                }
-                // 🔴 v2.9.7：容器高度加一个状态栏 —— 头部整体上移了那么多，
-                // 容器不跟着加高，底部就会漏出一段页面背景色。
-                .frame(height: headerBaseHeight + statusBarHeight)
-                tabBar
-                if tab == 0 {
-                    songListSection
-                } else {
-                    albumGridSection
+        ZStack(alignment: .top) {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    // 🔴 v2.9.8：顶部占位 = 大图锁定后的高度（状态栏 + 导航栏），
+                    // 内容从这里往下排，永远钻不到锁定条下面，也就不会从顶栏透出来。
+                    GeometryReader { geo in
+                        Color.clear
+                            .preference(key: ArtistHeaderOffsetKey.self,
+                                        value: geo.frame(in: .named("artistScroll")).minY)
+                    }
+                    .frame(height: topInset)
+
+                    tabBar
+                    if tab == 0 {
+                        songListSection
+                    } else {
+                        albumGridSection
+                    }
                 }
             }
+            .coordinateSpace(name: "artistScroll")
+            .background(AppStyle.background)
+
+            // 🔴 v2.9.8：大图「上滑锁定」—— 始终钉在顶部（盖住状态栏 + 导航栏整条），
+            // 上滑时大图收缩成一条锁定条，列表永远在它下面，不会从顶栏透出来。
+            heroHeader
         }
-        .coordinateSpace(name: "artistScroll")
-        .background(AppStyle.background)
         .navigationBarTitleDisplayMode(.inline)
-        // 🔴 v2.9.7(二)：酷狗同款「收起」—— 大图滚过之后导航栏变白底，
-        // 显示歌手名 + 收藏；状态栏文字从白变黑。
         .onPreferenceChange(ArtistHeaderOffsetKey.self) { offset in
-            let nowCollapsed = offset < -(headerBaseHeight - 60)
+            headerScroll = offset
+            let nowCollapsed = offset <= -headerBaseHeight
             if nowCollapsed != collapsed { collapsed = nowCollapsed }
         }
-        // 状态栏：未收起 = 白字（压在深色大图上）；收起后白底栏 = 黑字。
-        .compatToolbarDynamicScheme(dark: !collapsed)
-        // 导航栏底色：未收起 = 完全透明（浮在大图上）；收起后 = 白色实底。
-        // ⚠️ 走 navigationItem 逐项外观 + @State 驱动的 updateUIViewController 刷新，
-        // 不用 toolbarBackground（run 534/535 的老坑）。
-        .kugouNavigationBarBackground(collapsed ? AppStyle.plainNavigationBarBackgroundUIColor : .clear,
-                                     transparent: !collapsed)
+        // 🔴 v2.9.8：导航栏一直浮在大图上 → 永远透明、白字，大图始终盖住顶栏。
+        .compatToolbarDynamicScheme(dark: true)
+        .kugouNavigationBarBackground(.clear, transparent: true)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 if isSelecting {
                     Text("已选 \(selectedIDs.count) 首")
                         .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
                 } else if collapsed {
-                    // 🔴 v2.9.7(二)：收起后导航栏中间显示歌手名（酷狗同款）
+                    // 🔴 v2.9.8：大图锁定后导航栏中间显示歌手名（白字压在图片上）
                     Text(artist.name)
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(AppStyle.primaryText)
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
                         .lineLimit(1)
                 }
             }
@@ -120,23 +121,21 @@ struct ArtistDetailView: View {
                             .font(.system(size: 14, weight: .medium))
                     }
                 } else {
-                    // 🔴 v2.9.7(二)：右上角 = ⋮ 更多（酷狗同款）；
-                    // 收起后旁边多一个黄色收藏胶囊。
+                    // 🔴 v2.9.8：导航栏浮在大图上 → 图标统一白字；
+                    // 黄色收藏胶囊一直显示（大图钉在顶部，随时都能收藏）。
                     HStack(spacing: 12) {
-                        if collapsed {
-                            Button {
-                                Haptics.soft()
-                                library.toggleArtistFavorite(artist)
-                            } label: {
-                                Text(library.isFavoriteArtist(artist) ? "已收藏" : "收藏")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(.black.opacity(0.85))
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 6)
-                                    .background(Capsule().fill(Self.collectYellow))
-                            }
-                            .buttonStyle(.plain)
+                        Button {
+                            Haptics.soft()
+                            library.toggleArtistFavorite(artist)
+                        } label: {
+                            Text(library.isFavoriteArtist(artist) ? "已收藏" : "收藏")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.black.opacity(0.85))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 6)
+                                .background(Capsule().fill(Self.collectYellow))
                         }
+                        .buttonStyle(.plain)
                         Menu {
                             Button {
                                 Haptics.soft()
@@ -155,7 +154,7 @@ struct ArtistDetailView: View {
                             Image(systemName: "ellipsis")
                                 .font(.system(size: 16, weight: .semibold))
                                 .rotationEffect(.degrees(90))
-                                .foregroundStyle(collapsed ? AppStyle.primaryText : .white)
+                                .foregroundStyle(.white)
                                 .frame(width: 30, height: 30)
                                 .contentShape(Rectangle())
                         }
@@ -250,14 +249,17 @@ struct ArtistDetailView: View {
         return inset > 0 ? inset : 20
     }
 
-    private func immersiveHeader(height: CGFloat) -> some View {
+    /// 🔴 v2.9.8：大图要盖满顶部整条（状态栏 + 导航栏），偏移量 = 二者之和。
+    private var topInset: CGFloat { statusBarHeight + navBarHeight }
+
+    /// 🔴 v2.9.8：钉在顶部的大图 header（「上滑锁定」）。
+    /// expand 随上滑从 headerBaseHeight 收缩到 0（锁定），再叠加状态栏+导航栏高度 topInset；
+    /// 下拉时 headerScroll>0，expand 反而变大 → 大图被拉伸（rubber-band 同款手感）。
+    private var heroHeader: some View {
         let screenW = UIScreen.main.bounds.width
-        // 🔴 v2.9.7：大图向上多铺一个状态栏高度，盖住通知栏（状态栏）那一块。
-        // 整个头部容器跟着一起上移 + 加高 —— 图片、渐变、文字的相对位置不变，
-        // 只是整块内容顶到了屏幕最上端。
-        // 🔴 v2.9.8：大图向上铺到屏幕最顶端 —— 偏移量 = 状态栏 + 导航栏(44pt)。
-        // 只加状态栏时，导航栏/状态栏那一块仍是页面白底，盖不满顶部（用户反馈顶部还是白）。
-        let topInset = statusBarHeight + navBarHeight
+        let expand = max(0, headerBaseHeight + headerScroll)
+        let h = topInset + expand
+        let collapsedFrac = min(1, max(0, 1 - expand / headerBaseHeight))
         return ZStack(alignment: .bottom) {
             CoverImage(
                 url: hiResCoverURL,
@@ -266,15 +268,14 @@ struct ArtistDetailView: View {
                 size: max(screenW, 800),
                 corner: 0,
                 displayWidth: screenW,
-                displayHeight: height + topInset
+                displayHeight: h
             )
-            .frame(width: screenW, height: height + topInset)
+            .frame(width: screenW, height: h)
             .clipped()
 
-            // 底部压暗渐变（保证白字可读）
             LinearGradient(colors: [.clear, Color.black.opacity(0.05), Color.black.opacity(0.72)],
                            startPoint: .top, endPoint: .bottom)
-                .frame(width: screenW, height: height + topInset)
+                .frame(width: screenW, height: h)
 
             VStack(alignment: .leading, spacing: 10) {
                 Text(artist.name)
@@ -302,31 +303,20 @@ struct ArtistDetailView: View {
                     .overlay(Circle().stroke(.white.opacity(0.35), lineWidth: 1.5))
 
                     Spacer()
-
-                    // 🔴 v2.9.7(二)：收藏改回黄色胶囊（酷狗同款，用户截图指定）
-                    Button {
-                        Haptics.soft()
-                        library.toggleArtistFavorite(artist)
-                    } label: {
-                        Text(library.isFavoriteArtist(artist) ? "已收藏" : "收藏")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.black.opacity(0.85))
-                            .padding(.horizontal, 22)
-                            .padding(.vertical, 9)
-                            .background(Capsule().fill(Self.collectYellow))
-                    }
-                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
+            // 锁定时整块文案淡出，名字交给导航栏显示，避免和顶栏按钮叠在一起。
+            .opacity(1 - collapsedFrac)
         }
-        // 🔴 v2.9.7：整体高度加一个状态栏 —— 大图向上多铺的那一截
-        .frame(width: screenW, height: height + topInset)
-        // 🔴 v2.9.7：整块头部向上平移一个状态栏高度 ——
-        // 图片就顶到了屏幕最上端（盖住通知栏那一块），返回键浮在图片上。
-        // 文字区（歌手名/收藏）也跟着上移，相对图片的位置不变。
-        .offset(y: -topInset)
+        .frame(width: screenW, height: h)
+        .clipped()
+        // 🔴 v2.9.8：大图本身不接收手势，滑动手势穿透到下面的 ScrollView；
+        // 收藏 / 更多等交互全部放在导航栏里，互不干扰。
+        .allowsHitTesting(false)
+        // 🔴 v2.9.8：延伸到状态栏 + 导航栏那一整条（覆盖顶栏，列表不会从顶栏透出来）。
+        .ignoresSafeArea(.top)
     }
 
     // MARK: - 歌曲列表（酷狗同款：全部播放行 + 最新/最热 + 扁平编号列表）

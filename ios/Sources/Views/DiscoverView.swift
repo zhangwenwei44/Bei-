@@ -1435,7 +1435,13 @@ struct DiscoverView: View {
         }
         // 三个新推荐板块
         if ktvSongs.isEmpty { ktvSongs = (try? await KugouClient.shared.searchSongs(keyword: "KTV必点 经典", limit: 30)) ?? [] }
-        if classicSongs.isEmpty { classicSongs = (try? await KugouClient.shared.searchSongs(keyword: "华语经典 怀旧", limit: 30)) ?? [] }
+        if classicSongs.isEmpty {
+            let loaded = (try? await KugouClient.shared.searchSongs(keyword: "华语经典 怀旧", limit: 30)) ?? []
+            // 🔴 v2.9.8：用户要求把《吻别》排到经典推荐最后面
+            let kiss = loaded.filter { $0.title.contains("吻别") }
+            let rest = loaded.filter { !$0.title.contains("吻别") }
+            classicSongs = rest + kiss
+        }
         // 🔴 v2.9.7(二)：「DJ推荐」板块（经典推荐下面新加的）
         if djSongs.isEmpty { djSongs = (try? await KugouClient.shared.searchSongs(keyword: "热门DJ 舞曲", limit: 30)) ?? [] }
         if newSongs.isEmpty {
