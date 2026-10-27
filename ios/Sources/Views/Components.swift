@@ -133,7 +133,7 @@ extension View {
                 AppStyle.pageGradientBottom
                     .frame(maxHeight: .infinity)
             }
-            .ignoresSafeArea(.top)
+            .ignoresSafeArea(edges: .top)
         }
     }
 
