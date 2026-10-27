@@ -678,8 +678,9 @@ final class PlayerStore: ObservableObject {
         let defaults = UserDefaults.standard
         let userEnabled = defaults.object(forKey: "aurora.autoPrecache") as? Bool ?? true
         guard userEnabled else { return }
-        // 1. WiFi 门控：蜂窝/低数据模式直接关，防偷流量
-        guard isWiFiNetwork else { return }
+        // 🔴 v2.9.8：放开「仅 WiFi 预加载」限制 —— 锁屏/后台（尤其蜂窝通勤时）如果下一首
+        // 没预热，切歌瞬间没有可复用的 item，会明显卡顿/断层。预加载本质就是「提前缓冲下一首」，
+        // 数据量等同正常播放，不算额外偷流量。本地歌曲不走网络，跳过。
         // 仅预加载 1 首（内存临时），如果已经在预加载同一首就跳过
         guard queue.indices.contains(currentIndex + 1),
               let next = queue[currentIndex + 1] as Song?,
@@ -703,9 +704,18 @@ final class PlayerStore: ObservableObject {
             return
         }
 
-        // 没有缓存 → 异步解析（低优先级，不阻塞播放）
-        Task.detached(priority: .utility) { [weak self] in
-            guard let self else { return }
+        // 没有缓存 → 异步解析。
+        // 🔴 v2.9.8：高优先级 + 后台任务 —— 锁屏/后台时 iOS 会大幅降权甚至挂起低优先级网络请求，
+        // .utility 的任务经常跑不完，导致下一首预热失败、切歌卡顿。这里对齐 prepare() 的做法
+        // （.high + beginBackgroundTask），保证切歌前把下一首的 item 建好、可无缝复用。
+        let bgTask = UIApplication.shared.beginBackgroundTask { }
+        Task.detached(priority: .high) { [weak self] in
+            guard let self else {
+                DispatchQueue.main.async { UIApplication.shared.endBackgroundTask(bgTask) }
+                return
+            }
+            // 任何退出路径都结束后台任务，避免被系统回收
+            defer { DispatchQueue.main.async { UIApplication.shared.endBackgroundTask(bgTask) } }
             guard let audio = await SourceResolver.resolve(
                 song: next,
                 // 🔴 v2.7.4：蜂窝网络下按设置降档

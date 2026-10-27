@@ -232,6 +232,10 @@ struct ArtistDetailView: View {
     /// 头部基础高度（下拉时由 body 里的 GeometryReader 拉伸放大）
     private let headerBaseHeight: CGFloat = 400
 
+    /// 导航栏高度（inline 导航栏 = 状态栏下方 44pt 的 bar）。
+    /// 大图要盖满整个顶部（连导航栏那一块），偏移量需额外加上这一截。
+    private let navBarHeight: CGFloat = 44
+
     /// 🔴 v2.9.7：状态栏（通知栏）高度。
     /// 大图要一直铺到屏幕最上端，所以要把状态栏那一块也算进头部高度里。
     ///
@@ -251,7 +255,9 @@ struct ArtistDetailView: View {
         // 🔴 v2.9.7：大图向上多铺一个状态栏高度，盖住通知栏（状态栏）那一块。
         // 整个头部容器跟着一起上移 + 加高 —— 图片、渐变、文字的相对位置不变，
         // 只是整块内容顶到了屏幕最上端。
-        let topInset = statusBarHeight
+        // 🔴 v2.9.8：大图向上铺到屏幕最顶端 —— 偏移量 = 状态栏 + 导航栏(44pt)。
+        // 只加状态栏时，导航栏/状态栏那一块仍是页面白底，盖不满顶部（用户反馈顶部还是白）。
+        let topInset = statusBarHeight + navBarHeight
         return ZStack(alignment: .bottom) {
             CoverImage(
                 url: hiResCoverURL,

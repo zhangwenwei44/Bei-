@@ -661,13 +661,12 @@ struct DiscoverView: View {
         }
     }
 
-    // MARK: 🔴 v2.9.7(二) 经典推荐 / DJ推荐（歌曲列表板块，新歌推荐下面）
+    // MARK: 🔴 v2.9.8 经典推荐 / DJ推荐 —— 改成和新歌推荐一致的「单行横滑卡片」
 
-    /// 通用歌曲列表板块：标题 + 更多按钮 + 前 5 首。
+    /// 复用「新歌推荐」的横滑卡版式（封面 + 歌名 + 歌手，点卡即播）。
     /// 「更多」push 进完整列表页（复用已加载好的歌曲，省一次请求）。
-    private func songSection(title: String, playlistID: String, songs: [Song]) -> some View {
-        let shown = Array(songs.prefix(5))
-        return VStack(alignment: .leading, spacing: 0) {
+    private func horizontalSongSection(title: String, playlistID: String, songs: [Song]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
             sectionHeader(title) {
                 NavigationLink {
                     PlaylistDetailView(
@@ -685,41 +684,31 @@ struct DiscoverView: View {
                 .buttonStyle(.plain)
             }
 
-            if shown.isEmpty {
+            if songs.isEmpty {
                 HStack {
                     ProgressView().controlSize(.small)
                         .frame(maxWidth: .infinity).padding(.vertical, 20)
                 }.padding(.horizontal, 16)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(shown.enumerated()), id: \.element.id) { index, song in
-                        SongRow(song: song,
-                                isCurrent: store.current?.id == song.id,
-                                isPlaying: store.isPlaying)
-                            .equatable()
-                            .songMenu(song)
-                            .padding(.horizontal, 16)
-                            .onTapGesture {
-                                guard let start = songs.firstIndex(where: { $0.id == song.id }) else { return }
-                                store.play(songs, startAt: start); Haptics.soft()
-                            }
-                        if index < shown.count - 1 {
-                            Divider().padding(.leading, 60)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 12) {
+                        ForEach(songs) { song in
+                            slideSongCard(song, queue: songs, size: 108)
                         }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 2)
                 }
-                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .padding(.horizontal, 16)
             }
         }
     }
 
     private var classicSection: some View {
-        songSection(title: "经典推荐", playlistID: "local-classic", songs: classicSongs)
+        horizontalSongSection(title: "经典推荐", playlistID: "local-classic", songs: classicSongs)
     }
 
     private var djSection: some View {
-        songSection(title: "DJ推荐", playlistID: "local-dj", songs: djSongs)
+        horizontalSongSection(title: "DJ推荐", playlistID: "local-dj", songs: djSongs)
     }
 
     // MARK: 大卡横排（每日推荐 + 猜你喜欢）+ 精选榜单每2张小卡叠加
@@ -1476,8 +1465,25 @@ struct DiscoverView: View {
             enriched[0].artworkURL = cover
         }
         dailySongs = enriched
-        // 🔴 v2.9.7：卡片上随机展示一首（封面/副标题同源），数据刷新才换
-        dailyPick = enriched.randomElement()
+        // 🔴 v2.9.8：卡片上随机展示的那一首必须带封面，否则卡片掉成灰渐变占位（用户反馈）。
+        // 优先在「已有封面」的歌里随机；若随机到的没封面、整列又没现成封面，
+        // 则取第一首有 albumID 的歌反查专辑封面兜底（最多 1 次网络请求）。
+        var pick = enriched.randomElement()
+        if let p = pick, p.artworkURL == nil {
+            if let withCover = enriched.first(where: { $0.artworkURL != nil }) {
+                pick = withCover
+            } else if let toEnrich = enriched.first(where: { !$0.kugouAlbumID.isEmpty }),
+                      let cover = await KugouClient.shared.albumCover(albumID: toEnrich.kugouAlbumID) {
+                var fixed = toEnrich
+                fixed.artworkURL = cover
+                if let idx = enriched.firstIndex(where: { $0.id == toEnrich.id }) {
+                    enriched[idx].artworkURL = cover
+                    dailySongs = enriched
+                }
+                pick = fixed
+            }
+        }
+        dailyPick = pick
         Log.info("发现页", "每日推荐 \(enriched.count) 首，第一首：\(enriched[0].title) - \(enriched[0].artist)")
     }
 
@@ -1498,8 +1504,13 @@ struct DiscoverView: View {
             if songs.count >= 10 { break }
         }
         guessSongs = songs
-        // 🔴 v2.9.7：卡片上随机展示一首（封面/副标题同源），数据刷新才换
-        guessPick = songs.randomElement()
+        // 🔴 v2.9.8：猜你喜欢卡片同样优先挑「有封面」的歌，避免灰渐变占位
+        var guess = songs.randomElement()
+        if let g = guess, g.artworkURL == nil,
+           let withCover = songs.first(where: { $0.artworkURL != nil }) {
+            guess = withCover
+        }
+        guessPick = guess
         if let first = songs.first {
             Log.info("发现页", "猜你喜欢 \(songs.count) 首，第一首封面: \(first.artworkURL?.absoluteString.prefix(60) ?? "nil")")
         } else {
