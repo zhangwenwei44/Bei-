@@ -126,8 +126,9 @@ extension View {
     ///
     /// 顶部一段 `height` 高的淡蓝→白色渐变带，下面整页铺 `pageGradientBottom`（=页面底色）
     /// 一直到屏幕底；渐变带末端色与页面底色相同，所以上蓝下白无缝衔接、不会露缝。
-    /// 渐变带从导航栏下方开始（导航栏本身用 `kugouNavigationBarTint()` 刷成同色淡蓝），
-    /// 上滑时背景相对可视区域固定，渐变钉在顶部不消失。
+    /// 渐变带用 `ignoresSafeArea(.top)` **从屏幕最顶端铺下来**（盖住状态栏/导航栏区域），
+    /// 配合 `kugouNavigationBarTint()`（iOS16+ 隐藏导航栏背景）——
+    /// 导航栏那段直接透出渐变，既没有白色断层、也没有系统自带的分隔线黑边。
     func kugouPinnedTopFade(height: CGFloat = 300) -> some View {
         background {
             // 整页底色先铺满（保证渐变带下方绝不会露出别的白，和页面底色完全一致），
@@ -137,18 +138,21 @@ extension View {
                 .overlay(alignment: .top) {
                     KugouTopFade(height: height)
                 }
+                .ignoresSafeArea(edges: .top)
         }
     }
 
-    /// 🔴 v2.9.6：把导航栏背景刷成酷狗那种淡蓝。
+    /// 🔴 v2.9.6(修正)：导航栏**不画任何背景**（连同自带的分隔线一起隐藏）。
     ///
-    /// 导航栏是**固定**的，正文顶部的渐变是**跟着内容滚**的，
-    /// 两段都要是同一个淡蓝，衔接处才看不出硬边。
+    /// 之前用 `toolbarBackground(.visible)` 刷淡蓝，会把系统导航栏自带的
+    /// 底部分隔线（黑色 Hairline）一起显示出来（设置/搜索页顶栏那条黑线）。
+    /// 现在改成直接隐藏导航栏背景：页面自己的 `kugouPinnedTopFade` 渐变
+    /// 用 `ignoresSafeArea(.top)` 铺到屏幕最顶端，导航栏区域透出渐变本身，
+    /// 颜色连成一片、没有任何分隔线。
     @ViewBuilder
     func kugouNavigationBarTint() -> some View {
         if #available(iOS 16.0, *) {
-            toolbarBackground(AppStyle.pageGradientTop, for: .navigationBar)
-                .toolbarBackground(.visible, for: .navigationBar)
+            toolbarBackground(.hidden, for: .navigationBar)
         } else {
             self
         }

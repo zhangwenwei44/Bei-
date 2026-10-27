@@ -102,10 +102,10 @@ struct DiscoverView: View {
         .kugouNavigationBarTint()
         .safeAreaInset(edge: .top, spacing: 0) {
             tabBar
-                // 🔴 v2.9.6：这一行（刷歌/推荐/乐库…）是钉在顶部的，
-                // 不在滚动内容里，所以渐变带盖不到它 —— 单独刷成同一个淡蓝，
-                // 和下面内容的渐变起点颜色一致，衔接处看不出硬边。
-                .background(AppStyle.pageGradientTop)
+                // 🔴 v2.9.6(修正)：这里不再单独刷实色蓝 —— 页面的 kugouPinnedTopFade
+                // 现在用 ignoresSafeArea(.top) 从屏幕最顶端铺下来，safeAreaInset 这行
+                // 的身后就是渐变，透出即可；之前刷实色 pageGradientTop 会和渐变
+                // 中段产生色差接缝。
         }
         // 🔴 底部留白已由 RootView 的 .safeAreaInset(edge:.bottom) 统一处理
         // （播放条现在是 TabView 的 inset 内容，不是浮层）。
