@@ -55,6 +55,32 @@ enum AppStyle {
     static let pageGradientMid = dynamic(light: hex(0xE7F2FF), dark: hex(0x101923))
     /// 渐变淡出后的目标色 —— 与页面底色一致，接缝看不出来。
     static let pageGradientBottom = dynamic(light: hex(0xF6F7F9), dark: hex(0x0E0E11))
+
+    // MARK: 导航栏外观（UIKit 侧）
+
+    /// 导航栏底色（UIKit 侧的 UIColor 版本，和 `pageGradientTop` 同值）。
+    /// 用于 `UINavigationBarAppearance`。
+    private static let navigationBarBackgroundUIColor = UIColor { trait in
+        trait.userInterfaceStyle == .dark ? hex(0x18293C) : hex(0xC2DEFF)
+    }
+
+    /// 🔴 v2.9.6(修正)：App 启动时装一次导航栏外观 ——
+    /// 背景刷成 `pageGradientTop` 同色，并把系统导航栏**自带的底部分隔线**（Hairline，
+    /// 就是搜索/设置页顶栏那条黑线）通过 `shadowColor = .clear` 去掉。
+    ///
+    /// ⚠️ 必须在 `App.init()` 里调用（appearance 代理只对之后创建的导航栏生效），
+    /// 并且不能用 `toolbarBackground(.hidden)` 来去黑线 —— 那会把导航栏的安全区
+    /// 一并丢掉，滚动内容会顶到状态栏下面（已实测踩坑）。
+    static func installNavigationBarAppearance() {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = navigationBarBackgroundUIColor
+        appearance.shadowColor = .clear
+        appearance.shadowImage = UIImage()
+        UINavigationBar.appearance().standardAppearance = appearance
+        UINavigationBar.appearance().scrollEdgeAppearance = appearance
+        UINavigationBar.appearance().compactAppearance = appearance
+    }
 }
 
 /// 🔴 v2.9.6：酷狗风格的顶部淡蓝 → 白色渐变带。
@@ -126,9 +152,11 @@ extension View {
     ///
     /// 顶部一段 `height` 高的淡蓝→白色渐变带，下面整页铺 `pageGradientBottom`（=页面底色）
     /// 一直到屏幕底；渐变带末端色与页面底色相同，所以上蓝下白无缝衔接、不会露缝。
-    /// 渐变带用 `ignoresSafeArea(.top)` **从屏幕最顶端铺下来**（盖住状态栏/导航栏区域），
-    /// 配合 `kugouNavigationBarTint()`（iOS16+ 隐藏导航栏背景）——
-    /// 导航栏那段直接透出渐变，既没有白色断层、也没有系统自带的分隔线黑边。
+    /// 渐变带用 `ignoresSafeArea(edges: .top)` **从屏幕最顶端铺下来**（盖住状态栏/导航栏区域），
+    /// 导航栏由 `AppStyle.installNavigationBarAppearance()` 刷成同色淡蓝，
+    /// 颜色连成一片；渐变只影响背景层，不影响内容的安全区布局。
+    /// 注意：`.ignoresSafeArea` 只加在 `background` 里的背景层上，
+    /// **绝不能**加在整个视图上（会把内容顶到状态栏下面）。
     func kugouPinnedTopFade(height: CGFloat = 300) -> some View {
         background {
             // 整页底色先铺满（保证渐变带下方绝不会露出别的白，和页面底色完全一致），
@@ -142,20 +170,20 @@ extension View {
         }
     }
 
-    /// 🔴 v2.9.6(修正)：导航栏**不画任何背景**（连同自带的分隔线一起隐藏）。
+    /// 🔴 v2.9.6(修正)：导航栏的刷色**完全交给 `AppStyle.installNavigationBarAppearance()`**
+    /// （App 启动时装一次的 UIKit appearance 代理），这里不再叠加任何 SwiftUI 修饰符。
     ///
-    /// 之前用 `toolbarBackground(.visible)` 刷淡蓝，会把系统导航栏自带的
-    /// 底部分隔线（黑色 Hairline）一起显示出来（设置/搜索页顶栏那条黑线）。
-    /// 现在改成直接隐藏导航栏背景：页面自己的 `kugouPinnedTopFade` 渐变
-    /// 用 `ignoresSafeArea(.top)` 铺到屏幕最顶端，导航栏区域透出渐变本身，
-    /// 颜色连成一片、没有任何分隔线。
-    @ViewBuilder
+    /// ⚠️ 踩坑记录（都实测过，别再走回头路）：
+    /// - `toolbarBackground(.visible, 颜色)`：布局正常，但 SwiftUI 会用它自己生成的
+    ///   外观覆盖 appearance 代理，系统自带的底部分隔线（黑线）会跟着出现；
+    /// - `toolbarBackground(.hidden)`：黑线没了，但导航栏不再保留安全区，
+    ///   滚动内容会顶到状态栏下面（主页固定 tab 行被内容盖住、设置页大标题和文字重叠）。
+    /// - appearance 代理 + `shadowColor = .clear`：布局正常 + 没有黑线，两全其美。
+    ///
+    /// 各页面保留这个调用只是为了语义清晰（标记"这页导航栏要酷狗淡蓝"），
+    /// 实际着色由全局 appearance 完成；若未来需要 per-page 差异，再在这里加修饰符。
     func kugouNavigationBarTint() -> some View {
-        if #available(iOS 16.0, *) {
-            toolbarBackground(.hidden, for: .navigationBar)
-        } else {
-            self
-        }
+        self
     }
 }
 
