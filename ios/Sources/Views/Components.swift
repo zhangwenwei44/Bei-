@@ -58,19 +58,30 @@ enum AppStyle {
 
     // MARK: 导航栏外观（UIKit 侧）
 
+    /// 导航栏底色（UIKit 侧的 UIColor 版本，和 `pageGradientTop` 同值）。
+    /// 用于 `UINavigationBarAppearance`。
+    private static let navigationBarBackgroundUIColor = UIColor { trait in
+        trait.userInterfaceStyle == .dark ? hex(0x18293C) : hex(0xC2DEFF)
+    }
+
     /// 🔴 v2.9.6(修正)：App 启动时装一次导航栏外观 ——
-    /// 背景**全透明**，让页面自己的 `kugouPinnedTopFade` 渐变（已用
-    /// `ignoresSafeArea(.top)` 从屏幕最顶端铺下来）直接透出来 ——
-    /// 导航栏和正文就是同一条渐变，不会再出现"导航栏一块色、正文另一块色"。
-    /// 同时 `shadowColor = .clear` 去掉系统自带的底部分隔线（黑线）。
+    /// 背景**实色 `pageGradientTop`**（淡蓝），并把系统自带的底部分隔线（黑线）
+    /// 通过 `shadowColor = .clear` 去掉。
+    ///
+    /// 为什么用实色而不是透明（run 537 翻车记录）：透明导航栏虽能让页面渐变透上来
+    /// 颜色连成一片，但**上滑时内容会从顶栏底下穿过去** —— 设置页列表文字和标题重叠、
+    /// 主页封面顶到状态栏底下。实色栏把上滑内容挡在下面。
+    ///
+    /// 颜色为什么不会和渐变"两种颜色"：页面渐变带（`KugouTopFade`）顶部 ~50% 高度
+    /// 是**纯 pageGradientTop 色块**，和这个实色栏完全同值，从色块下沿才开始淡出 ——
+    /// 无缝衔接、也看不见黑线。
     ///
     /// ⚠️ 必须在 `App.init()` 里调用（appearance 代理只对之后创建的导航栏生效）。
-    /// ⚠️ 透明背景**不会**丢安全区 —— 导航栏本身还在，内容照常从它下方开始；
-    /// 之前踩坑的是 SwiftUI 的 `toolbarBackground(.hidden)`，那个才会把安全区丢掉。
+    /// ⚠️ 不能用 `toolbarBackground(.hidden)` 去黑线 —— 那会丢安全区（run 535 翻车）。
     static func installNavigationBarAppearance() {
         let appearance = UINavigationBarAppearance()
-        appearance.configureWithTransparentBackground()
-        appearance.backgroundColor = .clear
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = navigationBarBackgroundUIColor
         appearance.shadowColor = .clear
         appearance.shadowImage = UIImage()
         UINavigationBar.appearance().standardAppearance = appearance
@@ -99,12 +110,21 @@ struct KugouTopFade: View {
     var fill: Bool = false
 
     private var gradient: LinearGradient {
+        // 🔴 v2.9.6(修正)：**顶部一半是纯色块**，下半段才开始淡出。
+        // 原因：导航栏和主页 tab 行必须刷**实色**（挡住上滑时从顶栏底下穿过的内容），
+        // 实色栏是 pageGradientTop；如果渐变从屏幕顶端立刻开始淡，
+        // 实色栏和身后的渐变就会是两种颜色（run 537 实测翻车）。
+        // 现在渐变带顶部 ~50% 高度保持纯 pageGradientTop（正好覆盖状态栏+导航栏+tab 行
+        // 约 130~150pt 的区域），从那里开始才淡向 mid/bottom —— 实色栏与色块同色，无缝衔接。
+        // （用 Gradient(stops:) 而不是 locations 参数版初始化器：那是 iOS 16+ API，
+        //   部署目标是 iOS 15。）
         LinearGradient(
-            colors: [
-                AppStyle.pageGradientTop,
-                AppStyle.pageGradientMid,
-                AppStyle.pageGradientBottom,
-            ],
+            gradient: Gradient(stops: [
+                .init(color: AppStyle.pageGradientTop, location: 0),
+                .init(color: AppStyle.pageGradientTop, location: 0.5),
+                .init(color: AppStyle.pageGradientMid, location: 0.78),
+                .init(color: AppStyle.pageGradientBottom, location: 1),
+            ]),
             startPoint: .top,
             endPoint: .bottom
         )
@@ -149,8 +169,8 @@ extension View {
     /// 顶部一段 `height` 高的淡蓝→白色渐变带，下面整页铺 `pageGradientBottom`（=页面底色）
     /// 一直到屏幕底；渐变带末端色与页面底色相同，所以上蓝下白无缝衔接、不会露缝。
     /// 渐变带用 `ignoresSafeArea(edges: .top)` **从屏幕最顶端铺下来**（盖住状态栏/导航栏区域），
-    /// 导航栏由 `AppStyle.installNavigationBarAppearance()` 设为**全透明**，
-    /// 直接透出这条渐变 —— 全程只有一种颜色，也不会有分隔线黑边。
+    /// 导航栏（appearance 实色）和主页 tab 行（实色背景）与渐变带顶部的**同色纯色块**衔接 ——
+    /// 颜色连成一片、没有分隔线黑边，上滑内容也被实色顶栏挡住不会穿帮。
     /// 注意：`.ignoresSafeArea` 只加在 `background` 里的背景层上，
     /// **绝不能**加在整个视图上（会把内容顶到状态栏下面）。
     func kugouPinnedTopFade(height: CGFloat = 300) -> some View {

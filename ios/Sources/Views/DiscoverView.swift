@@ -102,9 +102,11 @@ struct DiscoverView: View {
         .kugouNavigationBarTint()
         .safeAreaInset(edge: .top, spacing: 0) {
             tabBar
-                // 🔴 v2.9.6(修正)：tab 行**不刷实色**，直接透出身后的渐变 ——
-                // 导航栏已是全透明（appearance），从屏幕顶到正文是同一条渐变，
-                // tab 行再刷实色 pageGradientTop 会和身后的渐变（此处已淡一档）产生色差。
+                // 🔴 v2.9.6(修正)：tab 行刷**实色 pageGradientTop** ——
+                // 上滑时滚动内容会从 safeAreaInset 区域底下穿过，实色把它挡住；
+                // 页面渐变带顶部 ~50% 是同色纯色块（见 KugouTopFade），
+                // 与导航栏（appearance 实色）三方同值，无缝衔接不会出现两种颜色。
+                .background(AppStyle.pageGradientTop)
         }
         // 🔴 底部留白已由 RootView 的 .safeAreaInset(edge:.bottom) 统一处理
         // （播放条现在是 TabView 的 inset 内容，不是浮层）。
