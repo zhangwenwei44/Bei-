@@ -42,7 +42,8 @@ struct AuroraMusicApp: App {
         let installed = BundledSources.installMissing()
         Log.info("启动", "内置音源安装完成，本次装了 \(installed) 个")
 
-        // 🔴 v2.9.6(修正)：导航栏刷成酷狗淡蓝 + 去掉系统自带的底部分隔线（黑线）。
+        // 🔴 v2.9.6(修正)：导航栏设为全透明（透出页面的固定渐变，颜色连成一条）
+        // + 去掉系统自带的底部分隔线（黑线）。
         // 必须在 init 里装，appearance 代理只对之后创建的导航栏生效。
         AppStyle.installNavigationBarAppearance()
 

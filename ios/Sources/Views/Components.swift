@@ -58,23 +58,19 @@ enum AppStyle {
 
     // MARK: 导航栏外观（UIKit 侧）
 
-    /// 导航栏底色（UIKit 侧的 UIColor 版本，和 `pageGradientTop` 同值）。
-    /// 用于 `UINavigationBarAppearance`。
-    private static let navigationBarBackgroundUIColor = UIColor { trait in
-        trait.userInterfaceStyle == .dark ? hex(0x18293C) : hex(0xC2DEFF)
-    }
-
     /// 🔴 v2.9.6(修正)：App 启动时装一次导航栏外观 ——
-    /// 背景刷成 `pageGradientTop` 同色，并把系统导航栏**自带的底部分隔线**（Hairline，
-    /// 就是搜索/设置页顶栏那条黑线）通过 `shadowColor = .clear` 去掉。
+    /// 背景**全透明**，让页面自己的 `kugouPinnedTopFade` 渐变（已用
+    /// `ignoresSafeArea(.top)` 从屏幕最顶端铺下来）直接透出来 ——
+    /// 导航栏和正文就是同一条渐变，不会再出现"导航栏一块色、正文另一块色"。
+    /// 同时 `shadowColor = .clear` 去掉系统自带的底部分隔线（黑线）。
     ///
-    /// ⚠️ 必须在 `App.init()` 里调用（appearance 代理只对之后创建的导航栏生效），
-    /// 并且不能用 `toolbarBackground(.hidden)` 来去黑线 —— 那会把导航栏的安全区
-    /// 一并丢掉，滚动内容会顶到状态栏下面（已实测踩坑）。
+    /// ⚠️ 必须在 `App.init()` 里调用（appearance 代理只对之后创建的导航栏生效）。
+    /// ⚠️ 透明背景**不会**丢安全区 —— 导航栏本身还在，内容照常从它下方开始；
+    /// 之前踩坑的是 SwiftUI 的 `toolbarBackground(.hidden)`，那个才会把安全区丢掉。
     static func installNavigationBarAppearance() {
         let appearance = UINavigationBarAppearance()
-        appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = navigationBarBackgroundUIColor
+        appearance.configureWithTransparentBackground()
+        appearance.backgroundColor = .clear
         appearance.shadowColor = .clear
         appearance.shadowImage = UIImage()
         UINavigationBar.appearance().standardAppearance = appearance
@@ -153,8 +149,8 @@ extension View {
     /// 顶部一段 `height` 高的淡蓝→白色渐变带，下面整页铺 `pageGradientBottom`（=页面底色）
     /// 一直到屏幕底；渐变带末端色与页面底色相同，所以上蓝下白无缝衔接、不会露缝。
     /// 渐变带用 `ignoresSafeArea(edges: .top)` **从屏幕最顶端铺下来**（盖住状态栏/导航栏区域），
-    /// 导航栏由 `AppStyle.installNavigationBarAppearance()` 刷成同色淡蓝，
-    /// 颜色连成一片；渐变只影响背景层，不影响内容的安全区布局。
+    /// 导航栏由 `AppStyle.installNavigationBarAppearance()` 设为**全透明**，
+    /// 直接透出这条渐变 —— 全程只有一种颜色，也不会有分隔线黑边。
     /// 注意：`.ignoresSafeArea` 只加在 `background` 里的背景层上，
     /// **绝不能**加在整个视图上（会把内容顶到状态栏下面）。
     func kugouPinnedTopFade(height: CGFloat = 300) -> some View {
