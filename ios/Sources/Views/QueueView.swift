@@ -69,6 +69,9 @@ struct QueueView: View {
                 }
             }
             .background(AppStyle.background)
+            // 🔴 v2.9.6(修正)：这个弹窗没有顶部的淡蓝渐变带，
+            // 全局导航栏外观刷的淡蓝顶栏在这里很突兀 —— 用户要求改成白色。
+            .kugouNavigationBarBackground()
             .navigationTitle("当前播放")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

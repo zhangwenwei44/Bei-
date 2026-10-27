@@ -64,6 +64,30 @@ enum AppStyle {
         trait.userInterfaceStyle == .dark ? hex(0x18293C) : hex(0xC2DEFF)
     }
 
+    /// 二级页 / 弹窗的导航栏底色（白色系）。
+    ///
+    /// 全局 appearance 代理刷的是酷狗淡蓝 —— 主页的导航栏必须和顶部渐变带
+    /// 同色才衔接得上，但二级页（第三方音源）和弹窗（当前播放列表）没有渐变带，
+    /// 蓝顶栏很突兀（用户明确要求这两处改成白色）。
+    ///
+    /// 浅色模式用纯白，深色模式用页面底色（#0E0E11，和 `background` 同值）。
+    static let plainNavigationBarBackgroundUIColor = UIColor { trait in
+        trait.userInterfaceStyle == .dark ? hex(0x0E0E11) : hex(0xFFFFFF)
+    }
+
+    /// 生成一个「实底 + 去掉系统分隔线」的导航栏外观。
+    ///
+    /// `shadowColor = .clear` + `shadowImage = UIImage()` 是去黑线的关键
+    /// （系统导航栏自带一条底部分隔线 Hairline）。
+    static func makeNavigationBarAppearance(background: UIColor) -> UINavigationBarAppearance {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = background
+        appearance.shadowColor = .clear
+        appearance.shadowImage = UIImage()
+        return appearance
+    }
+
     /// 🔴 v2.9.6(修正)：App 启动时装一次导航栏外观 ——
     /// 背景**实色 `pageGradientTop`**（淡蓝），并把系统自带的底部分隔线（黑线）
     /// 通过 `shadowColor = .clear` 去掉。
@@ -79,11 +103,7 @@ enum AppStyle {
     /// ⚠️ 必须在 `App.init()` 里调用（appearance 代理只对之后创建的导航栏生效）。
     /// ⚠️ 不能用 `toolbarBackground(.hidden)` 去黑线 —— 那会丢安全区（run 535 翻车）。
     static func installNavigationBarAppearance() {
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = navigationBarBackgroundUIColor
-        appearance.shadowColor = .clear
-        appearance.shadowImage = UIImage()
+        let appearance = makeNavigationBarAppearance(background: navigationBarBackgroundUIColor)
         UINavigationBar.appearance().standardAppearance = appearance
         UINavigationBar.appearance().scrollEdgeAppearance = appearance
         UINavigationBar.appearance().compactAppearance = appearance
@@ -200,6 +220,162 @@ extension View {
     /// 实际着色由全局 appearance 完成；若未来需要 per-page 差异，再在这里加修饰符。
     func kugouNavigationBarTint() -> some View {
         self
+    }
+
+    /// 🔴 v2.9.6(修正)：把**当前这一页**的导航栏刷成指定底色（二级页/弹窗用白色）。
+    ///
+    /// ## 为什么需要它
+    /// 全局 appearance 代理（`installNavigationBarAppearance()`）把所有导航栏都刷成
+    /// 酷狗淡蓝 `#C2DEFF` —— 主页那四个页面要靠它和顶部渐变带无缝衔接，所以是**全局**的。
+    /// 但二级页（第三方音源）和弹窗（当前播放列表）本身没有渐变带，
+    /// 顶上那条淡蓝很突兀（用户明确要求这两处改成白色）。
+    ///
+    /// ## 为什么用 UIKit 的 `navigationItem` 而不是 SwiftUI 的 `toolbarBackground`
+    /// - `toolbarBackground(.hidden)` 会**丢掉导航栏安全区** → 内容顶到状态栏（run 535 翻车）；
+    /// - `toolbarBackground(.visible, 色)` 虽然布局正常，但 SwiftUI 会用它自己生成的
+    ///   外观覆盖 appearance 代理，系统自带分隔线（黑线）会回来（run 534 翻车）。
+    ///
+    /// `UINavigationItem` 的 appearance 是**逐 item** 的（iOS 13+）：
+    /// 它只作用于当前显示的那个 navigation item，不影响全局代理，
+    /// 也不影响同一导航栈里的其它页面 —— 正是"只改这一页"需要的语义。
+    ///
+    /// ⚠️ `navigationItem.standardAppearance` 等属性 iOS 13+ 可用，部署目标 15.0 没问题。
+    func kugouNavigationBarBackground(_ color: UIColor = AppStyle.plainNavigationBarBackgroundUIColor) -> some View {
+        background(NavigationBarItemAppearance(color: color))
+    }
+}
+
+/// 🔴 v2.9.6(修正)：通过 `UINavigationItem` 给**当前页**的导航栏单独刷底色。
+///
+/// 用 `UIViewControllerRepresentable` 找到本页所属的导航控制器，
+/// 给它**当前显示的那一项**（= 本页的 `UIHostingController`）的 `navigationItem` 设 appearance。
+/// navigationItem 的 appearance 优先级高于导航栏本身、也高于全局 appearance 代理，
+/// 所以**只影响这一页** —— 同一个导航栈里的其它页面（以及主页那四个）照旧是淡蓝。
+struct NavigationBarItemAppearance: UIViewControllerRepresentable {
+    let color: UIColor
+
+    func makeUIViewController(context: Context) -> Controller {
+        Controller(color: color)
+    }
+
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.color = color
+        controller.applyIfPossible()
+    }
+
+    final class Controller: UIViewController {
+        var color: UIColor
+
+        init(color: UIColor) {
+            self.color = color
+            super.init(nibName: nil, bundle: nil)
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            // 只是个"看不见的锚点"：不占布局、不参与绘制、不吃触摸
+            view.isUserInteractionEnabled = false
+            view.backgroundColor = .clear
+            applyIfPossible()
+        }
+
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            // SwiftUI 可能在 navigationItem 上重设 title / 按钮，
+            // 每次将要显示时再刷一遍，保证底色不会被覆盖掉。
+            applyIfPossible()
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            applyIfPossible()
+        }
+
+        override func didMove(toParent parent: UIViewController?) {
+            super.didMove(toParent: parent)
+            // push 动画中，viewWillAppear 时新页面可能还没进栈
+            // （topViewController 还是上一页），那时会跳过。
+            // 进栈完成后这里再补一次，保证白色一定刷上。
+            DispatchQueue.main.async { [weak self] in
+                self?.applyIfPossible()
+            }
+        }
+
+        /// 找出本页所属的导航控制器。
+        ///
+        /// 沿父链往上找：SwiftUI 的 `NavigationStack` 底层就是一个 `UINavigationController`，
+        /// 它是各页面 `UIHostingController` 的父级 —— 所以一定能走到。
+        ///
+        /// ⚠️ 弹窗（当前播放列表）自带一个独立的导航控制器（它的 CompatNavigationStack），
+        /// 离本页最近；设置页的二级页（第三方音源）则在设置那个 tab 的导航栈里。
+        /// 两种都要保证拿到的是**本页那个**栈，不能误伤根导航栈。
+        private func resolveNavigationController() -> UINavigationController? {
+            var candidate: UIViewController? = parent
+            while let current = candidate {
+                if let nav = current as? UINavigationController { return nav }
+                if let nav = current.navigationController,
+                   nav.viewControllers.contains(where: { $0 === current }) {
+                    return nav
+                }
+                candidate = current.parent
+            }
+            return nil
+        }
+
+        /// 找出"本页"在导航栈里对应的那一个 view controller。
+        ///
+        /// SwiftUI 每个被 push 的页面都各自有一个 `UIHostingController`，
+        /// 它就是导航栈 `viewControllers` 里的一个 item —— UIKit 显示导航栏时
+        /// 读的就是它的 `navigationItem`。
+        ///
+        /// ⚠️ 找不到就返回 nil（**不兜底到 topViewController**）：
+        /// push 动画刚开始的那一瞬间，新页面可能还没进栈，
+        /// 这时候 topViewController 还是**上一页**（设置页）——
+        /// 要是把白色刷到设置页的 navigationItem 上，
+        /// 返回设置页时顶栏就变白了（run 536/537 的"两种颜色"就是这么来的）。
+        private func resolveItemViewController(in nav: UINavigationController) -> UIViewController? {
+            var candidate: UIViewController? = parent
+            while let current = candidate {
+                if nav.viewControllers.contains(where: { $0 === current }) { return current }
+                candidate = current.parent
+            }
+            return nil
+        }
+
+        func applyIfPossible() {
+            guard let nav = resolveNavigationController() else { return }
+            guard let host = resolveItemViewController(in: nav) else { return }
+            // 只认**当前正在显示的那一项**：绝不去动兄弟页面的 navigationItem
+            guard nav.topViewController === host else { return }
+
+            let appearance = AppStyle.makeNavigationBarAppearance(background: color)
+
+            // ① per-item：这才是"只改这一页"的正解。
+            //    navigationItem 的 appearance 优先级高于导航栏本身、也高于全局代理，
+            //    所以同一导航栈里的兄弟页面（设置页）照旧是淡蓝。
+            host.navigationItem.standardAppearance = appearance
+            host.navigationItem.scrollEdgeAppearance = appearance
+            host.navigationItem.compactAppearance = appearance
+
+            // ② 兜底：只有当这个导航栈**就这一页**时（独立弹窗自带栈的情况，
+            //    比如「当前播放」队列 sheet），整条栈都属于这一页，
+            //    直接改导航栏本体最稳，不会波及其它任何页面。
+            //    ⚠️ 栈里还有别的页面时绝不能走这条 —— 导航栏是整条栈共用的，
+            //    显式赋值后就固定了、不再回落到 appearance 代理，
+            //    会把设置页的淡蓝顶栏永久刷成白色。
+            if nav.viewControllers.count <= 1 {
+                nav.navigationBar.standardAppearance = appearance
+                nav.navigationBar.scrollEdgeAppearance = appearance
+                nav.navigationBar.compactAppearance = appearance
+            }
+
+            // 让 UIKit 立刻按新外观重排一次导航栏
+            nav.navigationBar.setNeedsLayout()
+        }
     }
 }
 
