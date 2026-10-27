@@ -312,44 +312,20 @@ struct DiscoverView: View {
             // 🔴 v2.6.7：热门歌手改成横向头像排（不再是翻页列表），
             // 整页只保留「新歌推荐」一个翻页器，视觉噪音小很多。
             artistStripSection
-            // 三个新推荐板块 —— 点"更多"push 进完整榜单页（复用已加载好的歌曲，省一次请求）
+            // 🔴 v2.9.7：「新歌推荐」→「歌单推荐」（横滑歌单卡）→「专辑推荐」（横滑大卡）→「榜单推荐」
+            // 「经典推荐」「KTV必点曲」两个板块已按用户要求移除。
             newSongSection
-            // 🔴 v2.9.6：新歌推荐下面是「推荐用户的歌单」（横滑歌单卡）→「歌单推荐」（横滑大卡）
             userPlaylistSection
             playlistRecommendSection
-            songSection(title: "经典推荐", moreDestination: {
-                NavigationLink {
-                    PlaylistDetailView(
-                        playlist: Playlist(id: "local-classic", name: "经典推荐",
-                                           coverURL: nil, trackCount: classicSongs.count,
-                                           creatorName: "Aurora 推荐", source: .kugou),
-                        initialSongs: classicSongs)
-                } label: {
-                    HStack(spacing: 2) { Text("更多").font(.system(size: 12)); Image(systemName: "chevron.right").font(.system(size: 10)) }
-                        .foregroundStyle(AppStyle.tertiaryText)
-                }
-                .buttonStyle(.plain)
-            }, allSongs: classicSongs)
-            songSection(title: "KTV必点曲", moreDestination: {
-                NavigationLink {
-                    PlaylistDetailView(
-                        playlist: Playlist(id: "local-ktv", name: "KTV必点曲",
-                                           coverURL: nil, trackCount: ktvSongs.count,
-                                           creatorName: "Aurora 推荐", source: .kugou),
-                        initialSongs: ktvSongs)
-                } label: {
-                    HStack(spacing: 2) { Text("更多").font(.system(size: 12)); Image(systemName: "chevron.right").font(.system(size: 10)) }
-                        .foregroundStyle(AppStyle.tertiaryText)
-                }
-                .buttonStyle(.plain)
-            }, allSongs: ktvSongs)
+            rankRecommendSection
         }
     }
 
     // 🔴 v2.9.4：新歌推荐 —— 由「2×2 翻页宫格」改成 **单行横向滚动**。
     //
     // 翻页要按页码来回切，横滑一屏能看到更多，也不再需要底部页码圆点。
-    // 下面是「推荐用户的歌单」（同样单排横滑）与「歌单推荐」（大卡横滑）。
+    // 🔴 v2.9.7：下面是「歌单推荐」（同样单排横滑）、「专辑推荐」（大卡横滑）、
+    // 「榜单推荐」（榜单大卡）。
     private var newSongSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             sectionHeader("新歌推荐") {
@@ -413,15 +389,15 @@ struct DiscoverView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: 🔴 v2.9.6 推荐用户的歌单
+    // MARK: 🔴 v2.9.7 歌单推荐（原「推荐用户的歌单」）
 
-    /// 「推荐用户的歌单」：酷狗歌单广场里用户创建的歌单，单排横滑。
+    /// 「歌单推荐」：酷狗歌单广场里用户创建的歌单，单排横滑。
     ///
     /// 显示方式与上面的「新歌推荐」一致（一行横滑、无页码点）：
     /// 封面 + 歌单名 + 创建者。数据复用首页已经加载好的 recommendedPlaylists，不额外发请求。
     private var userPlaylistSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("推荐用户的歌单") {
+            sectionHeader("歌单推荐") {
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) { selectedTab = .playlists }
                 } label: {
@@ -476,16 +452,16 @@ struct DiscoverView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: 🔴 v2.9.4 歌单推荐
+    // MARK: 🔴 v2.9.7 专辑推荐（原「歌单推荐」）
 
-    /// 歌单推荐里的一张卡：一个主题歌单（标题 + 首数 + 播放 + 前 2 首预览）。
+    /// 专辑推荐里的一张卡：一个主题专辑（标题 + 首数 + 播放 + 前 2 首预览）。
     private struct RecommendBucket: Identifiable {
         let id: String
         let title: String
         let songs: [Song]
     }
 
-    /// 歌单推荐的数据：把首页已经加载好的几个歌曲池打包成「歌单」，
+    /// 专辑推荐的数据：把首页已经加载好的几个歌曲池打包成「专辑」，
     /// 不再额外发请求 —— 点进去就是完整列表，点右侧播放键直接整张连播。
     private var recommendBuckets: [RecommendBucket] {
         var buckets: [RecommendBucket] = []
@@ -504,7 +480,7 @@ struct DiscoverView: View {
     private var playlistRecommendSection: some View {
         let buckets = recommendBuckets
         return VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("歌单推荐") { EmptyView() }
+            sectionHeader("专辑推荐") { EmptyView() }
 
             if buckets.isEmpty {
                 HStack {
@@ -623,38 +599,59 @@ struct DiscoverView: View {
         .padding(.bottom, 10)
     }
 
-    // 通用歌曲板块：标题 + 更多按钮 + 5首歌曲列表
-    private func songSection(title: String, @ViewBuilder moreDestination: () -> some View, allSongs: [Song]) -> some View {
-        let shown = Array(allSongs.prefix(5))
-        return VStack(alignment: .leading, spacing: 0) {
-            sectionHeader(title) { moreDestination() }
+    // MARK: 🔴 v2.9.7 榜单推荐
 
-            if shown.isEmpty {
+    /// 「榜单推荐」要展示的 4 个榜（酷狗 rankID → 展示名）。
+    /// 顺序按用户指定的：会员热歌榜 / 网络热歌榜 / 酷狗飙升榜 / 百万收藏榜。
+    private static let recommendRankIDs: [(id: String, displayName: String)] = [
+        ("35811", "会员热歌榜"),
+        ("82831", "网络热歌榜"),
+        ("6666", "酷狗飙升榜"),
+        ("85432", "百万收藏榜"),
+    ]
+
+    /// 推荐页里的「榜单推荐」数据源：从已加载的榜单里挑出这 4 个。
+    /// 数据复用首页已加载的 feed.topLists，不额外发列表请求。
+    private var recommendRankLists: [(playlist: Playlist, displayName: String)] {
+        let byID = Dictionary(grouping: feed.topLists) { $0.kugouRankID ?? "" }
+        return Self.recommendRankIDs.compactMap { entry in
+            guard let playlist = byID[entry.id]?.first else { return nil }
+            // 展示名统一用用户指定的（接口可能返回「飙升榜」而不是「酷狗飙升榜」，
+            // 同一份数据在两个板块里名字不一致会很怪）。
+            // 注意：只覆盖展示用的名字，不改 Playlist 本体 —— 它还要传给详情页。
+            return (playlist, entry.displayName)
+        }
+    }
+
+    /// 「榜单推荐」板块：排版沿用榜单 Tab 的「热门榜单」大卡
+    /// （榜名 + 更新频率 + 封面角标 + 前 3 首），但只展示指定的 4 个榜。
+    private var rankRecommendSection: some View {
+        let lists = recommendRankLists
+        return VStack(alignment: .leading, spacing: 0) {
+            sectionHeader("榜单推荐") { EmptyView() }
+
+            if lists.isEmpty {
                 HStack {
                     ProgressView().controlSize(.small)
                         .frame(maxWidth: .infinity).padding(.vertical, 20)
                 }.padding(.horizontal, 16)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(shown.enumerated()), id: \.element.id) { index, song in
-                        SongRow(song: song,
-                                isCurrent: store.current?.id == song.id,
-                                isPlaying: store.isPlaying)
-                            .equatable()
-                            .songMenu(song)
-                            .padding(.horizontal, 16)
-                            .onTapGesture {
-                                guard let start = allSongs.firstIndex(where: { $0.id == song.id }) else { return }
-                                store.play(allSongs, startAt: start); Haptics.soft()
-                            }
-                        if index < shown.count - 1 {
-                            Divider().padding(.leading, 60)
+                VStack(spacing: 12) {
+                    ForEach(lists, id: \.playlist.id) { item in
+                        NavigationLink {
+                            PlaylistDetailView(playlist: item.playlist)
+                        } label: {
+                            rankPreviewCard(playlist: item.playlist, displayName: item.displayName)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
-                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .padding(.horizontal, 16)
             }
+        }
+        // 这 4 个榜的前 3 首预览要单独拉 —— 榜单 Tab 的预拉取只在切到那个 Tab 时才跑。
+        .task(id: lists.map(\.playlist.id)) {
+            await loadRankPreviews(for: lists.map(\.playlist))
         }
     }
 
@@ -1040,11 +1037,14 @@ struct DiscoverView: View {
         }
     }
 
-    private func rankPreviewCard(playlist: Playlist) -> some View {
+    /// 榜单预览大卡：榜名 + 更新频率 + 封面(播放量角标) + 前 3 首
+    /// - Parameter displayName: 覆盖展示的榜名（nil = 用 playlist 自带的名字）。
+    ///   推荐页的「榜单推荐」用它统一成用户指定的名称。
+    private func rankPreviewCard(playlist: Playlist, displayName: String? = nil) -> some View {
         let songs = rankPreviewSongs[playlist.kugouRankID ?? ""] ?? []
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Text(playlist.name)
+                Text(displayName ?? playlist.name)
                     .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(AppStyle.primaryText)
                     .lineLimit(1)
@@ -1121,8 +1121,14 @@ struct DiscoverView: View {
 
     /// 拉每个榜单的前 3 首做预览（并发 4，缺的才拉）
     private func loadRankPreviews() async {
-        let lists = filteredLists.filter { rankPreviewSongs[$0.kugouRankID ?? ""] == nil }
-        guard !lists.isEmpty else { return }
+        await loadRankPreviews(for: filteredLists)
+    }
+
+    /// 拉指定榜单的前 3 首做预览（并发 4，缺的才拉）。
+    /// 榜单 Tab 拉全部；推荐页的「榜单推荐」只拉那 4 个，避免多打无用请求。
+    private func loadRankPreviews(for lists: [Playlist]) async {
+        let missing = lists.filter { rankPreviewSongs[$0.kugouRankID ?? ""] == nil }
+        guard !missing.isEmpty else { return }
         let client = KugouClient.shared
         typealias Hit = (String, [Song])
         var hits: [Hit] = []
@@ -1130,7 +1136,7 @@ struct DiscoverView: View {
             let concurrency = 4
             let sem = AsyncStream.makeStream(of: Void.self)
             nonisolated(unsafe) var active = 0
-            for playlist in lists {
+            for playlist in missing {
                 guard let rankID = playlist.kugouRankID else { continue }
                 while active >= concurrency { _ = await sem.stream.first(where: { _ in true }) }
                 active += 1

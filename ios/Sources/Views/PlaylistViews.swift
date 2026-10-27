@@ -85,7 +85,7 @@ struct PlaylistDetailView: View {
     let playlist: Playlist
     var localPlaylist: LibraryStore.UserPlaylist?
     /// 页面外部已经加载好的歌曲列表 —— 传了就跳过网络请求，直接用。
-    /// 场景：DiscoverView 的 KTV必点曲/经典推荐/新歌推荐 三个板块，
+    /// 场景：DiscoverView 的「新歌推荐」板块，
     ///       歌曲已经搜索好了，点"更多"push 进来时直接复用，省一次网络请求。
     var initialSongs: [Song]? = nil
 
