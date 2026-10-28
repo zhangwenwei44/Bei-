@@ -52,10 +52,10 @@ final class CloudAccount: ObservableObject {
         observeLocalChanges()
         // 监听登录态变化：启动时若本地有会话会自动触发 INITIAL_SESSION，
         // 登录 / 登出 / token 刷新都会走这里。
-        Task { [weak self] in
-            _ = await client.auth.onAuthStateChange { [weak self] _, session in
+        // CloudAccount 是单例（shared 永生），这里强捕获 self 不会产生循环引用问题。
+        Task { [self] in
+            _ = await client.auth.onAuthStateChange { [self] _, session in
                 Task { @MainActor in
-                    guard let self else { return }
                     if let session {
                         self.apply(session: session)
                         Task { await self.pullFromCloud() }
@@ -146,12 +146,15 @@ final class CloudAccount: ObservableObject {
                     )
                 )
             }
+            // 用不可变副本传入 @Sendable 闭包，避免捕获可变 var（并发安全）
+            let finalSongs = playlistSongs
+            let finalPlaylists = remotePlaylists
             await MainActor.run {
                 suppressPush = true
                 LibraryStore.shared.mergeCloud(
                     favorites: remoteFavs,
-                    playlists: remotePlaylists,
-                    playlistSongs: playlistSongs
+                    playlists: finalPlaylists,
+                    playlistSongs: finalSongs
                 )
                 suppressPush = false
             }
@@ -196,17 +199,18 @@ final class CloudAccount: ObservableObject {
     }
 
     /// 订阅本地收藏 / 歌单变化，防抖后自动推送（仅在已登录时）。
+    /// CloudAccount 是单例，sink 强捕获 self 不会造成泄漏。
     private func observeLocalChanges() {
         let lib = LibraryStore.shared
         lib.$favorites
             .dropFirst()
             .debounce(for: .seconds(1.5), scheduler: RunLoop.main)
-            .sink { [weak self] _ in Task { await self?.pushToCloud() } }
+            .sink { [self] _ in Task { await self.pushToCloud() } }
             .store(in: &cancellables)
         lib.$playlists
             .dropFirst()
             .debounce(for: .seconds(1.5), scheduler: RunLoop.main)
-            .sink { [weak self] _ in Task { await self?.pushToCloud() } }
+            .sink { [self] _ in Task { await self.pushToCloud() } }
             .store(in: &cancellables)
     }
 
