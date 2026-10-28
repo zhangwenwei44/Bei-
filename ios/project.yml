@@ -16,6 +16,13 @@ packages:
   Supabase:
     url: https://github.com/supabase-community/supabase-swift.git
     from: "2.0.0"
+  # 🔴 把 xctest-dynamic-overlay 锁到 1.7.0：它是 supabase-swift → Get 的传递依赖，
+  # 其 1.8.0+ 要求 swift-tools-version 6.0、1.13.x 要求 6.4（需 Xcode 26），
+  # 而本 CI 默认 Xcode 15.4（Swift 5.10）编译不了。1.7.0 是最后一个 5.9 版本、
+  # 且自带 IssueReporting 无外部依赖，能在 Xcode 15.4 下正常编译。
+  xctest-dynamic-overlay:
+    url: https://github.com/pointfreeco/xctest-dynamic-overlay.git
+    exact: "1.7.0"
 targets:
   AuroraMusic:
     type: application
