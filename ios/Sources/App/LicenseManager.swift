@@ -10,6 +10,10 @@ import SwiftUI
 /// App 自己重算一遍比对即可，**完全离线、不要服务器、激活后永久有效**。
 ///
 /// 一个设备码只能对应一个授权码；换手机（或抹掉重装系统）设备 ID 会变，需要重新授权。
+///
+/// 🔴 v2.9.8：激活记录也存 Keychain —— 删 App 重装后 UserDefaults 会被清空，
+/// 以前要重新输授权码；现在授权码存在 Keychain 里，重装后自动识别为「已激活」，
+/// 直接进 App，不用再输码、不用登录任何账号。
 final class LicenseManager: ObservableObject {
     static let shared = LicenseManager()
 
@@ -23,6 +27,8 @@ final class LicenseManager: ObservableObject {
     private let deviceIDDefaultsKey = "aurora.license.deviceID"
     private let keychainService = "com.auroramusic.license"
     private let keychainAccount = "deviceID"
+    /// 🔴 v2.9.8：激活记录（授权码本身）的 Keychain account。
+    private let activationAccount = "activation"
 
     private init() {
         deviceID = Self.loadOrCreateDeviceID(
@@ -30,14 +36,42 @@ final class LicenseManager: ObservableObject {
             account: keychainAccount,
             defaultsKey: deviceIDDefaultsKey
         )
-        let d = UserDefaults.standard
-        // 🔴 只认标志位不够 —— 手改 UserDefaults 就能绕过；
-        // 存下来的授权码必须和当前设备 ID 重新算出来的结果对得上。
-        if d.bool(forKey: activatedKey) {
-            let saved = d.string(forKey: savedCodeKey) ?? ""
-            isActivated = !saved.isEmpty && saved == Self.expectedCode(for: deviceID)
-        }
+        isActivated = restoreActivation(for: deviceID)
         Log.info("授权", "设备ID=\(deviceID) 已激活=\(isActivated)")
+    }
+
+    // MARK: - 激活状态恢复（Keychain 优先，删 App 重装后仍自动生效）
+
+    /// 恢复激活状态：
+    /// ① Keychain 里的授权码（**删 App 重装后仍在**）→ 直接判定为已激活；
+    /// ② UserDefaults 兜底（兼容 v2.9.7 及更早版本只存 UserDefaults 的情况），
+    ///    命中后顺手把它写回 Keychain，以后重装就免输码了。
+    ///
+    /// 两种情况都会重新和当前设备 ID 算出的期望值比对，
+    /// 所以手改 UserDefaults / Keychain 伪造都绕不过去。
+    private func restoreActivation(for id: String) -> Bool {
+        let d = UserDefaults.standard
+        let expected = Self.expectedCode(for: id)
+
+        // ① Keychain（跨重装存活）
+        if let kc = LicenseKeychain.read(service: keychainService, account: activationAccount),
+           !kc.isEmpty, kc == expected {
+            // 同步一份到 UserDefaults，保持旧逻辑 / 展示一致
+            d.set(true, forKey: activatedKey)
+            d.set(kc, forKey: savedCodeKey)
+            Log.info("授权", "从 Keychain 恢复激活状态（重装免输码）")
+            return true
+        }
+
+        // ② UserDefaults 兜底 + 升级迁移到 Keychain
+        if let saved = d.string(forKey: savedCodeKey), !saved.isEmpty, saved == expected {
+            d.set(true, forKey: activatedKey)
+            LicenseKeychain.write(saved, service: keychainService, account: activationAccount)
+            Log.info("授权", "从 UserDefaults 恢复激活状态并迁移到 Keychain")
+            return true
+        }
+
+        return false
     }
 
     // MARK: - 授权码
@@ -79,6 +113,8 @@ final class LicenseManager: ObservableObject {
         let d = UserDefaults.standard
         d.set(true, forKey: activatedKey)
         d.set(normalized, forKey: savedCodeKey)
+        // 🔴 v2.9.8：同时写 Keychain —— 删 App 重装后靠它自动识别已激活
+        LicenseKeychain.write(normalized, service: keychainService, account: activationAccount)
         isActivated = true
         Haptics.success()
         Log.info("授权", "激活成功 \(Self.pretty(normalized))")
