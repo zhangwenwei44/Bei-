@@ -1402,6 +1402,57 @@ struct DiscoverView: View {
         }
     }
 
+    /// 🔴 v2.9.8：搜索歌单并**随机打散**。
+    ///
+    /// 背景：① 酷狗搜索接口一页固定 30 首（`searchSongs` 的 limit 参数不生效），
+    /// 要 100 首必须自己翻页；② 用户要求「不要老是显示同样的歌在前面」，
+    /// 所以每次加载都重新洗牌，配合下拉刷新能看到不同的排布。
+    ///
+    /// - Parameters:
+    ///   - keyword: 搜索关键词
+    ///   - count: 最终返回多少首
+    ///   - excluding: 需要剔除的歌名关键词（子串匹配）
+    private func shuffledSearchSongs(keyword: String,
+                                     count: Int,
+                                     excluding excludedTitles: [String] = []) async -> [Song] {
+        let perPage = 30
+        // 过滤会砍掉一些歌，多取一点余量，保证最终仍然能凑够 count 首
+        let target = count + excludedTitles.count * 3
+        var collected: [Song] = []
+        var seen = Set<String>()
+        var page = 1
+        while collected.count < target && page <= 8 {
+            let batch = (try? await KugouClient.shared.searchSongs(keyword: keyword, page: page)) ?? []
+            if batch.isEmpty { break }
+            for song in batch where !seen.contains(song.id) {
+                seen.insert(song.id)
+                collected.append(song)
+            }
+            page += 1
+        }
+        var result = collected
+        if !excludedTitles.isEmpty {
+            result = result.filter { song in
+                !excludedTitles.contains { song.title.contains($0) }
+            }
+        }
+        result.shuffle()
+        return Array(result.prefix(count))
+    }
+
+    /// 🔴 v2.9.8：经典推荐 —— 100 首、随机顺序；《吻别》仍然排最后（之前的特例需求保留）。
+    private func loadClassicSongs() async -> [Song] {
+        let loaded = await shuffledSearchSongs(keyword: "华语经典 怀旧", count: 100)
+        let kiss = loaded.filter { $0.title.contains("吻别") }
+        let rest = loaded.filter { !$0.title.contains("吻别") }
+        return rest + kiss
+    }
+
+    /// 🔴 v2.9.8：DJ推荐 —— 100 首、随机顺序。
+    private func loadDJSongs() async -> [Song] {
+        await shuffledSearchSongs(keyword: "热门DJ 舞曲", count: 100)
+    }
+
     // MARK: 加载
 
     private func load(force: Bool = false) async {
@@ -1435,17 +1486,22 @@ struct DiscoverView: View {
         }
         // 三个新推荐板块
         if ktvSongs.isEmpty { ktvSongs = (try? await KugouClient.shared.searchSongs(keyword: "KTV必点 经典", limit: 30)) ?? [] }
-        if classicSongs.isEmpty {
-            let loaded = (try? await KugouClient.shared.searchSongs(keyword: "华语经典 怀旧", limit: 30)) ?? []
-            // 🔴 v2.9.8：用户要求把《吻别》排到经典推荐最后面
-            let kiss = loaded.filter { $0.title.contains("吻别") }
-            let rest = loaded.filter { !$0.title.contains("吻别") }
-            classicSongs = rest + kiss
-        }
-        // 🔴 v2.9.7(二)：「DJ推荐」板块（经典推荐下面新加的）
-        if djSongs.isEmpty { djSongs = (try? await KugouClient.shared.searchSongs(keyword: "热门DJ 舞曲", limit: 30)) ?? [] }
+        // 🔴 v2.9.8：经典推荐 / DJ推荐 各 100 首 + 随机顺序。
+        // 各要翻 4 页搜索接口，串行太慢 → 并发拉取。
+        async let classicTask = loadClassicSongs()
+        async let djTask = loadDJSongs()
+        let (loadedClassic, loadedDJ) = await (classicTask, djTask)
+        if classicSongs.isEmpty { classicSongs = loadedClassic }
+        if djSongs.isEmpty { djSongs = loadedDJ }
         if newSongs.isEmpty {
-            let fetched = (try? await KugouClient.shared.searchSongs(keyword: "新歌榜", limit: 28)) ?? []
+            // 🔴 v2.9.8：新歌推荐 —— 去掉几首老歌 + 随机顺序（不要老是同样的歌在前面）。
+            // 过滤用子串匹配：《看透爱情》和《看透爱情看透你》都能命中「看透爱情」，
+            // 「看透你」也一起带上，两种写法都覆盖得到。
+            let fetched = await shuffledSearchSongs(
+                keyword: "新歌榜",
+                count: 28,
+                excluding: ["擦肩而过", "丢了幸福的猪", "看透爱情", "看透你"]
+            )
             // 🔴 v2.5.50：接口偶尔多回 2 首，尾页只剩 2 行很难看 —— 裁成 4 的倍数，
             // 保证每页都是整整齐齐 4 首（28 首 = 7 页）。
             newSongs = Array(fetched.prefix(fetched.count / 4 * 4))
