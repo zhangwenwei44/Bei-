@@ -413,4 +413,52 @@ final class LibraryStore: ObservableObject {
         persist(playlists, key: key("playlists"))
         Log.info("备份", "恢复完成 favorites=\(favorites.count) playlists=\(playlists.count) songCache=\(songCache.count)")
     }
+
+    // MARK: - 云端合并（Supabase）
+
+    /// 从云端恢复时调用：收藏按歌曲 id 并集；歌单按歌单 id 并集歌曲（绝不删除本地已有）。
+    /// 同时把云端歌曲注入 songCache，保证歌单能还原出完整曲目。
+    func mergeCloud(favorites remoteFavs: [Song],
+                    playlists remotePlaylists: [UserPlaylist],
+                    playlistSongs: [String: [Song]]) {
+        var changed = false
+
+        // 1) 收藏并集
+        let existingFavIDs = Set(favorites.map(\.id))
+        let addedFavs = remoteFavs.filter { !existingFavIDs.contains($0.id) }
+        if !addedFavs.isEmpty {
+            favorites = addedFavs + favorites
+            persist(favorites, key: key("favorites"))
+            addedFavs.forEach { remember($0) }
+            changed = true
+        }
+
+        // 2) 歌单并集（按歌单 id），并注入歌曲缓存
+        var merged = playlists
+        var songCacheUpdate = songCache
+        for s in remoteFavs { songCacheUpdate[s.id] = s }
+        for songs in playlistSongs.values { for s in songs { songCacheUpdate[s.id] = s } }
+
+        for rp in remotePlaylists {
+            if let idx = merged.firstIndex(where: { $0.id == rp.id }) {
+                let set = Set(merged[idx].songIDs)
+                let newIDs = rp.songIDs.filter { !set.contains($0) }
+                if !newIDs.isEmpty {
+                    merged[idx].songIDs.append(contentsOf: newIDs)
+                    changed = true
+                }
+            } else {
+                merged.insert(rp, at: 0)
+                changed = true
+            }
+        }
+
+        if merged != playlists {
+            playlists = merged
+            persist(playlists, key: key("playlists"))
+        }
+        songCache = songCacheUpdate
+        persist(songCache, key: key("songTable"))
+        if changed { objectWillChange.send() }
+    }
 }

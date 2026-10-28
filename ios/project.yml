@@ -12,6 +12,10 @@ settings:
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: YES
+packages:
+  Supabase:
+    url: https://github.com/supabase-community/supabase-swift.git
+    from: "2.0.0"
 targets:
   AuroraMusic:
     type: application
@@ -29,6 +33,7 @@ targets:
       - sdk: JavaScriptCore.framework
       - sdk: AVFoundation.framework
       - sdk: MediaPlayer.framework
+      - package: Supabase
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.aurora.music

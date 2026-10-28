@@ -52,6 +52,9 @@ struct AuroraMusicApp: App {
             LibraryStore.shared.switchUser(userId: user)
             Log.info("启动", "恢复用户 \(user) 的数据")
         }
+
+        // 🔴 v2.9.8：恢复 Aurora 云账号会话（Supabase），有会话会自动拉取云端收藏/歌单
+        CloudAccount.shared.configure()
     }
 
     /// 🔴 v2.6.3：启动 splash —— 系统启动图经常 <1 秒就被撤掉，

@@ -7,6 +7,8 @@ struct ProfileView: View {
     @ObservedObject private var sourceStore = SourceStore.shared
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var kugouAuth = KugouAuth.shared
+    // 🔴 v2.9.8：Aurora 云账号（Supabase 邮件注册/登录 + 收藏歌单同步）
+    @ObservedObject private var cloud = CloudAccount.shared
     // 🔴 v2.9.0：一机一码授权状态
     @ObservedObject private var license = LicenseManager.shared
     /// 订阅迷你播放条可见性，只为在播放时给设置列表底部留出安全间距（见下方 List 的 bottom padding）。
@@ -36,6 +38,10 @@ struct ProfileView: View {
     @State private var kugouImportError: String? = nil
     @State private var recommendedLoading = false
     @State private var recommendedPlaylists: [Playlist] = []
+    // 🔴 v2.9.8：云账号输入框
+    @State private var cloudEmail = ""
+    @State private var cloudPassword = ""
+    @State private var cloudError: String? = nil
 
     var body: some View {
         List {
@@ -96,6 +102,142 @@ struct ProfileView: View {
                 headerText("酷狗音乐")
             } footer: {
                 Text("登录后可同步酷狗云端歌单，把 Aurora 里的歌曲保存到酷狗账号。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.tertiaryText)
+            }
+
+            // MARK: Aurora 云账号（Supabase）—— 邮箱注册/登录 + 收藏歌单同步
+            Section {
+                if cloud.isSignedIn {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Label("Aurora 云账号", systemImage: "cloud.fill")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(AppStyle.primaryText)
+                            Spacer()
+                            if cloud.isBusy {
+                                ProgressView().controlSize(.small)
+                            }
+                        }
+                        if let email = cloud.userEmail {
+                            Text(email)
+                                .font(.system(size: 13))
+                                .foregroundStyle(AppStyle.secondaryText)
+                        }
+                        switch cloud.syncState {
+                        case .idle:
+                            Text("收藏与歌单会在登录后自动同步到云端。")
+                                .font(.system(size: 12))
+                                .foregroundStyle(AppStyle.tertiaryText)
+                        case .syncing:
+                            Text("同步中…")
+                                .font(.system(size: 12))
+                                .foregroundStyle(AppStyle.tertiaryText)
+                        case .done(let msg):
+                            Text(msg)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.green)
+                        case .failed(let msg):
+                            Text("同步失败：\(msg)")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.red)
+                        }
+                        HStack(spacing: 12) {
+                            Button {
+                                Task { await cloud.pushToCloud() }
+                            } label: {
+                                Text("同步到云端")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 9)
+                                    .background(AppStyle.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
+                                    .foregroundStyle(AppStyle.accent)
+                            }
+                            .buttonStyle(.plain)
+                            Button {
+                                Task { await cloud.pullFromCloud() }
+                            } label: {
+                                Text("从云端恢复")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 9)
+                                    .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
+                                    .foregroundStyle(AppStyle.primaryText)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Button {
+                            Task {
+                                do { try await cloud.signOut() }
+                                catch { cloudError = error.localizedDescription }
+                            }
+                        } label: {
+                            Text("退出登录")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } else {
+                    VStack(spacing: 10) {
+                        TextField("邮箱", text: $cloudEmail)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.emailAddress)
+                            .textContentType(.emailAddress)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
+                        SecureField("密码（至少 6 位）", text: $cloudPassword)
+                            .textContentType(.password)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
+                        if let err = cloudError {
+                            Text(err)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.red)
+                        }
+                        HStack(spacing: 12) {
+                            Button {
+                                cloudError = nil
+                                Task {
+                                    do {
+                                        _ = try await cloud.signUp(email: cloudEmail, password: cloudPassword)
+                                    } catch { cloudError = error.localizedDescription }
+                                }
+                            } label: {
+                                Text("注册")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
+                                    .foregroundStyle(AppStyle.primaryText)
+                            }
+                            .buttonStyle(.plain)
+                            Button {
+                                cloudError = nil
+                                Task {
+                                    do {
+                                        try await cloud.signIn(email: cloudEmail, password: cloudPassword)
+                                    } catch { cloudError = error.localizedDescription }
+                                }
+                            } label: {
+                                Text("登录")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 8))
+                                    .foregroundStyle(.white)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            } header: {
+                headerText("Aurora 云账号")
+            } footer: {
+                Text("用邮箱注册一个 Aurora 云账号，收藏和自建歌单会保存到云端、跨设备恢复。与酷狗账号相互独立。")
                     .font(.system(size: 11))
                     .foregroundStyle(AppStyle.tertiaryText)
             }
