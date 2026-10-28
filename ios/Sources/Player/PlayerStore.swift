@@ -169,6 +169,14 @@ final class PlayerStore: ObservableObject {
     /// 换源重试限制：同一首歌最多自动重试 1 次，防止把音源打熔断
     private var recoverySongID: String?
     private var recoveryAttempts = 0
+    /// 🔴 v2.9.8：连续「播不了就跳过」的次数 —— 防止整个队列都坏时无限跳歌。
+    /// 真正开始出声（播放头推进）后清零。
+    private var consecutiveSkipFailures = 0
+    /// 🔴 v2.9.8：最近一次失败的歌曲 id + 时间 —— 同一次失败可能被
+    /// 「item.status = .failed」和「failedToPlayToEndTime」各报一次，
+    /// 不去重的话第二次会误判成「换源也救不回来」→ 白白跳过一首好歌。
+    private var lastFailureSongID: String?
+    private var lastFailureTime: Date?
     /// prepare() 开始时间戳 —— 后台超时兜底用
     private var lastPrepareStart: TimeInterval = 0
     private var preparingTask: Task<Void, Never>?
@@ -538,14 +546,10 @@ final class PlayerStore: ObservableObject {
                     self.playbackError = "这首歌暂时无法播放，自动跳下一首"
                     self.player.pause()
                     self.isPlaying = false
-                    // 🔴 自动下一首（automatic=true 的自动切歌场景）
-                    // 用户手动点播放/切歌时 autoplay=true 但不是 automatic，不跳下一首避免死循环
+                    // 🔴 v2.9.8：解析失败统一走「自动跳过」逻辑
+                    // （含单曲循环 / 单曲队列 / 连续失败上限三重保护，见 skipToNextAfterFailure）
                     if autoplay {
-                        Log.warn("播放", "URL 解析失败，自动跳过当前歌曲 step(1)")
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                            guard let self else { return }
-                            if !self.queue.isEmpty { self.step(1, automatic: true) }
-                        }
+                        self.skipToNextAfterFailure(reason: "URL 解析失败")
                     }
                     return
                 }
@@ -641,6 +645,14 @@ final class PlayerStore: ObservableObject {
         itemObservers.append(item.observe(\.status, options: [.new]) { [weak self] item, _ in
             guard let self else { return }
             Task { @MainActor in
+                if item.status == .failed {
+                    // 🔴 v2.9.8：item 加载失败（地址失效 / 403 / 404 / 证书问题）
+                    // 原来**完全没有处理** —— 表现就是「卡在这一首不动、也不会跳过」。
+                    // 现在按播放失败处理：能换源就换源，换不了就自动跳下一首。
+                    Log.error("播放", "item 加载失败：\(item.error?.localizedDescription ?? "未知错误")")
+                    self.handlePlaybackFailure()
+                    return
+                }
                 if item.status == .readyToPlay {
                     self.isBuffering = false
                     // 音质切换 mid-song 场景：attach 完成 + item ready → 恢复 seek 位置
@@ -1001,6 +1013,12 @@ final class PlayerStore: ObservableObject {
             guard let self else { return }
             let rawTime = time.seconds.isFinite ? max(0, time.seconds) : 0
 
+            // 🔴 v2.9.8：真的开始出声了 → 「连续播不了就跳过」计数清零。
+            // 这样只有真正连续的坏歌才会触发上限，正常歌播起来就恢复计数。
+            if rawTime > 0.3, self.consecutiveSkipFailures > 0 {
+                self.consecutiveSkipFailures = 0
+            }
+
             // 🔴 逐字歌词同步修复：currentTime 改为每拍（0.25s 原始时间）即时发布，
             // 不再按 0.5s 桶节流。旧逻辑会让值滞后最多 0.5s，导致「新切到的当前句」
             // 在初始化（onAppear / syncBase）时读到一个落后的 currentTime → 逐字
@@ -1194,12 +1212,24 @@ final class PlayerStore: ObservableObject {
     /// 播放失败：如果是第三方地址，把该域名拉黑并换源重试一次。
     /// 同一首歌最多自动重试 1 次，再多就会把音源打熔断，殃及后面所有歌。
     private func handlePlaybackFailure() {
-        guard current != nil else { return }
+        guard let songID = current?.id else { return }
+        // 🔴 v2.9.8：同一次失败可能有两个通知来源，3 秒内对同一首歌只处理一次
+        if lastFailureSongID == songID,
+           let t = lastFailureTime,
+           Date().timeIntervalSince(t) < 3 {
+            Log.warn("播放", "同一首歌短时间内重复报错，忽略本次（\(songID.prefix(8))）")
+            return
+        }
+        lastFailureSongID = songID
+        lastFailureTime = Date()
+
         guard itemThirdParty,
               let asset = player.currentItem?.asset as? AVURLAsset,
               let host = asset.url.host?.lowercased() else {
             playbackError = "播放失败，换个音源试试"
             pause()
+            // 🔴 v2.9.8：原来这里只 pause 就停住了（用户反馈"播不了的歌不会跳过"）→ 改成自动跳下一首
+            skipToNextAfterFailure(reason: "非第三方地址播放失败")
             return
         }
         Log.error("播放", "播放失败（\(host)），准备换源重试")
@@ -1210,6 +1240,8 @@ final class PlayerStore: ObservableObject {
         guard recoveryAttempts < 1 else {
             playbackError = "这首歌暂时无法播放，去「我的 - 音源」看看"
             pause()
+            // 🔴 v2.9.8：换源也救不回来 → 自动跳下一首
+            skipToNextAfterFailure(reason: "换源重试用尽 \(host)")
             return
         }
         recoveryAttempts += 1
@@ -1217,6 +1249,34 @@ final class PlayerStore: ObservableObject {
         if failedHosts.count > 8 { failedHosts.removeAll() }
         playbackError = "当前节点不可用，正在换源"
         prepare(autoplay: true)
+    }
+
+    /// 🔴 v2.9.8：这首播不了 → 自动跳下一首。
+    ///
+    /// 之前的行为是「报错 + 停住」，用户必须手动点下一首；现在统一自动跳过。
+    /// 三重保险，防止把队列快速耗光或陷入死循环：
+    /// ① 连续失败超过 3 首就停下（真的整队都坏了就别再翻了）；
+    /// ② 队列只有 1 首时不跳（跳了还是它）；
+    /// ③ 单曲循环模式改用 automatic=false —— step() 里 automatic+single 会
+    ///    「seek(0)+play」重播同一首（等于死循环），必须让它真正前进到下一首。
+    private func skipToNextAfterFailure(reason: String) {
+        consecutiveSkipFailures += 1
+        guard consecutiveSkipFailures <= 3 else {
+            Log.error("播放", "连续 \(consecutiveSkipFailures) 首播不了，停止自动跳过（\(reason)）")
+            playbackError = "连续多首无法播放，已停止"
+            return
+        }
+        guard queue.count > 1 else {
+            Log.warn("播放", "队列只有 1 首，不自动跳过（\(reason)）")
+            return
+        }
+        // 随机播放用 automatic=true（不污染 shuffleHistory，回退时能回到原位）
+        let automatic = (mode != .single)
+        Log.warn("播放", "自动跳过当前歌曲（\(reason)）")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self else { return }
+            self.step(1, automatic: automatic)
+        }
     }
 
     private func recordHistory() {

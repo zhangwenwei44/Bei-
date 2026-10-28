@@ -42,6 +42,8 @@ struct ProfileView: View {
     @State private var cloudEmail = ""
     @State private var cloudPassword = ""
     @State private var cloudError: String? = nil
+    // 🔴 v2.9.8：未登录时云账号默认折叠（只留一行入口，点开才显示登录框）
+    @State private var cloudExpanded = false
 
     var body: some View {
         List {
@@ -180,57 +182,91 @@ struct ProfileView: View {
                     }
                 } else {
                     VStack(spacing: 10) {
-                        TextField("邮箱", text: $cloudEmail)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .keyboardType(.emailAddress)
-                            .textContentType(.emailAddress)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
-                        SecureField("密码（至少 6 位）", text: $cloudPassword)
-                            .textContentType(.password)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
-                        if let err = cloudError {
-                            Text(err)
-                                .font(.system(size: 12))
-                                .foregroundStyle(.red)
-                        }
-                        HStack(spacing: 12) {
-                            Button {
-                                cloudError = nil
-                                Task {
-                                    do {
-                                        _ = try await cloud.signUp(email: cloudEmail, password: cloudPassword)
-                                    } catch { cloudError = CloudAccount.localizedCloudError(error) }
-                                }
-                            } label: {
-                                Text("注册")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
-                                    .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
+                        // 🔴 v2.9.8：未登录时默认折叠 —— 只留一行入口，
+                        // 点一下才展开邮箱/密码输入框，设置页不再被登录框占满。
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                cloudExpanded.toggle()
+                            }
+                            cloudError = nil
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "cloud")
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(AppStyle.accent)
+                                Text("登录 / 注册")
+                                    .font(.system(size: 15))
                                     .foregroundStyle(AppStyle.primaryText)
-                            }
-                            .buttonStyle(.plain)
-                            Button {
-                                cloudError = nil
-                                Task {
-                                    do {
-                                        try await cloud.signIn(email: cloudEmail, password: cloudPassword)
-                                    } catch { cloudError = CloudAccount.localizedCloudError(error) }
+                                Spacer()
+                                if cloud.isBusy {
+                                    ProgressView().controlSize(.small)
                                 }
-                            } label: {
-                                Text("登录")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
-                                    .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 8))
-                                    .foregroundStyle(.white)
+                                Text("未登录")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(AppStyle.tertiaryText)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(AppStyle.tertiaryText)
+                                    .rotationEffect(.degrees(cloudExpanded ? 90 : 0))
                             }
-                            .buttonStyle(.plain)
+                            .padding(.vertical, 2)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        if cloudExpanded {
+                            TextField("邮箱", text: $cloudEmail)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .keyboardType(.emailAddress)
+                                .textContentType(.emailAddress)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
+                            SecureField("密码（至少 6 位）", text: $cloudPassword)
+                                .textContentType(.password)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
+                            if let err = cloudError {
+                                Text(err)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.red)
+                            }
+                            HStack(spacing: 12) {
+                                Button {
+                                    cloudError = nil
+                                    Task {
+                                        do {
+                                            _ = try await cloud.signUp(email: cloudEmail, password: cloudPassword)
+                                        } catch { cloudError = CloudAccount.localizedCloudError(error) }
+                                    }
+                                } label: {
+                                    Text("注册")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 10)
+                                        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
+                                        .foregroundStyle(AppStyle.primaryText)
+                                }
+                                .buttonStyle(.plain)
+                                Button {
+                                    cloudError = nil
+                                    Task {
+                                        do {
+                                            try await cloud.signIn(email: cloudEmail, password: cloudPassword)
+                                        } catch { cloudError = CloudAccount.localizedCloudError(error) }
+                                    }
+                                } label: {
+                                    Text("登录")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 10)
+                                        .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 8))
+                                        .foregroundStyle(.white)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                     }
                 }

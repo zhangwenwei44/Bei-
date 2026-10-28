@@ -181,8 +181,8 @@ private struct DownloadsList: View {
                                         CoverImage(url: song.artworkURL,
                                                    fallbackKeys: song.coverFallbackKeys,
                                                    seed: "\(song.artist)-\(song.title)",
-                                                   size: 50)
-                                        VStack(alignment: .leading, spacing: 4) {
+                                                   size: 56)
+                                        VStack(alignment: .leading, spacing: 5) {
                                             HStack(spacing: 6) {
                                                 Text(song.cleanTitle)
                                                     .font(.system(size: 15, weight: .medium))
@@ -256,6 +256,9 @@ private struct DownloadsList: View {
                             }
                             // 不透明底：盖住身后的红色删除按钮（页面背景同色）
                             .background(AppStyle.background)
+                            // 🔴 v2.9.8：下载列表原来行与行贴太紧（用户反馈"太紧凑"），
+                            // 加大上下留白 + 封面放大，视觉上更透气。
+                            .padding(.vertical, 8)
                         }
                         .padding(.horizontal, 16)
                     }
