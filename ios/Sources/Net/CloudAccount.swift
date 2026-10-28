@@ -27,6 +27,46 @@ final class CloudAccount: ObservableObject {
         case failed(String)
     }
 
+    /// 把 Supabase 返回的英文错误翻译成中文友好提示。
+    static func localizedCloudError(_ error: Error) -> String {
+        let raw = error.localizedDescription
+        let lower = raw.lowercased()
+        // 限流提示：For security purposes, you can only request this after 33 seconds.
+        if raw.contains("For security purposes"),
+           let range = raw.range(of: #"(?<=after\s)\d+"#, options: .regularExpression) {
+            return "操作太频繁，请等待 \(String(raw[range])) 秒后再试"
+        }
+        if lower.contains("email rate limit") {
+            return "发送验证邮件过于频繁，请稍后再试（或在 Supabase 后台关闭邮箱确认）"
+        }
+        if lower.contains("invalid login credentials") {
+            return "邮箱或密码不正确"
+        }
+        if lower.contains("email not confirmed") {
+            return "邮箱尚未确认，请先去邮箱点击确认链接"
+        }
+        if lower.contains("user already registered") {
+            return "该邮箱已注册，请直接登录"
+        }
+        if lower.contains("user not found") || lower.contains("no user found") {
+            return "该邮箱尚未注册，请先注册"
+        }
+        if lower.contains("password should be at least") || lower.contains("invalid password") {
+            return "密码太短，至少需要 6 位"
+        }
+        if lower.contains("invalid format") && lower.contains("email") {
+            return "邮箱格式不正确"
+        }
+        if lower.contains("not configured") {
+            return "云端服务未配置"
+        }
+        if lower.contains("network") || lower.contains("connection") {
+            return "网络异常，请检查网络后重试"
+        }
+        // 兜底：去掉换行原样展示
+        return raw.replacingOccurrences(of: "\n", with: " ")
+    }
+
     private var client: SupabaseClient?
     private var userId: String?
     private var cancellables = Set<AnyCancellable>()
@@ -162,7 +202,7 @@ final class CloudAccount: ObservableObject {
                 syncState = .done("已从云端恢复 \(remoteFavs.count) 首收藏")
             }
         } catch {
-            await MainActor.run { syncState = .failed(error.localizedDescription) }
+            await MainActor.run { syncState = .failed(CloudAccount.localizedCloudError(error)) }
         }
     }
 
@@ -194,7 +234,7 @@ final class CloudAccount: ObservableObject {
 
             await MainActor.run { syncState = .done("已同步到云端") }
         } catch {
-            await MainActor.run { syncState = .failed(error.localizedDescription) }
+            await MainActor.run { syncState = .failed(CloudAccount.localizedCloudError(error)) }
         }
     }
 

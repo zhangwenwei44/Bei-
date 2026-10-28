@@ -169,7 +169,7 @@ struct ProfileView: View {
                         Button {
                             Task {
                                 do { try await cloud.signOut() }
-                                catch { cloudError = error.localizedDescription }
+                                catch { cloudError = CloudAccount.localizedCloudError(error) }
                             }
                         } label: {
                             Text("退出登录")
@@ -204,7 +204,7 @@ struct ProfileView: View {
                                 Task {
                                     do {
                                         _ = try await cloud.signUp(email: cloudEmail, password: cloudPassword)
-                                    } catch { cloudError = error.localizedDescription }
+                                    } catch { cloudError = CloudAccount.localizedCloudError(error) }
                                 }
                             } label: {
                                 Text("注册")
@@ -220,7 +220,7 @@ struct ProfileView: View {
                                 Task {
                                     do {
                                         try await cloud.signIn(email: cloudEmail, password: cloudPassword)
-                                    } catch { cloudError = error.localizedDescription }
+                                    } catch { cloudError = CloudAccount.localizedCloudError(error) }
                                 }
                             } label: {
                                 Text("登录")
