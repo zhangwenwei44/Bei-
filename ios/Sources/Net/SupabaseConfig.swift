@@ -7,9 +7,9 @@ import Foundation
 /// 可以直接打进 App。
 enum SupabaseConfig {
     /// 例：https://abcdefg.supabase.co
-    static let url = "https://YOUR-PROJECT-REF.supabase.co"
+    static let url = "https://qwyihlheumyoioknczha.supabase.co"
     /// 例：eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-    static let anonKey = "YOUR-ANON-PUBLIC-KEY"
+    static let anonKey = "sb_publishable_tG4NmUmPWTTMOM26OhWXSA_tNm0P8UX"
 
     /// 是否已完成配置（占位符未替换时视为未配置，云功能自动关闭，不影响其它功能）。
     static var isConfigured: Bool {
