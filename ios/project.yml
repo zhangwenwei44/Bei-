@@ -22,7 +22,7 @@ packages:
   # 且自带 IssueReporting 无外部依赖，能在 Xcode 15.4 下正常编译。
   xctest-dynamic-overlay:
     url: https://github.com/pointfreeco/xctest-dynamic-overlay.git
-    exact: "1.7.0"
+    exactVersion: "1.7.0"
 targets:
   AuroraMusic:
     type: application
