@@ -1092,19 +1092,29 @@ private struct RowTrailingButtons: View {
             }
             .buttonStyle(.plain)
 
+            // 🔴 v2.9.9：下载中（等待/下载中）显示旋转进度圈代替下载箭头，并禁用按钮，
+            // 让所有列表（搜索/歌单/队列…）的下载状态都有可见反馈。
+            let isActive = downloads.item(for: song)?.state.isActive == true
             Button {
                 if song.isRemote {
                     Haptics.light()
                     Task { _ = try? await downloads.download(song) }
                 }
             } label: {
-                Image(systemName: song.source == .local ? "arrow.down.circle.fill" : "arrow.down.circle")
-                    .font(.system(size: 16))
-                    .foregroundStyle(song.source == .local ? AppStyle.tertiaryText.opacity(0.4) : AppStyle.tertiaryText)
-                    .frame(width: 36, height: 36)
+                if isActive {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(AppStyle.accent)
+                        .frame(width: 36, height: 36)
+                } else {
+                    Image(systemName: song.source == .local ? "arrow.down.circle.fill" : "arrow.down.circle")
+                        .font(.system(size: 16))
+                        .foregroundStyle(song.source == .local ? AppStyle.tertiaryText.opacity(0.4) : AppStyle.tertiaryText)
+                        .frame(width: 36, height: 36)
+                }
             }
             .buttonStyle(.plain)
-            .disabled(song.source == .local)
+            .disabled(song.source == .local || isActive)
         }
     }
 }

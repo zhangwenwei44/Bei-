@@ -419,10 +419,10 @@ private struct SourceRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: source.isScript ? "curlybraces.square" : "link")
-                .font(.system(size: 15))
-                .foregroundStyle(source.enabled ? AppStyle.accent : AppStyle.tertiaryText)
-                .frame(width: 28)
+            // 🔴 v2.9.9：绿色健康圆点移到音源名字前面（红=无用，灰/无=未检测）；
+            // 原先行首的 {} / link 图标已删除（用户要求「把前面 {} 删掉」）。
+            // 检测中显示小菊花。
+            healthDot
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(source.isBundled ? "默认音源" : source.name)
@@ -441,9 +441,6 @@ private struct SourceRow: View {
             }
 
             Spacer(minLength: 4)
-
-            // 健康状态圆点：绿=可用，红=无用，灰（无圆点）=未检测/不适用；检测中显示小菊花
-            healthDot
 
             Toggle("", isOn: Binding(get: { source.enabled }, set: { _ in onToggle() }))
                 .labelsHidden()

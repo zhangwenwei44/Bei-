@@ -25,19 +25,13 @@ struct ProfileView: View {
     }
     /// 「检查更新」和「关于」点了完全没反应，只有排在最后的更新日志能弹出来。
     private enum Sheet: String, Identifiable {
-        case about, update, changelog, kugouImport, kugouLogin, licenseMaker
+        case about, update, changelog, kugouLogin, licenseMaker
         var id: String { rawValue }
     }
 
     @State private var sheet: Sheet?
     /// QQ 交流群弹层（v2.5.41：启动公告取消后，入口改为设置页这一行）
     @State private var showQQGroup = false
-    /// 酷狗分享链接 / specialid 输入框。
-    @State private var kugouCodeInput = ""
-    @State private var kugouImporting = false
-    @State private var kugouImportError: String? = nil
-    @State private var recommendedLoading = false
-    @State private var recommendedPlaylists: [Playlist] = []
     // 🔴 v2.9.8：云账号输入框
     @State private var cloudEmail = ""
     @State private var cloudPassword = ""
@@ -407,39 +401,6 @@ struct ProfileView: View {
 
             Section {
                 Button {
-                    sheet = .kugouImport
-                } label: {
-                    Label("导入酷狗歌单", systemImage: "square.and.arrow.down.on.square")
-                }
-                // 🔴 用 Button 触发手动写备份 → 再调系统分享面板
-                // 旧写法 ShareLink(item: backupTempURL()) 会在每次 body 渲染时写一个新备份到 tmp
-                // 每秒 5~10 次 → 磁盘爆满 + CPU 打满 + 卡顿
-                Button {
-                    if let url = try? writeBackupOnce() {
-                        showShareSheet(url: url)
-                    }
-                } label: {
-                    Label("导出歌单备份", systemImage: "square.and.arrow.up")
-                }
-                Button {
-                    // 用 FilePicker 而非 SwiftUI .fileImporter：
-                    // 1. .fileImporter 在 iOS 16 上和 .sheet 共用呈现通道，回调被静默吞掉
-                    // 2. allowedContentTypes: [.json] 太严格，某些 .json 文件的 UTI 被标记为 .data
-                    // FilePicker 绕开 SwiftUI 呈现体系，直接 present UIDocumentPickerViewController
-                    FilePicker.pick(types: [.json, .data, .item], multiple: false) { urls in
-                        if let url = urls.first {
-                            Task { await importBackup(from: url) }
-                        }
-                    }
-                } label: {
-                    Label("恢复歌单备份", systemImage: "arrow.uturn.backward.circle")
-                }
-            } header: {
-                headerText("我的音乐")
-            }
-
-            Section {
-                Button {
                     sheet = .update
                 } label: {
                     HStack {
@@ -561,12 +522,6 @@ struct ProfileView: View {
             case .about: AboutView()
             case .update: UpdateView()
             case .changelog: ChangelogView()
-            case .kugouImport:
-                if #available(iOS 16.0, *) {
-                    kugouImportSheet.presentationDetents([.medium, .large])
-                } else {
-                    kugouImportSheet
-                }
             case .kugouLogin: KugouLoginSheet()
             case .licenseMaker: LicenseGeneratorView()
             }
@@ -603,229 +558,11 @@ struct ProfileView: View {
         return "\(Int(ceil(remaining / 60))) 分钟后"
     }
 
-    private var kugouImportSheet: some View {
-        CompatNavigationStack {
-            VStack(alignment: .leading, spacing: 0) {
-                // 精选歌单快捷入口
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("🔥 精选歌单（点一下直接导入）")
-                            .font(.system(size: 14, weight: .semibold))
-                        Spacer()
-                        if recommendedLoading { ProgressView().controlSize(.small) }
-                    }
-
-                    if recommendedPlaylists.isEmpty, !recommendedLoading {
-                        Button("加载精选歌单") {
-                            Task { await loadRecommended() }
-                        }
-                        .buttonStyle(.bordered)
-                    } else {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 10) {
-                                ForEach(recommendedPlaylists.prefix(15)) { pl in
-                                    Button {
-                                        Task { await importRecommended(pl) }
-                                    } label: {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            AsyncImage(url: pl.coverURL) { phase in
-                                                switch phase {
-                                                case .success(let img):
-                                                    img.resizable().scaledToFill()
-                                                default:
-                                                    Color.gray.opacity(0.3)
-                                                }
-                                            }
-                                            .frame(width: 100, height: 100)
-                                            .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                                            Text(pl.name)
-                                                .font(.system(size: 12))
-                                                .foregroundStyle(AppStyle.primaryText)
-                                                .lineLimit(2)
-                                                .frame(width: 100, alignment: .leading)
-
-                                            Text("\(pl.trackCount) 首")
-                                                .font(.system(size: 10))
-                                                .foregroundStyle(AppStyle.tertiaryText)
-                                        }
-                                    }
-                                    .buttonStyle(.plain)
-                                    .disabled(kugouImporting)
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.top, 12)
-                .padding(.bottom, 16)
-
-                Divider()
-
-                // 手动输入区
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("手动粘贴歌单链接")
-                        .font(.system(size: 14, weight: .semibold))
-
-                    Text("从酷狗 App 点歌单 → 右上角分享 → 复制链接，粘贴到这里")
-                        .font(.system(size: 12))
-                        .foregroundStyle(AppStyle.tertiaryText)
-
-                    TextField("https://t.kugou.com/xxx 或 12345", text: $kugouCodeInput)
-                        .textFieldStyle(.roundedBorder)
-                        .autocorrectionDisabled()
-                        .autocapitalization(.none)
-
-                    HStack(spacing: 12) {
-                        Button("取消") {
-                            sheet = nil; kugouCodeInput = ""; kugouImportError = nil
-                        }
-                        .buttonStyle(.bordered)
-
-                        Button {
-                            Task { await doKugouImport() }
-                        } label: {
-                            HStack {
-                                if kugouImporting { ProgressView().controlSize(.small) }
-                                Text(kugouImporting ? "导入中..." : "导入")
-                            }
-                            .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(kugouImporting || kugouCodeInput.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-
-                    if let err = kugouImportError {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(err)
-                                .font(.system(size: 12))
-                                .foregroundStyle(.red)
-                            if err.contains("失效") || err.contains("没有歌曲") {
-                                Text("💡 试试上方精选歌单，或从酷狗 App 重新分享一个有效歌单")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(AppStyle.tertiaryText)
-                            }
-                        }
-                    }
-
-                    if kugouImporting {
-                        ProgressView("正在解析并下载歌曲列表...")
-                            .font(.system(size: 12))
-                            .foregroundStyle(AppStyle.tertiaryText)
-                    }
-                }
-                .padding()
-
-                Spacer()
-            }
-            .navigationTitle("导入酷狗歌单")
-            .navigationBarTitleDisplayMode(.inline)
-            // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
-            .kugouNavigationBarBackground()
-            .task {
-                if recommendedPlaylists.isEmpty {
-                    await loadRecommended()
-                }
-            }
-        }
-    }
-
-    private func loadRecommended() async {
-        recommendedLoading = true
-        defer { recommendedLoading = false }
-        let (pls, _) = await KugouClient.shared.recommendedPlaylists(page: 1)
-        recommendedPlaylists = pls
-    }
-
-    private func importRecommended(_ playlist: Playlist) async {
-        kugouImporting = true; kugouImportError = nil
-        defer { kugouImporting = false }
-        guard let specialID = playlist.id.split(separator: ":").last else {
-            kugouImportError = "无法识别歌单 ID"; return
-        }
-        do {
-            let songs = try await KugouClient.shared.specialSongs(specialID: String(specialID))
-            guard !songs.isEmpty else {
-                kugouImportError = "歌单加载失败，可能已失效"
-                return
-            }
-            library.importPlaylist(name: playlist.name, songs: songs)
-            Haptics.soft()
-            kugouCodeInput = ""
-            sheet = nil
-        } catch {
-            kugouImportError = "导入失败：\(error.localizedDescription)"
-        }
-    }
-
-    private func doKugouImport() async {
-        kugouImporting = true; kugouImportError = nil
-        defer { kugouImporting = false }
-        do {
-            let (playlist, songs) = try await KugouClient.shared.fetchPlaylistByCode(kugouCodeInput)
-            guard !songs.isEmpty else {
-                kugouImportError = "歌单里没有歌曲 — 可能已过期或被删除"
-                return
-            }
-            library.importPlaylist(name: playlist.name, songs: songs)
-            Haptics.soft()
-            kugouCodeInput = ""
-            sheet = nil
-        } catch {
-            let msg = error.localizedDescription
-            if msg.contains("URL") || msg.contains("URLSession") || msg.contains("find") {
-                kugouImportError = "链接解析失败 — 试试从酷狗 App 重新分享一个有效的歌单链接"
-            } else {
-                kugouImportError = "导入失败：\(msg)"
-            }
-        }
-    }
-
     private func headerText(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 12))
             .foregroundStyle(AppStyle.tertiaryText)
     }
-
-    /// 备份 JSON 写到临时目录，返回 URL 供 ShareLink 使用
-    /// 只在用户点"导出"时写一次备份文件（不再在 body 渲染时疯狂写）
-    private func writeBackupOnce() throws -> URL {
-        let fm = FileManager.default
-        let docDir = try fm.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
-        let url = docDir.appendingPathComponent("aurora-backup-latest.json")
-        let data = try library.backupAllData()
-        try data.write(to: url, options: .atomic)
-        Log.info("备份", "一次性写出备份 \(url.path) (\(data.count) bytes)")
-        return url
-    }
-
-    private func showShareSheet(url: URL) {
-        guard let window = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .first?.windows.first(where: { $0.isKeyWindow }) else { return }
-        let vc = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-        vc.popoverPresentationController?.sourceView = window
-        vc.popoverPresentationController?.sourceRect = CGRect(x: window.bounds.midX, y: window.bounds.midY, width: 0, height: 0)
-        window.rootViewController?.present(vc, animated: true)
-    }
-
-    /// 从备份文件恢复
-    private func importBackup(from url: URL) async {
-        let accessing = url.startAccessingSecurityScopedResource()
-        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-        do {
-            let data = try Data(contentsOf: url)
-            try library.restoreFromBackup(data: data, merge: true)
-            Haptics.soft()
-            showToast = "备份恢复成功"
-        } catch {
-            Log.warn("备份", "恢复失败 \(error.localizedDescription)")
-            showToast = "恢复失败：\(error.localizedDescription)"
-        }
-    }
-
-    @State private var showToast: String?
 }
 
 struct AboutView: View {

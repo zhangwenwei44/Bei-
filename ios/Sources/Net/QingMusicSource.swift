@@ -67,7 +67,18 @@ extension SourceStore {
     /// 并用 `headers["source"]` 限定平台（kg/wy/...），只对匹配平台的歌曲生效。
     /// 同名音源按「覆盖导入」处理（见 `upsertReplacingByName`）。
     static func parseQingMusic(_ text: String) -> [ThirdPartySource] {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 🔴 v2.9.9：青听 music.json 文件头部带一段 `/* ... */` 注释块（作者/版本信息），
+        // 直接丢给 JSONSerialization 会整体解析失败、返回空数组 → 表现就是「导入不了」。
+        // 先把块注释和行注释都剥掉再解析。
+        if let block = try? NSRegularExpression(pattern: "/\\*[\\s\\S]*?\\*/", options: []) {
+            let range = NSRange(trimmed.startIndex..., in: trimmed)
+            trimmed = block.stringByReplacingMatches(in: trimmed, options: [], range: range, withTemplate: "")
+        }
+        if let line = try? NSRegularExpression(pattern: "//[^\\n]*", options: []) {
+            let range = NSRange(trimmed.startIndex..., in: trimmed)
+            trimmed = line.stringByReplacingMatches(in: trimmed, options: [], range: range, withTemplate: "")
+        }
         guard let data = trimmed.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return []

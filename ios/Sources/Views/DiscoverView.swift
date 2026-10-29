@@ -20,6 +20,10 @@ struct DiscoverView: View {
     @State private var selectedTab: DiscoverTab = .recommend
     @State private var pendingArtist: Artist?
 
+    // 🔴 v2.9.9：推荐页搜索框下方的横幅广告（两张图自动轮播）
+    @State private var adIndex = 0
+    private let adTimer = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
+
     // 歌单页搜索（搜索歌单而不是歌曲）
     @State private var playlistQuery = ""
     @State private var playlistSearchResults: [Playlist] = []
@@ -88,6 +92,10 @@ struct DiscoverView: View {
                         playlistSearchBar
                     } else {
                         searchEntry
+                        // 🔴 v2.9.9：搜索框下方加两张横幅广告，自动轮播（仅在推荐 Tab）
+                        if selectedTab == .recommend {
+                            adBanner
+                        }
                     }
                     tabContent
                 }
@@ -226,6 +234,33 @@ struct DiscoverView: View {
         .padding(.horizontal, 16)
         .padding(.top, 4)
         .padding(.bottom, 12)
+    }
+
+    // MARK: 🔴 v2.9.9 横幅广告轮播
+
+    /// 推荐页搜索框下方的两张横幅广告，每 4 秒自动轮播（图片在 Assets.xcassets）。
+    private var adBanner: some View {
+        TabView(selection: $adIndex) {
+            Image("BannerAd1")
+                .resizable()
+                .scaledToFill()
+                .tag(0)
+            Image("BannerAd2")
+                .resizable()
+                .scaledToFill()
+                .tag(1)
+        }
+        .tabViewStyle(.page(indexDisplayMode: .always))
+        .frame(height: 132)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
+        .onReceive(adTimer) { _ in
+            withAnimation(.easeInOut(duration: 0.4)) {
+                adIndex = (adIndex + 1) % 2
+            }
+        }
     }
 
     /// 歌单页搜索框：输入关键词搜酷狗歌单（/api/v3/search/special），清空回到推荐流
@@ -627,8 +662,9 @@ struct DiscoverView: View {
         }
     }
 
-    /// 「榜单推荐」板块：排版沿用榜单 Tab 的「热门榜单」大卡
-    /// （榜名 + 更新频率 + 封面角标 + 前 3 首），但只展示指定的 4 个榜。
+    // MARK: 🔴 v2.9.9 榜单推荐（横向滑动卡片）
+
+    /// 「榜单推荐」板块：横向滑动的榜单卡片（榜名 + 更新信息 + 白色圆形播放键 + 3 首排名封面 + 爱心）。
     private var rankRecommendSection: some View {
         let lists = recommendRankLists
         return VStack(alignment: .leading, spacing: 0) {
@@ -640,25 +676,111 @@ struct DiscoverView: View {
                         .frame(maxWidth: .infinity).padding(.vertical, 20)
                 }.padding(.horizontal, 16)
             } else {
-                VStack(spacing: 12) {
-                    ForEach(lists, id: \.playlist.id) { item in
-                        NavigationLink {
-                            PlaylistDetailView(playlist: item.playlist)
-                        } label: {
-                            rankPreviewCard(playlist: item.playlist,
-                                            displayName: item.displayName,
-                                            coverFromFirstSong: true)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(lists, id: \.playlist.id) { item in
+                            rankSlideCard(playlist: item.playlist, displayName: item.displayName)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 2)
                 }
-                .padding(.horizontal, 16)
             }
         }
         // 这 4 个榜的前 3 首预览要单独拉 —— 榜单 Tab 的预拉取只在切到那个 Tab 时才跑。
         .task(id: lists.map(\.playlist.id)) {
             await loadRankPreviews(for: lists.map(\.playlist))
         }
+    }
+
+    /// 单张榜单横滑卡片（图 5 样式）：榜名 + 更新信息 + 白色圆形播放键 + 3 首带排名角标的封面 + 爱心。
+    private func rankSlideCard(playlist: Playlist, displayName: String) -> some View {
+        let songs = rankPreviewSongs[playlist.kugouRankID ?? ""] ?? []
+        return VStack(alignment: .leading, spacing: 10) {
+            // 顶部：榜名 + 更新信息（左）｜白色圆形播放键（右，播前 3 首）
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(displayName)
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(AppStyle.primaryText)
+                        .lineLimit(1)
+                    Text("\(rankFrequencyText(playlist.updateFrequency)) · \(playlist.trackCount) 首")
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+                Spacer(minLength: 0)
+                // 白色圆形播放键：点一下播放该榜单前 3 首
+                Button {
+                    guard !songs.isEmpty else { return }
+                    store.queueID = playlist.id
+                    store.play(songs, startAt: 0)
+                    Haptics.soft()
+                } label: {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(AppStyle.accent)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(Color.white))
+                        .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
+                }
+                .buttonStyle(.plain)
+                // 右侧箭头进榜单详情
+                NavigationLink {
+                    PlaylistDetailView(playlist: playlist)
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                        .frame(width: 28, height: 34)
+                }
+                .buttonStyle(.plain)
+            }
+
+            // 3 首带排名角标的封面 + 歌名/歌手 + 爱心
+            VStack(spacing: 8) {
+                ForEach(Array(songs.prefix(3).enumerated()), id: \.element.id) { index, song in
+                    HStack(spacing: 10) {
+                        ZStack(alignment: .topLeading) {
+                            CoverImage(url: song.artworkURL,
+                                       fallbackKeys: song.coverFallbackKeys,
+                                       seed: "\(song.artist)-\(song.title)",
+                                       size: 44, corner: 6)
+                                .frame(width: 44, height: 44)
+                            Text("\(index + 1)")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(3)
+                                .background(AppStyle.accent, in: Circle())
+                                .offset(x: -4, y: -4)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(song.title)
+                                .font(.system(size: 13))
+                                .foregroundStyle(AppStyle.primaryText)
+                                .lineLimit(1)
+                            Text(song.artist)
+                                .font(.system(size: 11))
+                                .foregroundStyle(AppStyle.tertiaryText)
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Button {
+                            _ = library.toggleFavorite(song); Haptics.light()
+                        } label: {
+                            Image(systemName: library.isFavorite(song) ? "heart.fill" : "heart")
+                                .font(.system(size: 15))
+                                .foregroundStyle(library.isFavorite(song) ? AppStyle.like : AppStyle.tertiaryText)
+                                .frame(width: 32, height: 32)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: 280)
+        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     // MARK: 🔴 v2.9.8 经典推荐 / DJ推荐 —— 改成和新歌推荐一致的「单行横滑卡片」

@@ -175,36 +175,30 @@ private struct DownloadsList: View {
             EmptyStateView(icon: "arrow.down.circle", title: "还没有下载", message: "在歌曲菜单里选「下载」")
                 .padding(.top, 60)
         } else {
-            // 🔴 用户要求：下载列表改成灰白卡片、四个角圆角（不再用与背景同色的亮白）。
-            // 整块包一层 surfaceHigh 圆角面板；行底色也用 surfaceHigh，盖住身后红色删除按钮。
-            VStack(spacing: 0) {
-                LazyVStack(spacing: 0) {
-                    ForEach(groups) { group in
-                        // 分组抬头（带 id 供 A–Z 索引 scrollTo 定位）
-                        HStack {
-                            Text(group.letter)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(AppStyle.secondaryText)
-                            Spacer()
-                        }
-                        .padding(.leading, 16)
-                        .padding(.top, 10)
-                        .padding(.bottom, 2)
-                        .id("sec-\(group.letter)")
+            // 🔴 v2.9.9：按用户要求改成「搜索歌曲列表样式」——每首歌是独立的白色圆角卡片、
+            // 卡片之间留间距，漂浮在页面淡蓝渐变背景上（不再是一整块灰面板）。
+            // A–Z 分组、带 id 的分组抬头（供右侧字母索引 scrollTo 定位）、当前播放声波全部保留。
+            LazyVStack(spacing: 0) {
+                ForEach(groups) { group in
+                    // 分组抬头（带 id 供 A–Z 索引 scrollTo 定位）
+                    HStack {
+                        Text(group.letter)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(AppStyle.secondaryText)
+                        Spacer()
+                    }
+                    .padding(.leading, 16)
+                    .padding(.top, 10)
+                    .padding(.bottom, 4)
+                    .id("sec-\(group.letter)")
 
-                        ForEach(group.songs) { song in
-                            downloadRow(song)
-                        }
+                    ForEach(group.songs) { song in
+                        downloadRow(song)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 3)
                     }
                 }
-                // 底部留出迷你播放条的高度，最后一行不被挡
-                .padding(.bottom, 110)
             }
-            .padding(12)
-            .background(
-                AppStyle.surfaceHigh,
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-            )
         }
     }
 
@@ -308,12 +302,15 @@ private struct DownloadsList: View {
                         .rotationEffect(.degrees(90))
                 }
             }
-            // 灰白底：盖住身后的红色删除按钮（与面板同色，整体融合）
-            .background(AppStyle.surfaceHigh)
-            // 🔴 v2.9.8：下载列表原来行与行贴太紧（用户反馈"太紧凑"），
-            // 加大上下留白 + 封面放大，视觉上更透气。
-            .padding(.vertical, 8)
-            .padding(.horizontal, 16)
+            // 🔴 v2.9.9：每行是一张独立的白色圆角卡片（搜索歌曲列表样式），
+            // 卡片间距由外层 .padding(.vertical, 3) 控制；圆角卡片铺满宽度，盖住身后红色删除按钮。
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(AppStyle.surface)
+            )
         }
     }
 
