@@ -119,8 +119,17 @@ enum SourceResolver {
             return nil
         }
 
+        // 🔴 跳过被健康检测标记为「无用（红点）」的音源，避免把 20 秒预算浪费在已死的源上。
+        // 仅当过滤后一个可用音源都不剩时，才回退到全部可用音源（避免所有源都红时彻底放不出歌）。
+        let health = SourceHealth.shared
+        let healthy = usable.filter { health.status(for: $0.id) != .bad }
+        let effective = healthy.isEmpty ? usable : healthy
+        if healthy.count != usable.count {
+            Log.info("音源解析", "健康检测跳过 \(usable.count - healthy.count) 个无用音源")
+        }
+
         var seen = Set<String>()
-        let candidates = usable.filter { seen.insert(fingerprint($0)).inserted }
+        let candidates = effective.filter { seen.insert(fingerprint($0)).inserted }
 
         // 串行而不是并发：之前用 TaskGroup 同时跑所有音源，4 个 JavaScriptCore
         // 上下文一起解析同一首歌，内存和 CPU 峰值叠加，正是播放闪退的现场

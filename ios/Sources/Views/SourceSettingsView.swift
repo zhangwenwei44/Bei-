@@ -78,7 +78,7 @@ struct SourceSettingsView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(AppStyle.tertiaryText)
             } footer: {
-                Text("从上到下不是硬性顺序：所有启用的音源会并发请求，谁先返回可用地址就用谁。")
+                Text("从上到下不是硬性顺序：所有启用的音源会并发请求，谁先返回可用地址就用谁。圆点＝健康状态：绿=可用，红=无用（已被跳过）。")
                     .font(.system(size: 11))
                     .foregroundStyle(AppStyle.tertiaryText)
             }
@@ -105,6 +105,17 @@ struct SourceSettingsView: View {
                     Label("导出全部音源", systemImage: "square.and.arrow.up")
                 }
                 .disabled(store.sources.isEmpty)
+                Button {
+                    Task { await importQingMusic() }
+                } label: {
+                    Label("导入青听音源（聚合）", systemImage: "speaker.waves.left.and.right.circle")
+                }
+                Button {
+                    importMessage = nil
+                    Task { await SourceHealth.shared.checkAll() }
+                } label: {
+                    Label("重新检测全部音源", systemImage: "arrow.clockwise")
+                }
             } header: {
                 Text("添加")
                     .font(.system(size: 12))
@@ -152,6 +163,10 @@ struct SourceSettingsView: View {
             Log.info("音源导入", "收到分享进来的 URL: \(url.absoluteString)")
             Task { await importFromFiles([url]) }
         }
+        // 进入页面时顺手检测一遍（跳过近 10 分钟内已检测过的）
+        .onAppear {
+            Task { await SourceHealth.shared.checkStale() }
+        }
     }
 
     /// 导入结果直接显示在列表顶部。
@@ -198,6 +213,42 @@ struct SourceSettingsView: View {
 
     private var importSucceeded: Bool {
         importMessage?.hasPrefix("成功") == true || importMessage?.hasPrefix("导入") == true
+    }
+
+    /// 一键导入青听音源：下载官方 music.json，解析出各平台源并覆盖导入。
+    @MainActor
+    private func importQingMusic() async {
+        let urlString = "https://13413.kstore.vip/QingMusic/music.json"
+        guard let url = URL(string: urlString) else {
+            importMessage = "青听音源地址无效"
+            return
+        }
+        isImportingFiles = true
+        defer { isImportingFiles = false }
+        Log.info("音音源导入", "下载青听音源配置：\(urlString)")
+        do {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 20
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            guard code == 200, !data.isEmpty else {
+                importMessage = "下载青听音源失败：HTTP \(code)"
+                return
+            }
+            guard let text = String(data: data, encoding: .utf8) else {
+                importMessage = "青听音源解码失败"
+                return
+            }
+            let parsed = SourceStore.parseQingMusic(text)
+            guard !parsed.isEmpty else {
+                importMessage = "青听音源里没有可识别的源"
+                return
+            }
+            for source in parsed { store.upsertReplacingByName(source) }
+            importMessage = "成功导入青听音源 \(parsed.count) 条：\(parsed.map(\.name).joined(separator: "、"))"
+        } catch {
+            importMessage = "导入青听音源失败：\(error.localizedDescription)"
+        }
     }
 
     // MARK: - 内置音源
@@ -364,6 +415,8 @@ private struct SourceRow: View {
     let onToggle: () -> Void
     let onEdit: () -> Void
 
+    @ObservedObject private var health = SourceHealth.shared
+
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: source.isScript ? "curlybraces.square" : "link")
@@ -389,6 +442,9 @@ private struct SourceRow: View {
 
             Spacer(minLength: 4)
 
+            // 健康状态圆点：绿=可用，红=无用，灰（无圆点）=未检测/不适用；检测中显示小菊花
+            healthDot
+
             Toggle("", isOn: Binding(get: { source.enabled }, set: { _ in onToggle() }))
                 .labelsHidden()
                 .tint(AppStyle.accent)
@@ -401,6 +457,20 @@ private struct SourceRow: View {
             .buttonStyle(.plain)
         }
         .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private var healthDot: some View {
+        switch health.status(for: source.id) {
+        case .ok:
+            Circle().fill(Color.green).frame(width: 9, height: 9)
+        case .bad:
+            Circle().fill(Color.red).frame(width: 9, height: 9)
+        case .checking:
+            ProgressView().scaleEffect(0.6).frame(width: 9, height: 9).tint(AppStyle.tertiaryText)
+        case .unknown:
+            Color.clear.frame(width: 9, height: 9)
+        }
     }
 
     private var detail: String {

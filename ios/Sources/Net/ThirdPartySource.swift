@@ -309,6 +309,10 @@ final class SourceStore: ObservableObject {
         if let wrapper = object as? [String: Any], let inner = wrapper["sources"] {
             return decodeArray(inner)
         }
+        // 青听音源（QingMusic）的 music.json：lines 数组描述各平台源
+        if let wrapper = object as? [String: Any], wrapper["lines"] != nil {
+            return SourceStore.parseQingMusic(trimmed)
+        }
         return decodeArray(object)
     }
 

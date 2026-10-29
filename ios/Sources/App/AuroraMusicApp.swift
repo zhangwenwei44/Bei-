@@ -55,6 +55,9 @@ struct AuroraMusicApp: App {
 
         // 🔴 v2.9.8：恢复 Aurora 云账号会话（Supabase），有会话会自动拉取云端收藏/歌单
         CloudAccount.shared.configure()
+
+        // 🔴 启动即检测音源健康：后台跑，绿点=可用 / 红点=无用，不影响启动速度
+        Task { await SourceHealth.shared.checkStale() }
     }
 
     /// 🔴 v2.6.3：启动 splash —— 系统启动图经常 <1 秒就被撤掉，

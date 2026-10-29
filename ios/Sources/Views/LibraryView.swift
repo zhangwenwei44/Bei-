@@ -151,122 +151,226 @@ private enum KugouSection: String, CaseIterable, Identifiable {
 
 // MARK: - 下载歌曲列表（🔴 v2.8.3：从独立页面改为可内嵌的列表，供「下载歌曲」板块直接展示）
 
+/// 下载歌曲按首字母分组（A–Z；非字母归到 #）。
+private struct SongGroup: Identifiable {
+    let letter: String
+    let songs: [Song]
+    var id: String { letter }
+}
+
 private struct DownloadsList: View {
     @EnvironmentObject private var store: PlayerStore
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var downloads = DownloadManager.shared
 
+    /// 外部传入已分好组的歌曲（由 KugouLibraryPage 计算，便于 A–Z 索引导航）。
+    let groups: [SongGroup]
+
+    init(groups: [SongGroup]) {
+        self.groups = groups
+    }
+
     var body: some View {
-        Group {
-            if library.downloads.isEmpty {
-                EmptyStateView(icon: "arrow.down.circle", title: "还没有下载", message: "在歌曲菜单里选「下载」")
-                    .padding(.top, 60)
-            } else {
+        if groups.isEmpty {
+            EmptyStateView(icon: "arrow.down.circle", title: "还没有下载", message: "在歌曲菜单里选「下载」")
+                .padding(.top, 60)
+        } else {
+            // 🔴 用户要求：下载列表改成灰白卡片、四个角圆角（不再用与背景同色的亮白）。
+            // 整块包一层 surfaceHigh 圆角面板；行底色也用 surfaceHigh，盖住身后红色删除按钮。
+            VStack(spacing: 0) {
                 LazyVStack(spacing: 0) {
-                    ForEach(library.downloads) { song in
-                        // 左滑删除（删本地文件 + 移出下载列表）
-                        SwipeToDeleteRow {
-                            downloads.delete(song)
-                            Haptics.light()
-                        } content: {
-                            HStack(spacing: 12) {
-                                // 🔴 v2.9.8：播放只绑在「封面 + 歌名」这一块上，
-                                // 收藏 / 三点作为兄弟按钮（不是嵌套在播放按钮里），
-                                // 三者点击区域互不重叠 → 彻底杜绝误触整行播放。
-                                Button {
-                                    guard let index = library.downloads.firstIndex(where: { $0.id == song.id }) else { return }
-                                    store.play(library.downloads, startAt: index); Haptics.soft()
-                                } label: {
-                                    HStack(spacing: 12) {
-                                        CoverImage(url: song.artworkURL,
-                                                   fallbackKeys: song.coverFallbackKeys,
-                                                   seed: "\(song.artist)-\(song.title)",
-                                                   size: 56)
-                                        VStack(alignment: .leading, spacing: 5) {
-                                            HStack(spacing: 6) {
-                                                Text(song.cleanTitle)
-                                                    .font(.system(size: 15, weight: .medium))
-                                                    .foregroundStyle(store.current?.id == song.id ? AppStyle.accent : AppStyle.primaryText)
-                                                    .lineLimit(1)
-                                                    .truncationMode(.tail)
-                                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                            }
-                                            // 🔴 v2.9.8(二)：「本地」标签从歌名行移到歌手行后面（用户要求）。
-                                            HStack(spacing: 6) {
-                                                Text(song.artist)
-                                                    .font(.system(size: 13))
-                                                    .foregroundStyle(AppStyle.secondaryText)
-                                                    .lineLimit(1)
-                                                    .truncationMode(.tail)
-                                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                                if song.source == .local {
-                                                    Text("本地")
-                                                        .font(.system(size: 9))
-                                                        .foregroundStyle(AppStyle.accent)
-                                                        .padding(.horizontal, 4)
-                                                        .padding(.vertical, 1)
-                                                        .background(AppStyle.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 3))
-                                                        .fixedSize()
-                                                }
-                                            }
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                                .buttonStyle(.plain)
-                                .layoutPriority(1)
-
-                                // 收藏（独立按钮，绝不触发播放）
-                                Button {
-                                    _ = library.toggleFavorite(song)
-                                    Haptics.light()
-                                } label: {
-                                    Image(systemName: library.isFavorite(song) ? "heart.fill" : "heart")
-                                        .font(.system(size: 16))
-                                        .foregroundStyle(library.isFavorite(song) ? AppStyle.like : AppStyle.tertiaryText)
-                                        .frame(width: 40, height: 40)
-                                }
-                                .buttonStyle(.plain)
-
-                                // 🔴 v2.9.7：已下载图标改成三点竖排「更多」按钮（用户要求）。
-                                // 点开菜单：播放 / 删除下载（原来只是个不可点的对勾）。
-                                Menu {
-                                    Button {
-                                        if let index = library.downloads.firstIndex(where: { $0.id == song.id }) {
-                                            store.play(library.downloads, startAt: index)
-                                        }
-                                        Haptics.soft()
-                                    } label: {
-                                        Label("播放", systemImage: "play")
-                                    }
-                                    Button(role: .destructive) {
-                                        downloads.delete(song)
-                                        Haptics.light()
-                                    } label: {
-                                        Label("删除下载", systemImage: "trash")
-                                    }
-                                } label: {
-                                    Image(systemName: "ellipsis")
-                                        .font(.system(size: 16, weight: .medium))
-                                        .foregroundStyle(AppStyle.secondaryText)
-                                        .frame(width: 40, height: 40)
-                                        .rotationEffect(.degrees(90))
-                                }
-                            }
-                            // 不透明底：盖住身后的红色删除按钮（页面背景同色）
-                            .background(AppStyle.background)
-                            // 🔴 v2.9.8：下载列表原来行与行贴太紧（用户反馈"太紧凑"），
-                            // 加大上下留白 + 封面放大，视觉上更透气。
-                            .padding(.vertical, 8)
+                    ForEach(groups) { group in
+                        // 分组抬头（带 id 供 A–Z 索引 scrollTo 定位）
+                        HStack {
+                            Text(group.letter)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(AppStyle.secondaryText)
+                            Spacer()
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.leading, 16)
+                        .padding(.top, 10)
+                        .padding(.bottom, 2)
+                        .id("sec-\(group.letter)")
+
+                        ForEach(group.songs) { song in
+                            downloadRow(song)
+                        }
                     }
                 }
                 // 底部留出迷你播放条的高度，最后一行不被挡
                 .padding(.bottom, 110)
             }
+            .padding(12)
+            .background(
+                AppStyle.surfaceHigh,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
         }
+    }
+
+    private func downloadRow(_ song: Song) -> some View {
+        // 左滑删除（删本地文件 + 移出下载列表）
+        SwipeToDeleteRow {
+            downloads.delete(song)
+            Haptics.light()
+        } content: {
+            HStack(spacing: 12) {
+                // 🔴 v2.9.8：播放只绑在「封面 + 歌名」这一块上，
+                // 收藏 / 三点作为兄弟按钮（不是嵌套在播放按钮里），
+                // 三者点击区域互不重叠 → 彻底杜绝误触整行播放。
+                Button {
+                    guard let index = library.downloads.firstIndex(where: { $0.id == song.id }) else { return }
+                    store.play(library.downloads, startAt: index); Haptics.soft()
+                } label: {
+                    HStack(spacing: 12) {
+                        CoverImage(url: song.artworkURL,
+                                   fallbackKeys: song.coverFallbackKeys,
+                                   seed: "\(song.artist)-\(song.title)",
+                                   size: 56)
+                        // 🔴 当前播放的歌显示与其他列表一致的动态声波（PlayingBarsIndicator）
+                        .overlay(alignment: .bottomTrailing) {
+                            if store.current?.id == song.id {
+                                PlayingBarsIndicator(isPlaying: store.isPlaying)
+                                    .padding(3)
+                                    .background(AppStyle.accent, in: Circle())
+                                    .offset(x: 3, y: 3)
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack(spacing: 6) {
+                                Text(song.cleanTitle)
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundStyle(store.current?.id == song.id ? AppStyle.accent : AppStyle.primaryText)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            // 🔴 v2.9.8(二)：「本地」标签从歌名行移到歌手行后面（用户要求）。
+                            HStack(spacing: 6) {
+                                Text(song.artist)
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(AppStyle.secondaryText)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                if song.source == .local {
+                                    Text("本地")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(AppStyle.accent)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 1)
+                                        .background(AppStyle.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 3))
+                                        .fixedSize()
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .layoutPriority(1)
+
+                // 收藏（独立按钮，绝不触发播放）
+                Button {
+                    _ = library.toggleFavorite(song)
+                    Haptics.light()
+                } label: {
+                    Image(systemName: library.isFavorite(song) ? "heart.fill" : "heart")
+                        .font(.system(size: 16))
+                        .foregroundStyle(library.isFavorite(song) ? AppStyle.like : AppStyle.tertiaryText)
+                        .frame(width: 40, height: 40)
+                }
+                .buttonStyle(.plain)
+
+                // 🔴 v2.9.7：已下载图标改成三点竖排「更多」按钮（用户要求）。
+                // 点开菜单：播放 / 删除下载（原来只是个不可点的对勾）。
+                Menu {
+                    Button {
+                        if let index = library.downloads.firstIndex(where: { $0.id == song.id }) {
+                            store.play(library.downloads, startAt: index)
+                        }
+                        Haptics.soft()
+                    } label: {
+                        Label("播放", systemImage: "play")
+                    }
+                    Button(role: .destructive) {
+                        downloads.delete(song)
+                        Haptics.light()
+                    } label: {
+                        Label("删除下载", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(AppStyle.secondaryText)
+                        .frame(width: 40, height: 40)
+                        .rotationEffect(.degrees(90))
+                }
+            }
+            // 灰白底：盖住身后的红色删除按钮（与面板同色，整体融合）
+            .background(AppStyle.surfaceHigh)
+            // 🔴 v2.9.8：下载列表原来行与行贴太紧（用户反馈"太紧凑"），
+            // 加大上下留白 + 封面放大，视觉上更透气。
+            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+        }
+    }
+
+    // MARK: 分组
+
+    /// 按首字母分组并组内按歌名排序。
+    static func makeGroups(_ songs: [Song]) -> [SongGroup] {
+        var map: [String: [Song]] = [:]
+        for song in songs {
+            let key = Self.letter(for: song.cleanTitle)
+            map[key, default: []].append(song)
+        }
+        let letters = map.keys.sorted { lhs, rhs in
+            if lhs == "#" { return false }
+            if rhs == "#" { return true }
+            return lhs < rhs
+        }
+        return letters.map { letter in
+            let sorted = map[letter]!.sorted {
+                $0.cleanTitle.localizedStandardCompare($1.cleanTitle) == .orderedAscending
+            }
+            return SongGroup(letter: letter, songs: sorted)
+        }
+    }
+
+    /// 取首字母用于分组：拉丁字母取其大写；其余（中文等）归到 #。
+    static func letter(for title: String) -> String {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = t.first else { return "#" }
+        let s = String(first).uppercased()
+        let isLatinLetter = s.rangeOfCharacter(from: .letters) != nil
+            && s >= "A" && s <= "Z"
+        return isLatinLetter ? s : "#"
+    }
+}
+
+/// 下载列表右侧的 A–Z 快速索引（点击跳到对应分组）。
+private struct DownloadIndex: View {
+    let letters: [String]
+    let proxy: ScrollViewProxy
+
+    var body: some View {
+        VStack(spacing: 2) {
+            ForEach(letters, id: \.self) { letter in
+                Button {
+                    withAnimation { proxy.scrollTo("sec-\(letter)", anchor: .top) }
+                    Haptics.light()
+                } label: {
+                    Text(letter)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                        .frame(width: 16, height: 14)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 6)
     }
 }
 
@@ -296,6 +400,11 @@ private struct KugouLibraryPage: View {
     @State private var renameName = ""
     /// 🔴 v2.8.3：曲库板块滑块（自建歌单 / 收藏歌单 / 下载歌曲）
     @State private var section: KugouSection = .created
+
+    /// 下载歌曲按首字母分组（供列表分区 + A–Z 索引使用）。
+    private var downloadGroups: [SongGroup] {
+        DownloadsList.makeGroups(library.downloads)
+    }
 
     var body: some View {
         Group {
@@ -332,12 +441,22 @@ private struct KugouLibraryPage: View {
                         .padding(.bottom, 10)
                     }
 
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            kugouContent
+                    // 🔴 ScrollViewReader 包一层，供下载列表右侧 A–Z 索引 scrollTo 定位
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
+                                kugouContent
+                            }
+                        }
+                        .refreshable { await reloadPlaylists() }
+                        // 🔴 下载列表右侧的 A–Z 快速索引（仅「下载歌曲」板块显示）
+                        .overlay(alignment: .trailing) {
+                            if section == .download && !downloadGroups.isEmpty {
+                                DownloadIndex(letters: downloadGroups.map(\.letter), proxy: proxy)
+                                    .padding(.trailing, 4)
+                            }
                         }
                     }
-                    .refreshable { await reloadPlaylists() }
                 }
                 // 🔴 v2.9.6(修正)：整页固定渐变（与主页/搜索/设置一致），上滑不消失。
                 // 顶栏（账号卡+板块滑块）仍是固定的、不参与滚动，蓝色渐变带从顶部一直铺下来。
@@ -414,7 +533,7 @@ private struct KugouLibraryPage: View {
                 case .fav:
                     favSection
                 case .download:
-                    DownloadsList()
+                    DownloadsList(groups: downloadGroups)
                 }
             }
             // 🔴 v2.7.7：底部留出迷你播放条的高度 —— 之前最后一行歌单被迷你播放条挡住
