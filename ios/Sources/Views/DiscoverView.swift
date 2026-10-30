@@ -180,21 +180,22 @@ struct DiscoverView: View {
             Spacer(minLength: 0)
 
             VStack(spacing: 2) {
-                // 🔴 v2.9.11：管理员（已登录云账号）标识，显示在酷狗账号上方
-                if cloud.isSignedIn {
-                    Text("管理员")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(AppStyle.accent)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
-                        .background(AppStyle.accent.opacity(0.15), in: Capsule())
-                }
+                // 🔴 v2.9.13：管理员标识移到「名字」上方（kugouAvatar 内部），这里不再单独渲染
                 kugouAvatar
             }
             .padding(.trailing, 12)
         }
-        // 🔴 v2.9.11：管理员标识在酷狗账号上方，整体略增高避免挤在一起
-        .frame(height: 58)
+        .frame(height: 48)
+    }
+
+    /// 🔴 v2.9.13：管理员（已登录云账号）标识 —— 只有文字，无胶囊背景。
+    @ViewBuilder
+    private var adminBadge: some View {
+        if cloud.isSignedIn {
+            Text("管理员")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(AppStyle.accent)
+        }
     }
 
     @ViewBuilder
@@ -208,10 +209,14 @@ struct DiscoverView: View {
                                fallbackKeys: ["kg-user:\(kugouAuth.userId)"],
                                seed: kugouAuth.nickname,
                                size: 30, corner: 8)  // 🔴 v2.8.4 头像改方形
-                    Text(kugouAuth.nickname.isEmpty ? "酷狗" : kugouAuth.nickname)
-                        .font(.system(size: 13, weight: .medium))  // 12→13
-                        .foregroundStyle(AppStyle.secondaryText)
-                        .lineLimit(1)
+                    // 🔴 v2.9.13：管理员标识显示在「名字」上方
+                    VStack(alignment: .leading, spacing: 1) {
+                        adminBadge
+                        Text(kugouAuth.nickname.isEmpty ? "酷狗" : kugouAuth.nickname)
+                            .font(.system(size: 13, weight: .medium))  // 12→13
+                            .foregroundStyle(AppStyle.secondaryText)
+                            .lineLimit(1)
+                    }
                 }
             }
             .buttonStyle(.plain)
@@ -222,9 +227,12 @@ struct DiscoverView: View {
                 HStack(spacing: 3) {
                     // 酷狗品牌登录图标（绿圆白话筒），替代通用 SF Symbol
                     KugouLogoIcon(size: 22)
-                    Text("登录")
-                        .font(.system(size: 13, weight: .medium))  // 12→13
-                        .foregroundStyle(AppStyle.secondaryText)
+                    VStack(alignment: .leading, spacing: 1) {
+                        adminBadge
+                        Text("登录")
+                            .font(.system(size: 13, weight: .medium))  // 12→13
+                            .foregroundStyle(AppStyle.secondaryText)
+                    }
                 }
             }
             .buttonStyle(.plain)
@@ -268,7 +276,7 @@ struct DiscoverView: View {
         let imgs = bannerConfig.effectiveImages
         let useDefaults = imgs.isEmpty
         let count = useDefaults ? 2 : imgs.count
-        let h = (UIScreen.main.bounds.width - 32) * 6 / 16 // 🔴 16:6
+        let h = (UIScreen.main.bounds.width - 32) * 7 / 16 // 🔴 v2.9.13：16:7
         return TabView(selection: $adIndex) {
             if useDefaults {
                 ForEach(0..<2, id: \.self) { i in
@@ -348,15 +356,19 @@ struct DiscoverView: View {
     }
 
     private var entryBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 20) {
-                ForEach(DiscoverEntry.allCases, id: \.self) { entry in
-                    entryItem(entry)
-                }
+        // 🔴 v2.9.13：入口行与横幅「一样宽」——左右各 16pt，
+        // 4 个入口按剩余空间均分，间距自动加大铺满整行（不再挤在左边）。
+        let n = CGFloat(DiscoverEntry.allCases.count)
+        let total = UIScreen.main.bounds.width - 32 // 与横幅一致：左右各 16
+        let gap = max(10, (total - n * 50) / (n - 1)) // 50 = 图标方块边长
+        return HStack(spacing: gap) {
+            ForEach(DiscoverEntry.allCases, id: \.self) { entry in
+                entryItem(entry)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
         }
+        .frame(width: total, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -392,8 +404,8 @@ struct DiscoverView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(AppStyle.primaryText)
         }
-        .frame(width: 58)
-    }
+            .frame(width: 50) // 🔴 v2.9.13：与图标同宽，保证首尾图标与横幅左右边缘对齐
+        }
 
     @ViewBuilder
     private func destination(for entry: DiscoverEntry) -> some View {
