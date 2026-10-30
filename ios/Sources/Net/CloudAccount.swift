@@ -69,7 +69,12 @@ final class CloudAccount: ObservableObject {
 
     private var client: SupabaseClient?
     private var userId: String?
+    private var accessToken: String?
     private var cancellables = Set<AnyCancellable>()
+
+    /// 当前登录会话的 access token（用于访问需要鉴权的 Supabase 资源，如上传横幅到 Storage）。
+    /// 未登录时为 nil。
+    var currentAccessToken: String? { accessToken }
     /// 应用云端数据期间抑制本地变更的自动回推，避免回声推送。
     private var suppressPush = false
 
@@ -112,6 +117,7 @@ final class CloudAccount: ObservableObject {
     private func apply(session: Session) {
         userId = String(describing: session.user.id)
         userEmail = session.user.email
+        accessToken = session.accessToken
         isSignedIn = true
         objectWillChange.send()
         Log.info("云端", "已登录 Supabase：\(session.user.email ?? userId ?? "")")
@@ -120,6 +126,7 @@ final class CloudAccount: ObservableObject {
     private func clearSession() {
         userId = nil
         userEmail = nil
+        accessToken = nil
         isSignedIn = false
         objectWillChange.send()
     }

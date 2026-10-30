@@ -113,7 +113,11 @@ struct DiscoverView: View {
         // 渐变挂在 ScrollView 自身的背景上（相对可视区域固定），而不是滚动内容里。
         .kugouPinnedTopFade(height: 280)
         .refreshable { await load(force: true) }
-        .task { if feed.isEmpty { await load() } }
+        .task {
+            if feed.isEmpty { await load() }
+            // 🔴 v2.9.12：进入发现页即拉取管理员设置的云端横幅（跨设备共享）
+            await BannerConfig.shared.pullCloud()
+        }
         .navigationBarTitleDisplayMode(.inline)
         // 🔴 v2.9.6：状态栏/导航栏那一段刷成淡蓝，和下面的渐变带连成一片
         .kugouNavigationBarTint()
@@ -257,26 +261,39 @@ struct DiscoverView: View {
 
     // MARK: 🔴 v2.9.9 横幅广告轮播
 
-    /// 推荐页搜索框下方的两张横幅广告，每 4 秒自动轮播。
-    /// 🔴 v2.9.10：优先用管理员在「实验室」里换的本地图，没有再用 Assets 里的默认图。
+    /// 推荐页搜索框下方的横幅广告，每 4 秒自动轮播。
+    /// 显示顺序：云端（管理员设置、跨设备共享）→ 本机自定义 → App 内置默认图。
+    /// 🔴 v2.9.12：比例改为 16:6；宽度随屏宽自适应，与下方「下载行」及各板块统一 16pt 左右间距。
     private var adBanner: some View {
-        let screenW = UIScreen.main.bounds.width
-        let w = screenW - 32 // 左右各 16 内边距
-        let h = w * 9 / 16 // 🔴 v2.9.11：16:9 比例
+        let imgs = bannerConfig.effectiveImages
+        let useDefaults = imgs.isEmpty
+        let count = useDefaults ? 2 : imgs.count
+        let h = (UIScreen.main.bounds.width - 32) * 6 / 16 // 🔴 16:6
         return TabView(selection: $adIndex) {
-            ForEach(Array(bannerConfig.images.indices), id: \.self) { i in
-                bannerImage(at: i)
-                    .tag(i)
+            if useDefaults {
+                ForEach(0..<2, id: \.self) { i in
+                    Image(i % 2 == 0 ? "BannerAd1" : "BannerAd2")
+                        .resizable()
+                        .scaledToFill()
+                        .tag(i)
+                }
+            } else {
+                ForEach(Array(imgs.indices), id: \.self) { i in
+                    Image(uiImage: imgs[i])
+                        .resizable()
+                        .scaledToFill()
+                        .tag(i)
+                }
             }
         }
         // 🔴 关掉系统页码点（居中），改用右下角自定义圆点
         .tabViewStyle(.page(indexDisplayMode: .never))
-        .frame(width: w, height: h)
+        .frame(height: h)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         // 🔴 自定义页码点：右下角，当前页为长条、其余为圆点
         .overlay(alignment: .bottomTrailing) {
             HStack(spacing: 5) {
-                ForEach(Array(bannerConfig.images.indices), id: \.self) { i in
+                ForEach(0..<count, id: \.self) { i in
                     Capsule()
                         .fill(i == adIndex ? Color.white : Color.white.opacity(0.5))
                         .frame(width: i == adIndex ? 14 : 6, height: 6)
@@ -287,31 +304,14 @@ struct DiscoverView: View {
             .padding(.trailing, 10)
             .padding(.bottom, 10)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 16) // 🔴 与「下载行」/各板块统一 16pt 间距
         .padding(.top, 4)
         .padding(.bottom, 8)
         .onReceive(adTimer) { _ in
-            let n = bannerConfig.images.count
-            guard n > 1 else { return }
+            guard count > 1 else { return }
+            let cur = min(adIndex, count - 1)
             withAnimation(.easeInOut(duration: 0.4)) {
-                adIndex = (adIndex + 1) % n
-            }
-        }
-    }
-
-    /// 取横幅图：管理员本地图优先，否则回退到 Assets 默认图（多图时按奇偶循环取 BannerAd1/2）。
-    private func bannerImage(at index: Int) -> some View {
-        let custom = bannerConfig.images[index]
-        let fallbackName = (index % 2 == 0) ? "BannerAd1" : "BannerAd2"
-        return Group {
-            if let ui = custom {
-                Image(uiImage: ui)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                Image(fallbackName)
-                    .resizable()
-                    .scaledToFill()
+                adIndex = (cur + 1) % count
             }
         }
     }
@@ -487,10 +487,11 @@ struct DiscoverView: View {
 
     private var recommendContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            bigCardsGrid
+            // 🔴 v2.9.12：新歌推荐上移到「每日推荐 / 猜你喜欢」（bigCardsGrid）之上
+            newSongSection
             // 🔴 v2.9.7(二)：用户要求「新歌推荐」下面加回「经典推荐」，
             // 经典推荐下面再加「DJ推荐」，然后才接「歌单推荐」→「专辑推荐」→「榜单推荐」。
-            newSongSection
+            bigCardsGrid
             classicSection
             djSection
             userPlaylistSection

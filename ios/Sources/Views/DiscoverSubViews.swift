@@ -11,6 +11,8 @@ import UIKit
 final class BannerConfig: ObservableObject {
     static let shared = BannerConfig()
     @Published var images: [UIImage?] = []
+    /// 🔴 v2.9.12：云端（管理员设置）横幅，拉取后所有设备共享展示。
+    @Published private(set) var cloudImages: [UIImage] = []
     private let prefix = "aurora_banner_"
     private let ext = ".png"
 
@@ -63,6 +65,7 @@ final class BannerConfig: ObservableObject {
         while images.count <= index { images.append(nil) }
         images[index] = image
         writeMeta(meta)
+        syncCloud()
     }
 
     func reset(at index: Int) {
@@ -72,6 +75,7 @@ final class BannerConfig: ObservableObject {
         try? FileManager.default.removeItem(at: Self.dir().appendingPathComponent("\(prefix)\(index)\(ext)"))
         images[index] = nil
         writeMeta(meta)
+        syncCloud()
     }
 
     /// 🔴 v2.9.11：新增一张横幅位（默认用 App 内置图，管理员随后可「更换」）。
@@ -80,6 +84,41 @@ final class BannerConfig: ObservableObject {
         meta.custom.append(false)
         images.append(nil)
         writeMeta(meta)
+        syncCloud()
+    }
+
+    // MARK: - 云端同步（跨设备共享管理员设置的横幅）
+
+    /// 云端拉取到的横幅（所有设备共用，由 BannerSync 填充）。
+    func applyCloud(_ imgs: [UIImage]) {
+        cloudImages = imgs
+        objectWillChange.send()
+    }
+
+    /// 异步从云端拉取横幅（App 启动 / 进入发现页时调用）。
+    func pullCloud() async {
+        let imgs = await BannerSync.fetch()
+        await MainActor.run { applyCloud(imgs) }
+    }
+
+    /// 实际展示用图：优先云端（管理员设置、跨设备共享），否则用本机自定义图。
+    var effectiveImages: [UIImage] {
+        cloudImages.isEmpty ? images.compactMap { $0 } : cloudImages
+    }
+
+    /// 管理端编辑后同步到云端（fire-and-forget）。同时乐观更新 cloudImages 让本机即时看到。
+    private func syncCloud() {
+        let banners = images.enumerated().compactMap { idx, img -> (String, UIImage)? in
+            guard let img else { return nil }
+            return ("横幅广告 \(idx + 1)", img)
+        }
+        cloudImages = banners.map { $0.1 }
+        objectWillChange.send()
+        Task {
+            if let err = await BannerSync.upload(banners) {
+                Log.warn("横幅", "云端同步失败：\(err)")
+            }
+        }
     }
 }
 
