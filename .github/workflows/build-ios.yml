@@ -11,15 +11,22 @@ on:
 permissions:
   contents: write
 
-# 🔴 v2.9.13：临时移除 concurrency 块。
-# GitHub 平台故障（2026-10-30 "Incident with Actions, Pages, and Webhooks"）之后，
-# 新 run 会在创建后 2 秒内被自动 cancelled（job 从未分配到 runner、0 个步骤），
-# 疑似 cancel-in-progress 机制与平台异常叠加导致误杀。移除后构建恢复正常。
+# 🔴 v2.9.13：concurrency 保留，但 cancel-in-progress 改成 false。
+# 原来 true 时，新推送会把正在跑的构建直接取消（平台故障期间排查时很误导，
+# 也会让"刚推的版本没有包"）。改成 false 后新构建排队而不是互相杀死。
+concurrency:
+  group: build-ios-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
     name: Build unsigned IPA
-    runs-on: macos-14
+    # 🔴 v2.9.13：macos-14 → macos-15。
+    # 2026-10-30 GitHub 平台故障（"Incident with Actions, Pages, and Webhooks"）之后，
+    # macos-14 的 runner 分配不到，job 会在创建后 1~2 秒内被 cancelled（无 runner、无步骤）。
+    # 同一次 push 的 ubuntu ping 工作流能正常跑，说明是 macos-14 镜像池的问题，不是账户/权限问题。
+    # macos-15 自带 Xcode 16（Swift 5 语言模式，SWIFT_VERSION=5.9 + strict concurrency minimal），兼容现有工程。
+    runs-on: macos-15
     timeout-minutes: 30
 
     steps:
