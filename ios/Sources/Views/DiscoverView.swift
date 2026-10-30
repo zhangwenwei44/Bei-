@@ -263,7 +263,7 @@ struct DiscoverView: View {
         let screenW = UIScreen.main.bounds.width
         let w = screenW - 32 // 左右各 16 内边距
         let h = w * 9 / 16 // 🔴 v2.9.11：16:9 比例
-        TabView(selection: $adIndex) {
+        return TabView(selection: $adIndex) {
             ForEach(Array(bannerConfig.images.indices), id: \.self) { i in
                 bannerImage(at: i)
                     .tag(i)
