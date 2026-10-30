@@ -336,14 +336,26 @@ private struct DownloadsList: View {
         }
     }
 
-    /// 取首字母用于分组：拉丁字母取其大写；其余（中文等）归到 #。
+    /// 取首字母用于分组：拉丁字母取其大写；中文等用**拼音首字母**，
+    /// 这样 A–Z 索引导航对中文歌也生效（如「大花轿」归到 D、「红日」归到 H）。
+    /// 数字 / 符号 / 无法转拼音的字符才归到 #。
     static func letter(for title: String) -> String {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let first = t.first else { return "#" }
         let s = String(first).uppercased()
         let isLatinLetter = s.rangeOfCharacter(from: .letters) != nil
             && s >= "A" && s <= "Z"
-        return isLatinLetter ? s : "#"
+        if isLatinLetter { return s }
+        // 非拉丁（中文等）：转拼音后取首字母
+        let mutable = NSMutableString(string: t) as CFMutableString
+        CFStringTransform(mutable, nil, kCFStringTransformToLatin, false)
+        CFStringTransform(mutable, nil, kCFStringTransformStripCombiningMarks, false)
+        let latin = (mutable as String).trimmingCharacters(in: .whitespacesAndNewlines)
+        if let pf = latin.first {
+            let ps = String(pf).uppercased()
+            if ps >= "A" && ps <= "Z" { return ps }
+        }
+        return "#"
     }
 }
 

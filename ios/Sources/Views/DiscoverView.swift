@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 发现页（新版）。Tab 栏 → 搜索框 → 2×2 宫格卡片 → 心情问候 + 歌曲列表 → 热门榜单。
 struct DiscoverView: View {
@@ -23,6 +24,10 @@ struct DiscoverView: View {
     // 🔴 v2.9.9：推荐页搜索框下方的横幅广告（两张图自动轮播）
     @State private var adIndex = 0
     private let adTimer = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
+    /// 🔴 v2.9.10：横幅广告本地覆盖（管理员可在「实验室」更换），adBanner 优先用它
+    @ObservedObject private var bannerConfig = BannerConfig.shared
+    /// 🔴 v2.9.10：入口栏里 MV 暂未开放，点一下提示
+    @State private var showMVAlert = false
 
     // 歌单页搜索（搜索歌单而不是歌曲）
     @State private var playlistQuery = ""
@@ -95,6 +100,8 @@ struct DiscoverView: View {
                         // 🔴 v2.9.9：搜索框下方加两张横幅广告，自动轮播（仅在推荐 Tab）
                         if selectedTab == .recommend {
                             adBanner
+                            // 🔴 v2.9.10：横幅广告下方入口栏（下载 / MV / 排行榜 / 歌单广场 / 实验室）
+                            entryBar
                         }
                     }
                     tabContent
@@ -110,6 +117,12 @@ struct DiscoverView: View {
         .navigationBarTitleDisplayMode(.inline)
         // 🔴 v2.9.6：状态栏/导航栏那一段刷成淡蓝，和下面的渐变带连成一片
         .kugouNavigationBarTint()
+        // 🔴 v2.9.10：入口栏里 MV 暂未开放
+        .alert("敬请期待", isPresented: $showMVAlert) {
+            Button("好", role: .cancel) { }
+        } message: {
+            Text("MV 功能即将上线")
+        }
         .safeAreaInset(edge: .top, spacing: 0) {
             tabBar
                 // 🔴 v2.9.6(修正)：tab 行刷**实色 pageGradientTop** ——
@@ -238,16 +251,13 @@ struct DiscoverView: View {
 
     // MARK: 🔴 v2.9.9 横幅广告轮播
 
-    /// 推荐页搜索框下方的两张横幅广告，每 4 秒自动轮播（图片在 Assets.xcassets）。
+    /// 推荐页搜索框下方的两张横幅广告，每 4 秒自动轮播。
+    /// 🔴 v2.9.10：优先用管理员在「实验室」里换的本地图，没有再用 Assets 里的默认图。
     private var adBanner: some View {
         TabView(selection: $adIndex) {
-            Image("BannerAd1")
-                .resizable()
-                .scaledToFill()
+            bannerImage(at: 0, fallback: "BannerAd1")
                 .tag(0)
-            Image("BannerAd2")
-                .resizable()
-                .scaledToFill()
+            bannerImage(at: 1, fallback: "BannerAd2")
                 .tag(1)
         }
         .tabViewStyle(.page(indexDisplayMode: .always))
@@ -260,6 +270,110 @@ struct DiscoverView: View {
             withAnimation(.easeInOut(duration: 0.4)) {
                 adIndex = (adIndex + 1) % 2
             }
+        }
+    }
+
+    /// 取横幅图：管理员本地图优先，否则回退到 Assets 默认图。
+    private func bannerImage(at index: Int, fallback: String) -> some View {
+        let custom = bannerConfig.images[index]
+        return Group {
+            if let ui = custom {
+                Image(uiImage: ui)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(fallback)
+                    .resizable()
+                    .scaledToFill()
+            }
+        }
+    }
+
+    // MARK: 🔴 v2.9.10 横幅广告下方入口栏
+
+    /// 入口栏入口（按参考图设计：下载 / MV / 排行榜 / 歌单广场 / 实验室）。
+    private enum DiscoverEntry: String, CaseIterable {
+        case download, mv, ranking, square, lab
+        var title: String {
+            switch self {
+            case .download: return "下载"
+            case .mv: return "MV"
+            case .ranking: return "排行榜"
+            case .square: return "歌单广场"
+            case .lab: return "实验室"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .download: return "arrow.down.circle.fill"
+            case .mv: return "film.fill"
+            case .ranking: return "trophy.fill"
+            case .square: return "music.note.list"
+            case .lab: return "flask.fill"
+            }
+        }
+        var color: Color {
+            switch self {
+            case .download: return Color(red: 0.20, green: 0.78, blue: 0.42)
+            case .mv: return Color(red: 0.95, green: 0.42, blue: 0.62)
+            case .ranking: return Color(red: 0.98, green: 0.70, blue: 0.20)
+            case .square: return Color(red: 0.30, green: 0.60, blue: 0.95)
+            case .lab: return Color(red: 0.60, green: 0.42, blue: 0.92)
+            }
+        }
+    }
+
+    private var entryBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 20) {
+                ForEach(DiscoverEntry.allCases, id: \.self) { entry in
+                    entryItem(entry)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+        }
+    }
+
+    @ViewBuilder
+    private func entryItem(_ entry: DiscoverEntry) -> some View {
+        switch entry {
+        case .download, .ranking, .lab:
+            NavigationLink { destination(for: entry) } label: { entryLabel(entry) }
+                .buttonStyle(.plain)
+        case .square:
+            Button { selectedTab = .playlists } label: { entryLabel(entry) }
+                .buttonStyle(.plain)
+        case .mv:
+            Button { showMVAlert = true } label: { entryLabel(entry) }
+                .buttonStyle(.plain)
+        }
+    }
+
+    private func entryLabel(_ entry: DiscoverEntry) -> some View {
+        VStack(spacing: 6) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(entry.color.opacity(0.16))
+                Image(systemName: entry.icon)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(entry.color)
+            }
+            .frame(width: 50, height: 50)
+            Text(entry.title)
+                .font(.system(size: 12))
+                .foregroundStyle(AppStyle.primaryText)
+        }
+        .frame(width: 58)
+    }
+
+    @ViewBuilder
+    private func destination(for entry: DiscoverEntry) -> some View {
+        switch entry {
+        case .download: DownloadCenterView()
+        case .ranking: RankingsView()
+        case .lab: LabView()
+        default: EmptyView()
         }
     }
 
@@ -835,166 +949,13 @@ struct DiscoverView: View {
 
     // MARK: 大卡横排（每日推荐 + 猜你喜欢）+ 精选榜单每2张小卡叠加
 
+    // MARK: 大卡横排（每日推荐 + 猜你喜欢）—— 🔴 v2.9.10：改成与「新歌推荐」一致的「单行横滑歌曲卡」
+    // （封面 + 歌名 + 歌手，点卡即播；「更多」进入完整列表）。原来 2 张大卡 + 小榜卡叠加的设计一并移除。
     private var bigCardsGrid: some View {
-        let sidePadding: CGFloat = 16
-        let screenW = UIScreen.main.bounds.width
-        let gap: CGFloat = 10
-        // 卡片整体缩放 0.65
-        let rawWidth = (screenW - sidePadding * 2 - gap) / 2
-        let bigWidth = rawWidth * 0.65
-        let bigHeight = bigWidth * 1.5
-        // 两小卡叠加：(bigHeight - gap) / 2
-        let smallCardHeight = (bigHeight - gap) / 2
-
-        let isPlayingDaily = store.queueID == "daily" && store.isPlaying
-        let isPlayingGuess = store.queueID == "guess" && store.isPlaying
-        let currentCover = store.current?.artworkURL
-
-        // NavigationLink 塞进 overlay，零尺寸干扰
-        //
-        // 🔴 v2.9.7 修复：原来 label 是 `Color.clear`（零尺寸），点击区实际不存在，
-        // 小方块点了没反应。现在改成铺满整张卡片的透明 label，
-        // 卡片任意位置都能点进对应的歌单。
-        func navigable<Label: View>(destination: @escaping () -> some View,
-                                    label: () -> Label,
-                                    hitSize: CGSize) -> some View {
-            label()
-                .overlay(alignment: .center) {
-                    NavigationLink { destination() } label: {
-                        Color.clear
-                            .frame(width: hitSize.width, height: hitSize.height)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            horizontalSongSection(title: "每日推荐", playlistID: "local-daily", songs: dailySongs)
+            horizontalSongSection(title: "猜你喜欢", playlistID: "local-guess", songs: guessSongs)
         }
-
-        // 小卡叠加容器：VStack + 2张小卡 + 外层 clipped + 锁高度
-        func smallCardGroup<Top: View, Bottom: View>(
-            top: () -> Top, bottom: () -> Bottom
-        ) -> some View {
-            VStack(spacing: 0) {
-                top().frame(width: smallCardHeight, height: smallCardHeight)
-                Spacer(minLength: 0).frame(height: gap)
-                bottom().frame(width: smallCardHeight, height: smallCardHeight)
-            }
-            .frame(width: smallCardHeight, height: bigHeight, alignment: .top)
-            .frame(maxHeight: bigHeight, alignment: .top)
-            .clipped()
-        }
-
-        // 精选榜单 → 每2个一组做小卡叠加
-        let ranks = Array(filteredLists.prefix(5))
-        // 把 ranks 按 2 个一组打包
-        let groups: [(Playlist?, Playlist?)] = stride(from: 0, to: ranks.count, by: 2).map { i in
-            (ranks[i], i + 1 < ranks.count ? ranks[i + 1] : nil)
-        }
-
-        // Playlist → 封面小卡（纯封面无文字无播放按钮）
-        func rankCard(_ playlist: Playlist?) -> some View {
-            Group {
-                if let playlist {
-                    navigable(
-                        destination: { PlaylistDetailView(playlist: playlist) },
-                        label: {
-                            CoverFeatureCard(
-                                width: smallCardHeight, height: smallCardHeight,
-                                coverURL: playlist.coverURL,
-                                title: playlist.name,
-                                subtitle: "",
-                                isPlaying: false,
-                                showPlayButton: false,
-                                showText: false
-                            )
-                        },
-                        hitSize: CGSize(width: smallCardHeight, height: smallCardHeight)
-                    )
-                } else {
-                    Color.clear
-                        .frame(width: smallCardHeight, height: smallCardHeight)
-                }
-            }
-        }
-
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: gap) {
-
-                // ========== 1. 每日推荐（大卡） ==========
-                navigable(
-                    destination: {
-                        // 🔴 v2.9.7：只跳「酷狗TOP500」(8888) 这个**对应**的榜。
-                        // 原来的 `?? filteredLists.first` 会兜底到毫不相干的第一个榜
-                        // （比如 80后热歌榜），点「每日推荐」进去却是另一个榜 —— 跟小方块
-                        // 一个毛病。找不到对应的榜就不跳。
-                        // ⚠️ 必须用 Group 包一层：if/else 直接当单表达式时，
-                        // 两个分支的具体类型不同（PlaylistDetailView / EmptyView），
-                        // Swift 推不出统一的 some View，会报
-                        // "type '()' cannot conform to 'View'"。
-                        Group {
-                            if let t = filteredLists.first(where: { $0.kugouRankID == "8888" }) {
-                                PlaylistDetailView(playlist: t)
-                            } else {
-                                EmptyView()
-                            }
-                        }
-                    },
-                    label: {
-                        CoverFeatureCard(
-                            width: bigWidth, height: bigHeight,
-                            coverURL: (isPlayingDaily ? currentCover : nil)
-                                ?? dailyPick?.artworkURL
-                                ?? top500Playlist?.coverURL
-                                ?? filteredLists.first?.coverURL,
-                            title: "每日推荐", subtitle: dailySubtitle,
-                            isPlaying: isPlayingDaily,
-                            onPlay: { if isPlayingDaily { store.pause() } else { playDailyAll() } }
-                        )
-                    },
-                    hitSize: CGSize(width: bigWidth, height: bigHeight)
-                )
-                .frame(width: bigWidth, height: bigHeight, alignment: .topLeading)
-                .frame(maxHeight: bigHeight, alignment: .top)
-
-                // ========== 2. 猜你喜欢（大卡） ==========
-                navigable(
-                    destination: {
-                        // 🔴 v2.9.7：只跳「短视频热歌榜」(52144) 这个对应的榜，不兜底到别的榜
-                        // ⚠️ 同上：必须用 Group 包，两个分支具体类型不同，推不出统一 some View
-                        Group {
-                            if let t = filteredLists.first(where: { $0.kugouRankID == "52144" }) {
-                                PlaylistDetailView(playlist: t)
-                            } else {
-                                EmptyView()
-                            }
-                        }
-                    },
-                    label: {
-                        CoverFeatureCard(
-                            width: bigWidth, height: bigHeight,
-                            coverURL: (isPlayingGuess ? currentCover : nil)
-                                ?? guessPick?.artworkURL,
-                            title: "猜你喜欢", subtitle: guessSubtitle,
-                            isPlaying: isPlayingGuess,
-                            onPlay: { if isPlayingGuess { store.pause() } else { playGuessAll() } }
-                        )
-                    },
-                    hitSize: CGSize(width: bigWidth, height: bigHeight)
-                )
-                .frame(width: bigWidth, height: bigHeight, alignment: .topLeading)
-                .frame(maxHeight: bigHeight, alignment: .top)
-
-                // ========== 精选榜单：每 2 个一组小卡叠加 ==========
-                ForEach(Array(groups.enumerated()), id: \.offset) { _, pair in
-                    smallCardGroup(
-                        top: { rankCard(pair.0) },
-                        bottom: { rankCard(pair.1) }
-                    )
-                }
-            }
-            .frame(height: bigHeight)
-            .padding(.horizontal, sidePadding)
-        }
-        .frame(height: bigHeight + 4)
     }
 
     /// 酷狗 TOP500 旗舰榜单（rankid=8888）

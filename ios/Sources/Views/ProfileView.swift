@@ -102,7 +102,7 @@ struct ProfileView: View {
                     .foregroundStyle(AppStyle.tertiaryText)
             }
 
-            // MARK: Aurora 云账号（Supabase）—— 邮箱注册/登录 + 收藏歌单同步
+            // MARK: Aurora 云账号（Supabase）—— 邮箱登录 + 收藏歌单同步
             Section {
                 if cloud.isSignedIn {
                     VStack(alignment: .leading, spacing: 10) {
@@ -188,7 +188,7 @@ struct ProfileView: View {
                                 Image(systemName: "cloud")
                                     .font(.system(size: 15))
                                     .foregroundStyle(AppStyle.accent)
-                                Text("登录 / 注册")
+                                Text("登录云账号")
                                     .font(.system(size: 15))
                                     .foregroundStyle(AppStyle.primaryText)
                                 Spacer()
@@ -232,22 +232,6 @@ struct ProfileView: View {
                                     cloudError = nil
                                     Task {
                                         do {
-                                            _ = try await cloud.signUp(email: cloudEmail, password: cloudPassword)
-                                        } catch { cloudError = CloudAccount.localizedCloudError(error) }
-                                    }
-                                } label: {
-                                    Text("注册")
-                                        .font(.system(size: 14, weight: .medium))
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 10)
-                                        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
-                                        .foregroundStyle(AppStyle.primaryText)
-                                }
-                                .buttonStyle(.plain)
-                                Button {
-                                    cloudError = nil
-                                    Task {
-                                        do {
                                             try await cloud.signIn(email: cloudEmail, password: cloudPassword)
                                         } catch { cloudError = CloudAccount.localizedCloudError(error) }
                                     }
@@ -266,8 +250,8 @@ struct ProfileView: View {
                 }
             } header: {
                 headerText("Aurora 云账号")
-            } footer: {
-                Text("用邮箱注册一个 Aurora 云账号，收藏和自建歌单会保存到云端、跨设备恢复。与酷狗账号相互独立。")
+            }             footer: {
+                Text("登录 Aurora 云账号后，收藏和自建歌单会保存到云端、跨设备恢复。与酷狗账号相互独立。")
                     .font(.system(size: 11))
                     .foregroundStyle(AppStyle.tertiaryText)
             }
