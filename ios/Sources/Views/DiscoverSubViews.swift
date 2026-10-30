@@ -1,43 +1,85 @@
 import SwiftUI
 import UIKit
 
-// MARK: - 横幅广告配置（管理员可运行时更换）
+// MARK: - 横幅广告配置（管理员可运行时更换 / 添加多张）
 
 /// 横幅广告图片的本地覆盖：管理员在「实验室」里选图后存到 Documents/AuroraBanners，
-/// DiscoverView 的 adBanner 优先用这里的图，没有则用 Assets 里的默认图（BannerAd1/BannerAd2）。
+/// DiscoverView 的 adBanner 优先用这里的图，没有则用 Assets 里的默认图（BannerAd1/BannerAd2 按奇偶循环）。
+///
+/// 🔴 v2.9.11：改为支持动态数量（管理员可「添加」多张），用 meta.json 记录哪些下标是自定义图，
+/// 避免「恢复默认」后文件缺失导致下标错乱。
 final class BannerConfig: ObservableObject {
     static let shared = BannerConfig()
-    @Published var images: [UIImage?] = [nil, nil]
-    private let names = ["aurora_banner_0.png", "aurora_banner_1.png"]
+    @Published var images: [UIImage?] = []
+    private let prefix = "aurora_banner_"
+    private let ext = ".png"
+
+    private struct Meta: Codable { var custom: [Bool] }
 
     private init() { reload() }
 
-    func reload() {
-        let dir = Self.dir()
-        for i in 0..<2 {
-            let url = dir.appendingPathComponent(names[i])
-            images[i] = FileManager.default.fileExists(atPath: url.path) ? UIImage(contentsOfFile: url.path) : nil
-        }
-    }
-
-    func set(_ image: UIImage, at index: Int) {
-        guard (0..<2).contains(index) else { return }
-        let url = Self.dir().appendingPathComponent(names[index])
-        if let data = image.pngData() { try? data.write(to: url, options: .atomic) }
-        images[index] = image
-    }
-
-    func reset(at index: Int) {
-        guard (0..<2).contains(index) else { return }
-        try? FileManager.default.removeItem(at: Self.dir().appendingPathComponent(names[index]))
-        images[index] = nil
-    }
-
-    static func dir() -> URL {
+    private static func dir() -> URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let d = docs.appendingPathComponent("AuroraBanners", isDirectory: true)
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
+    }
+
+    private static func metaURL() -> URL { dir().appendingPathComponent("meta.json") }
+
+    private func readMeta() -> Meta {
+        if let data = try? Data(contentsOf: Self.metaURL()),
+           let m = try? JSONDecoder().decode(Meta.self, from: data) {
+            return m
+        }
+        // 默认两张（对应最初的 BannerAd1/BannerAd2）
+        return Meta(custom: [false, false])
+    }
+
+    private func writeMeta(_ meta: Meta) {
+        if let data = try? JSONEncoder().encode(meta) {
+            try? data.write(to: Self.metaURL(), options: .atomic)
+        }
+    }
+
+    func reload() {
+        let meta = readMeta()
+        var imgs: [UIImage?] = []
+        for i in 0..<meta.custom.count {
+            let url = Self.dir().appendingPathComponent("\(prefix)\(i)\(ext)")
+            imgs.append(meta.custom[i] && FileManager.default.fileExists(atPath: url.path)
+                        ? UIImage(contentsOfFile: url.path) : nil)
+        }
+        images = imgs
+    }
+
+    func set(_ image: UIImage, at index: Int) {
+        var meta = readMeta()
+        while meta.custom.count <= index { meta.custom.append(false) }
+        let url = Self.dir().appendingPathComponent("\(prefix)\(index)\(ext)")
+        if let data = image.pngData() { try? data.write(to: url, options: .atomic) }
+        meta.custom[index] = true
+        // 数组长度不足时补齐
+        while images.count <= index { images.append(nil) }
+        images[index] = image
+        writeMeta(meta)
+    }
+
+    func reset(at index: Int) {
+        guard images.indices.contains(index) else { return }
+        var meta = readMeta()
+        if meta.custom.indices.contains(index) { meta.custom[index] = false }
+        try? FileManager.default.removeItem(at: Self.dir().appendingPathComponent("\(prefix)\(index)\(ext)"))
+        images[index] = nil
+        writeMeta(meta)
+    }
+
+    /// 🔴 v2.9.11：新增一张横幅位（默认用 App 内置图，管理员随后可「更换」）。
+    func append() {
+        var meta = readMeta()
+        meta.custom.append(false)
+        images.append(nil)
+        writeMeta(meta)
     }
 }
 
@@ -47,6 +89,7 @@ final class BannerConfig: ObservableObject {
 struct AuroraImagePicker: UIViewControllerRepresentable {
     @Environment(\.dismiss) private var dismiss
     let onImagePicked: (UIImage) -> Void
+    var onCancel: (() -> Void)? = nil
 
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
@@ -66,6 +109,7 @@ struct AuroraImagePicker: UIViewControllerRepresentable {
             parent.dismiss()
         }
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.onCancel?()
             parent.dismiss()
         }
     }
@@ -253,9 +297,13 @@ struct RankingsView: View {
 struct LabView: View {
     @ObservedObject private var cloud = CloudAccount.shared
     @ObservedObject private var banner = BannerConfig.shared
-    @State private var showPicker0 = false
-    @State private var showPicker1 = false
+    // 🔴 v2.9.11：单一图片选择器 + 下标驱动，支持任意张数横幅
+    @State private var showPickerIndex: Int? = nil
     @State private var showGenerator = false
+    // 未登录页的登录表单
+    @State private var loginEmail = ""
+    @State private var loginPassword = ""
+    @State private var loginError: String? = nil
 
     var body: some View {
         CompatNavigationStack {
@@ -270,31 +318,86 @@ struct LabView: View {
             .navigationBarTitleDisplayMode(.inline)
             .kugouNavigationBarBackground()
         }
-        .sheet(isPresented: $showPicker0) {
-            AuroraImagePicker { img in banner.set(img, at: 0) }
-        }
-        .sheet(isPresented: $showPicker1) {
-            AuroraImagePicker { img in banner.set(img, at: 1) }
+        .sheet(isPresented: Binding(
+            get: { showPickerIndex != nil },
+            set: { if !$0 { showPickerIndex = nil } }
+        )) {
+            AuroraImagePicker(
+                onImagePicked: { img in
+                    if let i = showPickerIndex { banner.set(img, at: i) }
+                    showPickerIndex = nil
+                },
+                onCancel: { showPickerIndex = nil }
+            )
         }
         .sheet(isPresented: $showGenerator) {
             LicenseGeneratorView()
         }
     }
 
+    // MARK: 未登录：不展示任何管理内容，仅提供登录入口
     private var notAdmin: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "lock.fill")
-                .font(.system(size: 38))
-                .foregroundStyle(AppStyle.accent)
-            Text("请以管理员身份登录")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(AppStyle.primaryText)
-            Text("登录 Aurora 云账号后即可管理横幅广告与解锁码")
-                .font(.system(size: 12))
-                .foregroundStyle(AppStyle.tertiaryText)
-                .multilineTextAlignment(.center)
+        ScrollView {
+            VStack(spacing: 16) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 38))
+                    .foregroundStyle(AppStyle.accent)
+                Text("实验室需要管理员权限")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(AppStyle.primaryText)
+                Text("登录 Aurora 云账号后即可管理横幅广告与解锁码")
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppStyle.tertiaryText)
+                    .multilineTextAlignment(.center)
+
+                // 🔴 v2.9.11：登录入口（邮箱 + 密码）
+                VStack(spacing: 10) {
+                    TextField("邮箱", text: $loginEmail)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.emailAddress)
+                        .textContentType(.emailAddress)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
+                    SecureField("密码（至少 6 位）", text: $loginPassword)
+                        .textContentType(.password)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
+                    if let err = loginError {
+                        Text(err)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.red)
+                    }
+                    Button {
+                        loginError = nil
+                        Task {
+                            do {
+                                try await cloud.signIn(email: loginEmail, password: loginPassword)
+                            } catch {
+                                loginError = CloudAccount.localizedCloudError(error)
+                            }
+                        }
+                    } label: {
+                        if cloud.isBusy {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text("登录").font(.system(size: 14, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 11)
+                                .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .foregroundStyle(.white)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(cloud.isBusy)
+                }
+                .padding(.horizontal, 28)
+                .padding(.top, 8)
+            }
+            .padding(.top, 70)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppStyle.background)
     }
 
@@ -303,12 +406,26 @@ struct LabView: View {
             VStack(alignment: .leading, spacing: 18) {
                 // 横幅广告管理
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("横幅广告管理")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(AppStyle.primaryText)
-                    bannerRow(index: 0, title: "横幅广告 1", show: $showPicker0) { banner.reset(at: 0) }
-                    bannerRow(index: 1, title: "横幅广告 2", show: $showPicker1) { banner.reset(at: 1) }
-                    Text("选择图片后即时生效；恢复默认即使用 App 内置图。")
+                    HStack {
+                        Text("横幅广告管理")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(AppStyle.primaryText)
+                        Spacer(minLength: 0)
+                        // 🔴 v2.9.11：添加横幅位
+                        Button {
+                            banner.append()
+                            Haptics.light()
+                        } label: {
+                            Label("添加", systemImage: "plus")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(AppStyle.accent)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    ForEach(Array(banner.images.indices), id: \.self) { index in
+                        bannerRow(index: index)
+                    }
+                    Text("选择图片后即时生效；恢复默认即使用 App 内置图。点「添加」可增加更多横幅位。")
                         .font(.system(size: 11))
                         .foregroundStyle(AppStyle.tertiaryText)
                 }
@@ -347,9 +464,7 @@ struct LabView: View {
         .background(AppStyle.background)
     }
 
-    private func bannerRow(index: Int, title: String,
-                           show: Binding<Bool>,
-                           reset: @escaping () -> Void) -> some View {
+    private func bannerRow(index: Int) -> some View {
         HStack(spacing: 12) {
             if let img = banner.images[index] {
                 Image(uiImage: img)
@@ -368,15 +483,15 @@ struct LabView: View {
                     )
             }
             VStack(alignment: .leading, spacing: 6) {
-                Text(title)
+                Text("横幅广告 \(index + 1)")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(AppStyle.primaryText)
                 HStack(spacing: 10) {
-                    Button { show.wrappedValue = true } label: {
+                    Button { showPickerIndex = index } label: {
                         Text("更换").font(.system(size: 13, weight: .medium)).foregroundStyle(AppStyle.accent)
                     }
                     .buttonStyle(.plain)
-                    Button { reset() } label: {
+                    Button { banner.reset(at: index) } label: {
                         Text("恢复默认").font(.system(size: 13, weight: .medium)).foregroundStyle(AppStyle.tertiaryText)
                     }
                     .buttonStyle(.plain)

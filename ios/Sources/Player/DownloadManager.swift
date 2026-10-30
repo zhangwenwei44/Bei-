@@ -115,12 +115,30 @@ final class DownloadManager: NSObject, ObservableObject {
     // MARK: - 目录与索引
 
     static func directory() -> URL {
-        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let folder = documents.appendingPathComponent("Aurora Downloads", isDirectory: true)
+        // 🔴 v2.9.11：改存 Application Support（App 私有、持久、不会被系统按「可清除」自动清理，
+        // 也不会出现在用户「文件」App 里），更适合「下载歌曲长期保存」的诉求。
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let folder = appSupport.appendingPathComponent("Aurora Downloads", isDirectory: true)
         if !FileManager.default.fileExists(atPath: folder.path) {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
         return folder
+    }
+
+    /// 🔴 v2.9.11：旧版本把下载放在 Documents，升级后一次性迁移到 Application Support。
+    private func migrateIfNeeded() {
+        let oldDocs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Aurora Downloads", isDirectory: true)
+        let newFolder = DownloadManager.directory()
+        guard FileManager.default.fileExists(atPath: oldDocs.path),
+              oldDocs.path != newFolder.path,
+              let names = try? FileManager.default.contentsOfDirectory(atPath: oldDocs.path) else { return }
+        for name in names where !name.hasPrefix(".") {
+            let from = oldDocs.appendingPathComponent(name)
+            let to = newFolder.appendingPathComponent(name)
+            try? FileManager.default.moveItem(at: from, to: to)
+        }
+        try? FileManager.default.removeItem(at: oldDocs)
     }
 
     private static func indexName(for songID: String) -> String {
@@ -202,6 +220,7 @@ final class DownloadManager: NSObject, ObservableObject {
     /// 优先从磁盘 .json 索引直接重建 Song 列表（绕过 LibraryStore 持久化可能不一致的问题），
     /// 再与 LibraryStore.downloads 合并取并集，确保不会丢失。
     func bootstrap() {
+        migrateIfNeeded()
         loadIndex()
         // 从磁盘索引文件直接重建 Song（兜底方案）
         let fromDisk = fileIndex.compactMap { songID, fileName -> Song? in

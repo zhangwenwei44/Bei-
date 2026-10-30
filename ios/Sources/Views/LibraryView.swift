@@ -180,23 +180,17 @@ private struct DownloadsList: View {
             // A–Z 分组、带 id 的分组抬头（供右侧字母索引 scrollTo 定位）、当前播放声波全部保留。
             LazyVStack(spacing: 0) {
                 ForEach(groups) { group in
-                    // 分组抬头（带 id 供 A–Z 索引 scrollTo 定位）
-                    HStack {
-                        Text(group.letter)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(AppStyle.secondaryText)
-                        Spacer()
+                    // 🔴 v2.9.11：左侧不再显示分组字母抬头（用户要求），
+                    // 仅保留右侧 A–Z 索引（id 锚点供 scrollTo 定位）。
+                    VStack(spacing: 0) {
+                        ForEach(group.songs) { song in
+                            downloadRow(song)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 3)
+                        }
                     }
-                    .padding(.leading, 16)
-                    .padding(.top, 10)
-                    .padding(.bottom, 4)
                     .id("sec-\(group.letter)")
-
-                    ForEach(group.songs) { song in
-                        downloadRow(song)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 3)
-                    }
+                    .padding(.top, 8)
                 }
             }
         }

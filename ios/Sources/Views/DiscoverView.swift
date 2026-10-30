@@ -6,6 +6,8 @@ struct DiscoverView: View {
     @EnvironmentObject private var store: PlayerStore
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var kugouAuth = KugouAuth.shared
+    /// 🔴 v2.9.11：云账号（=管理员）登录后，主页右上角酷狗账号上方显示「管理员」标识
+    @ObservedObject private var cloud = CloudAccount.shared
     @State private var feed = DiscoverFeed()
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -26,8 +28,6 @@ struct DiscoverView: View {
     private let adTimer = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
     /// 🔴 v2.9.10：横幅广告本地覆盖（管理员可在「实验室」更换），adBanner 优先用它
     @ObservedObject private var bannerConfig = BannerConfig.shared
-    /// 🔴 v2.9.10：入口栏里 MV 暂未开放，点一下提示
-    @State private var showMVAlert = false
 
     // 歌单页搜索（搜索歌单而不是歌曲）
     @State private var playlistQuery = ""
@@ -117,12 +117,6 @@ struct DiscoverView: View {
         .navigationBarTitleDisplayMode(.inline)
         // 🔴 v2.9.6：状态栏/导航栏那一段刷成淡蓝，和下面的渐变带连成一片
         .kugouNavigationBarTint()
-        // 🔴 v2.9.10：入口栏里 MV 暂未开放
-        .alert("敬请期待", isPresented: $showMVAlert) {
-            Button("好", role: .cancel) { }
-        } message: {
-            Text("MV 功能即将上线")
-        }
         .safeAreaInset(edge: .top, spacing: 0) {
             tabBar
                 // 🔴 v2.9.6(修正)：tab 行刷**实色 pageGradientTop** ——
@@ -181,10 +175,22 @@ struct DiscoverView: View {
 
             Spacer(minLength: 0)
 
-            kugouAvatar
-                .padding(.trailing, 12)
+            VStack(spacing: 2) {
+                // 🔴 v2.9.11：管理员（已登录云账号）标识，显示在酷狗账号上方
+                if cloud.isSignedIn {
+                    Text("管理员")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(AppStyle.accent)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(AppStyle.accent.opacity(0.15), in: Capsule())
+                }
+                kugouAvatar
+            }
+            .padding(.trailing, 12)
         }
-        .frame(height: 44)
+        // 🔴 v2.9.11：管理员标识在酷狗账号上方，整体略增高避免挤在一起
+        .frame(height: 58)
     }
 
     @ViewBuilder
@@ -254,35 +260,56 @@ struct DiscoverView: View {
     /// 推荐页搜索框下方的两张横幅广告，每 4 秒自动轮播。
     /// 🔴 v2.9.10：优先用管理员在「实验室」里换的本地图，没有再用 Assets 里的默认图。
     private var adBanner: some View {
+        let screenW = UIScreen.main.bounds.width
+        let w = screenW - 32 // 左右各 16 内边距
+        let h = w * 9 / 16 // 🔴 v2.9.11：16:9 比例
         TabView(selection: $adIndex) {
-            bannerImage(at: 0, fallback: "BannerAd1")
-                .tag(0)
-            bannerImage(at: 1, fallback: "BannerAd2")
-                .tag(1)
+            ForEach(Array(bannerConfig.images.indices), id: \.self) { i in
+                bannerImage(at: i)
+                    .tag(i)
+            }
         }
-        .tabViewStyle(.page(indexDisplayMode: .always))
-        .frame(height: 132)
+        // 🔴 关掉系统页码点（居中），改用右下角自定义圆点
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .frame(width: w, height: h)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        // 🔴 自定义页码点：右下角，当前页为长条、其余为圆点
+        .overlay(alignment: .bottomTrailing) {
+            HStack(spacing: 5) {
+                ForEach(Array(bannerConfig.images.indices), id: \.self) { i in
+                    Capsule()
+                        .fill(i == adIndex ? Color.white : Color.white.opacity(0.5))
+                        .frame(width: i == adIndex ? 14 : 6, height: 6)
+                }
+            }
+            .padding(6)
+            .background(Capsule().fill(Color.black.opacity(0.28)))
+            .padding(.trailing, 10)
+            .padding(.bottom, 10)
+        }
         .padding(.horizontal, 16)
         .padding(.top, 4)
         .padding(.bottom, 8)
         .onReceive(adTimer) { _ in
+            let n = bannerConfig.images.count
+            guard n > 1 else { return }
             withAnimation(.easeInOut(duration: 0.4)) {
-                adIndex = (adIndex + 1) % 2
+                adIndex = (adIndex + 1) % n
             }
         }
     }
 
-    /// 取横幅图：管理员本地图优先，否则回退到 Assets 默认图。
-    private func bannerImage(at index: Int, fallback: String) -> some View {
+    /// 取横幅图：管理员本地图优先，否则回退到 Assets 默认图（多图时按奇偶循环取 BannerAd1/2）。
+    private func bannerImage(at index: Int) -> some View {
         let custom = bannerConfig.images[index]
+        let fallbackName = (index % 2 == 0) ? "BannerAd1" : "BannerAd2"
         return Group {
             if let ui = custom {
                 Image(uiImage: ui)
                     .resizable()
                     .scaledToFill()
             } else {
-                Image(fallback)
+                Image(fallbackName)
                     .resizable()
                     .scaledToFill()
             }
@@ -291,13 +318,12 @@ struct DiscoverView: View {
 
     // MARK: 🔴 v2.9.10 横幅广告下方入口栏
 
-    /// 入口栏入口（按参考图设计：下载 / MV / 排行榜 / 歌单广场 / 实验室）。
+    /// 入口栏入口（🔴 v2.9.11：移除 MV，保留 下载 / 排行榜 / 歌单广场 / 实验室）。
     private enum DiscoverEntry: String, CaseIterable {
-        case download, mv, ranking, square, lab
+        case download, ranking, square, lab
         var title: String {
             switch self {
             case .download: return "下载"
-            case .mv: return "MV"
             case .ranking: return "排行榜"
             case .square: return "歌单广场"
             case .lab: return "实验室"
@@ -306,7 +332,6 @@ struct DiscoverView: View {
         var icon: String {
             switch self {
             case .download: return "arrow.down.circle.fill"
-            case .mv: return "film.fill"
             case .ranking: return "trophy.fill"
             case .square: return "music.note.list"
             case .lab: return "flask.fill"
@@ -315,7 +340,6 @@ struct DiscoverView: View {
         var color: Color {
             switch self {
             case .download: return Color(red: 0.20, green: 0.78, blue: 0.42)
-            case .mv: return Color(red: 0.95, green: 0.42, blue: 0.62)
             case .ranking: return Color(red: 0.98, green: 0.70, blue: 0.20)
             case .square: return Color(red: 0.30, green: 0.60, blue: 0.95)
             case .lab: return Color(red: 0.60, green: 0.42, blue: 0.92)
@@ -344,9 +368,6 @@ struct DiscoverView: View {
         case .square:
             Button { selectedTab = .playlists } label: { entryLabel(entry) }
                 .buttonStyle(.plain)
-        case .mv:
-            Button { showMVAlert = true } label: { entryLabel(entry) }
-                .buttonStyle(.plain)
         }
     }
 
@@ -355,9 +376,16 @@ struct DiscoverView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(entry.color.opacity(0.16))
-                Image(systemName: entry.icon)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(entry.color)
+                if entry == .lab, let img = UIImage(named: "LabIcon") {
+                    Image(uiImage: img)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 28, height: 28)
+                } else {
+                    Image(systemName: entry.icon)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(entry.color)
+                }
             }
             .frame(width: 50, height: 50)
             Text(entry.title)
@@ -460,15 +488,14 @@ struct DiscoverView: View {
     private var recommendContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             bigCardsGrid
-            // 🔴 v2.6.7：热门歌手改成横向头像排（不再是翻页列表），
-            // 整页只保留「新歌推荐」一个翻页器，视觉噪音小很多。
-            artistStripSection
             // 🔴 v2.9.7(二)：用户要求「新歌推荐」下面加回「经典推荐」，
             // 经典推荐下面再加「DJ推荐」，然后才接「歌单推荐」→「专辑推荐」→「榜单推荐」。
             newSongSection
             classicSection
             djSection
             userPlaylistSection
+            // 🔴 v2.9.11：热门歌手（横向头像排）下移到「歌单推荐」下面
+            artistStripSection
             playlistRecommendSection
             rankRecommendSection
         }
