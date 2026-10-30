@@ -11,9 +11,10 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: build-ios-${{ github.ref }}
-  cancel-in-progress: true
+# 🔴 v2.9.13：临时移除 concurrency 块。
+# GitHub 平台故障（2026-10-30 "Incident with Actions, Pages, and Webhooks"）之后，
+# 新 run 会在创建后 2 秒内被自动 cancelled（job 从未分配到 runner、0 个步骤），
+# 疑似 cancel-in-progress 机制与平台异常叠加导致误杀。移除后构建恢复正常。
 
 jobs:
   build:
