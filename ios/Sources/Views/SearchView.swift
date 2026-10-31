@@ -556,20 +556,24 @@ struct SearchView: View {
             hasMoreAlbums = albums.count >= 30
             if results.isEmpty { errorMessage = "换个关键词试试" }
         case .comprehensive:
-            async let songsTask = client.searchSongs(keyword: text, page: 1)
-            async let plsTask = client.searchPlaylists(keyword: text, page: 1)
-            async let albumsTask = client.searchAlbums(keyword: text, page: 1)
-            let (found, pls, albums) = await (songsTask, plsTask, albumsTask)
-            var seen = Set<String>()
-            let songs = found.filter { seen.insert($0.id).inserted }
-            hasMoreSongs = found.count >= 30
-            let artists = Self.artistHints(from: songs)
-            let albumList = Self.albumHints(from: songs)
-            hasMoreAlbums = albumList.count >= 20
-            Log.info("搜索", "keyword=\(text)[综合] songs=\(songs.count) playlists=\(pls.count) albums=\(albumList.count)")
-            guard submitted == text else { return }
-            results = SearchResults(songs: songs, playlists: pls, artists: artists, albums: albumList)
-            if results.isEmpty { errorMessage = "换个关键词试试" }
+            do {
+                async let songsTask = try client.searchSongs(keyword: text, page: 1)
+                async let plsTask = client.searchPlaylists(keyword: text, page: 1)
+                async let albumsTask = client.searchAlbums(keyword: text, page: 1)
+                let (found, pls, albums) = try await (songsTask, plsTask, albumsTask)
+                var seen = Set<String>()
+                let songs = found.filter { seen.insert($0.id).inserted }
+                hasMoreSongs = found.count >= 30
+                let artists = Self.artistHints(from: songs)
+                let albumList = Self.albumHints(from: songs)
+                hasMoreAlbums = albumList.count >= 20
+                Log.info("搜索", "keyword=\(text)[综合] songs=\(songs.count) playlists=\(pls.playlists.count) albums=\(albumList.count)")
+                guard submitted == text else { return }
+                results = SearchResults(songs: songs, playlists: pls.playlists, artists: artists, albums: albumList)
+                if results.isEmpty { errorMessage = "换个关键词试试" }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
