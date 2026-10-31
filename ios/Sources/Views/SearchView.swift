@@ -153,10 +153,7 @@ struct SearchView: View {
             }
             .fixedSize()
 
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 14))
-                .foregroundStyle(AppStyle.secondaryText)
-                // 🔴 v2.9.7(二)：搜索框加入「猜你想搜」—— 空闲时占位符显示一个随机热词
+                // 🔴 v2.9.17：框内放大镜已移除（见右侧搜索按钮）；空闲时占位符显示一个随机热词
                 TextField(searchHint.isEmpty ? "歌曲、歌手、歌单" : "猜你想搜：\(searchHint)", text: $keyword)
                     .font(.system(size: 14))
                     .foregroundStyle(AppStyle.primaryText)
@@ -173,6 +170,15 @@ struct SearchView: View {
                             .foregroundStyle(AppStyle.tertiaryText)
                     }
                 }
+                // 🔴 v2.9.17：右侧搜索按钮（代替框内放大镜）—— 点一下触发搜索
+                Button {
+                    runSearch(keyword)
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(AppStyle.accent)
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 12)
             .frame(height: 34)

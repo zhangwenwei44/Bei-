@@ -15,6 +15,8 @@ struct DiscoverView: View {
     @State private var isLoadingGuess = false
     @State private var dailySongs: [Song] = []
     @State private var hotArtists: [Artist] = []
+    // 🔴 v2.9.17：热门歌手专辑板块数据（歌手 + 他的一张专辑），从 hotArtists 现拉。
+    @State private var artistAlbums: [ArtistAlbum] = []
     @State private var playingArtistID: String?
     @State private var recommendedPlaylists: [Playlist] = []
     @State private var squarePage = 1
@@ -520,7 +522,7 @@ struct DiscoverView: View {
             userPlaylistSection
             // 🔴 v2.9.11：热门歌手（横向头像排）下移到「歌单推荐」下面
             artistStripSection
-            playlistRecommendSection
+            artistAlbumSection
             rankRecommendSection
         }
     }
@@ -656,37 +658,67 @@ struct DiscoverView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: 🔴 v2.9.7 专辑推荐（原「歌单推荐」）
+    // MARK: 🔴 v2.9.17 热门歌手专辑（原「专辑推荐」板块改为展示热门歌手的专辑）
 
-    /// 专辑推荐里的一张卡：一个主题专辑（标题 + 首数 + 播放 + 前 2 首预览）。
-    private struct RecommendBucket: Identifiable {
+    /// 热门歌手 + 他的一张专辑（用于「热门歌手专辑」板块的卡片数据）。
+    private struct ArtistAlbum: Identifiable {
         let id: String
-        let title: String
-        let songs: [Song]
+        let artist: Artist
+        let album: Album
     }
 
-    /// 专辑推荐的数据：把首页已经加载好的几个歌曲池打包成「专辑」，
-    /// 不再额外发请求 —— 点进去就是完整列表，点右侧播放键直接整张连播。
-    private var recommendBuckets: [RecommendBucket] {
-        var buckets: [RecommendBucket] = []
-        func add(_ id: String, _ title: String, _ songs: [Song]) {
-            guard songs.count >= 2 else { return }
-            buckets.append(RecommendBucket(id: id, title: title, songs: songs))
+    /// 为前 8 位热门歌手各取一张专辑（按歌手顺序逐位 searchAlbums）。
+    private func loadArtistAlbums() async {
+        let picks = Array(hotArtists.prefix(8))
+        guard !picks.isEmpty else { return }
+        let client = KugouClient.shared
+        var result: [ArtistAlbum] = []
+        for artist in picks {
+            let albums = await client.searchAlbums(keyword: artist.name, limit: 1)
+            if let album = albums.first {
+                result.append(ArtistAlbum(id: artist.id, artist: artist, album: album))
+            }
         }
-        add("hall", "至臻音质", hallSongs)
-        add("new", "新歌推荐", newSongs)
-        add("ktv", "KTV必点曲", ktvSongs)
-        add("classic", "经典推荐", classicSongs)
-        add("hall-fallback", "每日推荐", dailySongs)
-        return buckets
+        artistAlbums = result
+        Log.info("发现页", "热门歌手专辑加载 \(artistAlbums.count)/\(picks.count)")
     }
 
-    private var playlistRecommendSection: some View {
-        let buckets = recommendBuckets
-        return VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("专辑推荐") { EmptyView() }
 
-            if buckets.isEmpty {
+    /// 一张卡：一位热门歌手 + 他的一张专辑（封面 + 专辑名 + 歌手名）。
+    /// 点整张卡进 AlbumDetailView（专辑详情页会按专辑 id 拉歌）。
+    private func artistAlbumCard(artist: Artist, album: Album) -> some View {
+        NavigationLink {
+            AlbumDetailView(album: album)
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                CoverImage(url: album.coverURL,
+                           fallbackKeys: album.albumID.isEmpty ? [] : ["al:\(album.albumID)"],
+                           seed: album.name, size: 116, corner: 10)
+                    .frame(width: 116, height: 116)
+                Text(album.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(AppStyle.primaryText)
+                    .lineLimit(1)
+                    .frame(width: 116, alignment: .leading)
+                Text(artist.name)
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.tertiaryText)
+                    .lineLimit(1)
+                    .frame(width: 116, alignment: .leading)
+            }
+            .frame(width: 116)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 「热门歌手专辑」板块：横向滑动，每张卡 = 一位热门歌手的一张专辑。
+    /// 数据来自首页已加载的 hotArtists，各自用 searchAlbums 取一张专辑（并发，不重复请求）。
+    private var artistAlbumSection: some View {
+        let pairs = artistAlbums
+        return VStack(alignment: .leading, spacing: 0) {
+            sectionHeader("热门歌手专辑") { EmptyView() }
+
+            if pairs.isEmpty {
                 HStack {
                     ProgressView().controlSize(.small)
                         .frame(maxWidth: .infinity).padding(.vertical, 20)
@@ -694,8 +726,8 @@ struct DiscoverView: View {
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 12) {
-                        ForEach(buckets) { bucket in
-                            playlistRecommendCard(bucket)
+                        ForEach(pairs) { pair in
+                            artistAlbumCard(artist: pair.artist, album: pair.album)
                         }
                     }
                     .padding(.horizontal, 16)
@@ -703,88 +735,6 @@ struct DiscoverView: View {
                 }
             }
         }
-    }
-
-    private func playlistRecommendCard(_ bucket: RecommendBucket) -> some View {
-        let preview = Array(bucket.songs.prefix(2))
-        // 🔴 v2.9.6：卡片左边补一张「第一首歌的封面」——
-        // 之前整张卡是纯白的，看着很空；有了封面图才有歌单的感觉。
-        let coverSong = bucket.songs.first
-        let card =
-            HStack(alignment: .top, spacing: 10) {
-                CoverImage(url: coverSong?.artworkURL,
-                           fallbackKeys: coverSong?.coverFallbackKeys ?? [],
-                           seed: coverSong.map { "\($0.artist)-\($0.title)" } ?? bucket.title,
-                           size: 62,
-                           corner: 8)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(bucket.title)
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(AppStyle.primaryText)
-                            .lineLimit(1)
-                        Text("\(bucket.songs.count) 首")
-                            .font(.system(size: 11))
-                            .foregroundStyle(AppStyle.tertiaryText)
-                    }
-
-                    VStack(spacing: 6) {
-                        ForEach(Array(preview.enumerated()), id: \.element.id) { index, song in
-                            HStack(spacing: 6) {
-                                Text("\(index + 1)")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(index == 0 ? AppStyle.accent : AppStyle.tertiaryText)
-                                    .frame(width: 12, alignment: .leading)
-                                Text(song.cleanTitle)
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(AppStyle.primaryText)
-                                    .lineLimit(1)
-                                Text("- \(song.artist)")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(AppStyle.tertiaryText)
-                                    .lineLimit(1)
-                                Spacer(minLength: 0)
-                            }
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-            }
-            .padding(12)
-            .frame(width: 250, height: 118, alignment: .topLeading)
-            .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-        return ZStack(alignment: .topTrailing) {
-            // 整张卡 → 进入完整列表（用零尺寸 NavigationLink 叠在最上层之下，
-            // 播放按钮在 ZStack 上层，不会被跳转吞掉）
-            card.overlay(alignment: .center) {
-                NavigationLink {
-                    PlaylistDetailView(
-                        playlist: Playlist(id: "local-rec-\(bucket.id)", name: bucket.title,
-                                           coverURL: bucket.songs.first?.artworkURL,
-                                           trackCount: bucket.songs.count,
-                                           creatorName: "Aurora 推荐", source: .kugou),
-                        initialSongs: bucket.songs)
-                } label: { Color.clear }
-                .buttonStyle(.plain)
-            }
-
-            Button {
-                Haptics.soft()
-                store.play(bucket.songs, startAt: 0)
-            } label: {
-                Image(systemName: "play.fill")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 28, height: 28)
-                    .background(AppStyle.accent, in: Circle())
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(10)
-        }
-        .frame(width: 250)
     }
 
     // 🔴 v2.6.7：统一板块标题（标题 + 右侧「更多」）——
@@ -863,7 +813,12 @@ struct DiscoverView: View {
         let songs = rankPreviewSongs[playlist.kugouRankID ?? ""] ?? []
         return VStack(alignment: .leading, spacing: 10) {
             // 顶部：榜名 + 更新信息（左）｜白色圆形播放键（右，播前 3 首）
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
+                // 🔴 v2.9.17：榜封面上到卡片头部左侧，丰富视觉
+                CoverImage(url: playlist.coverURL,
+                           fallbackKeys: [playlist.id],
+                           seed: displayName, size: 42, corner: 8)
+                    .frame(width: 42, height: 42)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(displayName)
                         .font(.system(size: 15, weight: .bold))
@@ -901,9 +856,12 @@ struct DiscoverView: View {
                 .buttonStyle(.plain)
             }
 
-            // 3 首带排名角标的封面 + 歌名/歌手 + 爱心
-            VStack(spacing: 8) {
+            // 3 首带排名角标的封面 + 歌名/歌手 + 爱心（每行之间加分隔线，更精致）
+            VStack(spacing: 0) {
                 ForEach(Array(songs.prefix(3).enumerated()), id: \.element.id) { index, song in
+                    if index > 0 {
+                        Divider().padding(.leading, 54).padding(.vertical, 2)
+                    }
                     HStack(spacing: 10) {
                         ZStack(alignment: .topLeading) {
                             CoverImage(url: song.artworkURL,
@@ -940,12 +898,15 @@ struct DiscoverView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    .padding(.vertical, 4)
                 }
             }
         }
         .padding(12)
         .frame(width: 280)
         .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(AppStyle.stroke.opacity(0.6), lineWidth: 0.5))
     }
 
     // MARK: 🔴 v2.9.8 经典推荐 / DJ推荐 —— 改成和新歌推荐一致的「单行横滑卡片」
@@ -1611,6 +1572,10 @@ struct DiscoverView: View {
         if force || dailySongs.isEmpty { await loadDailySongs() }
         if force || hotArtists.isEmpty {
             hotArtists = await KugouClient.shared.hotArtists(count: 50)
+        }
+        // 🔴 v2.9.17：热门歌手专辑板块 —— 取前 8 位歌手各自的一张专辑（并发拉）。
+        if artistAlbums.isEmpty {
+            Task { await loadArtistAlbums() }
         }
         if recommendedPlaylists.isEmpty {
             let result = await KugouClient.shared.recommendedPlaylists(page: 1)

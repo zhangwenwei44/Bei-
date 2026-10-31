@@ -407,27 +407,23 @@ struct RankingsView: View {
                     EmptyStateView(icon: "trophy", title: "暂无榜单", message: "稍后重试")
                         .padding(.top, 60)
                 } else {
+                    // 🔴 v2.9.17：按榜单名关键词归类，用 Section 分组展示
+                    let grouped = Dictionary(grouping: lists) { Self.rankCategory($0) }
                     List {
-                        ForEach(lists) { playlist in
-                            NavigationLink {
-                                PlaylistDetailView(playlist: playlist)
-                            } label: {
-                                HStack(spacing: 12) {
-                                    CoverImage(url: playlist.coverURL,
-                                               fallbackKeys: [playlist.id],
-                                               seed: playlist.name,
-                                               size: 50, corner: 8)
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(playlist.name)
-                                            .font(.system(size: 15, weight: .medium))
-                                            .foregroundStyle(AppStyle.primaryText)
-                                            .lineLimit(1)
-                                        Text(playlist.kugouRankID == "8888" ? "酷狗 TOP500 · 每日更新" : "酷狗榜单")
-                                            .font(.system(size: 12))
-                                            .foregroundStyle(playlist.kugouRankID == "8888"
-                                                             ? AppStyle.accent : AppStyle.tertiaryText)
+                        ForEach(Self.rankCategoryOrder, id: \.self) { cat in
+                            if let items = grouped[cat], !items.isEmpty {
+                                Section {
+                                    ForEach(items) { playlist in
+                                        NavigationLink {
+                                            PlaylistDetailView(playlist: playlist)
+                                        } label: {
+                                            rankRow(playlist)
+                                        }
                                     }
-                                    Spacer(minLength: 0)
+                                } header: {
+                                    Text(cat)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(AppStyle.secondaryText)
                                 }
                             }
                         }
@@ -450,6 +446,46 @@ struct RankingsView: View {
         // 酷狗 TOP500（rankid=8888）排最前，满足「排行榜接入酷狗 TOP500 列表」
         lists = all.sorted {
             ($0.kugouRankID == "8888" ? 0 : 1) < ($1.kugouRankID == "8888" ? 0 : 1)
+        }
+    }
+
+    // 🔴 v2.9.17：榜单分类（按榜名关键词归类，顺序固定）
+    private static let rankCategoryOrder: [String] = [
+        "总榜", "飙升榜", "网络热歌", "国风", "民谣", "纯音乐", "电子", "欧美/外语", "DJ", "其他"
+    ]
+
+    private static func rankCategory(_ playlist: Playlist) -> String {
+        let n = playlist.name
+        if n.contains("TOP500") || n.contains("500") { return "总榜" }
+        if n.contains("飙升") { return "飙升榜" }
+        if n.contains("热歌") || n.contains("短视频") || n.contains("视频号") { return "网络热歌" }
+        if n.contains("国潮") || n.contains("国风") || n.contains("中国风") { return "国风" }
+        if n.contains("民谣") { return "民谣" }
+        if n.contains("纯音乐") { return "纯音乐" }
+        if n.contains("电音") || n.contains("电子") { return "电子" }
+        if n.contains("欧美") || n.contains("韩语") || n.contains("日语") || n.contains("韩流") || n.contains("英文") { return "欧美/外语" }
+        if n.contains("DJ") { return "DJ" }
+        return "其他"
+    }
+
+    // 榜单行（Section 内复用，避免重复写）
+    private func rankRow(_ playlist: Playlist) -> some View {
+        HStack(spacing: 12) {
+            CoverImage(url: playlist.coverURL,
+                       fallbackKeys: [playlist.id],
+                       seed: playlist.name,
+                       size: 50, corner: 8)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(playlist.name)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(AppStyle.primaryText)
+                    .lineLimit(1)
+                Text(playlist.kugouRankID == "8888" ? "酷狗 TOP500 · 每日更新" : "酷狗榜单")
+                    .font(.system(size: 12))
+                    .foregroundStyle(playlist.kugouRankID == "8888"
+                                     ? AppStyle.accent : AppStyle.tertiaryText)
+            }
+            Spacer(minLength: 0)
         }
     }
 }
@@ -507,7 +543,7 @@ struct LabView: View {
                 Text("实验室需要管理员权限")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(AppStyle.primaryText)
-                Text("登录 Aurora 云账号后即可管理横幅广告与解锁码")
+                Text("管理员登录后即可进入实验室")
                     .font(.system(size: 12))
                     .foregroundStyle(AppStyle.tertiaryText)
                     .multilineTextAlignment(.center)
