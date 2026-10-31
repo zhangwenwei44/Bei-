@@ -142,11 +142,11 @@ private struct MainTabs: View {
     var body: some View {
         TabView(selection: $tab) {
             tabRoot(DiscoverView())
-                .tabItem { Label("主页", systemImage: "safari.fill") }.tag(Tab.discover)
+                .tabItem { Label("主页", systemImage: "house.fill") }.tag(Tab.discover)
             tabRoot(SearchView())
                 .tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(Tab.search)
             tabRoot(LibraryView())
-                .tabItem { Label("我的音乐", systemImage: "music.note.list") }.tag(Tab.library)
+                .tabItem { Label("我的音乐", systemImage: "music.note") }.tag(Tab.library)
             tabRoot(ProfileView())
                 .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
         }

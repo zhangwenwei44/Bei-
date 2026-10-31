@@ -1690,6 +1690,88 @@ final class KugouClient {
         }
     }
 
+    /// 🔴 v2.9.15：酷狗个性化「每日推荐」（需登录酷狗账号）。
+    /// gateway POST `/everyday_song_recommend`，x-router: `everydayrec.service.kugou.com`，Android 签名。
+    /// 返回个性化推荐歌曲；未登录 / 调用失败 / 空 → 返回 nil（调用方回退 TOP500）。
+    func dailyRecommendSongs(limit: Int = 30) async -> [Song]? {
+        guard KugouAuth.shared.isLoggedIn else { return nil }
+        let auth = KugouAuth.shared
+        let clienttime = "\(Int(Date().timeIntervalSince1970))"
+        var params: [String: String] = [
+            "dfid": auth.dfid,
+            "mid": auth.mid,
+            "uuid": "-",
+            "appid": gatewayAppID,
+            "clientver": gatewayClientVer,
+            "clienttime": clienttime,
+            "plat": "1",
+            "platform": "ios",
+            "token": auth.token,
+            "userid": auth.userId,
+        ]
+        let bodyStr = ""
+        params["signature"] = androidSign(params, data: bodyStr)
+
+        var comps = URLComponents(string: "https://gateway.kugou.com/everyday_song_recommend")!
+        comps.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
+        guard let url = comps.url else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = bodyStr.data(using: .utf8)
+        request.setValue(gatewayUA, forHTTPHeaderField: "User-Agent")
+        request.setValue("everydayrec.service.kugou.com", forHTTPHeaderField: "x-router")
+        request.setValue("1", forHTTPHeaderField: "kg-rc")
+        request.setValue(Data(gatewayUA.utf8).md5Hex(), forHTTPHeaderField: "kg-thash")
+        request.setValue("B9EDA08A64250DEFFBCADDEE00F8F25F", forHTTPHeaderField: "kg-rf")
+        request.setValue(auth.dfid, forHTTPHeaderField: "dfid")
+        request.setValue(auth.mid, forHTTPHeaderField: "mid")
+        request.setValue(clienttime, forHTTPHeaderField: "clienttime")
+        let cookie = auth.cookieHeader
+        if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+
+        do {
+            let (data, resp) = try await session.data(for: request)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200...299).contains(code) else {
+                Log.error("酷狗", "每日推荐 HTTP=\(code)")
+                return nil
+            }
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                Log.error("酷狗", "每日推荐 响应不是 JSON")
+                return nil
+            }
+            let rows = Self.extractSongDicts(from: json)
+            let songs = rows.compactMap { Song(kugouJSON: $0) }
+            Log.info("酷狗", "每日推荐 解析到 \(songs.count) 首")
+            return songs.isEmpty ? nil : Array(songs.prefix(limit))
+        } catch {
+            Log.error("酷狗", "每日推荐 请求失败：\(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// 🔴 v2.9.15：从任意 JSON 树递归抽取「歌曲节点」字典（含 hash 且有标题），
+    /// 兼容 data.list[].data / data.list[] / data.info[] 等各种嵌套，避免猜错路径导致一首都解析不出。
+    private static func extractSongDicts(from obj: Any) -> [[String: Any]] {
+        var result: [[String: Any]] = []
+        func walk(_ value: Any) {
+            if let dict = value as? [String: Any] {
+                let hash = string(dict["FileHash"]) ?? string(dict["Hash"]) ?? string(dict["hash"])
+                let title = string(dict["songname"]) ?? string(dict["SongName"])
+                    ?? string(dict["FileName"]) ?? string(dict["filename"]) ?? string(dict["song_name"])
+                if let h = hash, !h.isEmpty, let t = title, !t.isEmpty {
+                    result.append(dict)
+                    return
+                }
+                for child in dict.values { walk(child) }
+            } else if let arr = value as? [Any] {
+                for child in arr { walk(child) }
+            }
+        }
+        walk(obj)
+        return result
+    }
+
     /// 零填充裸 RSA（无 PKCS1 填充）→ 十六进制大写。
     /// KuGouMusicApi cryptoRSAEncrypt：数据右补零到密钥块大小（128 字节），
     /// 直接 m^e mod n，不走填充 —— 对应 Security framework 的 .rsaEncryptionRaw。

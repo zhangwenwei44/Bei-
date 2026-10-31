@@ -118,6 +118,10 @@ struct DiscoverView: View {
             // 🔴 v2.9.12：进入发现页即拉取管理员设置的云端横幅（跨设备共享）
             await BannerConfig.shared.pullCloud()
         }
+        // 🔴 v2.9.15：酷狗登录态变化（登录/退出）时，每日推荐切换「个性化 / TOP500 回退」
+        .task(id: kugouAuth.isLoggedIn) {
+            await loadDailySongs()
+        }
         .navigationBarTitleDisplayMode(.inline)
         // 🔴 v2.9.6：状态栏/导航栏那一段刷成淡蓝，和下面的渐变带连成一片
         .kugouNavigationBarTint()
@@ -391,13 +395,11 @@ struct DiscoverView: View {
 
     private func entryLabel(_ entry: DiscoverEntry) -> some View {
         VStack(spacing: 6) {
-            ZStack {
-                // 🔴 v2.9.14：实验室图标是**透明底烧杯**，不再垫浅色圆角方块（用户要求去掉白方块背景）
-                if entry != .lab {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(entry.color.opacity(0.16))
-                }
-                if entry == .lab, let img = UIImage(named: "LabIcon") {
+        ZStack {
+            // 🔴 v2.9.15：所有入口统一浅色圆角方块背景（实验室也加上，与旁边按钮一致）
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(entry.color.opacity(0.16))
+            if entry == .lab, let img = UIImage(named: "LabIcon") {
                     Image(uiImage: img)
                         .resizable()
                         .scaledToFit()
@@ -1646,8 +1648,30 @@ struct DiscoverView: View {
         await loadTrackCounts(for: whitelistedSlices.prefix(5))
     }
 
-    /// 每日推荐：酷狗 TOP500 前 30 首，补齐第一首封面。
+    /// 每日推荐：登录酷狗 → 个性化「每日推荐」；未登录 / 拉取失败 → 回退酷狗 TOP500。
     private func loadDailySongs() async {
+        // 🔴 v2.9.15：登录酷狗账号后拉个性化每日推荐（属于你的口味），失败时回退 TOP500。
+        if kugouAuth.isLoggedIn,
+           let recs = await KugouClient.shared.dailyRecommendSongs(limit: 30),
+           !recs.isEmpty {
+            var enriched = recs
+            // 推荐接口部分歌可能没封面 → 优先拿有封面的做封面卡；没封面的反查专辑补图
+            var pick = enriched.first(where: { $0.artworkURL != nil }) ?? enriched.first
+            if let p = pick, p.artworkURL == nil, !p.kugouAlbumID.isEmpty,
+               let cover = await KugouClient.shared.albumCover(albumID: p.kugouAlbumID) {
+                var fixed = p
+                fixed.artworkURL = cover
+                if let idx = enriched.firstIndex(where: { $0.id == p.id }) {
+                    enriched[idx].artworkURL = cover
+                }
+                pick = fixed
+            }
+            dailySongs = enriched
+            dailyPick = pick
+            Log.info("发现页", "每日推荐(个性化) \(enriched.count) 首，封面：\(pick?.title ?? "-")")
+            return
+        }
+        // 回退：酷狗 TOP500 前 30 首，补齐第一首封面。
         guard let songs = try? await KugouClient.shared.rankSongs(rankID: "8888", limit: 100),
               !songs.isEmpty else {
             Log.warn("发现页", "每日推荐 TOP500 0 首")
@@ -1678,7 +1702,7 @@ struct DiscoverView: View {
             }
         }
         dailyPick = pick
-        Log.info("发现页", "每日推荐 \(enriched.count) 首，第一首：\(enriched[0].title) - \(enriched[0].artist)")
+        Log.info("发现页", "每日推荐(回退TOP500) \(enriched.count) 首，第一首：\(enriched[0].title) - \(enriched[0].artist)")
     }
 
     private func loadGuess() async {
