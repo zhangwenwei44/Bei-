@@ -1078,6 +1078,8 @@ private struct RowTrailingButtons: View {
     let song: Song
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var downloads = DownloadManager.shared
+    // 🔴 v2.9.14：点下载时弹音质选择（默认音质设为具体档位后不再弹）
+    @State private var showQualityPicker = false
 
     var body: some View {
         HStack(spacing: 4) {
@@ -1098,7 +1100,12 @@ private struct RowTrailingButtons: View {
             Button {
                 if song.isRemote {
                     Haptics.light()
-                    Task { _ = try? await downloads.download(song) }
+                    if downloads.defaultDownloadQuality == nil {
+                        // 🔴 v2.9.14：没设默认音质 → 先让用户选
+                        showQualityPicker = true
+                    } else {
+                        Task { _ = try? await downloads.download(song) }
+                    }
                 }
             } label: {
                 if isActive {
@@ -1115,6 +1122,15 @@ private struct RowTrailingButtons: View {
             }
             .buttonStyle(.plain)
             .disabled(song.source == .local || isActive)
+            // 🔴 v2.9.14：下载音质选择
+            .confirmationDialog("选择下载音质", isPresented: $showQualityPicker, titleVisibility: .visible) {
+                ForEach(MusicQuality.allCases) { quality in
+                    Button(quality.title) {
+                        Task { _ = try? await downloads.download(song, quality: quality) }
+                    }
+                }
+                Button("取消", role: .cancel) {}
+            }
         }
     }
 }

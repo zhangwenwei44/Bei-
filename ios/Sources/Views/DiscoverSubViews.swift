@@ -11,14 +11,35 @@ import UIKit
 final class BannerConfig: ObservableObject {
     static let shared = BannerConfig()
     @Published var images: [UIImage?] = []
-    /// 🔴 v2.9.12：云端（管理员设置）横幅，拉取后所有设备共享展示。
-    @Published private(set) var cloudImages: [UIImage] = []
+    /// 🔴 v2.9.14：云端（管理员设置）横幅，所有设备共享展示。
+    /// 用 `[UIImage?]` 保留占位：某张图下载失败也占一个位置，数量与云端一致。
+    @Published private(set) var cloudImages: [UIImage?] = []
+    /// 🔴 v2.9.14：云端同步状态，直接显示在「实验室」里，让管理员能看到同步成没成功。
+    @Published private(set) var syncState: SyncState = .idle
+    /// 是否已经拿到过云端数据（区分「云端为空」和「还没拉过」）。
+    private var hasCloudData = false
+
+    enum SyncState: Equatable {
+        case idle
+        case syncing
+        case done(String)
+        case failed(String)
+    }
+
     private let prefix = "aurora_banner_"
     private let ext = ".png"
 
     private struct Meta: Codable { var custom: [Bool] }
 
-    private init() { reload() }
+    private var refreshTimer: Timer?
+
+    private init() {
+        reload()
+        // 🔴 v2.9.14：启动即拉一次云端横幅，并开启 60s 定时刷新——
+        // 管理员在另一台设备改了横幅，本机最多 1 分钟内自动更新（原来只在进页面时拉一次）。
+        Task { [self] in await pullCloud() }
+        DispatchQueue.main.async { [weak self] in self?.startAutoRefresh() }
+    }
 
     private static func dir() -> URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -90,20 +111,52 @@ final class BannerConfig: ObservableObject {
     // MARK: - 云端同步（跨设备共享管理员设置的横幅）
 
     /// 云端拉取到的横幅（所有设备共用，由 BannerSync 填充）。
-    func applyCloud(_ imgs: [UIImage]) {
+    func applyCloud(_ imgs: [UIImage?]) {
         cloudImages = imgs
+        hasCloudData = true
         objectWillChange.send()
     }
 
-    /// 异步从云端拉取横幅（App 启动 / 进入发现页时调用）。
-    func pullCloud() async {
-        let imgs = await BannerSync.fetch()
-        await MainActor.run { applyCloud(imgs) }
+    /// 异步从云端拉取横幅（App 启动 / 进入发现页 / 定时刷新时调用）。
+    /// 失败会自动重试 2 次；**拉取失败时保留本机已有横幅，不会被清空**。
+    /// - Returns: 是否成功拿到云端数据。
+    @discardableResult
+    func pullCloud(retry: Int = 2) async -> Bool {
+        let (imgs, err) = await BannerSync.fetch()
+        if let imgs {
+            await MainActor.run { self.applyCloud(imgs) }
+            return true
+        }
+        // 失败：退避后重试
+        if retry > 0 {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            return await pullCloud(retry: retry - 1)
+        }
+        await MainActor.run { syncState = .failed(err ?? "云端横幅拉取失败") }
+        Log.warn("横幅", "云端横幅拉取最终失败：\(err ?? "未知错误")")
+        return false
+    }
+
+    /// 定时刷新（60s 一次）：管理员在别的设备改了横幅，本机自动跟上。
+    func startAutoRefresh() {
+        stopAutoRefresh()
+        // 注意：闭包里用 BannerConfig.shared 而不是捕获 self ——
+        // Timer 的 block 是 @Sendable，捕获非 Sendable 的 self 会触发并发告警，
+        // 而本 CI 有「有编译警告就判失败」的检查。
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+            Task { await BannerConfig.shared.pullCloud(retry: 0) }
+        }
+    }
+
+    func stopAutoRefresh() {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
     }
 
     /// 实际展示用图：优先云端（管理员设置、跨设备共享），否则用本机自定义图。
-    var effectiveImages: [UIImage] {
-        cloudImages.isEmpty ? images.compactMap { $0 } : cloudImages
+    /// 元素为 nil 表示该位置用 App 内置默认图。
+    var effectiveImages: [UIImage?] {
+        hasCloudData ? cloudImages : images
     }
 
     /// 管理端编辑后同步到云端（fire-and-forget）。同时乐观更新 cloudImages 让本机即时看到。
@@ -113,11 +166,32 @@ final class BannerConfig: ObservableObject {
             return ("横幅广告 \(idx + 1)", img)
         }
         cloudImages = banners.map { $0.1 }
+        hasCloudData = true
         objectWillChange.send()
-        Task {
+        syncState = .syncing
+        Task { [self] in
             if let err = await BannerSync.upload(banners) {
+                await MainActor.run { self.syncState = .failed(err) }
                 Log.warn("横幅", "云端同步失败：\(err)")
+            } else {
+                await MainActor.run {
+                    self.syncState = .done(banners.isEmpty ? "已同步（云端暂无横幅）" : "已同步到云端（\(banners.count) 张）")
+                }
             }
+        }
+    }
+
+    /// 手动「立即同步到云端」（把本机当前设置重新推上去）。
+    func pushToCloudNow() {
+        syncCloud()
+    }
+
+    /// 手动「刷新云端横幅」（从云端拉一次）。
+    func refreshFromCloud() async {
+        syncState = .syncing
+        let ok = await pullCloud(retry: 1)
+        if ok {
+            await MainActor.run { self.syncState = .done("已从云端刷新") }
         }
     }
 }
@@ -166,6 +240,41 @@ struct DownloadCenterView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     let active = downloads.items.filter { $0.state.isActive }
+
+                    // 🔴 v2.9.14：下载音质选择（每次询问 / 固定档位）
+                    HStack {
+                        Text("下载音质")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(AppStyle.secondaryText)
+                        Spacer(minLength: 0)
+                        Menu {
+                            Button("每次询问") {
+                                downloads.defaultDownloadQuality = nil
+                                Haptics.light()
+                            }
+                            ForEach(MusicQuality.allCases) { quality in
+                                Button(quality.title) {
+                                    downloads.defaultDownloadQuality = quality
+                                    Haptics.light()
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(downloads.defaultDownloadQuality?.title ?? "每次询问")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(AppStyle.accent)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(AppStyle.accent)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(AppStyle.accent.opacity(0.12), in: Capsule())
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 4)
 
                     if !active.isEmpty {
                         sectionTitle("下载中")
@@ -461,10 +570,63 @@ struct LabView: View {
                         }
                         .buttonStyle(.plain)
                     }
-                    ForEach(Array(banner.images.indices), id: \.self) { index in
+                    // 🔴 v2.9.14：本机没有但云端有的横幅位也要列出来（管理员在别的设备改过的情况）
+                    ForEach(Array(0..<max(banner.images.count, banner.cloudImages.count)), id: \.self) { index in
                         bannerRow(index: index)
                     }
                     Text("选择图片后即时生效；恢复默认即使用 App 内置图。点「添加」可增加更多横幅位。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+                .padding(16)
+                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                // 🔴 v2.9.14：云端同步状态 + 手动同步 / 刷新
+                // （原来只写日志，用户看不到结果，以为"没上传到服务器"）
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("云端同步")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(AppStyle.primaryText)
+
+                    HStack(spacing: 6) {
+                        Image(systemName: syncIcon)
+                            .font(.system(size: 13))
+                            .foregroundStyle(syncColor)
+                        Text(syncText)
+                            .font(.system(size: 12))
+                            .foregroundStyle(AppStyle.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    HStack(spacing: 10) {
+                        Button {
+                            banner.pushToCloudNow()
+                            Haptics.light()
+                        } label: {
+                            Text("立即同步到云端")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(AppStyle.accent)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 9)
+                                .background(AppStyle.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            Task { await banner.refreshFromCloud() }
+                            Haptics.light()
+                        } label: {
+                            Text("刷新云端横幅")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(AppStyle.accent)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 9)
+                                .background(AppStyle.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Text("改完横幅会自动上传到云端，其他手机约 1 分钟内自动更新；本机每 60 秒自动拉取一次云端横幅。")
                         .font(.system(size: 11))
                         .foregroundStyle(AppStyle.tertiaryText)
                 }
@@ -503,9 +665,42 @@ struct LabView: View {
         .background(AppStyle.background)
     }
 
+    // MARK: 🔴 v2.9.14 云端同步状态
+
+    private var syncText: String {
+        switch banner.syncState {
+        case .idle:
+            return "尚未同步。修改横幅后会自动上传到云端。"
+        case .syncing:
+            return "正在同步到云端…"
+        case .done(let msg):
+            return msg
+        case .failed(let msg):
+            return "同步失败：\(msg)"
+        }
+    }
+
+    private var syncIcon: String {
+        switch banner.syncState {
+        case .idle: return "icloud"
+        case .syncing: return "arrow.triangle.2.circlepath"
+        case .done: return "checkmark.icloud.fill"
+        case .failed: return "exclamationmark.icloud.fill"
+        }
+    }
+
+    private var syncColor: Color {
+        switch banner.syncState {
+        case .idle: return AppStyle.tertiaryText
+        case .syncing: return AppStyle.accent
+        case .done: return .green
+        case .failed: return .red
+        }
+    }
+
     private func bannerRow(index: Int) -> some View {
         HStack(spacing: 12) {
-            if let img = banner.images[index] {
+            if let img = previewImage(at: index) {
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFill()
@@ -538,5 +733,14 @@ struct LabView: View {
             }
             Spacer(minLength: 0)
         }
+    }
+
+    /// 预览用图：优先本机设置的图，没有就显示云端那张（管理员在别的设备改过时也能看到）。
+    private func previewImage(at index: Int) -> UIImage? {
+        if let local = banner.images.indices.contains(index) ? banner.images[index] : nil {
+            return local
+        }
+        if banner.cloudImages.indices.contains(index) { return banner.cloudImages[index] }
+        return nil
     }
 }

@@ -273,25 +273,15 @@ struct DiscoverView: View {
     /// 显示顺序：云端（管理员设置、跨设备共享）→ 本机自定义 → App 内置默认图。
     /// 🔴 v2.9.12：比例改为 16:6；宽度随屏宽自适应，与下方「下载行」及各板块统一 16pt 左右间距。
     private var adBanner: some View {
-        let imgs = bannerConfig.effectiveImages
-        let useDefaults = imgs.isEmpty
-        let count = useDefaults ? 2 : imgs.count
+        // 🔴 v2.9.14：effectiveImages 现在是 [UIImage?]（保留占位），
+        // 某张图云端没下下来也占一个位置，数量与云端一致。
+        let imgs = bannerConfig.effectiveImages.isEmpty ? [nil, nil] : bannerConfig.effectiveImages
+        let count = imgs.count
         let h = (UIScreen.main.bounds.width - 32) * 7 / 16 // 🔴 v2.9.13：16:7
         return TabView(selection: $adIndex) {
-            if useDefaults {
-                ForEach(0..<2, id: \.self) { i in
-                    Image(i % 2 == 0 ? "BannerAd1" : "BannerAd2")
-                        .resizable()
-                        .scaledToFill()
-                        .tag(i)
-                }
-            } else {
-                ForEach(Array(imgs.indices), id: \.self) { i in
-                    Image(uiImage: imgs[i])
-                        .resizable()
-                        .scaledToFill()
-                        .tag(i)
-                }
+            ForEach(Array(imgs.indices), id: \.self) { i in
+                bannerImage(at: i, in: imgs)
+                    .tag(i)
             }
         }
         // 🔴 关掉系统页码点（居中），改用右下角自定义圆点
@@ -320,6 +310,22 @@ struct DiscoverView: View {
             let cur = min(adIndex, count - 1)
             withAnimation(.easeInOut(duration: 0.4)) {
                 adIndex = (cur + 1) % count
+            }
+        }
+    }
+
+    /// 取横幅图：优先自定义 / 云端图；该位置没有图时回退到 Assets 默认图（按奇偶循环 BannerAd1/2）。
+    private func bannerImage(at index: Int, in imgs: [UIImage?]) -> some View {
+        let fallback = (index % 2 == 0) ? "BannerAd1" : "BannerAd2"
+        return Group {
+            if let ui = imgs[index] {
+                Image(uiImage: ui)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(fallback)
+                    .resizable()
+                    .scaledToFill()
             }
         }
     }
@@ -386,13 +392,16 @@ struct DiscoverView: View {
     private func entryLabel(_ entry: DiscoverEntry) -> some View {
         VStack(spacing: 6) {
             ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(entry.color.opacity(0.16))
+                // 🔴 v2.9.14：实验室图标是**透明底烧杯**，不再垫浅色圆角方块（用户要求去掉白方块背景）
+                if entry != .lab {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(entry.color.opacity(0.16))
+                }
                 if entry == .lab, let img = UIImage(named: "LabIcon") {
                     Image(uiImage: img)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 28, height: 28)
+                        .frame(width: 36, height: 36)
                 } else {
                     Image(systemName: entry.icon)
                         .font(.system(size: 20, weight: .semibold))

@@ -25,6 +25,20 @@ final class DownloadManager: NSObject, ObservableObject {
         }
     }
 
+    /// 🔴 v2.9.14：默认下载音质。nil = 每次点下载都弹窗让用户选；
+    /// 设成具体档位后，下载按钮直接按该档位下载，不再打扰。
+    @Published var defaultDownloadQuality: MusicQuality? {
+        didSet {
+            UserDefaults.standard.set(defaultDownloadQuality?.rawValue, forKey: Self.downloadQualityKey)
+        }
+    }
+    private static let downloadQualityKey = "aurora.downloadQuality"
+
+    /// 实际用于下载的音质：默认设置优先，没设置就跟随播放音质。
+    var effectiveDownloadQuality: MusicQuality {
+        defaultDownloadQuality ?? SourceStore.shared.quality
+    }
+
     private final class Pending {
         let song: Song
         let continuation: CheckedContinuation<URL, Error>
@@ -222,6 +236,11 @@ final class DownloadManager: NSObject, ObservableObject {
     func bootstrap() {
         migrateIfNeeded()
         loadIndex()
+        // 🔴 v2.9.14：恢复上次选的默认下载音质
+        if let raw = UserDefaults.standard.string(forKey: Self.downloadQualityKey),
+           let q = MusicQuality(rawValue: raw) {
+            defaultDownloadQuality = q
+        }
         // 从磁盘索引文件直接重建 Song（兜底方案）
         let fromDisk = fileIndex.compactMap { songID, fileName -> Song? in
             let folder = DownloadManager.directory()
@@ -276,10 +295,12 @@ final class DownloadManager: NSObject, ObservableObject {
     // MARK: - 下载
 
     /// 下载一首歌；已下载直接返回本地地址。
-    func download(_ song: Song) async throws -> URL {
+    /// - Parameter quality: 指定音质；nil = 用「默认下载音质」（未设置时跟随播放音质）。
+    func download(_ song: Song, quality: MusicQuality? = nil) async throws -> URL {
         if let local = localURL(for: song) { return local }
 
-        let resolved = await SourceResolver.resolve(song: song, quality: SourceStore.shared.quality)
+        let target = quality ?? effectiveDownloadQuality
+        let resolved = await SourceResolver.resolve(song: song, quality: target)
         guard let resolved else { throw DownloadError.unresolved }
 
         // http→https 升级（和 PlayerStore 一样的逻辑）。
