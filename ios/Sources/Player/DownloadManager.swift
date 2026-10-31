@@ -299,8 +299,8 @@ final class DownloadManager: NSObject, ObservableObject {
     func download(_ song: Song, quality: MusicQuality? = nil) async throws -> URL {
         if let local = localURL(for: song) { return local }
 
-        let target = quality ?? effectiveDownloadQuality
-        let resolved = await SourceResolver.resolve(song: song, quality: target)
+        let targetQuality = quality ?? effectiveDownloadQuality
+        let resolved = await SourceResolver.resolve(song: song, quality: targetQuality)
         guard let resolved else { throw DownloadError.unresolved }
 
         // http→https 升级（和 PlayerStore 一样的逻辑）。
