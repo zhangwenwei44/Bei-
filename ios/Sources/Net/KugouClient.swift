@@ -756,6 +756,46 @@ final class KugouClient {
         return ([], 0)
     }
 
+    /// 🔴 v2.9.16：专辑搜索（搜索页「专辑」类型用）。
+    /// mobiles.kugou.com `/api/v3/search/album`，解析 `data.info` 为 Album。
+    func searchAlbums(keyword: String, page: Int = 1) async -> [Album] {
+        guard !keyword.isEmpty else { return [] }
+        let hosts = ["https://mobiles.kugou.com", "http://mobiles.kugou.com"]
+        for host in hosts {
+            guard let json = try? await getJSON(path: "/api/v3/search/album",
+                                               host: host,
+                                               params: ["format": "json",
+                                                        "keyword": keyword,
+                                                        "page": String(page),
+                                                        "pagesize": "30",
+                                                        "area_code": "1"],
+                                               headers: ["User-Agent": searchUA,
+                                                         "Referer": "https://www.kugou.com/"]),
+                  let data = json["data"] as? [String: Any],
+                  let infos = data["info"] as? [[String: Any]] else { continue }
+            let albums = infos.compactMap { item -> Album? in
+                guard let aid = KugouClient.string(item["albumid"]) ?? KugouClient.string(item["album_id"]),
+                      !aid.isEmpty else { return nil }
+                let name = KugouClient.string(item["albumname"]) ?? KugouClient.string(item["album_name"]) ?? "专辑"
+                var cover = KugouClient.string(item["imgurl"]) ?? KugouClient.string(item["album_img"]) ?? ""
+                cover = cover.replacingOccurrences(of: "{size}", with: "480")
+                    .replacingOccurrences(of: "{si}", with: "480")
+                if cover.hasPrefix("http://") { cover = "https://" + cover.dropFirst("http://".count) }
+                let artist = KugouClient.string(item["singername"]) ?? KugouClient.string(item["author_name"]) ?? "酷狗音乐"
+                return Album(id: "kg-album:\(aid)",
+                             name: name,
+                             artist: artist,
+                             coverURL: URL(string: cover),
+                             albumID: aid)
+            }
+            if !albums.isEmpty {
+                Log.info("搜索", "专辑搜索「\(keyword)」\(host) 第\(page)页 \(albums.count) 张")
+                return albums
+            }
+        }
+        return []
+    }
+
     /// 普通歌单（specialid）里的歌曲。
     ///
     /// 方案 1：mobilecdn `/api/v3/special/song`（JSON，翻页，PC 实测可用）
@@ -1746,6 +1786,72 @@ final class KugouClient {
             return songs.isEmpty ? nil : Array(songs.prefix(limit))
         } catch {
             Log.error("酷狗", "每日推荐 请求失败：\(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// 🔴 v2.9.16：酷狗「猜你喜欢」（私人 FM），接入酷狗个性化推荐。
+    /// gateway POST `/personal_recommend`，x-router: `persnfm.service.kugou.com`，Android 签名。
+    /// 登录态（Cookie）注入后个性化更强；未登录 / 调用失败 / 空 → 返回 nil（调用方回退关键词随机搜歌）。
+    func guessYouLike(limit: Int = 20) async -> [Song]? {
+        let auth = KugouAuth.shared
+        let clienttime = "\(Int(Date().timeIntervalSince1970))"
+        var params: [String: String] = [
+            "dfid": auth.dfid,
+            "mid": auth.mid,
+            "uuid": "-",
+            "appid": gatewayAppID,
+            "clientver": gatewayClientVer,
+            "clienttime": clienttime,
+            "plat": "1",
+            "platform": "ios",
+            "token": auth.token,
+            "userid": auth.userId,
+            // 私人 FM 首次进入：action=login（续拉为 play）
+            "action": "login",
+            "playtime": "0",
+            "mode": "normal",
+            "song_pool_id": "0",
+            "is_overplay": "0",
+            "remain_songcnt": "0",
+        ]
+        let bodyStr = ""
+        params["signature"] = androidSign(params, data: bodyStr)
+
+        var comps = URLComponents(string: "https://gateway.kugou.com/personal_recommend")!
+        comps.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
+        guard let url = comps.url else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = bodyStr.data(using: .utf8)
+        request.setValue(gatewayUA, forHTTPHeaderField: "User-Agent")
+        request.setValue("persnfm.service.kugou.com", forHTTPHeaderField: "x-router")
+        request.setValue("1", forHTTPHeaderField: "kg-rc")
+        request.setValue(Data(gatewayUA.utf8).md5Hex(), forHTTPHeaderField: "kg-thash")
+        request.setValue("B9EDA08A64250DEFFBCADDEE00F8F25F", forHTTPHeaderField: "kg-rf")
+        request.setValue(auth.dfid, forHTTPHeaderField: "dfid")
+        request.setValue(auth.mid, forHTTPHeaderField: "mid")
+        request.setValue(clienttime, forHTTPHeaderField: "clienttime")
+        let cookie = auth.cookieHeader
+        if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+
+        do {
+            let (data, resp) = try await session.data(for: request)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200...299).contains(code) else {
+                Log.error("酷狗", "猜你喜欢 HTTP=\(code)")
+                return nil
+            }
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                Log.error("酷狗", "猜你喜欢 响应不是 JSON")
+                return nil
+            }
+            let rows = Self.extractSongDicts(from: json)
+            let songs = rows.compactMap { Song(kugouJSON: $0) }
+            Log.info("酷狗", "猜你喜欢 解析到 \(songs.count) 首")
+            return songs.isEmpty ? nil : Array(songs.prefix(limit))
+        } catch {
+            Log.error("酷狗", "猜你喜欢 请求失败：\(error.localizedDescription)")
             return nil
         }
     }

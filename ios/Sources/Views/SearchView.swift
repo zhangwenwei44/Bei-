@@ -2,6 +2,20 @@ import SwiftUI
 
 /// 搜索页：单曲 / 歌单 / 歌手 / 专辑。
 struct SearchView: View {
+    /// 🔴 v2.9.16：搜索类型（综合 / 歌单 / 单曲 / 专辑），搜索框内可选择。
+    private enum SearchScope: String, CaseIterable, Identifiable {
+        case comprehensive, playlist, song, album
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .comprehensive: return "综合"
+            case .playlist: return "歌单"
+            case .song: return "单曲"
+            case .album: return "专辑"
+            }
+        }
+    }
+
     var initialKeyword: String = ""
 
     @EnvironmentObject private var store: PlayerStore
@@ -25,6 +39,7 @@ struct SearchView: View {
     // 多选模式
     @State private var isSelecting = false
     @State private var selectedIDs: Set<String> = []
+    @State private var scope: SearchScope = .comprehensive
 
     var body: some View {
         VStack(spacing: 0) {
@@ -112,10 +127,35 @@ struct SearchView: View {
 
     private var searchField: some View {
         HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14))
-                    .foregroundStyle(AppStyle.secondaryText)
+        HStack(spacing: 6) {
+            // 🔴 v2.9.16：搜索类型选择按钮（综合 / 歌单 / 单曲 / 专辑）
+            Menu {
+                ForEach(SearchScope.allCases) { s in
+                    Button {
+                        scope = s
+                        if !submitted.isEmpty { runSearch(submitted) }
+                    } label: {
+                        HStack(spacing: 4) {
+                            if scope == s { Image(systemName: "checkmark") }
+                            Text(s.title)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 2) {
+                    Text(scope.title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(AppStyle.primaryText)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(AppStyle.secondaryText)
+                }
+            }
+            .fixedSize()
+
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14))
+                .foregroundStyle(AppStyle.secondaryText)
                 // 🔴 v2.9.7(二)：搜索框加入「猜你想搜」—— 空闲时占位符显示一个随机热词
                 TextField(searchHint.isEmpty ? "歌曲、歌手、歌单" : "猜你想搜：\(searchHint)", text: $keyword)
                     .font(.system(size: 14))
@@ -160,66 +200,108 @@ struct SearchView: View {
     private var resultList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                // 🔴 v2.9.7：原来上面有「单曲 / 专辑」两个切换按钮，用户要求移除。
-                // 改成一份连续列表：先列单曲，再列专辑 —— 两类结果都还在，
-                // 只是不用再点按钮切换。
-                ForEach(Array(results.songs.enumerated()), id: \.element.id) { idx, song in
-                    let selected = selectedIDs.contains(song.id)
-                    HStack(spacing: 12) {
-                        if isSelecting {
-                            Button {
-                                if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
+                // 🔴 v2.9.16：按搜索类型显示对应板块（综合 = 单曲+歌单+专辑；其余只显示本类型）
+                if scope == .song || scope == .comprehensive {
+                    ForEach(Array(results.songs.enumerated()), id: \.element.id) { idx, song in
+                        let selected = selectedIDs.contains(song.id)
+                        HStack(spacing: 12) {
+                            if isSelecting {
+                                Button {
+                                    if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
+                                } label: {
+                                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 22))
+                                        .foregroundStyle(selected ? AppStyle.accent : AppStyle.tertiaryText)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            SongRow(song: song,
+                                    isCurrent: store.current?.id == song.id,
+                                    isPlaying: store.isPlaying)
+                                    .equatable()
+                                    .songMenu(song)
+                                    .onTapGesture {
+                                        if isSelecting {
+                                            if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
+                                        } else { play(song) }
+                                    }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(AppStyle.surface.opacity(0.5))
+                        .cornerRadius(10)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 2)
+                        .onAppear {
+                            // 滑到底部触发加载更多（倒数第 5 条时触发）
+                            if idx == results.songs.count - 5 {
+                                Task { await loadMoreSongs() }
+                            }
+                        }
+
+                        Divider()
+                            .padding(.leading, 60)
+                    }
+                    // 底部加载指示器
+                    HStack {
+                        Spacer()
+                        if isLoadingMore {
+                            ProgressView().controlSize(.small)
+                            Text("加载中...").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
+                        } else if !hasMoreSongs {
+                            Text("— 到底了 —").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 16)
+                }
+
+                // 歌单板块
+                if (scope == .playlist || scope == .comprehensive), !results.playlists.isEmpty {
+                    Text("歌单")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(AppStyle.secondaryText)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 4)
+                        .padding(.bottom, 6)
+
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(results.playlists) { playlist in
+                            NavigationLink {
+                                PlaylistDetailView(playlist: playlist)
                             } label: {
-                                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                                    .font(.system(size: 22))
-                                    .foregroundStyle(selected ? AppStyle.accent : AppStyle.tertiaryText)
+                                HStack(spacing: 14) {
+                                    CoverImage(url: playlist.coverURL,
+                                               fallbackKeys: [playlist.id],
+                                               seed: playlist.name, size: 56, corner: 10)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(playlist.name)
+                                            .font(.system(size: 15, weight: .medium))
+                                            .foregroundStyle(AppStyle.primaryText)
+                                            .lineLimit(2)
+                                        Text(playlist.creatorName.isEmpty ? "酷狗音乐" : playlist.creatorName)
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(AppStyle.secondaryText)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(AppStyle.surface.opacity(0.5))
+                                .cornerRadius(10)
                             }
                             .buttonStyle(.plain)
-                        }
-                        SongRow(song: song,
-                                isCurrent: store.current?.id == song.id,
-                                isPlaying: store.isPlaying)
-                                .equatable()
-                                .songMenu(song)
-                                .onTapGesture {
-                                    if isSelecting {
-                                        if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
-                                    } else { play(song) }
-                                }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(AppStyle.surface.opacity(0.5))
-                    .cornerRadius(10)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 2)
-                    .onAppear {
-                        // 滑到底部触发加载更多（倒数第 5 条时触发）
-                        if idx == results.songs.count - 5 {
-                            Task { await loadMoreSongs() }
+                            .padding(.horizontal, 12)
                         }
                     }
-
-                    Divider()
-                        .padding(.leading, 60)
+                    .padding(.vertical, 4)
                 }
-                // 底部加载指示器
-                HStack {
-                    Spacer()
-                    if isLoadingMore {
-                        ProgressView().controlSize(.small)
-                        Text("加载中...").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
-                    } else if !hasMoreSongs {
-                        Text("— 到底了 —").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
-                    }
-                    Spacer()
-                }
-                .padding(.vertical, 16)
 
-                // 🔴 v2.9.7：专辑结果接在单曲列表下面（原来靠「单曲/专辑」按钮切换，
-                // 按钮移除后直接顺排下来，中间加个小标题区分。
-                if !results.albums.isEmpty {
+                // 专辑板块
+                if (scope == .album || scope == .comprehensive), !results.albums.isEmpty {
                     Text("专辑")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(AppStyle.secondaryText)
@@ -446,27 +528,48 @@ struct SearchView: View {
         hasMoreSongs = true; hasMoreAlbums = true
 
         let client = KugouClient.shared
-        do {
-            let firstPage = try await client.searchSongs(keyword: text, page: 1)
-            var found = firstPage
-            // 去重
-            var seen = Set<String>()
-            found = found.filter { seen.insert($0.id).inserted }
-
-            // 判断是否还有更多：酷狗每页 30 条，少于 30 说明到底了
-            hasMoreSongs = firstPage.count >= 30
-
-            // 生成专辑/歌手 hint
-            let artists = Self.artistHints(from: found)
-            let albums = Self.albumHints(from: found)
-            hasMoreAlbums = albums.count >= 20
-
-            Log.info("搜索", "keyword=\(text) page=1 found=\(found.count) hasMore=\(hasMoreSongs)")
+        switch scope {
+        case .song:
+            do {
+                let firstPage = try await client.searchSongs(keyword: text, page: 1)
+                var seen = Set<String>()
+                let found = firstPage.filter { seen.insert($0.id).inserted }
+                hasMoreSongs = firstPage.count >= 30
+                Log.info("搜索", "keyword=\(text)[单曲] page=1 found=\(found.count) hasMore=\(hasMoreSongs)")
+                guard submitted == text else { return }
+                results = SearchResults(songs: found, playlists: [], artists: [], albums: [])
+                if results.isEmpty { errorMessage = "换个关键词试试" }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        case .playlist:
+            let (pls, total) = await client.searchPlaylists(keyword: text, page: 1)
+            Log.info("搜索", "keyword=\(text)[歌单] \(pls.count)/\(total)")
             guard submitted == text else { return }
-            results = SearchResults(songs: found, playlists: [], artists: artists, albums: albums)
+            results = SearchResults(songs: [], playlists: pls, artists: [], albums: [])
             if results.isEmpty { errorMessage = "换个关键词试试" }
-        } catch {
-            errorMessage = error.localizedDescription
+        case .album:
+            let albums = await client.searchAlbums(keyword: text, page: 1)
+            Log.info("搜索", "keyword=\(text)[专辑] \(albums.count)")
+            guard submitted == text else { return }
+            results = SearchResults(songs: [], playlists: [], artists: [], albums: albums)
+            hasMoreAlbums = albums.count >= 30
+            if results.isEmpty { errorMessage = "换个关键词试试" }
+        case .comprehensive:
+            async let songsTask = client.searchSongs(keyword: text, page: 1)
+            async let plsTask = client.searchPlaylists(keyword: text, page: 1)
+            async let albumsTask = client.searchAlbums(keyword: text, page: 1)
+            let (found, pls, albums) = await (songsTask, plsTask, albumsTask)
+            var seen = Set<String>()
+            let songs = found.filter { seen.insert($0.id).inserted }
+            hasMoreSongs = found.count >= 30
+            let artists = Self.artistHints(from: songs)
+            let albumList = Self.albumHints(from: songs)
+            hasMoreAlbums = albumList.count >= 20
+            Log.info("搜索", "keyword=\(text)[综合] songs=\(songs.count) playlists=\(pls.count) albums=\(albumList.count)")
+            guard submitted == text else { return }
+            results = SearchResults(songs: songs, playlists: pls, artists: artists, albums: albumList)
+            if results.isEmpty { errorMessage = "换个关键词试试" }
         }
     }
 

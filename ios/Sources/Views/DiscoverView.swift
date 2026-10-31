@@ -1709,6 +1709,35 @@ struct DiscoverView: View {
         guard !isLoadingGuess else { return }
         isLoadingGuess = true
         defer { isLoadingGuess = false }
+        // 🔴 v2.9.16：优先拉酷狗「猜你喜欢」个性化推荐（私人 FM）；
+        // 未登录 / 调用失败 / 空 → 回退原「关键词随机搜歌」。
+        if let recs = await KugouClient.shared.guessYouLike(limit: 20), !recs.isEmpty {
+            var songs = recs
+            // 部分推荐歌可能没封面 → 按 albumID 异步补封面（最多并发，避免灰占位）
+            let needCover = songs.filter { $0.artworkURL == nil && !$0.kugouAlbumID.isEmpty }
+            if !needCover.isEmpty {
+                await withTaskGroup(of: (String, URL?).self) { group in
+                    for s in needCover {
+                        group.addTask { await (s.kugouAlbumID, KugouClient.shared.albumCover(albumID: s.kugouAlbumID)) }
+                    }
+                    for await (aid, cover) in group {
+                        if let cover {
+                            for i in songs.indices where songs[i].kugouAlbumID == aid { songs[i].artworkURL = cover }
+                        }
+                    }
+                }
+            }
+            guessSongs = songs
+            var guess = songs.randomElement()
+            if let g = guess, g.artworkURL == nil,
+               let withCover = songs.first(where: { $0.artworkURL != nil }) {
+                guess = withCover
+            }
+            guessPick = guess
+            Log.info("发现页", "猜你喜欢(个性化) \(songs.count) 首")
+            return
+        }
+        // 回退：关键词随机搜歌（原逻辑）
         let picks = Self.guessPool.shuffled().prefix(2)
         var songs: [Song] = []
         var seen = Set<String>()
@@ -1730,7 +1759,7 @@ struct DiscoverView: View {
         }
         guessPick = guess
         if let first = songs.first {
-            Log.info("发现页", "猜你喜欢 \(songs.count) 首，第一首封面: \(first.artworkURL?.absoluteString.prefix(60) ?? "nil")")
+            Log.info("发现页", "猜你喜欢(回退关键词) \(songs.count) 首，第一首封面: \(first.artworkURL?.absoluteString.prefix(60) ?? "nil")")
         } else {
             Log.info("发现页", "猜你喜欢 0 首")
         }
