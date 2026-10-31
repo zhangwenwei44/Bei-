@@ -125,6 +125,7 @@ final class BannerConfig: ObservableObject {
         let (imgs, err) = await BannerSync.fetch()
         if let imgs {
             await MainActor.run { self.applyCloud(imgs) }
+            autoPushIfNeeded()
             return true
         }
         // 失败：退避后重试
@@ -135,6 +136,19 @@ final class BannerConfig: ObservableObject {
         await MainActor.run { syncState = .failed(err ?? "云端横幅拉取失败") }
         Log.warn("横幅", "云端横幅拉取最终失败：\(err ?? "未知错误")")
         return false
+    }
+
+    /// 🔴 v2.9.15：本机横幅比云端多时自动推一次。
+    /// 安全前提：**只有本机确实有自定义图才推**（别人设备本地是空的 → 绝不会把云端清空）。
+    /// 覆盖场景：管理员换了新图但上传失败过，安装新版后自动补传。
+    private func autoPushIfNeeded() {
+        let local = images.compactMap { $0 }
+        guard !local.isEmpty else { return }
+        let cloudCount = cloudImages.compactMap { $0 }.count
+        guard local.count > cloudCount else { return }
+        guard CloudAccount.shared.isSignedIn else { return }
+        Log.info("横幅", "本机 \(local.count) 张 > 云端 \(cloudCount) 张，自动补传")
+        syncCloud()
     }
 
     /// 定时刷新（60s 一次）：管理员在别的设备改了横幅，本机自动跟上。
