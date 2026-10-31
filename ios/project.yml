@@ -15,7 +15,17 @@ settings:
 packages:
   Supabase:
     url: https://github.com/supabase-community/supabase-swift.git
-    from: "2.0.0"
+    # 🔴 v2.9.13：由 from 2.0.0 改为锁定 2.49.0。
+    # 原因：supabase-swift ≥ 2.50.0 的 Package.swift 声明 .iOS(.v16)，
+    # 与本工程 iOS 15.0 部署目标冲突 → 编译报
+    # "module 'Supabase' has a minimum deployment target of iOS 16.0"。
+    # 2.49.0 是最后一个支持 iOS 13/15 的版本（tools-version 5.10，Xcode 16.4 的 Swift 6.1 可编译）。
+    exactVersion: "2.49.0"
+  # 🔴 v2.9.13：swift-clocks 1.1.1 要求 swift-tools-version 6.4（需 Xcode 26），
+  # 在 Xcode 16.4 上无法解析。锁 1.0.2（tools 5.6、iOS 13）保证 CI 每次都能解析成功。
+  swift-clocks:
+    url: https://github.com/pointfreeco/swift-clocks.git
+    exactVersion: "1.0.2"
   # 🔴 把 xctest-dynamic-overlay 锁到 1.7.0：它是 supabase-swift → Get 的传递依赖，
   # 其 1.8.0+ 要求 swift-tools-version 6.0、1.13.x 要求 6.4（需 Xcode 26），
   # 而本 CI 默认 Xcode 15.4（Swift 5.10）编译不了。1.7.0 是最后一个 5.9 版本、
