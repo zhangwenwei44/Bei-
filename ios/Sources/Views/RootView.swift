@@ -397,17 +397,23 @@ private struct MiniPlayerProgressBar: View {
 ///   彻底不依赖系统符号。
 struct MyMusicTabIcon: View {
     var body: some View {
-        if UIImage(named: "MyMusicIcon") != nil {
-            // MyMusicIcon 是 template 渲染模式资源（纯黑描边）→ 用 Image("名字") 加载，
-            // SwiftUI 会自动按 tab 的 tint（选中蓝 / 未选中灰）着色，和其它三个 tab 完全一致。
-            Image("MyMusicIcon")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 22, height: 22)
+        if let img = UIImage(named: "MyMusicIcon")?.withRenderingMode(.alwaysTemplate) {
+            // 🔴 v2.9.11：资源已重做为规范 1x/2x/3x（22pt 基准、裁掉透明边距）。
+            //   用 Image(uiImage:) + .renderingMode(.template) → 纯黑描边会被 tab 的
+            //   tint（选中蓝 / 未选中灰）着色，与其它三个 tab 完全一致；
+            //   **不要**再手动 .frame()，否则和资源自身尺寸打架（之前图标过大且压住文字）。
+            // ⚠️ **不要加 .resizable()**：没有 frame 约束时 resizable 的图会撑满可用空间
+            //   （之前图标巨大、压住了"我的音乐"文字）。直接用 UIImage 的固有尺寸（22pt）即可。
+            Image(uiImage: img)
+                // 显式 template 渲染 → 纯黑描边按当前 tint（选中蓝 / 未选中灰）着色
+                .renderingMode(.template)
         } else {
-            // 资源万一丢了，至少给个能显示的符号
-            SafeIcon(systemName: "play.square.stack.fill", fallback: "music.note.list")
-                .font(.system(size: 20, weight: .semibold))
+            // 资源万一丢了，至少给个能显示的符号。
+            // 备选顺序：play.square.stack.fill（iOS 14+ 的"播放列表堆叠"）→ music.note.list → music.note
+            // （后两个 iOS 13 就有，几乎必然存在）
+            SafeIcon(systemName: "play.square.stack.fill",
+                     fallback: "music.note.list")
+                .font(.system(size: 19, weight: .semibold))
         }
     }
 }
