@@ -363,6 +363,17 @@ struct DiscoverView: View {
             case .lab: return "flask.fill"
             }
         }
+        /// 🔴 v2.9.11：主符号在用户系统上不存在时的备选（`Image(systemName:)` 找不到会静默渲染空白）。
+        /// 排行榜的 `trophy.fill` 在部分系统上缺失 → 用户只看到一个空的黄色方块。
+        var iconFallback: String {
+            switch self {
+            case .download: return "arrow.down.circle"
+            case .ranking: return "trophy"
+            case .square: return "music.note.list"
+            case .source: return "waveform"
+            case .lab: return "flask"
+            }
+        }
         var color: Color {
             switch self {
             case .download: return Color(red: 0.20, green: 0.78, blue: 0.42)
@@ -419,9 +430,11 @@ struct DiscoverView: View {
                         .scaledToFit()
                         .frame(width: 36, height: 36)
                 } else {
-                    Image(systemName: entry.icon)
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(entry.color)
+                    // 🔴 v2.9.11：用 SafeIcon，符号不存在时自动换备选，不会渲染成空白方块
+                    SafeIcon(systemName: entry.icon,
+                             fallback: entry.iconFallback,
+                             font: .system(size: 20, weight: .semibold),
+                             foreground: entry.color)
                 }
             }
             .frame(width: 50, height: 50)

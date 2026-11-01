@@ -146,7 +146,11 @@ private struct MainTabs: View {
             tabRoot(SearchView())
                 .tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(Tab.search)
             tabRoot(LibraryView())
-                .tabItem { Label("我的音乐", systemImage: "play.square.stack.fill") }.tag(Tab.library)
+                // 🔴 v2.9.11：原来的 `play.square.stack.fill` 在部分系统上不存在 → 图标静默渲染空白
+                //   （用户反馈"我的音乐按钮显示不出来"）。
+                //   现在改用 App 自带的双音符 PNG 资源（MyMusicIcon，template 模式自动跟随选中色），
+                //   任何系统都能显示，且本来就是之前 Round 定稿时挑的那版双音符图标。
+                .tabItem { Label { Text("我的音乐") } icon: { MyMusicTabIcon() } }.tag(Tab.library)
             tabRoot(ProfileView())
                 .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
         }
@@ -378,5 +382,32 @@ private struct MiniPlayerProgressBar: View {
         }
         .frame(height: 2)
         .allowsHitTesting(false)
+    }
+}
+
+
+// MARK: - 🔴 底栏「我的音乐」图标（用自带 PNG，任何系统都能显示）
+
+/// 底栏「我的音乐」图标。
+///
+/// 🔴 v2.9.11：之前用 SF Symbol `play.square.stack.fill`，但在部分 iOS 版本上
+///   该符号不存在 → `Image(systemName:)` **静默渲染成空白**（不报错），用户只看到
+///   "我的音乐"四个字上面没有图标。
+///   现在改用 App 自带的 `MyMusicIcon` 资源（template 渲染模式，会自动跟随 tab 选中/未选中颜色），
+///   彻底不依赖系统符号。
+struct MyMusicTabIcon: View {
+    var body: some View {
+        if UIImage(named: "MyMusicIcon") != nil {
+            // MyMusicIcon 是 template 渲染模式资源（纯黑描边）→ 用 Image("名字") 加载，
+            // SwiftUI 会自动按 tab 的 tint（选中蓝 / 未选中灰）着色，和其它三个 tab 完全一致。
+            Image("MyMusicIcon")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 22, height: 22)
+        } else {
+            // 资源万一丢了，至少给个能显示的符号
+            SafeIcon(systemName: "play.square.stack.fill", fallback: "music.note.list")
+                .font(.system(size: 20, weight: .semibold))
+        }
     }
 }

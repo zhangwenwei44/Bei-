@@ -2,6 +2,75 @@ import SwiftUI
 import UIKit
 import CoreImage
 
+// MARK: - 🔴 SF Symbol 安全工具（防止图标在某些系统上渲染成空白）
+
+/// SF Symbol 在低版本 iOS 上不存在时，`Image(systemName:)` 会**静默渲染成空白**
+/// （不报错、不崩溃，只是图标不见了）——用户看到的就是"图标没了，只剩一个空方块"。
+///
+/// 真实案例（2026-11-01，用户反馈）：
+/// - 底栏「我的音乐」用 `play.square.stack.fill` → 用户的系统上渲染空白；
+/// - 首页入口「排行榜」用 `trophy.fill` → 同样空白，只剩黄色底色方块。
+///
+/// 解决：运行时探测符号是否存在，不存在就退回到备选符号；
+/// 再不行就用 App 自带的 PNG 资源（见 `AppIconImage`）。
+enum SafeSymbol {
+    /// 探测某个符号在当前系统上是否可用（带缓存，避免每帧都查）。
+    private static let cache = Cache()
+
+    private final class Cache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var map: [String: Bool] = [:]
+        func value(for key: String) -> Bool? {
+            lock.lock(); defer { lock.unlock() }
+            return map[key]
+        }
+        func set(_ value: Bool, for key: String) {
+            lock.lock(); defer { lock.unlock() }
+            map[key] = value
+        }
+    }
+
+    /// 该符号在当前系统可用吗？
+    static func isAvailable(_ name: String) -> Bool {
+        if let cached = cache.value(for: name) { return cached }
+        let ok = UIImage(systemName: name) != nil
+        cache.set(ok, for: name)
+        return ok
+    }
+
+    /// 从候选列表里挑第一个当前系统可用的符号名；全都不行就返回 nil（调用方自己画）。
+    static func firstAvailable(_ candidates: [String]) -> String? {
+        for name in candidates where isAvailable(name) { return name }
+        return nil
+    }
+}
+
+/// 安全的 SF Symbol 图标：符号不可用时自动换备选，再不行就显示一个兜底图形。
+///
+/// 用法：`SafeIcon(systemName: "trophy.fill", fallback: "star.fill")`
+struct SafeIcon: View {
+    let systemName: String
+    var fallback: String?
+    var font: Font?
+    var foreground: Color?
+
+    var body: some View {
+        Group {
+            if let resolved = SafeSymbol.firstAvailable([systemName, fallback].compactMap { $0 }) {
+                Image(systemName: resolved)
+                    .font(font)
+                    .foregroundStyle(foreground)
+            } else {
+                // 全部不可用：画一个实心圆点，至少不是空白
+                Circle()
+                    .fill(foreground ?? Color.secondary)
+                    .frame(width: 14, height: 14)
+            }
+        }
+    }
+}
+
+
 /// 全局配色。以酷狗音乐的蓝为主色，浅色下蓝白相间。
 ///
 /// 所有颜色都通过 `UIColor` 的 trait 闭包做成自适应的：
