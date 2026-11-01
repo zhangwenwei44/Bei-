@@ -29,9 +29,19 @@ struct SourceSettingsView: View {
     @State private var isImportingFiles = false
 
     var body: some View {
+        pageContent
+    }
+
+    /// 页面本体。
+    ///
+    /// ⚠️ 不能把 `MainThreadTrace.set(...)` 直接写进 `body` —— SwiftUI 的 body 是
+    /// @ViewBuilder，里面只能放视图表达式，放语句会报
+    /// 「'buildExpression' is unavailable: this expression does not conform to 'View'」。
+    /// 所以拆成一个普通计算属性（不是 ViewBuilder，可以写语句），由 body 返回它。
+    private var pageContent: some View {
         // 卡死时靠这行告诉看门狗「主线程停在音源页渲染上」
         MainThreadTrace.set("第三方音源页 body")
-        List {
+        return List {
             if importMessage != nil || isImportingFiles {
                 Section {
                     importBanner
@@ -383,8 +393,14 @@ private struct SourceRow: View {
     @ObservedObject private var health = SourceHealth.shared
 
     var body: some View {
+        rowContent
+    }
+
+    /// 行内容。拆出来是因为 SwiftUI 的 body 是 @ViewBuilder，放不了
+    /// `MainThreadTrace.set(...)` 这种语句（会报 'buildExpression' is unavailable）。
+    private var rowContent: some View {
         MainThreadTrace.set("音源行渲染")
-        HStack(spacing: 12) {
+        return HStack(spacing: 12) {
             // 🔴 v2.9.9：绿色健康圆点移到音源名字前面（红=无用，灰/无=未检测）；
             // 原先行首的 {} / link 图标已删除（用户要求「把前面 {} 删掉」）。
             // 检测中显示小菊花。
