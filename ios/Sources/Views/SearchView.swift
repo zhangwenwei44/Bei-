@@ -170,12 +170,12 @@ struct SearchView: View {
                             .foregroundStyle(AppStyle.tertiaryText)
                     }
                 }
-                // 🔴 v2.9.17：右侧搜索按钮（代替框内放大镜）—— 点一下触发搜索
+                // 🔴 v2.9.18：右侧搜索按钮改为「搜索」文字按钮，彻底移除放大镜图标
                 Button {
                     runSearch(keyword)
                 } label: {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 15, weight: .medium))
+                    Text("搜索")
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(AppStyle.accent)
                 }
                 .buttonStyle(.plain)

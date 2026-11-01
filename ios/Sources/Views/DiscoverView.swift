@@ -340,12 +340,13 @@ struct DiscoverView: View {
 
     /// 入口栏入口（🔴 v2.9.11：移除 MV，保留 下载 / 排行榜 / 歌单广场 / 实验室）。
     private enum DiscoverEntry: String, CaseIterable {
-        case download, ranking, square, lab
+        case download, ranking, square, source, lab
         var title: String {
             switch self {
             case .download: return "下载"
             case .ranking: return "排行榜"
             case .square: return "歌单广场"
+            case .source: return "音源"
             case .lab: return "实验室"
             }
         }
@@ -354,6 +355,7 @@ struct DiscoverView: View {
             case .download: return "arrow.down.circle.fill"
             case .ranking: return "trophy.fill"
             case .square: return "music.note.list"
+            case .source: return "antenna.radiowaves.left.and.right"
             case .lab: return "flask.fill"
             }
         }
@@ -362,6 +364,7 @@ struct DiscoverView: View {
             case .download: return Color(red: 0.20, green: 0.78, blue: 0.42)
             case .ranking: return Color(red: 0.98, green: 0.70, blue: 0.20)
             case .square: return Color(red: 0.30, green: 0.60, blue: 0.95)
+            case .source: return Color(red: 0.15, green: 0.75, blue: 0.65)
             case .lab: return Color(red: 0.60, green: 0.42, blue: 0.92)
             }
         }
@@ -386,7 +389,7 @@ struct DiscoverView: View {
     @ViewBuilder
     private func entryItem(_ entry: DiscoverEntry) -> some View {
         switch entry {
-        case .download, .ranking, .lab:
+        case .download, .ranking, .source, .lab:
             NavigationLink { destination(for: entry) } label: { entryLabel(entry) }
                 .buttonStyle(.plain)
         case .square:
@@ -425,6 +428,7 @@ struct DiscoverView: View {
         switch entry {
         case .download: DownloadCenterView()
         case .ranking: RankingsView()
+        case .source: SourceSettingsView().kugouNavigationBarBackground()
         case .lab: LabView()
         default: EmptyView()
         }
@@ -791,15 +795,13 @@ struct DiscoverView: View {
                         .frame(maxWidth: .infinity).padding(.vertical, 20)
                 }.padding(.horizontal, 16)
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(lists, id: \.playlist.id) { item in
-                            rankSlideCard(playlist: item.playlist, displayName: item.displayName)
-                        }
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    ForEach(lists, id: \.playlist.id) { item in
+                        rankSlideCard(playlist: item.playlist, displayName: item.displayName)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 2)
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 2)
             }
         }
         // 这 4 个榜的前 3 首预览要单独拉 —— 榜单 Tab 的预拉取只在切到那个 Tab 时才跑。
@@ -903,7 +905,7 @@ struct DiscoverView: View {
             }
         }
         .padding(12)
-        .frame(width: 280)
+        .frame(maxWidth: .infinity)
         .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(AppStyle.stroke.opacity(0.6), lineWidth: 0.5))
