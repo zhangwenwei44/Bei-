@@ -151,6 +151,9 @@ enum BannerSync {
     @discardableResult
     static func upload(_ banners: [(name: String, image: UIImage)]) async -> String? {
         guard SupabaseConfig.isConfigured else { return "云端未配置（请填写 SupabaseConfig）" }
+        // 🔴 v2.9.11 安全：只有**管理员账号**能改云端横幅。
+        //   之前只判"是否登录了云账号"，任何注册进来的用户都能把管理员的横幅换掉（真实发生过）。
+        guard CloudAccount.shared.isAdmin else { return "只有管理员账号可以修改云端横幅" }
         guard let token = CloudAccount.shared.currentAccessToken else { return "请先登录 Aurora 云账号" }
         let apikey = SupabaseConfig.anonKey
 

@@ -64,20 +64,42 @@ final class LicenseRecordStore: ObservableObject {
     }
 }
 
-// MARK: - 管理员口令（隐藏入口的第二道锁）
+// MARK: - 管理员验证（隐藏入口的第二道锁）
 
 enum LicenseAdmin {
-    /// 🔴 生成器的口令（连点 7 次版本区进入后要输一次，通过之后本机不再问）
-    /// 🔴 v2.9.2：8866 曾随更新日志公开，作废换新
-    static let passcode = "5201314880"
     private static let unlockedKey = "aurora.license.adminUnlocked"
 
     static var isUnlocked: Bool { UserDefaults.standard.bool(forKey: unlockedKey) }
 
-    static func unlock(_ input: String) -> Bool {
-        guard input == passcode else { return false }
-        UserDefaults.standard.set(true, forKey: unlockedKey)
-        return true
+    static func unlock() { UserDefaults.standard.set(true, forKey: unlockedKey) }
+
+    /// 🔴 v2.9.11 安全修复（真实事故，2026-11-01）：
+    ///   旧版本把管理口令**硬编码进二进制**（`static let passcode = "…"`），
+    ///   而那个口令恰好就是管理员云账号的密码 → 任何人解压 IPA 就能拿到它、
+    ///   登录管理员账号，把管理员设置的云端横幅换成自己的图（真实发生过一次）。
+    ///   现在改成「用管理员云账号的邮箱 + 密码登录校验」：
+    ///   **App 内不再保存任何密码**，密码只从键盘输入、只发给 Supabase 校验，
+    ///   拿到的令牌立刻丢弃（不建立会话、不落盘）。
+    @discardableResult
+    static func verify(email: String, password: String) async -> Bool {
+        let e = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard SupabaseConfig.isAdminEmail(e), !password.isEmpty else { return false }
+        guard let url = URL(string: "\(SupabaseConfig.url)/auth/v1/token?grant_type=password") else { return false }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 20
+        req.setValue(SupabaseConfig.anonKey, forHTTPHeaderField: "apikey")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        guard let body = try? JSONSerialization.data(
+            withJSONObject: ["email": e, "password": password]) else { return false }
+        req.httpBody = body
+        do {
+            let (_, resp) = try await URLSession.shared.data(for: req)
+            guard let http = resp as? HTTPURLResponse else { return false }
+            return (200..<300).contains(http.statusCode)
+        } catch {
+            return false
+        }
     }
 }
 
@@ -88,8 +110,10 @@ struct LicenseGeneratorView: View {
     @ObservedObject private var store = LicenseRecordStore.shared
 
     @State private var unlocked = LicenseAdmin.isUnlocked
-    @State private var passInput = ""
+    @State private var adminEmail = ""
+    @State private var adminPassword = ""
     @State private var passError: String?
+    @State private var verifying = false
 
     @State private var deviceInput = ""
     @State private var noteInput = ""
@@ -135,17 +159,29 @@ struct LicenseGeneratorView: View {
         }
     }
 
-    // MARK: 口令
+    // MARK: 管理员账号校验
 
     private var passcodeGate: some View {
         VStack(spacing: 16) {
             Image(systemName: "lock.shield")
                 .font(.system(size: 40))
                 .foregroundStyle(AppStyle.accent)
-            Text("请输入管理口令")
+            Text("请登录管理员账号")
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(AppStyle.primaryText)
-            SecureField("口令", text: $passInput)
+            Text("用管理员的云账号邮箱和密码进入（密码不会被保存在本机）")
+                .font(.system(size: 12))
+                .foregroundStyle(AppStyle.tertiaryText)
+                .multilineTextAlignment(.center)
+            TextField("管理员邮箱", text: $adminEmail)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.emailAddress)
+                .textContentType(.emailAddress)
+                .padding(12)
+                .background(AppStyle.surfaceHigh,
+                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            SecureField("密码", text: $adminPassword)
                 .textContentType(.password)
                 .padding(12)
                 .background(AppStyle.surfaceHigh,
@@ -154,21 +190,36 @@ struct LicenseGeneratorView: View {
                 Text(err).font(.system(size: 12)).foregroundStyle(.red)
             }
             Button {
-                if LicenseAdmin.unlock(passInput) {
-                    unlocked = true
-                } else {
-                    passError = "口令不对"
-                    Haptics.light()
+                passError = nil
+                verifying = true
+                Task {
+                    let ok = await LicenseAdmin.verify(email: adminEmail, password: adminPassword)
+                    await MainActor.run {
+                        verifying = false
+                        if ok {
+                            adminPassword = ""
+                            LicenseAdmin.unlock()
+                            unlocked = true
+                        } else {
+                            passError = "邮箱或密码不正确"
+                            Haptics.light()
+                        }
+                    }
                 }
             } label: {
-                Text("进入")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                if verifying {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text("进入")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
             }
             .buttonStyle(.plain)
+            .disabled(verifying)
             Spacer()
         }
         .padding(20)

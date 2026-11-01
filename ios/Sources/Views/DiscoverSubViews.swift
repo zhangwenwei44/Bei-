@@ -140,7 +140,10 @@ final class BannerConfig: ObservableObject {
         let (imgs, err) = await BannerSync.fetch()
         if let imgs {
             await MainActor.run { self.applyCloud(imgs) }
-            autoPushIfNeeded()
+            // 🔴 v2.9.11：这里原来有一个 autoPushIfNeeded()——"本机横幅数 > 云端成功下载数"
+            //   就把本机那套整套推上去覆盖云端。云端图 15–20MB，弱网下常常整批下载失败 →
+            //   cloudCount=0 → 任何一台登录过的设备都会把管理员的横幅覆盖掉（真实发生过）。
+            //   现在**彻底删掉自动补传**：云端内容只在你手动改图 / 点「立即同步到云端」时才写入。
             return true
         }
         // 失败：退避后重试
@@ -168,18 +171,11 @@ final class BannerConfig: ObservableObject {
         pullingLock.unlock()
     }
 
-    /// 🔴 v2.9.15：本机横幅比云端多时自动推一次。
-    /// 安全前提：**只有本机确实有自定义图才推**（别人设备本地是空的 → 绝不会把云端清空）。
-    /// 覆盖场景：管理员换了新图但上传失败过，安装新版后自动补传。
-    private func autoPushIfNeeded() {
-        let local = images.compactMap { $0 }
-        guard !local.isEmpty else { return }
-        let cloudCount = cloudImages.compactMap { $0 }.count
-        guard local.count > cloudCount else { return }
-        guard CloudAccount.shared.isSignedIn else { return }
-        Log.info("横幅", "本机 \(local.count) 张 > 云端 \(cloudCount) 张，自动补传")
-        syncCloud()
-    }
+    /// 🔴 v2.9.11：**已删除 autoPushIfNeeded()**。原逻辑是"本机自定义图数量 > 云端成功下载到的数量"
+    ///   就整套推上去覆盖云端；云端大图弱网下常整批下载失败 → cloudCount=0 →
+    ///   任何登录过的设备都会把管理员的横幅覆盖掉（2026-11-01 真实发生：
+    ///   管理员设的横幅被换成别人的"钟馗骑虎"图）。
+    ///   现在云端只在你**手动改图**或点「立即同步到云端」时才写入，不再有任何自动覆盖。
 
     /// 定时刷新（60s 一次）：管理员在别的设备改了横幅，本机自动跟上。
     func startAutoRefresh() {
@@ -205,6 +201,12 @@ final class BannerConfig: ObservableObject {
 
     /// 管理端编辑后同步到云端（fire-and-forget）。同时乐观更新 cloudImages 让本机即时看到。
     private func syncCloud() {
+        // 🔴 v2.9.11：只有管理员账号能写云端。别人登录了也改不动管理员的横幅。
+        guard CloudAccount.shared.isAdmin else {
+            syncState = .failed("只有管理员账号可以修改云端横幅")
+            Log.warn("横幅", "当前账号不是管理员，已跳过云端同步")
+            return
+        }
         let banners = images.enumerated().compactMap { idx, img -> (String, UIImage)? in
             guard let img else { return nil }
             return ("横幅广告 \(idx + 1)", img)
@@ -536,7 +538,8 @@ struct LabView: View {
     var body: some View {
         CompatNavigationStack {
             Group {
-                if cloud.isSignedIn {
+                // 🔴 v2.9.11：门禁从"有没有登录"收紧到"是不是管理员账号"（邮箱白名单）。
+                if cloud.isAdmin {
                     adminPanel
                 } else {
                     notAdmin
@@ -563,17 +566,19 @@ struct LabView: View {
         }
     }
 
-    // MARK: 未登录：不展示任何管理内容，仅提供登录入口
+    // MARK: 非管理员：登录框，或提示当前账号不是管理员
     private var notAdmin: some View {
         ScrollView {
             VStack(spacing: 16) {
                 Image(systemName: "lock.fill")
                     .font(.system(size: 38))
                     .foregroundStyle(AppStyle.accent)
-                Text("实验室需要管理员权限")
+                Text(cloud.isSignedIn ? "当前账号不是管理员" : "实验室需要管理员权限")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(AppStyle.primaryText)
-                Text("管理员登录后即可进入实验室")
+                Text(cloud.isSignedIn
+                     ? "这个账号没有修改云端横幅的权限，请改用管理员账号登录。"
+                     : "管理员登录后即可进入实验室")
                     .font(.system(size: 12))
                     .foregroundStyle(AppStyle.tertiaryText)
                     .multilineTextAlignment(.center)

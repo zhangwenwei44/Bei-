@@ -56,3 +56,9 @@ xz*.json
 singer*.html
 p1.jpg
 *.tmp
+
+# CI 临时产物 / 一次性抓取脚本（勿提交）
+scripts/ci_fetch*.sh
+scripts/ci_tmp/
+scripts/runlogs*/
+scripts/*.zip

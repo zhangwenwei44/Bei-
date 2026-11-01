@@ -75,6 +75,10 @@ final class CloudAccount: ObservableObject {
     /// 当前登录会话的 access token（用于访问需要鉴权的 Supabase 资源，如上传横幅到 Storage）。
     /// 未登录时为 nil。
     var currentAccessToken: String? { accessToken }
+
+    /// 🔴 v2.9.11：是否是**管理员账号**（邮箱在白名单里）。
+    /// 只有管理员能改云端横幅 —— 之前只判"是否登录"，等于任何注册用户都能改。
+    var isAdmin: Bool { isSignedIn && SupabaseConfig.isAdminEmail(userEmail) }
     /// 应用云端数据期间抑制本地变更的自动回推，避免回声推送。
     private var suppressPush = false
 
