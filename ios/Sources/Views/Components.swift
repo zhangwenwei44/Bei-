@@ -58,8 +58,8 @@ struct SafeIcon: View {
         Group {
             if let resolved = SafeSymbol.firstAvailable([systemName, fallback].compactMap { $0 }) {
                 Image(systemName: resolved)
-                    .font(font)
-                    .foregroundStyle(foreground)
+                    .font(font ?? .system(size: 17, weight: .semibold))
+                    .foregroundStyle(foreground ?? Color.primary)
             } else {
                 // 全部不可用：画一个实心圆点，至少不是空白
                 Circle()
