@@ -674,7 +674,7 @@ struct DiscoverView: View {
         let client = KugouClient.shared
         var result: [ArtistAlbum] = []
         for artist in picks {
-            let albums = await client.searchAlbums(keyword: artist.name, limit: 1)
+            let albums = await client.searchAlbums(keyword: artist.name)
             if let album = albums.first {
                 result.append(ArtistAlbum(id: artist.id, artist: artist, album: album))
             }
