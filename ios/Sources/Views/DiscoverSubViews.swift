@@ -556,7 +556,7 @@ struct LabView: View {
         .onAppear { verified = false }
         .sheet(isPresented: Binding(
             get: { showPickerIndex != nil },
-            set: { if !showPickerIndex { showPickerIndex = nil } }
+            set: { if !$0 { showPickerIndex = nil } }
         )) {
             AuroraImagePicker(
                 onImagePicked: { img in
