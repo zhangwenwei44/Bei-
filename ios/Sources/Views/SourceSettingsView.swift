@@ -160,6 +160,9 @@ struct SourceSettingsView: View {
         }
         // 进入页面时全量体检：可用自动开、无用自动关（红关绿开）
         .onAppear {
+            // 先留一条痕：之前连续几轮「进音源页就卡死」都因为日志里
+            // 没有这一行、无法判断 onAppear 到底有没有被触发。
+            Log.info("音源", "进入第三方音源页（\(store.sources.count) 条音源），开始全量体检")
             Task { await SourceHealth.shared.detectAllAndApply() }
         }
     }

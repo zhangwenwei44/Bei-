@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import ImageIO
 
 /// 横幅广告云端同步（Supabase Storage 公开桶 `banners`）。
 ///
@@ -70,35 +71,79 @@ enum BannerSync {
 
     /// 带重试地下载一张横幅图（最多 3 次）。
     /// 🔴 v2.9.18：之前某张图瞬时失败（弱网/握手超时）就直接占位，导致「云端设了横幅、别的设备却加载不出来」。
-    /// 🔴 v2.9.19：超时放宽到 90s（云端原图实测有 18MB/张，弱网/蜂窝下 30s 必超时），并对超大图做等比缩放，
-    /// 避免解码成位图后内存爆炸导致「拉到了却显示不出来」。
+    /// 🔴 v2.9.19：超时放宽到 90s（云端原图实测有 18MB/张，弱网/蜂窝下 30s 必超时）。
+    /// 🔴 v2.9.20（关键修复）：云端实测存的是 **18.2MB / 20.5MB 的原始大图**（上传时的压缩没生效）。
+    ///   旧写法 `UIImage(data:)` 会把整张大图解成位图（48–96MB），iOS 内存不够时**直接返回 nil**
+    ///   → 就是日志里那句「云端横幅下载失败」；而且这种大图解码非常慢，弱网下能把界面拖住。
+    ///   现在改成：① 用 ImageIO 的缩略图 API **直接解到目标尺寸**（不解全图，内存只要几 MB）；
+    ///   ② 解码整个丢到后台线程，主线程一点不占；③ 只有网络错误才重试，HTTP 错误/解码失败不浪费 3 次重试。
     private static func downloadImage(_ url: URL, attempt: Int) async -> UIImage? {
         var req = URLRequest(url: url)
         req.timeoutInterval = 90
         req.cachePolicy = .reloadIgnoringLocalCacheData
-        guard let (d, resp) = try? await URLSession.shared.data(for: req),
-              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              let img = UIImage(data: d) else {
-            // 失败（弱网/超时/超大图）自动重试 3 次，每次间隔 0.5s
+        let localURL: URL
+        let resp: URLResponse
+        do {
+            // 🔴 用 download(for:) 而不是 data(for:)：18MB 的大图先落盘，
+            // 内存里不同时留一份 Data + 一份整图位图（峰值从 ~60MB 降到 ~10MB）。
+            (localURL, resp) = try await URLSession.shared.download(for: req)
+        } catch {
+            // 网络类错误：可能是瞬时抖动，值得重试
             if attempt < 3 {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 return await downloadImage(url, attempt: attempt + 1)
             }
+            Log.warn("横幅", "下载出错：\(error.localizedDescription)")
             return nil
         }
-        // 成功：超大原图先等比缩到长边 ≤1600px，既保清晰又大幅降内存
-        return Self.downscaleIfNeeded(img, maxSide: 1600)
+        if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            // 确定性错误（403/404 等）：重试没意义，直接放弃
+            Log.warn("横幅", "下载失败 HTTP \(http.statusCode)")
+            return nil
+        }
+        // download(for:) 给的临时文件会被系统回收，先搬到自己的目录再解码
+        let dest = FileManager.default.temporaryDirectory
+            .appendingPathComponent("aurora-banner-\(UUID().uuidString)")
+        do {
+            try FileManager.default.moveItem(at: localURL, to: dest)
+        } catch {
+            Log.warn("横幅", "临时文件搬运失败：\(error.localizedDescription)")
+            return nil
+        }
+        defer { try? FileManager.default.removeItem(at: dest) }
+        let attrs = try? FileManager.default.attributesOfItem(atPath: dest.path)
+        let size = (attrs?[.size] as? Int) ?? 0
+        // 解码整个放后台线程：18MB 的大图绝不能占用主线程
+        guard let img = await decodeOffMain(dest, maxSide: 1600) else {
+            Log.warn("横幅", "解码失败（\(size) 字节）：图片过大或已损坏")
+            return nil
+        }
+        return img
     }
 
-    /// 图片长边超过 maxSide 时等比缩放到 maxSide；否则原样返回。
-    private static func downscaleIfNeeded(_ image: UIImage, maxSide: CGFloat) -> UIImage {
-        let longSide = max(image.size.width, image.size.height)
-        guard longSide > maxSide else { return image }
-        let scale = maxSide / longSide
-        let size = CGSize(width: (image.size.width * scale).rounded(),
-                          height: (image.size.height * scale).rounded())
-        let renderer = UIGraphicsImageRenderer(size: size)
-        return renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+    /// 后台线程解码：ImageIO 直接生成缩略图，**不把整张大图解成位图**。
+    ///
+    /// `UIImage(data:)` 必须先把整张图解出来（实测云端图 4200×1839 RGBA ≈ 29.5MB 位图），
+    /// iOS 内存不够时**直接返回 nil** → 就是日志里那句「云端横幅下载失败」；
+    /// ImageIO 的缩略图接口只解出目标尺寸，内存占用降到几 MB，18MB 的大图也能正常显示。
+    private static func decodeOffMain(_ fileURL: URL, maxSide: CGFloat) async -> UIImage? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
+            DispatchQueue.global(qos: .utility).async {
+                var image: UIImage?
+                if let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil) {
+                    let options: [CFString: Any] = [
+                        kCGImageSourceCreateThumbnailFromImageAlways: true,
+                        kCGImageSourceCreateThumbnailWithTransform: true,
+                        kCGImageSourceThumbnailMaxPixelSize: maxSide,
+                        kCGImageSourceShouldCacheImmediately: true,
+                    ]
+                    if let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
+                        image = UIImage(cgImage: cg)
+                    }
+                }
+                continuation.resume(returning: image)
+            }
+        }
     }
 
     /// 上传横幅（管理员，已登录）。`banners` 为自定义图数组（nil 已过滤）。

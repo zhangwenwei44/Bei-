@@ -282,8 +282,22 @@ final class SourceStore: ObservableObject {
     }
 
     /// 批量落盘（整批开关处理完调用一次）。
+    ///
+    /// 🔴 写盘放到后台队列：音源列表 1.1MB，写 UserDefaults 是同步 I/O，
+    /// 之前在主线程上做，检测刚跑完时界面会顿一下。
+    /// ⚠️ 闭包里只捕获 Data / String（都是 Sendable）——SourceStore 不是 Sendable，
+    /// 捕获 self 会触发 CI 的「capture of 'self' with non-sendable type」警告。
     func persistNow() {
-        persist()
+        guard let data = try? JSONEncoder().encode(sources) else {
+            Log.error("音源", "落盘失败：编码出错（\(sources.count) 条音源只在内存里，重启会丢）")
+            return
+        }
+        let key = storeKey
+        let count = sources.count
+        DispatchQueue.global(qos: .utility).async {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+        Log.debug("音源", "已落盘 \(count) 条音源，\(data.count) 字节")
     }
 
     /// 按给定顺序整体重排。

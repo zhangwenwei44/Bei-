@@ -66,8 +66,12 @@ final class SourceHealth: ObservableObject {
             return current
         }
         inflight.insert(source.id)
-        set(.checking, for: source.id)
+        // 🔴 必须先解锁再 set()：set() 内部会取同一把 lock，而 NSLock 不可重入。
+        // 之前这里「持着锁调 set()」，一旦 check() 跑在主线程（点「重新检测全部音源」就是），
+        // set() 会二次取锁 → 永久死锁 → 整个 UI 冻住、App 进程还活着、
+        // 后台线程照常跑照常写日志，只能杀进程重进。这正是「音源页卡死」最像的一种表现。
         lock.unlock()
+        set(.checking, for: source.id)
         defer {
             lock.lock()
             inflight.remove(source.id)
@@ -134,6 +138,8 @@ final class SourceHealth: ObservableObject {
                 set(.unknown, for: source.id)
                 continue
             }
+            // 先记一条「开始检测」，这样万一卡住，日志最后一行就能指出卡在哪个音源
+            Log.info("音源", "开始检测「\(source.name)」")
             let ok = await resolveProbe(source)
             let result: Status = ok ? .ok : .bad
             set(result, for: source.id)

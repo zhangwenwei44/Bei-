@@ -58,6 +58,10 @@ struct AuroraMusicApp: App {
 
         // 🔴 启动即检测音源健康：后台跑，绿点=可用 / 红点=无用，不影响启动速度
         Task { await SourceHealth.shared.checkStale() }
+
+        // 🔴 主线程看门狗：UI 冻住时（点进某页就卡死、连按钮都点不动）
+        // 光看日志根本抓不到现场，这个能在日志里直接记下「主线程卡了多久」。
+        MainThreadWatchdog.shared.start()
     }
 
     /// 🔴 v2.6.3：启动 splash —— 系统启动图经常 <1 秒就被撤掉，
