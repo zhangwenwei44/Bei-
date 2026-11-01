@@ -47,6 +47,19 @@ final class ScriptExecutor {
             done.wait()
         }
 
+        /// 带超时的同步执行。返回 true 表示任务在超时前完成；返回 false 表示超时——
+        /// 此时任务仍在后台线程上运行（例如脚本死循环），调用方应放弃等待，
+        /// 避免被一条卡死的 worker 线程永久阻塞。
+        @discardableResult
+        func submitAndWait(timeout: TimeInterval, _ work: @escaping () -> Void) -> Bool {
+            let done = DispatchSemaphore(value: 0)
+            submit {
+                work()
+                done.signal()
+            }
+            return done.wait(timeout: .now() + timeout) != .timedOut
+        }
+
         private func takeNext() -> (() -> Void)? {
             lock.lock()
             defer { lock.unlock() }
@@ -77,5 +90,12 @@ final class ScriptExecutor {
     /// 保证始终在同一条线程上。
     func sync(_ work: @escaping () -> Void) {
         box.submitAndWait(work)
+    }
+
+    /// 带超时的同步执行（秒）。返回 false 表示任务超时仍在跑，调用方应放弃等待。
+    /// 用于拦截初始化阶段就死循环的脚本，避免把串行调用方（buildQueue）永久卡死。
+    @discardableResult
+    func sync(timeout: TimeInterval, _ work: @escaping () -> Void) -> Bool {
+        box.submitAndWait(timeout: timeout, work)
     }
 }

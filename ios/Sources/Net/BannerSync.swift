@@ -70,22 +70,35 @@ enum BannerSync {
 
     /// 带重试地下载一张横幅图（最多 3 次）。
     /// 🔴 v2.9.18：之前某张图瞬时失败（弱网/握手超时）就直接占位，导致「云端设了横幅、别的设备却加载不出来」。
-    /// 现在失败自动重试 3 次（每次间隔 0.5s），多数瞬时抖动都能拉到。
+    /// 🔴 v2.9.19：超时放宽到 90s（云端原图实测有 18MB/张，弱网/蜂窝下 30s 必超时），并对超大图做等比缩放，
+    /// 避免解码成位图后内存爆炸导致「拉到了却显示不出来」。
     private static func downloadImage(_ url: URL, attempt: Int) async -> UIImage? {
         var req = URLRequest(url: url)
-        req.timeoutInterval = 30
+        req.timeoutInterval = 90
         req.cachePolicy = .reloadIgnoringLocalCacheData
-        if let (d, resp) = try? await URLSession.shared.data(for: req),
-           let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-           let img = UIImage(data: d) {
-            return img
+        guard let (d, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let img = UIImage(data: d) else {
+            // 失败（弱网/超时/超大图）自动重试 3 次，每次间隔 0.5s
+            if attempt < 3 {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                return await downloadImage(url, attempt: attempt + 1)
+            }
+            return nil
         }
-        if attempt < 3 {
-            // 退避 0.5s 再试，避免瞬间重连打爆
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            return await downloadImage(url, attempt: attempt + 1)
-        }
-        return nil
+        // 成功：超大原图先等比缩到长边 ≤1600px，既保清晰又大幅降内存
+        return Self.downscaleIfNeeded(img, maxSide: 1600)
+    }
+
+    /// 图片长边超过 maxSide 时等比缩放到 maxSide；否则原样返回。
+    private static func downscaleIfNeeded(_ image: UIImage, maxSide: CGFloat) -> UIImage {
+        let longSide = max(image.size.width, image.size.height)
+        guard longSide > maxSide else { return image }
+        let scale = maxSide / longSide
+        let size = CGSize(width: (image.size.width * scale).rounded(),
+                          height: (image.size.height * scale).rounded())
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
     }
 
     /// 上传横幅（管理员，已登录）。`banners` 为自定义图数组（nil 已过滤）。

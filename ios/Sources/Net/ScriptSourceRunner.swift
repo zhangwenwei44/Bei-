@@ -407,7 +407,11 @@ final class ScriptRuntime {
         var noEntry = false
         var hasEntryValue: Int32 = 0
 
-        queue.sync {
+        // 初始化阶段同步跑脚本（bootstrap + 主脚本求值）。正常脚本只是定义函数/对象，
+        // 几乎是瞬时的；但一旦脚本在顶层写出死循环，queue.sync 会无休止地卡住这条
+        // worker 线程，进而把串行调用方 buildQueue 也卡死，导致整条音源检测队列假死。
+        // 这里给 5 秒超时：超时即放弃构建，绝不让一个坏脚本拖垮整个列表。
+        let built = queue.sync(timeout: 5) {
             context.exceptionHandler = { [weak self] _, exception in
                 let message = exception?.toString() ?? "unknown"
                 Log.error("脚本音源", "「\(source.name)」JS 异常: \(message)")
@@ -463,6 +467,11 @@ final class ScriptRuntime {
             })()
             """)?.toInt32() ?? 0
             noEntry = hasEntryValue != 1
+        }
+
+        if !built {
+            Log.error("脚本音源", "「\(source.name)」脚本初始化求值超时（疑似死循环），本次构建直接放弃，避免卡死整条音源检测队列")
+            return nil
         }
 
         if bootstrapFailed {
@@ -699,6 +708,10 @@ final class ScriptSourceRunner {
 
     private let buildQueue = DispatchQueue(label: "Aurora.ScriptSourceRunner")
     private var cache: [String: ScriptRuntime] = [:]
+    /// 初始化阶段就死循环/超时的脚本，记下 key 不再反复拉起卡死的 worker 线程
+    /// （否则每进一次音源页都会重新 spawn 一个永远退不出来的线程）。
+    private var brokenKeys: Set<String> = []
+    private let brokenLock = NSLock()
 
     func resolve(source: ThirdPartySource,
                  song: Song,
@@ -795,13 +808,28 @@ final class ScriptSourceRunner {
         failureLock.lock()
         failureCounts.removeAll()
         failureLock.unlock()
+        // 重置时也清掉「初始化超时」黑名单，让用户手动重试能真正重新尝试。
+        brokenLock.lock()
+        brokenKeys.removeAll()
+        brokenLock.unlock()
     }
 
     private func runtime(for source: ThirdPartySource, script: String) -> ScriptRuntime? {
         let key = "\(source.id)|\(script.hashStable)"
+        // 之前初始化就超时的脚本直接放弃，避免每次检测（进音源页 onAppear）都重新
+        // 拉起一个卡死的 worker 线程。脚本内容改了（hash 变）会自动换新 key 重新尝试。
+        brokenLock.lock()
+        let knownBroken = brokenKeys.contains(key)
+        brokenLock.unlock()
+        if knownBroken { return nil }
         return buildQueue.sync { () -> ScriptRuntime? in
             if let cached = cache[key] { return cached }
-            guard let runtime = ScriptRuntime(source: source, script: script) else { return nil }
+            guard let runtime = ScriptRuntime(source: source, script: script) else {
+                brokenLock.lock()
+                brokenKeys.insert(key)
+                brokenLock.unlock()
+                return nil
+            }
             runtime.onInvalidate = { [weak self] dead in
                 guard let self else { return }
                 self.buildQueue.async {

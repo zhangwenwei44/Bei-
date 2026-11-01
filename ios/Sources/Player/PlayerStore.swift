@@ -1261,9 +1261,12 @@ final class PlayerStore: ObservableObject {
     ///    「seek(0)+play」重播同一首（等于死循环），必须让它真正前进到下一首。
     private func skipToNextAfterFailure(reason: String) {
         consecutiveSkipFailures += 1
-        guard consecutiveSkipFailures <= 3 else {
-            Log.error("播放", "连续 \(consecutiveSkipFailures) 首播不了，停止自动跳过（\(reason)）")
-            playbackError = "连续多首无法播放，已停止"
+        // 🔴 v2.9.19：不再固定「连续 3 首」就停。改为把整队能播的歌都试一遍——
+        // 连续失败超过【队列长度】才停（真的整队都坏了就别再翻了，避免死循环）。
+        // 这样前面几首解析失败不会直接掐掉整段播放，能跳到后面可播的歌继续放。
+        guard consecutiveSkipFailures <= queue.count else {
+            Log.error("播放", "整队 \(queue.count) 首都播不了，停止自动跳过（\(reason)）")
+            playbackError = "整队都无法播放，已停止"
             return
         }
         guard queue.count > 1 else {
