@@ -117,8 +117,12 @@ struct DiscoverView: View {
         .refreshable { await load(force: true) }
         .task {
             if feed.isEmpty { await load() }
-            // 🔴 v2.9.12：进入发现页即拉取管理员设置的云端横幅（跨设备共享）
-            await BannerConfig.shared.pullCloud()
+            // 🔴 v2.9.22：横幅拉取必须**独立于本视图的 task**。
+            // `.task` 在视图消失时会被 SwiftUI 取消，连带把正在下载的云端横幅也取消掉
+            // （URLError.cancelled → 日志里「下载出错：已取消」）→
+            // 用户只要从发现页切走，横幅就永远加载不出来，只能显示默认图。
+            // 这里只「发起」不「等待」：非结构化 Task 不会随父 task 被取消。
+            Task { await BannerConfig.shared.pullCloud() }
         }
         // 🔴 v2.9.15：酷狗登录态变化（登录/退出）时，每日推荐切换「个性化 / TOP500 回退」
         .task(id: kugouAuth.isLoggedIn) {

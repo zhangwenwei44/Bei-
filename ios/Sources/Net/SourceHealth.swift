@@ -17,41 +17,45 @@ final class SourceHealth: ObservableObject {
         case bad
     }
 
-    /// id → 状态。只读副本，避免外部直接改。
+    /// id → 状态。
+    ///
+    /// 🔴 v2.9.22（**音源页卡死的最终根因**）：这个字典**完全不用锁**。
+    /// 之前读写共用一把 NSLock，而且写的时候是「**持着锁写 @Published**」——
+    /// 写 @Published 会同步触发 objectWillChange → SwiftUI 立刻重算 body
+    /// → body 里又调 `status(for:)` 取**同一把锁** → NSLock 不可重入 →
+    /// **永久死锁**，主线程在渲染列表行时被彻底冻住
+    /// （看门狗实测停在「取健康状态（等锁）」：UI 无响应、App 进程还活着、后台线程照跑）。
+    ///
+    /// 现在：写入全部在主线程、且永远是「复制 → 改 → 整体替换」。
+    /// Swift 数组/字典是写时复制，读者只会看到旧值或新值、绝不会读到半个字典，
+    /// 所以读写都不需要锁 —— 主线程永远不会被这把锁卡住。
     @Published private(set) var status: [String: Status] = [:]
 
     /// 结果缓存有效期：10 分钟内不重复联网检测。
     private let ttl: TimeInterval = 10 * 60
     private var checkedAt: [String: Date] = [:]
     private var inflight = Set<String>()
+    /// 🔴 只保护 checkedAt / inflight 这两个后台线程也会碰的状态。
+    /// ⚠️ 绝不能在这把锁的保护范围内写 @Published（会引发上面说的递归死锁）。
     private let lock = NSLock()
 
     // MARK: 读取
 
+    /// 读状态。**不取锁** —— 状态字典的写入全在主线程、读可能在后台
+    /// （SourceResolver 过滤无用音源时会读），写时复制保证读到的一定是完整快照。
     func status(for id: String) -> Status {
-        // 主线程渲染列表时每个 cell 都会调这里。万一别处把这把锁永久持住了，
-        // 整个 UI 就会在这里冻住 —— 取锁前先打标记，卡死时看门狗能直接报出
-        // 「停在：取健康状态（等锁）」，一眼看出是被锁住了。
-        MainThreadTrace.set("取健康状态（等锁）")
-        let start = Date()
-        lock.lock()
-        let waited = Date().timeIntervalSince(start)
-        let value = status[id] ?? .unknown
-        lock.unlock()
-        if waited > 1 {
-            Log.error("音源", "取健康状态等锁 \(String(format: "%.1f", waited)) 秒（主线程被阻塞）")
-        }
-        MainThreadTrace.set("取健康状态完成")
-        return value
+        MainThreadTrace.set("读健康状态")
+        return status[id] ?? .unknown
     }
 
     /// 某个音源刚被用户编辑/开关，清掉旧结论重新检测。
     func reset(_ id: String) {
         lock.lock()
-        status[id] = .unknown
         checkedAt.removeValue(forKey: id)
         inflight.remove(id)
         lock.unlock()
+        // @Published 的写统一走 set()（回主线程），绝不在锁的保护范围内写。
+        set(.unknown, for: id)
     }
 
     // MARK: 检测
@@ -70,17 +74,14 @@ final class SourceHealth: ObservableObject {
             return .unknown
         }
         lock.lock()
-        if inflight.contains(source.id) {
-            let current = status[source.id] ?? .unknown
-            lock.unlock()
-            return current
-        }
-        inflight.insert(source.id)
-        // 🔴 必须先解锁再 set()：set() 内部会取同一把 lock，而 NSLock 不可重入。
-        // 之前这里「持着锁调 set()」，一旦 check() 跑在主线程（点「重新检测全部音源」就是），
-        // set() 会二次取锁 → 永久死锁 → 整个 UI 冻住、App 进程还活着、
-        // 后台线程照常跑照常写日志，只能杀进程重进。这正是「音源页卡死」最像的一种表现。
+        let alreadyRunning = inflight.contains(source.id)
+        if !alreadyRunning { inflight.insert(source.id) }
         lock.unlock()
+        if alreadyRunning {
+            return status[source.id] ?? .unknown
+        }
+        // 🔴 必须先解锁再 set()：set() 内部会改 status，而 status 的写入绝不能
+        // 发生在锁的保护范围内（见上面 status 的说明：持锁写 @Published 会死锁）。
         set(.checking, for: source.id)
         defer {
             lock.lock()
@@ -156,8 +157,14 @@ final class SourceHealth: ObservableObject {
             lock.lock()
             checkedAt[source.id] = Date()
             lock.unlock()
-            // 先只改内存（UI 立刻反映开关变化），整批跑完再统一落盘一次
-            SourceStore.shared.setEnabled(ok, id: source.id, save: false)
+            // 先只改内存（UI 立刻反映开关变化），整批跑完再统一落盘一次。
+            // 🔴 @Published 只能在主线程写，所以用 MainActor.run 同步等它落定，
+            // 否则后面 persistNow 可能把「开关还没改」的旧值写进磁盘。
+            let sourceID = source.id
+            let shouldEnable = ok
+            await MainActor.run {
+                SourceStore.shared.setEnabled(shouldEnable, id: sourceID, save: false)
+            }
             Log.info("音源", "「\(source.name)」体检结果：\(ok ? "可用" : "无用")")
         }
         SourceStore.shared.persistNow()
@@ -177,11 +184,18 @@ final class SourceHealth: ObservableObject {
         return audio != nil
     }
 
+    /// 写状态。
+    ///
+    /// 🔴 统一在主线程执行，且**绝不持锁**：写 @Published 会触发 objectWillChange，
+    /// SwiftUI 可能当场重算 body（body 里会再读 status）。如果此刻还持着 lock，
+    /// 就会同线程二次取锁 → NSLock 不可重入 → 永久死锁。
+    /// 写法是「复制 → 改 → 整体替换」：写时复制保证后台读者看到的是完整快照。
     private func set(_ newStatus: Status, for id: String) {
         let apply: () -> Void = { [weak self] in
-            self?.lock.lock()
-            self?.status[id] = newStatus
-            self?.lock.unlock()
+            guard let self else { return }
+            var next = self.status
+            next[id] = newStatus
+            self.status = next
         }
         if Thread.isMainThread { apply() }
         else { DispatchQueue.main.async(execute: apply) }

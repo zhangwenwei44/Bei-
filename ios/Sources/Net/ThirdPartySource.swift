@@ -214,11 +214,35 @@ final class SourceStore: ObservableObject {
 
     // MARK: 增删改
 
-    func upsert(_ source: ThirdPartySource) {
-        if let index = sources.firstIndex(where: { $0.id == source.id }) {
-            sources[index] = source
+    /// 统一改列表的方式：复制 → 改 → 整体替换。
+    ///
+    /// 🔴 不要再原地改数组元素（`sources[index].enabled = x` / `append` / `removeAll`）：
+    /// 检测是在**后台线程**跑的，而主线程的 ForEach 同时在遍历 `store.sources`，
+    /// 原地改会撞上「Collection was mutated while being enumerated」；
+    /// 而且原地改**不触发 @Published**，列表里的开关也不会跟着更新。
+    /// 整体替换是原子的（读者只会看到旧数组或新数组），并且能正常触发 @Published。
+    private func mutateSources(_ body: (inout [ThirdPartySource]) -> Void) {
+        var next = sources
+        body(&next)
+        if Thread.isMainThread {
+            sources = next
         } else {
-            sources.append(source)
+            // @Published 只能在主线程写，否则 SwiftUI 会报「后台线程发布变更」。
+            // 捕获的只是值（[ThirdPartySource] 是 Sendable），不捕获 self。
+            let snapshot = next
+            Task { @MainActor in
+                SourceStore.shared.sources = snapshot
+            }
+        }
+    }
+
+    func upsert(_ source: ThirdPartySource) {
+        mutateSources { list in
+            if let index = list.firstIndex(where: { $0.id == source.id }) {
+                list[index] = source
+            } else {
+                list.append(source)
+            }
         }
         persist()
     }
@@ -249,13 +273,15 @@ final class SourceStore: ObservableObject {
     /// `upsert` 是按 id 匹配的，而 id 每次都是新 UUID，所以重新导入同一个音源
     /// 会不断堆出重复条目——用户看着就像「导了好几次都没生效」。
     func upsertReplacingByName(_ source: ThirdPartySource) {
-        if let index = sources.firstIndex(where: { $0.name == source.name }) {
-            // 保留原来的 id，避免覆盖后变成另一条
-            var replaced = source
-            replaced.id = sources[index].id
-            sources[index] = replaced
-        } else {
-            sources.append(source)
+        mutateSources { list in
+            if let index = list.firstIndex(where: { $0.name == source.name }) {
+                // 保留原来的 id，避免覆盖后变成另一条
+                var replaced = source
+                replaced.id = list[index].id
+                list[index] = replaced
+            } else {
+                list.append(source)
+            }
         }
         persist()
         // 音源内容变了，之前的熔断计数不再有意义
@@ -265,7 +291,9 @@ final class SourceStore: ObservableObject {
     @discardableResult
     func remove(id: String) -> Bool {
         let before = sources.count
-        sources.removeAll { $0.id == id }
+        mutateSources { list in
+            list.removeAll { $0.id == id }
+        }
         persist()
         return sources.count != before
     }
@@ -276,8 +304,11 @@ final class SourceStore: ObservableObject {
     /// 1MB 的音源列表反复完整编码 + 写盘（都在主线程），叠加起来就是明显卡顿；
     /// 改成整批只在最后落盘一次。
     func setEnabled(_ enabled: Bool, id: String, save: Bool = true) {
-        guard let index = sources.firstIndex(where: { $0.id == id }) else { return }
-        sources[index].enabled = enabled
+        guard sources.contains(where: { $0.id == id }) else { return }
+        mutateSources { list in
+            guard let index = list.firstIndex(where: { $0.id == id }) else { return }
+            list[index].enabled = enabled
+        }
         if save { persist() }
     }
 

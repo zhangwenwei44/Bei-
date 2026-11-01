@@ -33,6 +33,10 @@ final class BannerConfig: ObservableObject {
 
     private var refreshTimer: Timer?
 
+    /// 正在拉取云端横幅（防止并发重复下载几十 MB 的大图）。
+    private var pulling = false
+    private let pullingLock = NSLock()
+
     private init() {
         reload()
         // 🔴 v2.9.14：启动即拉一次云端横幅，并开启 60s 定时刷新——
@@ -122,6 +126,17 @@ final class BannerConfig: ObservableObject {
     /// - Returns: 是否成功拿到云端数据。
     @discardableResult
     func pullCloud(retry: Int = 2) async -> Bool {
+        // 🔴 已经在拉就别重复下载：启动、进发现页、60s 定时刷新会同时触发，
+        // 而云端大图一张就是 18–20MB，重复拉纯属浪费流量和时间。
+        if !beginPull() {
+            Log.debug("横幅", "已有云端横幅拉取在进行中，跳过本次")
+            return false
+        }
+        defer { endPull() }
+        return await pullCloudInner(retry: retry)
+    }
+
+    private func pullCloudInner(retry: Int) async -> Bool {
         let (imgs, err) = await BannerSync.fetch()
         if let imgs {
             await MainActor.run { self.applyCloud(imgs) }
@@ -131,11 +146,26 @@ final class BannerConfig: ObservableObject {
         // 失败：退避后重试
         if retry > 0 {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
-            return await pullCloud(retry: retry - 1)
+            return await pullCloudInner(retry: retry - 1)
         }
         await MainActor.run { syncState = .failed(err ?? "云端横幅拉取失败") }
         Log.warn("横幅", "云端横幅拉取最终失败：\(err ?? "未知错误")")
         return false
+    }
+
+    /// 抢占「拉取中」标记。返回 false 表示已有拉取在进行。
+    private func beginPull() -> Bool {
+        pullingLock.lock()
+        defer { pullingLock.unlock() }
+        if pulling { return false }
+        pulling = true
+        return true
+    }
+
+    private func endPull() {
+        pullingLock.lock()
+        pulling = false
+        pullingLock.unlock()
     }
 
     /// 🔴 v2.9.15：本机横幅比云端多时自动推一次。
