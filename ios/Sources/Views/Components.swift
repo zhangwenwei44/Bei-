@@ -288,6 +288,18 @@ struct NavigationBarItemAppearance: UIViewControllerRepresentable {
         var color: UIColor
         var transparent: Bool
 
+        /// 上次刷上去的样式标识 + 累计刷新次数。
+        ///
+        /// 🔴 v2.9.21（关键修复）：SwiftUI 每次 updateUIViewController 都会调 applyIfPossible，
+        /// 而之前每次都**新建一份 UINavigationBarAppearance 赋值 + setNeedsLayout()**：
+        /// UIKit 重排导航栏 → 导航栏高度/安全区变化 → SwiftUI 重新渲染这一页
+        /// → 又调 updateUIViewController → 又重排 …… 形成**无限布局循环**，
+        /// 主线程 100% 占满、UI 完全无响应（App 进程还活着、后台线程照跑照写日志），
+        /// 表现就是「点进第三方音源页就彻底卡死、只能杀进程重进」。
+        /// 现在改成「变了才刷」，把这个循环直接掐断；页面重新出现时用 force 补刷一次。
+        private var appliedToken: String?
+        private var applyCount = 0
+
         init(color: UIColor, transparent: Bool) {
             self.color = color
             self.transparent = transparent
@@ -310,12 +322,12 @@ struct NavigationBarItemAppearance: UIViewControllerRepresentable {
             super.viewWillAppear(animated)
             // SwiftUI 可能在 navigationItem 上重设 title / 按钮，
             // 每次将要显示时再刷一遍，保证底色不会被覆盖掉。
-            applyIfPossible()
+            applyIfPossible(force: true)
         }
 
         override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
-            applyIfPossible()
+            applyIfPossible(force: true)
         }
 
         override func didMove(toParent parent: UIViewController?) {
@@ -324,7 +336,7 @@ struct NavigationBarItemAppearance: UIViewControllerRepresentable {
             // （topViewController 还是上一页），那时会跳过。
             // 进栈完成后这里再补一次，保证白色一定刷上。
             DispatchQueue.main.async { [weak self] in
-                self?.applyIfPossible()
+                self?.applyIfPossible(force: true)
             }
         }
 
@@ -369,11 +381,24 @@ struct NavigationBarItemAppearance: UIViewControllerRepresentable {
             return nil
         }
 
-        func applyIfPossible() {
+        func applyIfPossible(force: Bool = false) {
+            MainThreadTrace.set("刷导航栏外观")
             guard let nav = resolveNavigationController() else { return }
             guard let host = resolveItemViewController(in: nav) else { return }
             // 只认**当前正在显示的那一项**：绝不去动兄弟页面的 navigationItem
             guard nav.topViewController === host else { return }
+
+            // 「变了才刷」：样式没变就直接跳过，避免 UIKit 重排 → SwiftUI 重渲染
+            // → 再进 updateUIViewController 的无限循环（见 appliedToken 的说明）。
+            let token = "\(transparent)|\(color.description)"
+            if !force, appliedToken == token, host.navigationItem.standardAppearance != nil {
+                return
+            }
+            appliedToken = token
+            applyCount += 1
+            if applyCount % 200 == 0 {
+                Log.warn("导航栏", "导航栏外观已重刷 \(applyCount) 次（疑似布局循环）")
+            }
 
             let appearance: UINavigationBarAppearance
             if transparent {
@@ -410,6 +435,7 @@ struct NavigationBarItemAppearance: UIViewControllerRepresentable {
 
             // 让 UIKit 立刻按新外观重排一次导航栏
             nav.navigationBar.setNeedsLayout()
+            MainThreadTrace.set("导航栏外观已刷")
         }
     }
 }

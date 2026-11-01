@@ -29,9 +29,19 @@ final class SourceHealth: ObservableObject {
     // MARK: 读取
 
     func status(for id: String) -> Status {
+        // 主线程渲染列表时每个 cell 都会调这里。万一别处把这把锁永久持住了，
+        // 整个 UI 就会在这里冻住 —— 取锁前先打标记，卡死时看门狗能直接报出
+        // 「停在：取健康状态（等锁）」，一眼看出是被锁住了。
+        MainThreadTrace.set("取健康状态（等锁）")
+        let start = Date()
         lock.lock()
+        let waited = Date().timeIntervalSince(start)
         let value = status[id] ?? .unknown
         lock.unlock()
+        if waited > 1 {
+            Log.error("音源", "取健康状态等锁 \(String(format: "%.1f", waited)) 秒（主线程被阻塞）")
+        }
+        MainThreadTrace.set("取健康状态完成")
         return value
     }
 

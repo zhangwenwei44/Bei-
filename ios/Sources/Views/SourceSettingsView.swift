@@ -29,6 +29,8 @@ struct SourceSettingsView: View {
     @State private var isImportingFiles = false
 
     var body: some View {
+        // 卡死时靠这行告诉看门狗「主线程停在音源页渲染上」
+        MainThreadTrace.set("第三方音源页 body")
         List {
             if importMessage != nil || isImportingFiles {
                 Section {
@@ -162,6 +164,7 @@ struct SourceSettingsView: View {
         .onAppear {
             // 先留一条痕：之前连续几轮「进音源页就卡死」都因为日志里
             // 没有这一行、无法判断 onAppear 到底有没有被触发。
+            MainThreadTrace.set("音源页 onAppear")
             Log.info("音源", "进入第三方音源页（\(store.sources.count) 条音源），开始全量体检")
             Task { await SourceHealth.shared.detectAllAndApply() }
         }
@@ -380,6 +383,7 @@ private struct SourceRow: View {
     @ObservedObject private var health = SourceHealth.shared
 
     var body: some View {
+        MainThreadTrace.set("音源行渲染")
         HStack(spacing: 12) {
             // 🔴 v2.9.9：绿色健康圆点移到音源名字前面（红=无用，灰/无=未检测）；
             // 原先行首的 {} / link 图标已删除（用户要求「把前面 {} 删掉」）。
