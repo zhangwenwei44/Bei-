@@ -53,6 +53,12 @@ final class SourceHealth: ObservableObject {
             set(.unknown, for: source.id)
             return .unknown
         }
+        // 脚本线程池已被坏脚本耗尽：没有健康线程可用，这条音源标「未检测」跳过，
+        // 不要误判成「无用」自动关掉（重启 App 即可重置池）。
+        if ScriptSourceRunner.shared.isExecutorsExhausted() {
+            set(.unknown, for: source.id)
+            return .unknown
+        }
         lock.lock()
         if inflight.contains(source.id) {
             let current = status[source.id] ?? .unknown
@@ -118,6 +124,13 @@ final class SourceHealth: ObservableObject {
         for source in targets {
             if Date().timeIntervalSince(start) > budget {
                 // 预算耗尽：把还没轮到的源从「检测中」转回「未检测」，避免一直转圈像卡死。
+                set(.unknown, for: source.id)
+                continue
+            }
+            if ScriptSourceRunner.shared.isExecutorsExhausted() {
+                // 脚本线程池已被坏脚本耗尽（新建额度用尽）。此时没有健康线程可用，
+                // 剩下的音源直接标「未检测」跳过，绝不要误判成「无用」把它们自动关掉。
+                Log.warn("音源", "脚本线程池已耗尽，剩余音源跳过检测：\(source.name)")
                 set(.unknown, for: source.id)
                 continue
             }

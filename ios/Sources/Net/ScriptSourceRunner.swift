@@ -384,15 +384,20 @@ final class ScriptBridge: NSObject, ScriptRequestBridge, ScriptUtilsBridge {
 /// 一个脚本对应一个 JSContext，串行队列保证 JSContext 不被并发访问。
 final class ScriptRuntime {
     private let context: JSContext
-    /// 16MB 专用线程。libdispatch 工作线程只有 512KB 栈，聚合音源脚本
-    /// 做签名解密时递归很深，会撞栈保护页变成 SIGTRAP。
-    let queue = ScriptExecutor(label: "Aurora.ScriptRuntime")
+    /// 16MB 专用线程（从 ScriptSourceRunner 的线程池借入）。libdispatch 工作线程只有
+    /// 512KB 栈，聚合音源脚本做签名解密时递归很深，会撞栈保护页变成 SIGTRAP。
+    /// 线程归属线程池而非单个运行时：坏脚本卡死一条线程时只标记它中毒，
+    /// 不新建无限线程，内存永远有界（详见 ScriptSourceRunner 的池上限）。
+    let queue: ScriptExecutor
     private let bridge = ScriptBridge()
     private let sourceName: String
     /// 脚本求值期间是否出现过异常。出现过的运行时一律不再使用。
     private var sawException = false
+    /// invoke 是否因超时失败（用于把这条坏脚本记进黑名单，避免反复拉起卡死线程）。
+    private(set) var didTimeout = false
 
-    init?(source: ThirdPartySource, script: String) {
+    init?(source: ThirdPartySource, script: String, executor: ScriptExecutor) {
+        self.queue = executor
         guard let context = JSContext() else { return nil }
         self.context = context
         self.sourceName = source.name
@@ -471,6 +476,9 @@ final class ScriptRuntime {
 
         if !built {
             Log.error("脚本音源", "「\(source.name)」脚本初始化求值超时（疑似死循环），本次构建直接放弃，避免卡死整条音源检测队列")
+            // 这条线程已被死循环拖垮、杀不掉，标记中毒：线程池不再分配新任务给它，
+            // 改投其它健康线程。否则它会一直占用一条 16MB 栈线程白白泄漏。
+            executor.markPoisoned()
             return nil
         }
 
@@ -687,10 +695,14 @@ final class ScriptRuntime {
                 }
             }
 
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak self] in
                 // 已经成功/失败过的调用不要再记超时，否则每次慢解析都多一条假告警
                 if resume(nil) {
                     Log.warn("脚本音源", "invoke 超过 \(Int(timeout)) 秒没有返回，按超时处理")
+                    // 卡死的线程杀不掉，标记中毒避免再分配任务给它；
+                    // 并把这条坏脚本记进黑名单，下次直接跳过、不再反复拉起卡死线程。
+                    self?.didTimeout = true
+                    self?.queue.markPoisoned()
                 }
             }
         }
@@ -716,6 +728,55 @@ final class ScriptSourceRunner: @unchecked Sendable {
     private var brokenKeys: Set<String> = []
     private let brokenLock = NSLock()
 
+    // MARK: 线程池（硬上限，杜绝内存泄漏 → 被系统强杀）
+    //
+    // 每个脚本运行时需要一条 16MB 栈的常驻线程（libdispatch 的 512KB 系统栈跑深度
+    // 递归的混淆脚本会撞栈 SIGTRAP）。问题在于：坏脚本一旦在顶层死循环/卡死，
+    // 这条线程永久退不出来、杀不掉——以前「每个音源各建一条线程」，几十个坏音源就
+    // 泄漏几百 MB，把 App 撑爆被系统强杀（jetsam），表现就是「进音源页就卡死」。
+    // 这里改成池：初始几条健康线程，坏脚本卡死就 markPoisoned（不再分配任务给它），
+    // 改投其它健康线程；新建线程总数封顶 maxExecutors。无论列表里多少坏音源，
+    // 最多只泄漏 maxExecutors 条 16MB 线程，内存永远有界，绝不再 jetsam。
+    private let poolSize = 3
+    private let maxExecutors = 8
+    private var pool: [ScriptExecutor] = []
+    private var createdTotal = 0
+    private var executorsExhausted = false
+    private let poolLock = NSLock()
+
+    init() {
+        for _ in 0..<poolSize {
+            pool.append(ScriptExecutor(label: "Aurora.ScriptRuntime"))
+            createdTotal += 1
+        }
+    }
+
+    /// 取一条健康（未中毒）的执行器。池内全中毒且新建额度用尽时返回 nil——
+    /// 此时调用方应跳过该脚本、绝不新建无限线程（避免无界泄漏）。
+    private func acquireExecutor() -> ScriptExecutor? {
+        poolLock.lock()
+        defer { poolLock.unlock() }
+        if let healthy = pool.first(where: { !$0.isPoisoned }) {
+            return healthy
+        }
+        if createdTotal < maxExecutors {
+            let e = ScriptExecutor(label: "Aurora.ScriptRuntime")
+            pool.append(e)
+            createdTotal += 1
+            return e
+        }
+        executorsExhausted = true
+        return nil
+    }
+
+    /// 线程池是否已耗尽（坏脚本太多、新建额度用尽）。耗尽时检测应跳过剩余音源，
+    /// 而不是把它们误判成「无用」自动关掉。
+    func isExecutorsExhausted() -> Bool {
+        poolLock.lock()
+        defer { poolLock.unlock() }
+        return executorsExhausted
+    }
+
     func resolve(source: ThirdPartySource,
                  song: Song,
                  quality: MusicQuality,
@@ -730,6 +791,8 @@ final class ScriptSourceRunner: @unchecked Sendable {
             noteFailure(source)
             return nil
         }
+        // 与 runtime(for:) 一致的黑名单 key：脚本内容变了（hash 变）会自动换新 key。
+        let key = "\(source.id)|\(script.hashStable)"
         guard let runtime = await self.runtime(for: source, script: script) else {
             Log.error("脚本音源", "「\(source.name)」\(script.count) 字符的脚本没能建立 JS 运行时（语法错误或不支持的语法，或初始化超时）")
             noteFailure(source)
@@ -747,6 +810,14 @@ final class ScriptSourceRunner: @unchecked Sendable {
 
         guard let raw = await runtime.invoke(payload: payload) else {
             noteFailure(source)
+            // invoke 超时 = 脚本卡死/死循环。把它记进黑名单，下次直接跳过，
+            // 并作废这个运行时（它所在的线程已中毒、杀不掉，别再复用）。
+            if runtime.didTimeout {
+                brokenLock.lock()
+                brokenKeys.insert(key)
+                brokenLock.unlock()
+                runtime.invalidate()
+            }
             Log.error("脚本音源", "「\(source.name)」调用 musicUrl 返回了空（连续失败 \(failureCounts[source.id, default: 0]) 次）")
             return nil
         }
@@ -833,8 +904,17 @@ final class ScriptSourceRunner: @unchecked Sendable {
         if knownBroken { return nil }
         return await withCheckedContinuation { (continuation: CheckedContinuation<ScriptRuntime?, Never>) in
             buildQueue.async {
+                // 线程池里已经没有健康线程了（坏脚本太多）：这条脚本直接跳过，
+                // 记进黑名单，绝不为了它新建一条会泄漏的线程。
+                guard let executor = self.acquireExecutor() else {
+                    self.brokenLock.lock()
+                    self.brokenKeys.insert(key)
+                    self.brokenLock.unlock()
+                    continuation.resume(returning: nil)
+                    return
+                }
                 if let cached = self.cache[key] { continuation.resume(returning: cached); return }
-                guard let runtime = ScriptRuntime(source: source, script: script) else {
+                guard let runtime = ScriptRuntime(source: source, script: script, executor: executor) else {
                     self.brokenLock.lock()
                     self.brokenKeys.insert(key)
                     self.brokenLock.unlock()
