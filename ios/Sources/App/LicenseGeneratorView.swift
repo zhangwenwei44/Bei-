@@ -77,13 +77,17 @@ enum LicenseAdmin {
     ///   旧版本把管理口令**硬编码进二进制**（`static let passcode = "…"`），
     ///   而那个口令恰好就是管理员云账号的密码 → 任何人解压 IPA 就能拿到它、
     ///   登录管理员账号，把管理员设置的云端横幅换成自己的图（真实发生过一次）。
-    ///   现在改成「用管理员云账号的邮箱 + 密码登录校验」：
+    ///   现在改成「用云账号的邮箱 + 密码登录校验」：
     ///   **App 内不再保存任何密码**，密码只从键盘输入、只发给 Supabase 校验，
     ///   拿到的令牌立刻丢弃（不建立会话、不落盘）。
+    ///
+    /// - Parameter requireAdmin: true = 只认管理员邮箱；false = 任何账号都能验密码
+    ///   （实验室分两步走：先验密码 → 再判是不是管理员，不是一次性放行）。
     @discardableResult
-    static func verify(email: String, password: String) async -> Bool {
+    static func verify(email: String, password: String, requireAdmin: Bool = true) async -> Bool {
         let e = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard SupabaseConfig.isAdminEmail(e), !password.isEmpty else { return false }
+        guard !e.isEmpty, !password.isEmpty else { return false }
+        if requireAdmin && !SupabaseConfig.isAdminEmail(e) { return false }
         guard let url = URL(string: "\(SupabaseConfig.url)/auth/v1/token?grant_type=password") else { return false }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"

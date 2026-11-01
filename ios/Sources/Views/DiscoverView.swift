@@ -374,25 +374,19 @@ struct DiscoverView: View {
         }
     }
 
-    /// 🔴 v2.9.11：**实验室入口只对管理员显示**。
+    /// 🔴 v2.9.11：实验室入口**对所有人可见**（用户要求保留按钮），
+    /// 但点进去必须**验证管理员账号密码**才能进管理面板（LabView 里把关）。
     /// 之前所有人都能看到并点进「实验室」（里面只判"有没有登录云账号"），
     /// 结果别人登录后把管理员的云端横幅换掉了（2026-11-01 真实事故）。
-    /// 现在非管理员**根本看不到这个入口**，管理员登录后才出现。
-    private var visibleEntries: [DiscoverEntry] {
-        DiscoverEntry.allCases.filter { entry in
-            entry != .lab || cloud.isAdmin
-        }
-    }
 
     private var entryBar: some View {
         // 🔴 v2.9.13：入口行与横幅「一样宽」——左右各 16pt，
-        // 入口按剩余空间均分，间距自动加大铺满整行（不再挤在左边）。
-        let list = visibleEntries
-        let n = CGFloat(max(list.count, 1))
+        // 4 个入口按剩余空间均分，间距自动加大铺满整行（不再挤在左边）。
+        let n = CGFloat(DiscoverEntry.allCases.count)
         let total = UIScreen.main.bounds.width - 32 // 与横幅一致：左右各 16
-        let gap = list.count > 1 ? max(10, (total - n * 50) / (n - 1)) : 0 // 50 = 图标方块边长
+        let gap = max(10, (total - n * 50) / (n - 1)) // 50 = 图标方块边长
         return HStack(spacing: gap) {
-            ForEach(list, id: \.self) { entry in
+            ForEach(DiscoverEntry.allCases, id: \.self) { entry in
                 entryItem(entry)
             }
         }

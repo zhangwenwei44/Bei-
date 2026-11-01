@@ -530,28 +530,33 @@ struct LabView: View {
     // 🔴 v2.9.11：单一图片选择器 + 下标驱动，支持任意张数横幅
     @State private var showPickerIndex: Int? = nil
     @State private var showGenerator = false
-    // 未登录页的登录表单
+    // 🔴 v2.9.11：进入实验室必须**验证管理员账号密码**（每次进入都要验）
+    @State private var verified = false
     @State private var loginEmail = ""
     @State private var loginPassword = ""
     @State private var loginError: String? = nil
+    @State private var verifying = false
 
     var body: some View {
         CompatNavigationStack {
             Group {
-                // 🔴 v2.9.11：门禁从"有没有登录"收紧到"是不是管理员账号"（邮箱白名单）。
-                if cloud.isAdmin {
+                // 🔴 v2.9.11：门禁 = **必须验证管理员账号密码**。
+                // 之前只判"有没有登录云账号" → 任何人注册后都能进来把管理员的横幅换掉（真实事故）。
+                if verified && cloud.isAdmin {
                     adminPanel
                 } else {
-                    notAdmin
+                    verifyGate
                 }
             }
             .navigationTitle("实验室")
             .navigationBarTitleDisplayMode(.inline)
             .kugouNavigationBarBackground()
         }
+        // 🔴 v2.9.11：每次重新进入实验室都要重新验证密码
+        .onAppear { verified = false }
         .sheet(isPresented: Binding(
             get: { showPickerIndex != nil },
-            set: { if !$0 { showPickerIndex = nil } }
+            set: { if !showPickerIndex { showPickerIndex = nil } }
         )) {
             AuroraImagePicker(
                 onImagePicked: { img in
@@ -566,26 +571,24 @@ struct LabView: View {
         }
     }
 
-    // MARK: 非管理员：登录框，或提示当前账号不是管理员
-    private var notAdmin: some View {
+    // MARK: 🔴 v2.9.11 验证门：必须输入管理员账号密码
+
+    private var verifyGate: some View {
         ScrollView {
             VStack(spacing: 16) {
-                Image(systemName: "lock.fill")
+                Image(systemName: "lock.shield")
                     .font(.system(size: 38))
                     .foregroundStyle(AppStyle.accent)
-                Text(cloud.isSignedIn ? "当前账号不是管理员" : "实验室需要管理员权限")
+                Text("实验室需要验证管理员账号")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(AppStyle.primaryText)
-                Text(cloud.isSignedIn
-                     ? "这个账号没有修改云端横幅的权限，请改用管理员账号登录。"
-                     : "管理员登录后即可进入实验室")
+                Text("请输入管理员邮箱和密码，验证通过后才能进入。")
                     .font(.system(size: 12))
                     .foregroundStyle(AppStyle.tertiaryText)
                     .multilineTextAlignment(.center)
 
-                // 🔴 v2.9.11：登录入口（邮箱 + 密码）
                 VStack(spacing: 10) {
-                    TextField("邮箱", text: $loginEmail)
+                    TextField("管理员邮箱", text: $loginEmail)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.emailAddress)
@@ -604,19 +607,12 @@ struct LabView: View {
                             .foregroundStyle(.red)
                     }
                     Button {
-                        loginError = nil
-                        Task {
-                            do {
-                                try await cloud.signIn(email: loginEmail, password: loginPassword)
-                            } catch {
-                                loginError = CloudAccount.localizedCloudError(error)
-                            }
-                        }
+                        verifyAdmin()
                     } label: {
-                        if cloud.isBusy {
+                        if verifying {
                             ProgressView().controlSize(.small)
                         } else {
-                            Text("登录").font(.system(size: 14, weight: .semibold))
+                            Text("验证并进入").font(.system(size: 14, weight: .semibold))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 11)
                                 .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -624,14 +620,56 @@ struct LabView: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .disabled(cloud.isBusy)
+                    .disabled(verifying || loginEmail.isEmpty || loginPassword.isEmpty)
                 }
                 .padding(.horizontal, 28)
-                .padding(.top, 8)
             }
             .padding(.top, 70)
         }
         .background(AppStyle.background)
+    }
+
+    /// 验证管理员账号密码：
+    /// ① 先校验密码（不通过就完全不动会话）；
+    /// ② 校验通过后**建立会话**（上传横幅需要 access token）；
+    /// ③ 再确认这是**管理员邮箱**；不是就立刻登出，绝不给普通账号留会话。
+    private func verifyAdmin() {
+        loginError = nil
+        verifying = true
+        let email = loginEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        let password = loginPassword
+        Task {
+            // 先校验密码（不通过就完全不动会话）。
+            // requireAdmin: false —— 先只验"密码对不对"，再由下面判"是不是管理员"，
+            // 这样"密码错"和"不是管理员"能给出各自准确的提示。
+            guard await LicenseAdmin.verify(email: email, password: password, requireAdmin: false) else {
+                await MainActor.run {
+                    verifying = false
+                    loginError = "邮箱或密码不正确"
+                }
+                return
+            }
+            do {
+                // 校验通过 → 建立会话（上传需要 token）
+                try await cloud.signIn(email: email, password: password)
+                await MainActor.run {
+                    verifying = false
+                    if cloud.isAdmin {
+                        loginPassword = ""
+                        verified = true
+                    } else {
+                        // 不是管理员：立刻把会话踢掉，别留在别人设备上
+                        Task { try? await cloud.signOut() }
+                        loginError = "这个账号不是管理员，无法进入实验室"
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    verifying = false
+                    loginError = CloudAccount.localizedCloudError(error)
+                }
+            }
+        }
     }
 
     private var adminPanel: some View {
