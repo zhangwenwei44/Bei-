@@ -703,7 +703,10 @@ final class ScriptRuntime {
 
 // MARK: - 解析入口
 
-final class ScriptSourceRunner {
+/// @unchecked Sendable：cache 只在 buildQueue 这条串行队列上读写，
+/// failureCounts/trippedAt 由 failureLock 保护，brokenKeys 由 brokenLock 保护——
+/// 状态本身是安全的，这里只是避免在 @Sendable 闭包里被编译器反复提示。
+final class ScriptSourceRunner: @unchecked Sendable {
     static let shared = ScriptSourceRunner()
 
     private let buildQueue = DispatchQueue(label: "Aurora.ScriptSourceRunner")
@@ -727,8 +730,8 @@ final class ScriptSourceRunner {
             noteFailure(source)
             return nil
         }
-        guard let runtime = runtime(for: source, script: script) else {
-            Log.error("脚本音源", "「\(source.name)」\(script.count) 字符的脚本没能建立 JS 运行时（语法错误或不支持的语法）")
+        guard let runtime = await self.runtime(for: source, script: script) else {
+            Log.error("脚本音源", "「\(source.name)」\(script.count) 字符的脚本没能建立 JS 运行时（语法错误或不支持的语法，或初始化超时）")
             noteFailure(source)
             return nil
         }
@@ -814,7 +817,13 @@ final class ScriptSourceRunner {
         brokenLock.unlock()
     }
 
-    private func runtime(for source: ThirdPartySource, script: String) -> ScriptRuntime? {
+    /// 异步构建/取用运行时：在 buildQueue 上执行，绝不阻塞调用方（尤其是主线程）。
+    ///
+    /// 之前这里用 `buildQueue.sync`，而检测入口 `detectAllAndApply` 跑在 MainActor，
+    /// 于是构建（含 init 的 5 秒超时）会直接卡住主线程——坏脚本越多卡得越久，
+    /// 表现就是「音源页面卡死」。改成 async + continuation 后，构建在后台 buildQueue
+    /// 上进行，调用方 `await` 让出主线程，UI 始终可响应。
+    private func runtime(for source: ThirdPartySource, script: String) async -> ScriptRuntime? {
         let key = "\(source.id)|\(script.hashStable)"
         // 之前初始化就超时的脚本直接放弃，避免每次检测（进音源页 onAppear）都重新
         // 拉起一个卡死的 worker 线程。脚本内容改了（hash 变）会自动换新 key 重新尝试。
@@ -822,38 +831,44 @@ final class ScriptSourceRunner {
         let knownBroken = brokenKeys.contains(key)
         brokenLock.unlock()
         if knownBroken { return nil }
-        return buildQueue.sync { () -> ScriptRuntime? in
-            if let cached = cache[key] { return cached }
-            guard let runtime = ScriptRuntime(source: source, script: script) else {
-                brokenLock.lock()
-                brokenKeys.insert(key)
-                brokenLock.unlock()
-                return nil
-            }
-            runtime.onInvalidate = { [weak self] dead in
-                guard let self else { return }
-                self.buildQueue.async {
-                    self.cache = self.cache.filter { $0.value !== dead }
+        return await withCheckedContinuation { (continuation: CheckedContinuation<ScriptRuntime?, Never>) in
+            buildQueue.async {
+                if let cached = self.cache[key] { continuation.resume(returning: cached); return }
+                guard let runtime = ScriptRuntime(source: source, script: script) else {
+                    self.brokenLock.lock()
+                    self.brokenKeys.insert(key)
+                    self.brokenLock.unlock()
+                    continuation.resume(returning: nil)
+                    return
                 }
+                runtime.onInvalidate = { [weak self] dead in
+                    guard let self else { return }
+                    self.buildQueue.async {
+                        self.cache = self.cache.filter { $0.value !== dead }
+                    }
+                }
+                // 脚本改一次就多一个 JSContext，只留最近几个。
+                // 混淆脚本的 JSContext 很吃内存，和 AVPlayer 叠在一起容易触发
+                // 内存压力被杀（jetsam 不会留下任何崩溃记录，表现就是日志突然断掉）。
+                if self.cache.count >= self.maxCachedRuntimes, let oldest = self.cache.keys.sorted().first {
+                    self.cache[oldest] = nil
+                }
+                self.cache[key] = runtime
+                continuation.resume(returning: runtime)
             }
-            // 脚本改一次就多一个 JSContext，只留最近几个。
-            // 混淆脚本的 JSContext 很吃内存，和 AVPlayer 叠在一起容易触发
-            // 内存压力被杀（jetsam 不会留下任何崩溃记录，表现就是日志突然断掉）。
-            if cache.count >= maxCachedRuntimes, let oldest = cache.keys.sorted().first {
-                cache[oldest] = nil
-            }
-            cache[key] = runtime
-            return runtime
         }
     }
 
     private var maxCachedRuntimes: Int { 3 }
 
     /// 收到内存警告时把 JSContext 全部丢掉。重新建一次的开销远小于被杀进程。
+    ///
+    /// 用 async 而不是 sync：内存警告回调在主线程，若此时 buildQueue 上正卡着
+    /// 一个构建中的脚本，sync 会把主线程一起拖住。
     func handleMemoryWarning() {
-        buildQueue.sync {
-            let count = cache.count
-            cache.removeAll()
+        buildQueue.async {
+            let count = self.cache.count
+            self.cache.removeAll()
             Log.warn("脚本音源", "内存警告，丢弃了 \(count) 个 JS 运行时缓存")
         }
     }

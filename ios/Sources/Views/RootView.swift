@@ -146,7 +146,7 @@ private struct MainTabs: View {
             tabRoot(SearchView())
                 .tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(Tab.search)
             tabRoot(LibraryView())
-                .tabItem { Label("我的音乐", systemImage: "music.quarternote.2") }.tag(Tab.library)
+                .tabItem { Label("我的音乐", systemImage: "music.note.house") }.tag(Tab.library)
             tabRoot(ProfileView())
                 .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
         }

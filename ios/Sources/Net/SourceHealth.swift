@@ -105,19 +105,24 @@ final class SourceHealth: ObservableObject {
     /// 可用 → 自动开启，无用（连探针都解析不出） → 自动关闭（红关绿开）。
     /// 不可用的源（脚本空 / 配置不完整）跳过，不强行开关。
     func detectAllAndApply() async {
-        for source in SourceStore.shared.sources where source.isUsable {
+        let targets = SourceStore.shared.sources.filter { $0.isUsable }
+        // 先统一标成「检测中」：否则刚进页面时一个绿/红点都没有，用户会以为页面卡死。
+        for source in targets { set(.checking, for: source.id) }
+        Log.info("音源", "开始全量体检 \(targets.count) 个音源")
+
+        for source in targets {
             let ok = await resolveProbe(source)
             let result: Status = ok ? .ok : .bad
             set(result, for: source.id)
             lock.lock()
             checkedAt[source.id] = Date()
             lock.unlock()
-            if ok {
-                SourceStore.shared.setEnabled(true, id: source.id)
-            } else {
-                SourceStore.shared.setEnabled(false, id: source.id)
-            }
+            // 先只改内存（UI 立刻反映开关变化），整批跑完再统一落盘一次
+            SourceStore.shared.setEnabled(ok, id: source.id, save: false)
+            Log.info("音源", "「\(source.name)」体检结果：\(ok ? "可用" : "无用")")
         }
+        SourceStore.shared.persistNow()
+        Log.info("音源", "全量体检完成")
     }
 
     // MARK: 内部

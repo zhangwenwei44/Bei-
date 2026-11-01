@@ -270,9 +270,19 @@ final class SourceStore: ObservableObject {
         return sources.count != before
     }
 
-    func setEnabled(_ enabled: Bool, id: String) {
+    /// 开关状态。
+    ///
+    /// `save: false` 时只改内存不落盘。检测页要逐个「红关绿开」，逐个落盘会把
+    /// 1MB 的音源列表反复完整编码 + 写盘（都在主线程），叠加起来就是明显卡顿；
+    /// 改成整批只在最后落盘一次。
+    func setEnabled(_ enabled: Bool, id: String, save: Bool = true) {
         guard let index = sources.firstIndex(where: { $0.id == id }) else { return }
         sources[index].enabled = enabled
+        if save { persist() }
+    }
+
+    /// 批量落盘（整批开关处理完调用一次）。
+    func persistNow() {
         persist()
     }
 
