@@ -19,12 +19,18 @@ final class ScriptExecutor {
         /// 会直接丢弃新任务且只写 NSLog（App 日志里看不到），
         /// invoke 的任务就可能这样凭空消失。
         private var tasks: [() -> Void] = []
+        /// 已请求停止：runLoop 取完手头任务后退出，线程随之结束，避免泄漏。
+        private var cancelled = false
 
         /// 线程主体：取一个任务执行，再等下一个，严格串行。
         func runLoop() {
             while true {
                 ready.wait()
                 while let task = takeNext() { task() }
+                lock.lock()
+                let shouldStop = cancelled
+                lock.unlock()
+                if shouldStop { break }
             }
         }
 
@@ -58,6 +64,14 @@ final class ScriptExecutor {
                 done.signal()
             }
             return done.wait(timeout: .now() + timeout) != .timedOut
+        }
+
+        /// 请求停止：标记 cancelled 并唤醒 runLoop，使其取完手头任务后退出。
+        func stop() {
+            lock.lock()
+            cancelled = true
+            lock.unlock()
+            ready.signal()
         }
 
         private func takeNext() -> (() -> Void)? {
@@ -97,5 +111,15 @@ final class ScriptExecutor {
     @discardableResult
     func sync(timeout: TimeInterval, _ work: @escaping () -> Void) -> Bool {
         box.submitAndWait(timeout: timeout, work)
+    }
+
+    /// 主动停止 worker 线程。运行时被释放/淘汰时调用，避免 16MB 栈线程永久泄漏
+    /// （之前每次进音源页都为每个音源各拉一条永不退出的线程，内存累积把 App 挤爆）。
+    func stop() {
+        box.stop()
+    }
+
+    deinit {
+        box.stop()
     }
 }

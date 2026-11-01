@@ -110,7 +110,17 @@ final class SourceHealth: ObservableObject {
         for source in targets { set(.checking, for: source.id) }
         Log.info("音源", "开始全量体检 \(targets.count) 个音源")
 
+        // 总预算：坏脚本每个最多吃满 5s(构建)+12s(调用) 超时，几十个源逐个来会非常久。
+        // 设一个上限，超时的源不再死等，标回「未检测」即可（下次进页面或手动检测再补）。
+        let budget: TimeInterval = 60
+        let start = Date()
+
         for source in targets {
+            if Date().timeIntervalSince(start) > budget {
+                // 预算耗尽：把还没轮到的源从「检测中」转回「未检测」，避免一直转圈像卡死。
+                set(.unknown, for: source.id)
+                continue
+            }
             let ok = await resolveProbe(source)
             let result: Status = ok ? .ok : .bad
             set(result, for: source.id)
