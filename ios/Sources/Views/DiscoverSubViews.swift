@@ -558,7 +558,7 @@ struct LabView: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 10)
                         .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
-                    SecureField("密码（至少 6 位）", text: $loginPassword)
+                    SecureField("密码", text: $loginPassword)
                         .textContentType(.password)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 10)

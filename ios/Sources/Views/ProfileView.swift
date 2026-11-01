@@ -217,7 +217,7 @@ struct ProfileView: View {
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 10)
                                 .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
-                            SecureField("密码（至少 6 位）", text: $cloudPassword)
+                            SecureField("密码", text: $cloudPassword)
                                 .textContentType(.password)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 10)

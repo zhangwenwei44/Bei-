@@ -355,7 +355,7 @@ struct DiscoverView: View {
             case .download: return "arrow.down.circle.fill"
             case .ranking: return "trophy.fill"
             case .square: return "music.note.list"
-            case .source: return "antenna.radiowaves.left.and.right"
+            case .source: return "waveform"
             case .lab: return "flask.fill"
             }
         }
@@ -862,22 +862,19 @@ struct DiscoverView: View {
             VStack(spacing: 0) {
                 ForEach(Array(songs.prefix(3).enumerated()), id: \.element.id) { index, song in
                     if index > 0 {
-                        Divider().padding(.leading, 54).padding(.vertical, 2)
+                        Divider().padding(.leading, 76).padding(.vertical, 2)
                     }
                     HStack(spacing: 10) {
-                        ZStack(alignment: .topLeading) {
-                            CoverImage(url: song.artworkURL,
-                                       fallbackKeys: song.coverFallbackKeys,
-                                       seed: "\(song.artist)-\(song.title)",
-                                       size: 44, corner: 6)
-                                .frame(width: 44, height: 44)
-                            Text("\(index + 1)")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(.white)
-                                .padding(3)
-                                .background(AppStyle.accent, in: Circle())
-                                .offset(x: -4, y: -4)
-                        }
+                        // 🔴 v2.9.18：排名数字移到最前面、去掉蓝色圆圈背景、字号加大
+                        Text("\(index + 1)")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                            .frame(width: 22, alignment: .center)
+                        CoverImage(url: song.artworkURL,
+                                   fallbackKeys: song.coverFallbackKeys,
+                                   seed: "\(song.artist)-\(song.title)",
+                                   size: 44, corner: 6)
+                            .frame(width: 44, height: 44)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(song.title)
                                 .font(.system(size: 13))

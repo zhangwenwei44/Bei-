@@ -101,6 +101,25 @@ final class SourceHealth: ObservableObject {
         }
     }
 
+    /// 进入音源页时全量体检：逐个检测**所有可用音源**（含未启用的），
+    /// 可用 → 自动开启，无用（连探针都解析不出） → 自动关闭（红关绿开）。
+    /// 不可用的源（脚本空 / 配置不完整）跳过，不强行开关。
+    func detectAllAndApply() async {
+        for source in SourceStore.shared.sources where source.isUsable {
+            let ok = await resolveProbe(source)
+            let result: Status = ok ? .ok : .bad
+            set(result, for: source.id)
+            lock.lock()
+            checkedAt[source.id] = Date()
+            lock.unlock()
+            if ok {
+                SourceStore.shared.setEnabled(true, id: source.id)
+            } else {
+                SourceStore.shared.setEnabled(false, id: source.id)
+            }
+        }
+    }
+
     // MARK: 内部
 
     /// 用一首大众酷狗歌曲做探针，直接解析（不经过 providerCode 过滤）。

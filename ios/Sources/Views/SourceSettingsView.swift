@@ -106,11 +106,6 @@ struct SourceSettingsView: View {
                 }
                 .disabled(store.sources.isEmpty)
                 Button {
-                    Task { await importQingMusic() }
-                } label: {
-                    Label("导入青听音源（聚合）", systemImage: "speaker.waves.left.and.right.circle")
-                }
-                Button {
                     importMessage = nil
                     Task { await SourceHealth.shared.checkAll() }
                 } label: {
@@ -163,9 +158,9 @@ struct SourceSettingsView: View {
             Log.info("音源导入", "收到分享进来的 URL: \(url.absoluteString)")
             Task { await importFromFiles([url]) }
         }
-        // 进入页面时顺手检测一遍（跳过近 10 分钟内已检测过的）
+        // 进入页面时全量体检：可用自动开、无用自动关（红关绿开）
         .onAppear {
-            Task { await SourceHealth.shared.checkStale() }
+            Task { await SourceHealth.shared.detectAllAndApply() }
         }
     }
 
@@ -213,42 +208,6 @@ struct SourceSettingsView: View {
 
     private var importSucceeded: Bool {
         importMessage?.hasPrefix("成功") == true || importMessage?.hasPrefix("导入") == true
-    }
-
-    /// 一键导入青听音源：下载官方 music.json，解析出各平台源并覆盖导入。
-    @MainActor
-    private func importQingMusic() async {
-        let urlString = "https://13413.kstore.vip/QingMusic/music.json"
-        guard let url = URL(string: urlString) else {
-            importMessage = "青听音源地址无效"
-            return
-        }
-        isImportingFiles = true
-        defer { isImportingFiles = false }
-        Log.info("音音源导入", "下载青听音源配置：\(urlString)")
-        do {
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 20
-            let (data, response) = try await URLSession.shared.data(for: request)
-            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-            guard code == 200, !data.isEmpty else {
-                importMessage = "下载青听音源失败：HTTP \(code)"
-                return
-            }
-            guard let text = String(data: data, encoding: .utf8) else {
-                importMessage = "青听音源解码失败"
-                return
-            }
-            let parsed = SourceStore.parseQingMusic(text)
-            guard !parsed.isEmpty else {
-                importMessage = "青听音源里没有可识别的源"
-                return
-            }
-            for source in parsed { store.upsertReplacingByName(source) }
-            importMessage = "成功导入青听音源 \(parsed.count) 条：\(parsed.map(\.name).joined(separator: "、"))"
-        } catch {
-            importMessage = "导入青听音源失败：\(error.localizedDescription)"
-        }
     }
 
     // MARK: - 内置音源

@@ -58,12 +58,7 @@ enum BannerSync {
         for i in 0..<meta.names.count {
             let ext = (meta.exts?.indices.contains(i) == true) ? (meta.exts?[i] ?? "png") : "png"
             guard let u = URL(string: "\(publicBase)/\(i).\(ext)") else { images.append(nil); continue }
-            var req = URLRequest(url: u)
-            req.timeoutInterval = 30
-            req.cachePolicy = .reloadIgnoringLocalCacheData
-            if let (d, resp) = try? await URLSession.shared.data(for: req),
-               let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-               let img = UIImage(data: d) {
+            if let img = await downloadImage(u, attempt: 1) {
                 images.append(img)
             } else {
                 Log.warn("横幅", "第 \(i + 1) 张云端横幅下载失败，用默认图占位")
@@ -71,6 +66,26 @@ enum BannerSync {
             }
         }
         return (images, nil)
+    }
+
+    /// 带重试地下载一张横幅图（最多 3 次）。
+    /// 🔴 v2.9.18：之前某张图瞬时失败（弱网/握手超时）就直接占位，导致「云端设了横幅、别的设备却加载不出来」。
+    /// 现在失败自动重试 3 次（每次间隔 0.5s），多数瞬时抖动都能拉到。
+    private static func downloadImage(_ url: URL, attempt: Int) async -> UIImage? {
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 30
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        if let (d, resp) = try? await URLSession.shared.data(for: req),
+           let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+           let img = UIImage(data: d) {
+            return img
+        }
+        if attempt < 3 {
+            // 退避 0.5s 再试，避免瞬间重连打爆
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            return await downloadImage(url, attempt: attempt + 1)
+        }
+        return nil
     }
 
     /// 上传横幅（管理员，已登录）。`banners` 为自定义图数组（nil 已过滤）。
