@@ -1352,34 +1352,32 @@ private struct GlowDot: View {
 /// 缺字不渲染，按钮变成一个"空圆圈"（用户截图实测）。Circle trim / 自绘路径 100% 可用。
 private struct LandscapeToggleIcon: View {
     var body: some View {
-        ZStack {
-            // 横放手机轮廓（提示旋转后的目标姿态）
-            RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                .strokeBorder(.white, lineWidth: 1.5)
-                .frame(width: 13, height: 9.5)
-            // 环绕手机的顺时针旋转弧线（留 1/4 缺口给箭头）
-            Circle()
-                .trim(from: 0.04, to: 0.76)
-                .stroke(.white, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
-                .frame(width: 20, height: 20)
-            // 弧线末端三角箭头（顺时针切向：顶部处朝右）
-            ArrowTipShape()
-                .fill(.white)
-                .frame(width: 6.5, height: 6.5)
-                .offset(x: 1, y: -10)
-        }
-        .frame(width: 30, height: 30)
+        LandscapeIconShape()
+            .stroke(.white, style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+            .frame(width: 30, height: 30)
     }
 }
 
-/// 小三角箭头（尖端朝右），配合旋转弧线使用
-private struct ArrowTipShape: Shape {
+/// 竖屏手机 + 右下角横屏小屏 + 右上角对勾（参考图：切到横屏）
+private struct LandscapeIconShape: Shape {
     func path(in rect: CGRect) -> Path {
+        let s = rect.width / 24.0
+        func X(_ v: CGFloat) -> CGFloat { rect.minX + v * s }
+        func Y(_ v: CGFloat) -> CGFloat { rect.minY + v * s }
         var p = Path()
-        p.move(to: CGPoint(x: 0, y: 0))
-        p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
-        p.addLine(to: CGPoint(x: 0, y: rect.maxY))
-        p.closeSubpath()
+        // 竖屏手机（大圆角矩形）
+        p.addRoundedRect(in: CGRect(x: X(6), y: Y(4), width: 6.5 * s, height: 15 * s),
+                         cornerSize: CGSize(width: 2.6 * s, height: 2.6 * s))
+        // 顶部状态条小横线
+        p.move(to: CGPoint(x: X(7.5), y: Y(6.6)))
+        p.addLine(to: CGPoint(x: X(10.5), y: Y(6.6)))
+        // 横屏小屏（叠在右下角，露出一部分）
+        p.addRoundedRect(in: CGRect(x: X(11.5), y: Y(12.5), width: 7 * s, height: 6 * s),
+                         cornerSize: CGSize(width: 2.0 * s, height: 2.0 * s))
+        // 右上角对勾
+        p.move(to: CGPoint(x: X(14.0), y: Y(5.6)))
+        p.addLine(to: CGPoint(x: X(15.8), y: Y(7.4)))
+        p.addLine(to: CGPoint(x: X(18.6), y: Y(4.0)))
         return p
     }
 }

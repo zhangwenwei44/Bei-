@@ -9,13 +9,13 @@ import SwiftUI
 /// 动作行：喜欢 / 下载 / 音质（均衡器）/ 歌词（六边形+词）/ 更多。
 enum PlayerActionGlyph {
     case favorite   // 喜欢（心形；激活时填充红）
-    case download   // 下载（方框 + 向下箭头）
-    case quality    // 音质（声波纹：不等高竖条）
+    case download   // 下载（向下箭头 + 托盘）
+    case quality    // 音质（断环 + 中心波形）
     case lyric      // 歌词（六边形 + 「词」）
     case translate  // 翻译（「文」字骨架）
     case more       // 更多（三个实心圆点，竖排）
-    case downloaded // 已下载（下载方框 + 对勾；与 .download 同线宽同坐标）
-    case soundEffect // 音效（三条水平滑块，参考图同款）
+    case downloaded // 已下载（下载托盘 + 对勾；与 .download 同线宽同坐标）
+    case soundEffect // 音效（竖排滑块，参考图同款）
 }
 
 /// 统一规格的动作图标：24×24 画布坐标 → 实际 size，线宽随 size 等比缩放。
@@ -42,7 +42,10 @@ struct PlayerActionIcon: View {
             case .download:
                 DownloadGlyph().stroke(tint, style: stroke)
             case .quality:
-                QualityGlyph().stroke(tint, style: stroke)
+                ZStack {
+                    QualityGlyph().stroke(tint, style: stroke)
+                    QualityDots().fill(tint)
+                }
             case .soundEffect:
                 ZStack {
                     SoundEffectGlyph().stroke(tint, style: stroke)
@@ -96,65 +99,98 @@ private struct HeartGlyph: Shape {
     }
 }
 
-/// 下载（方框 + 向下箭头，参考图同款）
+/// 下载（向下箭头 + 托盘，参考图同款）
 private struct DownloadGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         var p = Path()
-        // 方框（圆角矩形）
-        let x0 = b.x(4.4), y0 = b.y(4.0), x1 = b.x(19.6), y1 = b.y(19.4)
-        let r = (x1 - x0) * 0.18
-        p.addRoundedRect(in: CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0),
-                         cornerSize: CGSize(width: r, height: r))
-        // 向下箭头（箭杆 + 箭头）
-        p.move(to: b.p(12.0, 8.6))
-        p.addLine(to: b.p(12.0, 15.4))
-        p.move(to: b.p(8.4, 12.0))
-        p.addLine(to: b.p(12.0, 15.6))
-        p.addLine(to: b.p(15.6, 12.0))
+        // 托盘（U 形：左竖 + 底横 + 右竖，顶部开口，圆角收尾）
+        p.move(to: b.p(6.5, 9.5));  p.addLine(to: b.p(6.5, 16.2))
+        p.move(to: b.p(6.5, 16.2)); p.addLine(to: b.p(17.5, 16.2))
+        p.move(to: b.p(17.5, 9.5));  p.addLine(to: b.p(17.5, 16.2))
+        // 向下箭头（箭杆 + 箭头，指向托盘开口）
+        p.move(to: b.p(12.0, 3.4)); p.addLine(to: b.p(12.0, 9.9))
+        p.move(to: b.p(8.7, 6.6));  p.addLine(to: b.p(12.0, 10.0)); p.addLine(to: b.p(15.3, 6.6))
         return p
     }
 }
 
-/// 音质（声波纹：不等高竖条，参考图「强音/波纹」同款）
+/// 音质（断环 + 中心波形，参考图同款）
 private struct QualityGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
+        let s = rect.width / 24.0
+        let cx = b.x(12.0), cy = b.y(11.5), r = 4.6 * s
         var p = Path()
-        // 七根竖条，高度错落（中间高、两端低），呈现声波形状
-        let bars: [(CGFloat, CGFloat)] = [
-            (4.2, 13.0), (7.2, 9.4), (10.2, 6.6), (12.0, 4.8),
-            (13.8, 6.6), (16.8, 9.4), (19.8, 13.0)
-        ]
-        for (x, topY) in bars {
-            p.move(to: b.p(x, topY))
-            p.addLine(to: b.p(x, 20.4 - topY + 3.6)) // 对称到底部，形成「音频条」
+        // 断环：用折线近似圆环，上左 + 下右各留一个缺口
+        let steps = 48
+        var started = false
+        for i in 0...steps {
+            let deg = Double(i) * 360.0 / Double(steps)
+            let inGap = (deg >= 30 && deg <= 60) || (deg >= 210 && deg <= 240)
+            guard !inGap else { started = false; continue }
+            let a = deg * .pi / 180
+            let x = cx + r * CGFloat(cos(a))
+            let y = cy + r * CGFloat(sin(a))
+            if !started { p.move(to: CGPoint(x: x, y: y)); started = true }
+            else { p.addLine(to: CGPoint(x: x, y: y)) }
+        }
+        // 中心波形（~ 形）
+        p.move(to: b.p(9.8, 12.2))
+        p.addLine(to: b.p(11.2, 10.2))
+        p.addLine(to: b.p(13.0, 13.0))
+        p.addLine(to: b.p(14.4, 10.8))
+        return p
+    }
+}
+
+/// 音质断环两端的实心点（封住缺口）
+private struct QualityDots: Shape {
+    func path(in rect: CGRect) -> Path {
+        let b = GlyphBox(rect: rect)
+        let s = rect.width / 24.0
+        let cx = b.x(12.0), cy = b.y(11.5), r = 4.6 * s
+        let dotR = 1.15 * s
+        var p = Path()
+        for ang in [45.0, 225.0] {
+            let a = ang * .pi / 180
+            let dx = cx + r * CGFloat(cos(a))
+            let dy = cy + r * CGFloat(sin(a))
+            p.addEllipse(in: CGRect(x: dx - dotR, y: dy - dotR, width: dotR * 2, height: dotR * 2))
         }
         return p
     }
 }
 
-/// 音效（三条水平滑块，参考图同款：三条横线 + 三个滑块圆点）
+/// 音效（竖排滑块，参考图同款：三条竖线 + 顶部滑块圆点 + 右侧短刻度）
 struct SoundEffectGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         var p = Path()
-        // 三条水平轨道
-        for vy in [6.5, 12.0, 17.5] {
-            p.move(to: b.p(4.0, vy))
-            p.addLine(to: b.p(20.0, vy))
+        // 三条竖线（高低错落）
+        let lines: [(CGFloat, CGFloat, CGFloat)] = [
+            (7.2, 9.0, 13.0),   // (x, 顶端, 底端)
+            (12.0, 8.2, 17.5),
+            (16.8, 9.0, 13.0)
+        ]
+        for (x, yt, yb) in lines {
+            p.move(to: b.p(x, yt))
+            p.addLine(to: b.p(x, yb))
         }
+        // 右侧多出的一小段短刻度
+        p.move(to: b.p(14.4, 14.4))
+        p.addLine(to: b.p(14.4, 17.5))
         return p
     }
 }
 
-/// 音效滑块圆点（三个，落在不同位置，叠在轨道上方，纯填充）
+/// 音效滑块圆点（三个，落在每条竖线顶端，纯填充）
 struct SoundEffectKnobs: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
-        let r = 2.0 * rect.width / 24
+        let r = 1.7 * rect.width / 24
         var p = Path()
-        let knobs: [(CGFloat, CGFloat)] = [(14.0, 6.5), (8.5, 12.0), (16.0, 17.5)]
+        let knobs: [(CGFloat, CGFloat)] = [(7.2, 9.0), (12.0, 8.2), (16.8, 9.0)]
         for (vx, vy) in knobs {
             p.addEllipse(in: CGRect(x: b.x(vx) - r, y: b.y(vy) - r,
                                     width: r * 2, height: r * 2))
@@ -203,22 +239,21 @@ private struct MoreGlyph: Shape {
     }
 }
 
-/// 已下载：**保留「下载」的方框**，把箭头换成对勾 ——
+/// 已下载：**保留「下载」的托盘**，把箭头换成对勾 ——
 /// 一眼认得出"这是下载这件事完成了"，而不是一个孤零零的对勾。
-/// 方框坐标与 DownloadGlyph 完全一致，线宽也一致，视觉重量对齐。
+/// 托盘坐标与 DownloadGlyph 完全一致，线宽也一致，视觉重量对齐。
 private struct DownloadedGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         var p = Path()
-        // 方框（与 DownloadGlyph 同坐标）
-        let x0 = b.x(4.4), y0 = b.y(4.0), x1 = b.x(19.6), y1 = b.y(19.4)
-        let r = (x1 - x0) * 0.18
-        p.addRoundedRect(in: CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0),
-                         cornerSize: CGSize(width: r, height: r))
+        // 托盘（与 DownloadGlyph 同坐标，去掉箭头）
+        p.move(to: b.p(6.5, 9.5));  p.addLine(to: b.p(6.5, 16.2))
+        p.move(to: b.p(6.5, 16.2)); p.addLine(to: b.p(17.5, 16.2))
+        p.move(to: b.p(17.5, 9.5));  p.addLine(to: b.p(17.5, 16.2))
         // 对勾
-        p.move(to: b.p(8.2, 11.8))
-        p.addLine(to: b.p(11.2, 14.8))
-        p.addLine(to: b.p(16.2, 7.8))
+        p.move(to: b.p(9.5, 13.0))
+        p.addLine(to: b.p(11.6, 15.1))
+        p.addLine(to: b.p(15.5, 10.2))
         return p
     }
 }
