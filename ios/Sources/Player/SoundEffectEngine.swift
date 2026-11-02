@@ -186,7 +186,7 @@ enum SoundEffectEngine {
                 var gotFrames = numberFrames
                 var tr = CMTimeRange.zero
                 let status = MTAudioProcessingTapGetSourceAudio(
-                    tap, numberFrames, bufferList, &f, &gotFrames, &tr)
+                    tap, numberFrames, bufferList, &f, &tr, &gotFrames)
                 if status == noErr,
                    let storage = MTAudioProcessingTapGetStorage(tap) {
                     Unmanaged<SoundEffectProcessor>.fromOpaque(storage)
@@ -200,7 +200,7 @@ enum SoundEffectEngine {
 
         var tap: Unmanaged<MTAudioProcessingTap>?
         let status = MTAudioProcessingTapCreate(
-            kCFAllocatorDefault, &callbacks, .postDecode, &tap)
+            kCFAllocatorDefault, &callbacks, MTAudioProcessingTapCreationFlags(1), &tap)
         guard status == noErr, let t = tap?.takeRetainedValue() else { return nil }
         let params = AVMutableAudioMixInputParameters()
         params.audioTapProcessor = t
