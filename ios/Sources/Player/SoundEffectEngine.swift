@@ -162,23 +162,21 @@ enum SoundEffectEngine {
 
         // 把 processor 的 retained 指针放进 clientInfo 字段，
         // 并在 init 回调里转存到 tap storage，供 prepare/process/finalize 取回。
-        let callbacks = MTAudioProcessingTapCallbacks(
+        var callbacks = MTAudioProcessingTapCallbacks(
             version: kMTAudioProcessingTapCallbacksVersion_0,
             clientInfo: Unmanaged.passRetained(proc).toOpaque(),
             init: { _, clientInfo, storageOut in
                 storageOut.pointee = clientInfo
             },
             finalize: { tap in
-                if let storage = MTAudioProcessingTapGetStorage(tap) {
-                    Unmanaged<SoundEffectProcessor>.fromOpaque(storage).release()
-                }
+                let storage = MTAudioProcessingTapGetStorage(tap)
+                Unmanaged<SoundEffectProcessor>.fromOpaque(storage).release()
             },
             prepare: { tap, _, asbd in
-                if let storage = MTAudioProcessingTapGetStorage(tap) {
-                    Unmanaged<SoundEffectProcessor>.fromOpaque(storage)
-                        .takeUnretainedValue()
-                        .prepare(description: asbd.pointee)
-                }
+                let storage = MTAudioProcessingTapGetStorage(tap)
+                Unmanaged<SoundEffectProcessor>.fromOpaque(storage)
+                    .takeUnretainedValue()
+                    .prepare(description: asbd.pointee)
             },
             unprepare: { _ in },
             process: { tap, numberFrames, flags, bufferList, framesOut, flagsOut in
@@ -187,8 +185,8 @@ enum SoundEffectEngine {
                 var tr = CMTimeRange.zero
                 let status = MTAudioProcessingTapGetSourceAudio(
                     tap, numberFrames, bufferList, &f, &tr, &gotFrames)
-                if status == noErr,
-                   let storage = MTAudioProcessingTapGetStorage(tap) {
+                if status == noErr {
+                    let storage = MTAudioProcessingTapGetStorage(tap)
                     Unmanaged<SoundEffectProcessor>.fromOpaque(storage)
                         .takeUnretainedValue()
                         .process(bufferList, frames: gotFrames)
