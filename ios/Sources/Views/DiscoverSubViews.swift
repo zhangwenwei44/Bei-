@@ -177,13 +177,15 @@ final class BannerConfig: ObservableObject {
     ///   管理员设的横幅被换成别人的"钟馗骑虎"图）。
     ///   现在云端只在你**手动改图**或点「立即同步到云端」时才写入，不再有任何自动覆盖。
 
-    /// 定时刷新（60s 一次）：管理员在别的设备改了横幅，本机自动跟上。
+    /// 定时刷新（600s = 10 分钟一次）：管理员在别的设备改了横幅，本机自动跟上。
+    /// 🔴 v2.9.21 带宽优化：原为 60s，配合「本地缓存 + 版本增量」后，图片只在 version 变化时才下载，
+    /// 但 60s 仍过于频繁（meta.json 虽小，也没必要）；改 10 分钟足够发现管理员更新，且大幅降请求量。
     func startAutoRefresh() {
         stopAutoRefresh()
         // 注意：闭包里用 BannerConfig.shared 而不是捕获 self ——
         // Timer 的 block 是 @Sendable，捕获非 Sendable 的 self 会触发并发告警，
         // 而本 CI 有「有编译警告就判失败」的检查。
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { _ in
             Task { await BannerConfig.shared.pullCloud(retry: 0) }
         }
     }

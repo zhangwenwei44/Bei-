@@ -23,6 +23,54 @@ enum BannerSync {
     struct Meta: Codable {
         let names: [String]
         var exts: [String]?
+        /// 🔴 v2.9.21 带宽优化：每次上传写入时间戳版本号，拉取端据此只在「图片实际变化」时
+        /// 才重新下载几十 MB 的原图，否则直接用本地缓存。避免定时轮询把出口带宽打爆
+        /// （曾经 60s 轮询 + 每次重下原图，导致 Supabase 缓存出口带宽超 5.5GB 配额）。
+        var version: Double?
+    }
+
+    // MARK: - 本地磁盘缓存（带宽优化核心）
+
+    /// 本地缓存目录（Caches，不备份、系统空间不足时可被清理，重新拉一次即可）。
+    private static var cacheDir: URL {
+        let c = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("AuroraBannerCache", isDirectory: true)
+        try? FileManager.default.createDirectory(at: c, withIntermediateDirectories: true)
+        return c
+    }
+
+    private static func cacheMetaURL() -> URL { cacheDir.appendingPathComponent("cache_meta.json") }
+
+    private static func cachedFile(_ index: Int, _ ext: String) -> URL {
+        cacheDir.appendingPathComponent("\(index).\(ext)")
+    }
+
+    /// 缓存元信息：记录云端版本号 + 每张已缓存图的「下标/后缀/缓存时间」。
+    private struct CacheMeta: Codable {
+        var version: Double?
+        var items: [CacheItem]
+        struct CacheItem: Codable { var index: Int; var ext: String; var cachedAt: Double }
+    }
+
+    private static func readCacheMeta() -> CacheMeta {
+        guard let d = try? Data(contentsOf: cacheMetaURL()),
+              let m = try? JSONDecoder().decode(CacheMeta.self, from: d) else {
+            return CacheMeta(version: nil, items: [])
+        }
+        return m
+    }
+
+    private static func writeCacheMeta(_ m: CacheMeta) {
+        if let d = try? JSONEncoder().encode(m) {
+            try? d.write(to: cacheMetaURL(), options: .atomic)
+        }
+    }
+
+    /// 把解码后的横幅图统一存成 JPEG（横幅无透明需求），体积几百 KB，避免缓存 PNG 过大。
+    private static func saveImage(_ img: UIImage, to url: URL) {
+        if let j = img.jpegData(compressionQuality: 0.85) {
+            try? j.write(to: url, options: .atomic)
+        }
     }
 
     /// 拉取云端横幅。
@@ -55,17 +103,53 @@ enum BannerSync {
             return (nil, msg)
         }
 
+        // 🔴 v2.9.21 带宽优化：本地磁盘缓存 + 版本增量。
+        // 只下载几 KB 的 meta.json 做轮询；图片仅在「云端 version 变化」或「本地无缓存」时才下载，
+        // 下载后落本地缓存，下次直接用——同一台设备每 60s 轮询也不再重下几十 MB 原图。
+        let cache = readCacheMeta()
+        var newItems: [CacheMeta.CacheItem] = []
         var images: [UIImage?] = []
         for i in 0..<meta.names.count {
             let ext = (meta.exts?.indices.contains(i) == true) ? (meta.exts?[i] ?? "png") : "png"
-            guard let u = URL(string: "\(publicBase)/\(i).\(ext)") else { images.append(nil); continue }
+            let localPath = cachedFile(i, ext)
+            let cached = cache.items.first { $0.index == i && $0.ext == ext }
+            let localReady = (cached != nil && FileManager.default.fileExists(atPath: localPath.path))
+            // 命中本地缓存的两种情形：① 版本没变；② 老数据（云端无 version）本地已有缓存。
+            // 两种都直接读本地，零网络开销——这是把出口带宽从「轮询次数 × 几十 MB」降到
+            // 「每设备一次性下载」的关键。
+            let useLocal = localReady && (meta.version == cache.version || meta.version == nil)
+            if useLocal,
+               let c = cached,
+               let localImg = UIImage(contentsOfFile: localPath.path) {
+                images.append(localImg)
+                newItems.append(c)
+                continue
+            }
+            guard let u = URL(string: "\(publicBase)/\(i).\(ext)") else {
+                // 地址拼不出来：尽量用旧缓存兜底，避免回退默认图
+                if let c = cached, FileManager.default.fileExists(atPath: localPath.path),
+                   let old = UIImage(contentsOfFile: localPath.path) {
+                    images.append(old); newItems.append(c)
+                } else { images.append(nil) }
+                continue
+            }
             if let img = await downloadImage(u, attempt: 1) {
+                saveImage(img, to: localPath)
                 images.append(img)
+                newItems.append(CacheMeta.CacheItem(index: i, ext: ext,
+                                                    cachedAt: Date().timeIntervalSince1970))
+            } else if let c = cached, FileManager.default.fileExists(atPath: localPath.path),
+                      let old = UIImage(contentsOfFile: localPath.path) {
+                // 下载失败但本地有旧图：保留，避免回退默认图
+                Log.warn("横幅", "第 \(i + 1) 张下载失败，用本地缓存兜底")
+                images.append(old)
+                newItems.append(c)
             } else {
                 Log.warn("横幅", "第 \(i + 1) 张云端横幅下载失败，用默认图占位")
                 images.append(nil) // 占位：数量与云端一致，不会整组退回默认图
             }
         }
+        writeCacheMeta(CacheMeta(version: meta.version, items: newItems))
         return (images, nil)
     }
 
@@ -168,7 +252,8 @@ enum BannerSync {
             }
         }
 
-        var meta = Meta(names: banners.map { $0.name }, exts: exts)
+        var meta = Meta(names: banners.map { $0.name }, exts: exts,
+                        version: Date().timeIntervalSince1970)
         if meta.exts?.count != meta.names.count { meta.exts = nil }
         guard let mData = try? JSONEncoder().encode(meta) else { return "元数据编码失败" }
         if let err = await putObject(path: "meta.json", data: mData, contentType: "application/json",
@@ -260,10 +345,12 @@ enum BannerSync {
         return detail.isEmpty ? ("HTTP \(http ?? 0)") : ("HTTP \(http ?? 0)：\(detail)")
     }
 
-    /// 上传前压缩：长边缩到 ≤1400px，JPEG(0.9) 与 PNG 取更小的那个。
-    /// 🔴 原来直接传原图（1 张 1.4MB），别的手机弱网下载必失败 → 看不到横幅。
+    /// 上传前压缩：长边缩到 ≤1280px，JPEG(0.85) 与 PNG 取更小的那个。
+    /// 🔴 原来直接传原图（1 张 1.4MB），别的手机弱网下载必失败 → 看不到横幅；
+    /// 后来云端还实测残留过 18–20MB 的原图，单图就吃掉大量出口带宽。收到 1280/0.85 后
+    /// 单张横幅通常只有几百 KB，从源头压低下载流量（配合本地缓存基本不再重复下载）。
     private static func compress(_ image: UIImage) -> (Data, String)? {
-        let maxSide: CGFloat = 1400
+        let maxSide: CGFloat = 1280
         var img = image
         let longSide = max(image.size.width, image.size.height)
         if longSide > maxSide {
@@ -281,7 +368,7 @@ enum BannerSync {
         } else {
             hasAlpha = false
         }
-        let jpg = hasAlpha ? nil : img.jpegData(compressionQuality: 0.9)
+        let jpg = hasAlpha ? nil : img.jpegData(compressionQuality: 0.85)
         let png = img.pngData()
         switch (jpg, png) {
         case let (j?, p?):
