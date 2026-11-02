@@ -93,9 +93,9 @@ struct AuroraMusicApp: App {
                             .zIndex(100)
                     }
                 }
-                // 🔴 v2.8.4：启动图至少显示 5 秒（之前 2 秒）
+                // 🔴 v2.8.4：启动图至少显示 5 秒（之前 2 秒）—— 用户要求改回 2 秒
                 .task {
-                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
                     withAnimation(.easeOut(duration: 0.35)) { splashVisible = false }
                 }
                 // 🔴 v2.9.0：授权锁屏 —— 等启动图淡出后再盖，避免遮住启动海报；

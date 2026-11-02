@@ -222,6 +222,22 @@ final class PlayerStore: ObservableObject {
         installRemoteCommands()
         installNetworkMonitor()
         installQualityMonitor()
+        installSoundEffectObserver()
+    }
+
+    /// 🔴 音效：监听预设变化 —— 用户切了音效预设，立刻把新的 audioMix 挂到当前曲目。
+    private func installSoundEffectObserver() {
+        let token = NotificationCenter.default.addObserver(
+            forName: SoundEffectSetting.didChange, object: nil, queue: .main) { [weak self] _ in
+                self?.applySoundEffect()
+            }
+        observers.append(token)
+    }
+
+    /// 🔴 把当前音效预设实时挂到正在播放的 item（切了预设立刻生效，不重启曲目）。
+    private func applySoundEffect() {
+        guard let item = player.currentItem else { return }
+        item.audioMix = SoundEffectEngine.audioMix(for: SoundEffectSetting.shared.current)
     }
 
     deinit {
@@ -605,6 +621,9 @@ final class PlayerStore: ObservableObject {
             item.preferredForwardBufferDuration = 30
         }
 
+        // 🔴 音效：把当前预设的 audioMix 挂到 item（默认「关闭」时返回 nil，不挂、零影响）
+        item.audioMix = SoundEffectEngine.audioMix(for: SoundEffectSetting.shared.current)
+
         player.replaceCurrentItem(with: item)
         itemThirdParty = thirdParty
         failedHosts = []
@@ -711,6 +730,7 @@ final class PlayerStore: ObservableObject {
         if let cached = resolvedURLCache[next.id] {
             preloadedItem = AVPlayerItem(url: cached.url)
             preloadedItem?.preferredForwardBufferDuration = 30  // 跟 attach 里一致，让 AVAsset 预建足够连接
+            preloadedItem?.audioMix = SoundEffectEngine.audioMix(for: SoundEffectSetting.shared.current)
             preloadedForSongID = next.id
             Log.info("预加载", "命中缓存，下一首预热：\(next.title.prefix(20))")
             return
@@ -749,6 +769,7 @@ final class PlayerStore: ObservableObject {
                       self.queue[self.currentIndex + 1].id == next.id else { return }
                 self.preloadedItem = AVPlayerItem(url: assetURL)
                 self.preloadedItem?.preferredForwardBufferDuration = 30
+                self.preloadedItem?.audioMix = SoundEffectEngine.audioMix(for: SoundEffectSetting.shared.current)
                 self.preloadedForSongID = next.id
                 // 写入缓存方便下次 prepare/stall 恢复直接用
                 self.resolvedURLCache[next.id] = ResolvedEntry(url: assetURL, thirdParty: audio.isThirdParty, at: Date())

@@ -31,6 +31,8 @@ struct PlayerView: View {
     @State private var showMoreMenu = false
     /// 🔴 v2.5.45：动作行「音质」按钮专用弹层（原「评论」位置改为音质）
     @State private var showQualityMenu = false
+    /// 🔴 动作行「音效」按钮专用面板（三频段音效预设）
+    @State private var showSoundEffectPanel = false
     /// 🔴 v2.5.44：横屏播放器内嵌的「播放队列」面板（不再单独弹一页 sheet）
     @State private var showLandscapeQueue = false
     /// 分享弹层内容（nil = 不弹）
@@ -385,6 +387,9 @@ struct PlayerView: View {
             // ③ 音质（v2.5.45：原「评论」改为「音质」—— 点开音质选择）
             classicActionButton(glyph: .quality) { showQualityMenu = true }
             Spacer(minLength: 0)
+            // ③·⑤ 音效（新增：放在音质后面，点开音效预设面板）
+            classicActionButton(glyph: .soundEffect) { showSoundEffectPanel = true }
+            Spacer(minLength: 0)
             // ④ 歌词页
             classicActionButton(glyph: .lyric) { openLyricsPage() }
             Spacer(minLength: 0)
@@ -397,6 +402,11 @@ struct PlayerView: View {
         .sheet(isPresented: $showQualityMenu) {
             CompatNavigationStack {
                 QualitySettingsView()
+            }
+        }
+        .sheet(isPresented: $showSoundEffectPanel) {
+            CompatNavigationStack {
+                SoundEffectPanel()
             }
         }
         .confirmationDialog("更多", isPresented: $showMoreMenu, titleVisibility: .visible) {
