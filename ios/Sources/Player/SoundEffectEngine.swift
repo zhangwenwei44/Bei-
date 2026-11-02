@@ -124,7 +124,7 @@ private final class SoundEffectProcessor {
         guard preset != .off, isFloat else { return }
         let n = Int(frames)
         guard n > 0 else { return }
-        guard let buffers = UnsafeMutableAudioBufferListPointer(abl) else { return }
+        let buffers = UnsafeMutableAudioBufferListPointer(abl)
         let ch = buffers.count
         if st.count != ch { st = (0..<ch).map { _ in [Float](repeating: 0, count: 3) } }
         for c in 0..<ch {
@@ -156,47 +156,51 @@ private final class SoundEffectProcessor {
 /// 🔴 用 MTAudioProcessingTap 把上面的 DSP 接到 AVPlayer 的音频渲染链上。
 /// 默认 off 返回 nil（不挂），正常播放零影响；仅选了预设才构建。
 enum SoundEffectEngine {
-    /// PostDecode 标志原始值 = 1（不依赖具体 SDK 的类型导入方式）。
-    private static let postDecodeFlag = MTAudioProcessingTapCreationFlags(rawValue: 1)
-
     static func audioMix(for preset: SoundEffectPreset) -> AVAudioMix? {
         guard preset != .off else { return nil }
         let proc = SoundEffectProcessor(preset: preset)
-        let client = Unmanaged.passRetained(proc).toOpaque()
 
-        var callbacks = MTAudioProcessingTapCallbacks(
+        // 把 processor 的 retained 指针放进 clientInfo 字段，
+        // 并在 init 回调里转存到 tap storage，供 prepare/process/finalize 取回。
+        let callbacks = MTAudioProcessingTapCallbacks(
             version: kMTAudioProcessingTapCallbacksVersion_0,
+            clientInfo: Unmanaged.passRetained(proc).toOpaque(),
             init: { _, clientInfo, storageOut in
                 storageOut.pointee = clientInfo
             },
-            finalize: { _, clientInfo in
-                Unmanaged<SoundEffectProcessor>.fromOpaque(clientInfo).release()
-            },
-            prepare: { _, clientInfo, _, asbd in
-                let p = Unmanaged<SoundEffectProcessor>.fromOpaque(clientInfo!).takeUnretainedValue()
-                p.prepare(description: asbd.pointee)
-            },
-            unprepare: { _, _ in },
-            process: { tap, clientInfo, frames, _, bufferList, framesOut, trStart, trDur in
-                var flags = MTAudioProcessingTapFlags(rawValue: 0)
-                var outFrames = frames
-                var ts = CMTime.zero
-                var td = CMTime.zero
-                let err = MTAudioProcessingTapGetSourceAudio(
-                    tap, frames, bufferList, &flags, &outFrames, &ts, &td)
-                if err == noErr {
-                    let p = Unmanaged<SoundEffectProcessor>.fromOpaque(clientInfo!).takeUnretainedValue()
-                    p.process(bufferList, frames: outFrames)
+            finalize: { tap in
+                if let storage = MTAudioProcessingTapGetStorage(tap) {
+                    Unmanaged<SoundEffectProcessor>.fromOpaque(storage).release()
                 }
-                framesOut.pointee = outFrames
-                trStart?.pointee = ts
-                trDur?.pointee = td
+            },
+            prepare: { tap, _, asbd in
+                if let storage = MTAudioProcessingTapGetStorage(tap) {
+                    Unmanaged<SoundEffectProcessor>.fromOpaque(storage)
+                        .takeUnretainedValue()
+                        .prepare(description: asbd.pointee)
+                }
+            },
+            unprepare: { _ in },
+            process: { tap, numberFrames, flags, bufferList, framesOut, flagsOut in
+                var f = flags
+                var gotFrames = numberFrames
+                var tr = CMTimeRange.zero
+                let status = MTAudioProcessingTapGetSourceAudio(
+                    tap, numberFrames, bufferList, &f, &gotFrames, &tr)
+                if status == noErr,
+                   let storage = MTAudioProcessingTapGetStorage(tap) {
+                    Unmanaged<SoundEffectProcessor>.fromOpaque(storage)
+                        .takeUnretainedValue()
+                        .process(bufferList, frames: gotFrames)
+                }
+                framesOut.pointee = gotFrames
+                flagsOut.pointee = f
             }
         )
 
         var tap: Unmanaged<MTAudioProcessingTap>?
-        let status = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks,
-                                               postDecodeFlag, &tap)
+        let status = MTAudioProcessingTapCreate(
+            kCFAllocatorDefault, &callbacks, .postDecode, &tap)
         guard status == noErr, let t = tap?.takeRetainedValue() else { return nil }
         let params = AVMutableAudioMixInputParameters()
         params.audioTapProcessor = t
