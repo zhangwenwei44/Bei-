@@ -48,8 +48,9 @@ struct SoundEffectPanel: View {
                     SoundEffectGlyph().stroke(
                         selected ? AppStyle.accent : AppStyle.secondaryText,
                         style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                    SoundEffectKnobs().fill(
-                        selected ? AppStyle.accent : AppStyle.secondaryText)
+                    SoundEffectHandles().stroke(
+                        selected ? AppStyle.accent : AppStyle.secondaryText,
+                        style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                 }
                 .frame(width: 26, height: 26)
 
