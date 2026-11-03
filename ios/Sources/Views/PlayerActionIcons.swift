@@ -15,7 +15,7 @@ enum PlayerActionGlyph {
     case translate  // 翻译（「文」字骨架）
     case more       // 更多（三个实心圆点，竖排）
     case downloaded // 已下载（同一下载方框，把箭头换成对勾）
-    case soundEffect // 音效（三条竖轨 + 横向滑块手柄）
+    case soundEffect // 音效（三条竖轨 + 横向滑块手柄 + OFF 角标）
 }
 
 /// 统一规格的动作图标：24×24 画布坐标 → 实际 size，线宽随 size 等比缩放。
@@ -40,14 +40,20 @@ struct PlayerActionIcon: View {
                 if active { HeartGlyph().fill(tint) }
                 HeartGlyph().stroke(tint, style: stroke)
             case .download:
-                // 方框 + 箭头，右下角挂 VIP 角标（酷狗同款）
+                // 方框 + 箭头 + 右下角 VIP 角标（酷狗同款）
                 ZStack {
-                    DownloadGlyph().stroke(tint, style: stroke)
+                    DownloadBox().stroke(tint, style: stroke)
+                    // 🔴 v2.9.13：箭头单独用更细的线 —— 之前箭头跟外框一样粗，
+                    // 把方框顶边顶得支离破碎，整坨糊成一团。
+                    DownloadArrow().stroke(
+                        tint,
+                        style: StrokeStyle(lineWidth: lineWidth * 0.80,
+                                           lineCap: .round, lineJoin: .round))
                     Text("VIP")
-                        .font(.system(size: size * 0.21, weight: .heavy))
+                        .font(.system(size: size * 0.19, weight: .heavy))
                         .italic()
                         .foregroundStyle(tint)
-                        .offset(x: size * 0.13, y: size * 0.24)
+                        .offset(x: size * 0.18, y: size * 0.30)
                 }
             case .quality:
                 ZStack {
@@ -62,6 +68,11 @@ struct PlayerActionIcon: View {
                 ZStack {
                     SoundEffectGlyph().stroke(tint, style: stroke)
                     SoundEffectHandles().stroke(tint, style: stroke)
+                    // 右下角「OFF」小字（纯几何线条，跟图标同一套风格，比小号字体清晰）
+                    SoundEffectOffLabel().stroke(
+                        tint,
+                        style: StrokeStyle(lineWidth: lineWidth * 0.80,
+                                           lineCap: .round, lineJoin: .round))
                 }
             case .lyric:
                 // 六边形外框 + 中间「词」字
@@ -111,35 +122,40 @@ private struct HeartGlyph: Shape {
     }
 }
 
-/// 下载（参考图 8658「下载」同款）：**圆角方框 + 从顶边缺口插入的向下箭头**
-/// 🔴 v2.9.12 修正：之前画成「U 形托盘 + 箭头」（那是酷狗的写法），
-/// 参考图其实是**闭合方框**、箭头从顶边插进去、箭头尖落在框内。
-/// 右下角留空给「VIP」角标（跟参考图一样，边框在那里断开）。
-private struct DownloadGlyph: Shape {
+/// 下载外框（参考图 8658「下载」同款）：**圆角方框**，顶边在箭头处留缺口，
+/// 右下角让位给「VIP」角标（底边在 x=11.8 截断、右边框在 y=11.4 截断）。
+private struct DownloadBox: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         let s = rect.width / 24.0
         let x0 = 3.4, x1 = 20.6, y0 = 4.2, y1 = 20.4, r = 3.2
         var p = Path()
         // 顶边左段（箭头左侧）
-        p.move(to: b.p(x0 + r, y0)); p.addLine(to: b.p(9.6, y0))
+        p.move(to: b.p(x0 + r, y0)); p.addLine(to: b.p(9.5, y0))
         // 左上圆角 → 左边框
         p.addArc(center: b.p(x0 + r, y0 + r), radius: r * s,
                  startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
         p.addLine(to: b.p(x0, y1 - r))
-        // 左下圆角 → 底边
+        // 左下圆角 → 底边（到 VIP 角标处截断）
         p.addArc(center: b.p(x0 + r, y1 - r), radius: r * s,
                  startAngle: .degrees(180), endAngle: .degrees(90), clockwise: true)
-        // 底边在 VIP 角标处截断（参考图就是让位给右下角的 VIP 小字）
-        p.addLine(to: b.p(12.2, y1))
+        p.addLine(to: b.p(11.8, y1))
         // 顶边右段（箭头右侧）+ 右上圆角 → 右边框（到 VIP 角标上方为止）
-        p.move(to: b.p(14.4, y0)); p.addLine(to: b.p(x1 - r, y0))
+        p.move(to: b.p(14.5, y0)); p.addLine(to: b.p(x1 - r, y0))
         p.addArc(center: b.p(x1 - r, y0 + r), radius: r * s,
                  startAngle: .degrees(270), endAngle: .degrees(0), clockwise: true)
-        p.addLine(to: b.p(x1, 12.2))
-        // 向下箭头：从框顶插入，箭杆出框、箭头尖落在框内
-        p.move(to: b.p(12.0, 1.8)); p.addLine(to: b.p(12.0, 13.4))
-        p.move(to: b.p(9.2, 10.4)); p.addLine(to: b.p(12.0, 13.4)); p.addLine(to: b.p(14.8, 10.4))
+        p.addLine(to: b.p(x1, 11.4))
+        return p
+    }
+}
+
+/// 下载箭头：从框顶插入的向下箭头（**单独一条更细的线**，跟外框区分开）
+private struct DownloadArrow: Shape {
+    func path(in rect: CGRect) -> Path {
+        let b = GlyphBox(rect: rect)
+        var p = Path()
+        p.move(to: b.p(12.0, 2.4)); p.addLine(to: b.p(12.0, 12.0))
+        p.move(to: b.p(9.4, 9.4)); p.addLine(to: b.p(12.0, 12.0)); p.addLine(to: b.p(14.6, 9.4))
         return p
     }
 }
@@ -198,17 +214,16 @@ private struct QualityRings: Shape {
 }
 
 /// 音效（参考图 72e4「音效」同款）：**三条竖直轨道**，每条轨道被一个横向滑块手柄断开
-/// 🔴 v2.9.12 修正：之前画的是「三条线 + 顶部圆点 + 右侧刻度」，
-/// 参考图其实是 **EQ 滑块**：竖轨道 + 横向短杠手柄，且整体撑满画布。
+/// 🔴 v2.9.13：三轨压缩到左上 2/3，右下角腾出位置给「OFF」小字（跟参考图一致）。
 struct SoundEffectGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         var p = Path()
         // (轨道 x, 上段起, 上段止, 下段起, 下段止)
         let tracks: [(CGFloat, CGFloat, CGFloat, CGFloat, CGFloat)] = [
-            (4.4,  3.4, 10.8, 13.2, 20.6),
-            (11.9, 3.4, 14.4, 16.8, 20.6),
-            (19.2, 3.4, 11.4, 14.0, 17.5)
+            (3.8,  3.2, 6.6, 9.4, 14.8),
+            (7.8,  3.2, 10.4, 13.2, 14.8),
+            (11.8, 3.2, 5.4, 8.2, 14.8)
         ]
         for (x, ya, yb, yc, yd) in tracks {
             p.move(to: b.p(x, ya)); p.addLine(to: b.p(x, yb))
@@ -225,13 +240,35 @@ struct SoundEffectHandles: Shape {
         var p = Path()
         // (手柄 y, 左端 x, 右端 x)
         let handles: [(CGFloat, CGFloat, CGFloat)] = [
-            (11.9, 2.4, 6.4),
-            (15.4, 9.9, 13.9),
-            (12.5, 17.2, 21.2)
+            (8.0,  2.2, 5.4),
+            (11.8, 6.2, 9.4),
+            (6.8,  10.2, 13.4)
         ]
         for (y, x0, x1) in handles {
             p.move(to: b.p(x0, y)); p.addLine(to: b.p(x1, y))
         }
+        return p
+    }
+}
+
+/// 音效图标右下角的「OFF」小字 —— **纯几何线条**（O = 圆角框，F = 竖线+两横），
+/// 不用字体渲染：小尺寸下字体是糊的，线条才认得出。
+struct SoundEffectOffLabel: Shape {
+    func path(in rect: CGRect) -> Path {
+        let b = GlyphBox(rect: rect)
+        let s = rect.width / 24.0
+        let y0 = 14.8, y1 = 18.8, mid = 16.8
+        var p = Path()
+        // O
+        p.addRoundedRect(in: CGRect(x: b.x(13.2), y: b.y(y0),
+                                    width: 2.2 * s, height: (y1 - y0) * s),
+                         cornerSize: CGSize(width: 1.1 * s, height: 1.1 * s))
+        // F
+        p.move(to: b.p(16.3, y1)); p.addLine(to: b.p(16.3, y0)); p.addLine(to: b.p(18.4, y0))
+        p.move(to: b.p(16.3, mid)); p.addLine(to: b.p(18.0, mid))
+        // F
+        p.move(to: b.p(19.1, y1)); p.addLine(to: b.p(19.1, y0)); p.addLine(to: b.p(21.2, y0))
+        p.move(to: b.p(19.1, mid)); p.addLine(to: b.p(20.7, mid))
         return p
     }
 }
@@ -278,7 +315,7 @@ private struct MoreGlyph: Shape {
 
 /// 已下载：**跟「下载」同一个方框**，把箭头换成对勾 ——
 /// 一眼认得出"这是下载这件事完成了"，而不是一个孤零零的对勾。
-/// 方框坐标与 DownloadGlyph 完全一致，线宽也一致，视觉重量对齐。
+/// 方框坐标与 DownloadBox 完全一致，线宽也一致，视觉重量对齐。
 private struct DownloadedGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)

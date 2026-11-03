@@ -1360,8 +1360,8 @@ private struct LandscapeToggleIcon: View {
 
 /// 横屏按钮（参考图 ebd3「横屏」同款）：
 /// **竖屏手机（顶部带听筒短线）+ 右下角横屏小屏（与手机共用右边和底边）+ 右上角弯曲箭头**
-/// 🔴 v2.9.12 修正：之前右上角画的是**对勾**，参考图其实是「四分之一圆弧 + V 形箭头尖」；
-/// 而且小屏跟手机错开、边界粘连成一团。现在按参考图重排，两矩形共用边不再重叠错位。
+/// 🔴 v2.9.13 修正：之前手机太宽、弧线起点压在手机上、弧线末端又贴着小屏，
+/// 三个元素连成一片，渲染出来像个字母「b」。现在三者互不接触，各自留出间隙。
 private struct LandscapeIconShape: Shape {
     func path(in rect: CGRect) -> Path {
         let s = rect.width / 24.0
@@ -1369,20 +1369,20 @@ private struct LandscapeIconShape: Shape {
         func Y(_ v: CGFloat) -> CGFloat { rect.minY + v * s }
         var p = Path()
         // 竖屏手机（大圆角矩形）
-        p.addRoundedRect(in: CGRect(x: X(2.2), y: Y(3.0), width: 9.4 * s, height: 18.0 * s),
+        p.addRoundedRect(in: CGRect(x: X(2.0), y: Y(3.2), width: 8.2 * s, height: 17.4 * s),
                          cornerSize: CGSize(width: 2.4 * s, height: 2.4 * s))
         // 顶部听筒短线
-        p.move(to: CGPoint(x: X(4.4), y: Y(5.6)))
-        p.addLine(to: CGPoint(x: X(7.0), y: Y(5.6)))
+        p.move(to: CGPoint(x: X(4.0), y: Y(5.6)))
+        p.addLine(to: CGPoint(x: X(6.6), y: Y(5.6)))
         // 横屏小屏（左边与手机右边共用、底边与手机底边齐平）
-        p.addRoundedRect(in: CGRect(x: X(11.6), y: Y(12.2), width: 8.0 * s, height: 8.8 * s),
-                         cornerSize: CGSize(width: 2.2 * s, height: 2.2 * s))
+        p.addRoundedRect(in: CGRect(x: X(10.2), y: Y(13.2), width: 8.4 * s, height: 7.4 * s),
+                         cornerSize: CGSize(width: 2.0 * s, height: 2.0 * s))
         // 右上角弯曲箭头：平滑弧线从左上弯到右下，末端回勾成锐尖
-        p.move(to: CGPoint(x: X(12.4), y: Y(2.8)))
-        p.addCurve(to: CGPoint(x: X(19.4), y: Y(7.4)),
-                   control1: CGPoint(x: X(16.2), y: Y(2.8)),
-                   control2: CGPoint(x: X(19.4), y: Y(4.6)))
-        p.addLine(to: CGPoint(x: X(16.6), y: Y(10.4)))
+        p.move(to: CGPoint(x: X(13.4), y: Y(2.2)))
+        p.addCurve(to: CGPoint(x: X(20.8), y: Y(7.2)),
+                   control1: CGPoint(x: X(16.6), y: Y(2.2)),
+                   control2: CGPoint(x: X(20.8), y: Y(4.6)))
+        p.addLine(to: CGPoint(x: X(17.4), y: Y(10.2)))
         return p
     }
 }
