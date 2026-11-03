@@ -48,10 +48,10 @@ struct PlayerActionIcon: View {
                     DownloadBox().stroke(tint, style: stroke)
                     DownloadArrow().stroke(tint, style: stroke)
                     Text("VIP")
-                        .font(.system(size: size * 0.27, weight: .heavy))
+                        .font(.system(size: size * 0.23, weight: .heavy))
                         .italic()
                         .foregroundStyle(tint)
-                        .offset(x: size * 0.235, y: size * 0.315)
+                        .offset(x: size * 0.185, y: size * 0.167)
                 }
             case .quality:
                 ZStack {
@@ -129,18 +129,24 @@ private struct HeartGlyph: Shape {
 private struct DownloadBox: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
-        let lx = 1.0, rx = 21.6          // 左/右边框
-        let by = 20.4                      // 底边
+        let s = rect.width / 24.0
+        let x0 = 2.4, x1 = 21.7, y0 = 0.3, y1 = 18.8, r = 2.4
         var p = Path()
-        // ── 左侧竖线（左上角平切：无横条、无小钩、无凹陷）
-        p.move(to: b.p(lx, 1.0))
-        p.addLine(to: b.p(lx, by - 1.4))
-        // ── 左下角圆滑 → 底边（向右到箭头正下方断开）
-        p.addQuadCurve(to: b.p(lx + 1.4, by), control: b.p(lx, by))
-        p.addLine(to: b.p(9.3, by))
-        // ── 右侧竖线（右上角同样平切，下端止于箭尖高度）
-        p.move(to: b.p(rx, 1.0))
-        p.addLine(to: b.p(rx, 15.9))
+        // ── 顶边左段（箭头左侧的短横条）
+        p.move(to: b.p(x0 + r, y0)); p.addLine(to: b.p(7.6, y0))
+        // ── 左上圆角 → 左边框
+        p.addArc(center: b.p(x0 + r, y0 + r), radius: r * s,
+                 startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+        p.addLine(to: b.p(x0, y1 - r))
+        // ── 左下圆角 → 底边（向右到箭头正下方断开）
+        p.addArc(center: b.p(x0 + r, y1 - r), radius: r * s,
+                 startAngle: .degrees(180), endAngle: .degrees(90), clockwise: true)
+        p.addLine(to: b.p(12.5, y1))
+        // ── 顶边右段（箭头右侧的短横条）+ 右上圆角 → 右边框（下端止于箭尖高度）
+        p.move(to: b.p(16.3, y0)); p.addLine(to: b.p(x1 - r, y0))
+        p.addArc(center: b.p(x1 - r, y0 + r), radius: r * s,
+                 startAngle: .degrees(270), endAngle: .degrees(0), clockwise: true)
+        p.addLine(to: b.p(x1, 12.5))
         return p
     }
 }
@@ -151,8 +157,8 @@ private struct DownloadArrow: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         var p = Path()
-        p.move(to: b.p(9.25, 0.0)); p.addLine(to: b.p(9.25, 15.7))
-        p.move(to: b.p(5.0, 10.2)); p.addLine(to: b.p(9.25, 15.7)); p.addLine(to: b.p(13.5, 10.2))
+        p.move(to: b.p(11.9, 0.2)); p.addLine(to: b.p(11.9, 13.6))
+        p.move(to: b.p(8.8, 10.2)); p.addLine(to: b.p(11.9, 13.6)); p.addLine(to: b.p(15.2, 10.2))
         return p
     }
 }
@@ -297,20 +303,25 @@ private struct MoreGlyph: Shape {
 private struct DownloadedGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
-        let lx = 1.0, rx = 21.6
-        let by = 20.4
+        let s = rect.width / 24.0
+        let x0 = 2.4, x1 = 21.7, y0 = 0.3, y1 = 18.8, r = 2.4
         var p = Path()
-        // 外框（与 DownloadBox 完全同坐标：两角平切、左下圆滑）
-        p.move(to: b.p(lx, 1.0))
-        p.addLine(to: b.p(lx, by - 1.4))
-        p.addQuadCurve(to: b.p(lx + 1.4, by), control: b.p(lx, by))
-        p.addLine(to: b.p(9.3, by))
-        p.move(to: b.p(rx, 1.0))
-        p.addLine(to: b.p(rx, 15.9))
+        // 外框（与 DownloadBox 完全同坐标）
+        p.move(to: b.p(x0 + r, y0)); p.addLine(to: b.p(7.6, y0))
+        p.addArc(center: b.p(x0 + r, y0 + r), radius: r * s,
+                 startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+        p.addLine(to: b.p(x0, y1 - r))
+        p.addArc(center: b.p(x0 + r, y1 - r), radius: r * s,
+                 startAngle: .degrees(180), endAngle: .degrees(90), clockwise: true)
+        p.addLine(to: b.p(12.5, y1))
+        p.move(to: b.p(16.3, y0)); p.addLine(to: b.p(x1 - r, y0))
+        p.addArc(center: b.p(x1 - r, y0 + r), radius: r * s,
+                 startAngle: .degrees(270), endAngle: .degrees(0), clockwise: true)
+        p.addLine(to: b.p(x1, 12.5))
         // 对勾（替代箭头，位置与箭尖重合）
-        p.move(to: b.p(5.2, 12.8))
-        p.addLine(to: b.p(8.4, 16.0))
-        p.addLine(to: b.p(14.2, 9.0))
+        p.move(to: b.p(8.0, 10.6))
+        p.addLine(to: b.p(10.9, 13.6))
+        p.addLine(to: b.p(16.4, 6.6))
         return p
     }
 }
