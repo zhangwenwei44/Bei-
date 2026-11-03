@@ -42,18 +42,21 @@ struct PlayerActionIcon: View {
             case .download:
                 // 方框 + 箭头 + 右下角 VIP 角标（酷狗同款）
                 ZStack {
-                    DownloadBox().stroke(tint, style: stroke)
-                    // 🔴 v2.9.13：箭头单独用更细的线 —— 之前箭头跟外框一样粗，
-                    // 把方框顶边顶得支离破碎，整坨糊成一团。
+                    // 🔴 v2.9.15：按参考图实测比例收细 —— 参考图线宽只有图宽的 4.8%，
+                    // 之前沿用 1.8/24（7.5%）显得又粗又笨重。
+                    DownloadBox().stroke(
+                        tint,
+                        style: StrokeStyle(lineWidth: lineWidth * 0.85,
+                                           lineCap: .round, lineJoin: .round))
                     DownloadArrow().stroke(
                         tint,
-                        style: StrokeStyle(lineWidth: lineWidth * 0.80,
+                        style: StrokeStyle(lineWidth: lineWidth * 0.70,
                                            lineCap: .round, lineJoin: .round))
                     Text("VIP")
-                        .font(.system(size: size * 0.24, weight: .heavy))
+                        .font(.system(size: size * 0.19, weight: .heavy))
                         .italic()
                         .foregroundStyle(tint)
-                        .offset(x: size * 0.242, y: size * 0.217)
+                        .offset(x: size * 0.117, y: size * 0.090)
                 }
             case .quality:
                 ZStack {
@@ -66,14 +69,21 @@ struct PlayerActionIcon: View {
                 }
             case .soundEffect:
                 ZStack {
-                    SoundEffectGlyph().stroke(tint, style: stroke)
-                    SoundEffectHandles().stroke(tint, style: stroke)
+                    // 🔴 v2.9.15：参考图线宽只有图宽的 4.4%，整体收细一档
+                    SoundEffectGlyph().stroke(
+                        tint,
+                        style: StrokeStyle(lineWidth: lineWidth * 0.72,
+                                           lineCap: .round, lineJoin: .round))
+                    SoundEffectHandles().stroke(
+                        tint,
+                        style: StrokeStyle(lineWidth: lineWidth * 0.72,
+                                           lineCap: .round, lineJoin: .round))
                     // 右下角「OFF」角标：**实心粗体斜体**（参考图同款，不是空心线条）
                     Text("OFF")
-                        .font(.system(size: size * 0.185, weight: .heavy))
+                        .font(.system(size: size * 0.19, weight: .heavy))
                         .italic()
                         .foregroundStyle(tint)
-                        .offset(x: size * 0.242, y: size * 0.167)
+                        .offset(x: size * 0.30, y: size * 0.20)
                 }
             case .lyric:
                 // 六边形外框 + 中间「词」字
@@ -158,7 +168,7 @@ private struct DownloadArrow: Shape {
         let b = GlyphBox(rect: rect)
         var p = Path()
         p.move(to: b.p(11.9, 0.2)); p.addLine(to: b.p(11.9, 13.6))
-        p.move(to: b.p(8.2, 9.8)); p.addLine(to: b.p(11.9, 13.6)); p.addLine(to: b.p(16.0, 9.8))
+        p.move(to: b.p(8.8, 10.2)); p.addLine(to: b.p(11.9, 13.6)); p.addLine(to: b.p(15.2, 10.2))
         return p
     }
 }
@@ -245,9 +255,9 @@ struct SoundEffectHandles: Shape {
         var p = Path()
         // (手柄 y, 左端 x, 右端 x)
         let handles: [(CGFloat, CGFloat, CGFloat)] = [
-            (7.7,  0.8, 6.4),
-            (12.2, 7.6, 12.9),
-            (7.3,  14.4, 19.9)
+            (7.7,  1.3, 5.9),
+            (12.2, 8.1, 12.7),
+            (7.3,  14.9, 19.5)
         ]
         for (y, x0, x1) in handles {
             p.move(to: b.p(x0, y)); p.addLine(to: b.p(x1, y))

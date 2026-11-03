@@ -1384,9 +1384,9 @@ private struct LandscapeIconShape: Shape {
                    control1: CGPoint(x: X(17.6), y: Y(1.4)),
                    control2: CGPoint(x: X(21.0), y: Y(3.2)))
         // 弧末的 V 形箭头尖（两条翼，尖端朝左下）
-        p.move(to: CGPoint(x: X(19.2), y: Y(4.6)))
+        p.move(to: CGPoint(x: X(19.9), y: Y(5.1)))
         p.addLine(to: CGPoint(x: X(21.0), y: Y(6.0)))
-        p.addLine(to: CGPoint(x: X(22.4), y: Y(4.8)))
+        p.addLine(to: CGPoint(x: X(22.1), y: Y(5.3)))
         return p
     }
 }
