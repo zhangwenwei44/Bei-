@@ -50,10 +50,10 @@ struct PlayerActionIcon: View {
                         style: StrokeStyle(lineWidth: lineWidth * 0.80,
                                            lineCap: .round, lineJoin: .round))
                     Text("VIP")
-                        .font(.system(size: size * 0.19, weight: .heavy))
+                        .font(.system(size: size * 0.24, weight: .heavy))
                         .italic()
                         .foregroundStyle(tint)
-                        .offset(x: size * 0.18, y: size * 0.30)
+                        .offset(x: size * 0.242, y: size * 0.217)
                 }
             case .quality:
                 ZStack {
@@ -68,11 +68,12 @@ struct PlayerActionIcon: View {
                 ZStack {
                     SoundEffectGlyph().stroke(tint, style: stroke)
                     SoundEffectHandles().stroke(tint, style: stroke)
-                    // 右下角「OFF」小字（纯几何线条，跟图标同一套风格，比小号字体清晰）
-                    SoundEffectOffLabel().stroke(
-                        tint,
-                        style: StrokeStyle(lineWidth: lineWidth * 0.80,
-                                           lineCap: .round, lineJoin: .round))
+                    // 右下角「OFF」角标：**实心粗体斜体**（参考图同款，不是空心线条）
+                    Text("OFF")
+                        .font(.system(size: size * 0.185, weight: .heavy))
+                        .italic()
+                        .foregroundStyle(tint)
+                        .offset(x: size * 0.242, y: size * 0.167)
                 }
             case .lyric:
                 // 六边形外框 + 中间「词」字
@@ -122,16 +123,17 @@ private struct HeartGlyph: Shape {
     }
 }
 
-/// 下载外框（参考图 8658「下载」同款）：**圆角方框**，顶边在箭头处留缺口，
-/// 右下角让位给「VIP」角标（底边在 x=11.8 截断、右边框在 y=11.4 截断）。
+/// 下载外框（参考图 8658「下载」同款，1:1 量过像素）：
+/// **圆角方框**，顶边在箭头处留缺口；底边在 x=12.5、右边框在 y=12.5 处截断，
+/// 给右下角的「VIP」斜体角标让位（参考图里 VIP 是实心斜体，且略微穿出边框）。
 private struct DownloadBox: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         let s = rect.width / 24.0
-        let x0 = 3.4, x1 = 20.6, y0 = 4.2, y1 = 20.4, r = 3.2
+        let x0 = 2.4, x1 = 21.7, y0 = 0.3, y1 = 18.8, r = 2.4
         var p = Path()
         // 顶边左段（箭头左侧）
-        p.move(to: b.p(x0 + r, y0)); p.addLine(to: b.p(9.5, y0))
+        p.move(to: b.p(x0 + r, y0)); p.addLine(to: b.p(7.6, y0))
         // 左上圆角 → 左边框
         p.addArc(center: b.p(x0 + r, y0 + r), radius: r * s,
                  startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
@@ -139,23 +141,24 @@ private struct DownloadBox: Shape {
         // 左下圆角 → 底边（到 VIP 角标处截断）
         p.addArc(center: b.p(x0 + r, y1 - r), radius: r * s,
                  startAngle: .degrees(180), endAngle: .degrees(90), clockwise: true)
-        p.addLine(to: b.p(11.8, y1))
+        p.addLine(to: b.p(12.5, y1))
         // 顶边右段（箭头右侧）+ 右上圆角 → 右边框（到 VIP 角标上方为止）
-        p.move(to: b.p(14.5, y0)); p.addLine(to: b.p(x1 - r, y0))
+        p.move(to: b.p(16.3, y0)); p.addLine(to: b.p(x1 - r, y0))
         p.addArc(center: b.p(x1 - r, y0 + r), radius: r * s,
                  startAngle: .degrees(270), endAngle: .degrees(0), clockwise: true)
-        p.addLine(to: b.p(x1, 11.4))
+        p.addLine(to: b.p(x1, 12.5))
         return p
     }
 }
 
-/// 下载箭头：从框顶插入的向下箭头（**单独一条更细的线**，跟外框区分开）
+/// 下载箭头：从框顶插入的向下箭头（**单独一条更细的线**，跟外框区分开）。
+/// 🔴 v2.9.14：按参考图加长加深 —— 箭尖落在框内约 45% 深处，斜边更长更展开。
 private struct DownloadArrow: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         var p = Path()
-        p.move(to: b.p(12.0, 2.4)); p.addLine(to: b.p(12.0, 12.0))
-        p.move(to: b.p(9.4, 9.4)); p.addLine(to: b.p(12.0, 12.0)); p.addLine(to: b.p(14.6, 9.4))
+        p.move(to: b.p(11.9, 0.2)); p.addLine(to: b.p(11.9, 13.6))
+        p.move(to: b.p(8.2, 9.8)); p.addLine(to: b.p(11.9, 13.6)); p.addLine(to: b.p(16.0, 9.8))
         return p
     }
 }
@@ -213,17 +216,19 @@ private struct QualityRings: Shape {
     }
 }
 
-/// 音效（参考图 72e4「音效」同款）：**三条竖直轨道**，每条轨道被一个横向滑块手柄断开
-/// 🔴 v2.9.13：三轨压缩到左上 2/3，右下角腾出位置给「OFF」小字（跟参考图一致）。
+/// 音效（参考图 72e4「音效」同款，1:1 量过像素）：
+/// **三条竖直轨道（顶端齐平）**，每条被一个横向滑块手柄断开；
+/// 手柄高度错落：左上 / 中下 / 右上；右轨下段很短（给右下角「OFF」让位）。
+/// 🔴 v2.9.14：按参考图重排 —— 之前三轨起点错位、右轨过长，OFF 挤在角落看不清。
 struct SoundEffectGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         var p = Path()
         // (轨道 x, 上段起, 上段止, 下段起, 下段止)
         let tracks: [(CGFloat, CGFloat, CGFloat, CGFloat, CGFloat)] = [
-            (3.8,  3.2, 6.6, 9.4, 14.8),
-            (7.8,  3.2, 10.4, 13.2, 14.8),
-            (11.8, 3.2, 5.4, 8.2, 14.8)
+            (3.6,  1.5, 7.0,  9.8, 19.5),
+            (10.4, 1.5, 11.0, 13.8, 19.5),
+            (17.2, 1.5, 6.6,  9.4, 11.4)
         ]
         for (x, ya, yb, yc, yd) in tracks {
             p.move(to: b.p(x, ya)); p.addLine(to: b.p(x, yb))
@@ -240,35 +245,13 @@ struct SoundEffectHandles: Shape {
         var p = Path()
         // (手柄 y, 左端 x, 右端 x)
         let handles: [(CGFloat, CGFloat, CGFloat)] = [
-            (8.0,  2.2, 5.4),
-            (11.8, 6.2, 9.4),
-            (6.8,  10.2, 13.4)
+            (7.7,  0.8, 6.4),
+            (12.2, 7.6, 12.9),
+            (7.3,  14.4, 19.9)
         ]
         for (y, x0, x1) in handles {
             p.move(to: b.p(x0, y)); p.addLine(to: b.p(x1, y))
         }
-        return p
-    }
-}
-
-/// 音效图标右下角的「OFF」小字 —— **纯几何线条**（O = 圆角框，F = 竖线+两横），
-/// 不用字体渲染：小尺寸下字体是糊的，线条才认得出。
-struct SoundEffectOffLabel: Shape {
-    func path(in rect: CGRect) -> Path {
-        let b = GlyphBox(rect: rect)
-        let s = rect.width / 24.0
-        let y0 = 14.8, y1 = 18.8, mid = 16.8
-        var p = Path()
-        // O
-        p.addRoundedRect(in: CGRect(x: b.x(13.2), y: b.y(y0),
-                                    width: 2.2 * s, height: (y1 - y0) * s),
-                         cornerSize: CGSize(width: 1.1 * s, height: 1.1 * s))
-        // F
-        p.move(to: b.p(16.3, y1)); p.addLine(to: b.p(16.3, y0)); p.addLine(to: b.p(18.4, y0))
-        p.move(to: b.p(16.3, mid)); p.addLine(to: b.p(18.0, mid))
-        // F
-        p.move(to: b.p(19.1, y1)); p.addLine(to: b.p(19.1, y0)); p.addLine(to: b.p(21.2, y0))
-        p.move(to: b.p(19.1, mid)); p.addLine(to: b.p(20.7, mid))
         return p
     }
 }

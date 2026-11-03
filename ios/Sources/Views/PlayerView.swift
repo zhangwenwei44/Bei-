@@ -1358,31 +1358,35 @@ private struct LandscapeToggleIcon: View {
     }
 }
 
-/// 横屏按钮（参考图 ebd3「横屏」同款）：
-/// **竖屏手机（顶部带听筒短线）+ 右下角横屏小屏（与手机共用右边和底边）+ 右上角弯曲箭头**
-/// 🔴 v2.9.13 修正：之前手机太宽、弧线起点压在手机上、弧线末端又贴着小屏，
-/// 三个元素连成一片，渲染出来像个字母「b」。现在三者互不接触，各自留出间隙。
+/// 横屏按钮（参考图 ebd3「横屏」同款，1:1 量过像素）：
+/// **竖屏手机（顶部一条粗短听筒条）+ 右下角横屏小屏（与手机共用右边和底边）
+///  + 右上角「粗弧线 + V 形箭头尖（尖端朝左下）」**
+/// 🔴 v2.9.14 修正：之前弧线末端只有一根回勾线、听筒是细线，
+/// 参考图是**标准箭头（两条翼的 V）** + **粗短条**，现在按比例还原。
 private struct LandscapeIconShape: Shape {
     func path(in rect: CGRect) -> Path {
         let s = rect.width / 24.0
         func X(_ v: CGFloat) -> CGFloat { rect.minX + v * s }
         func Y(_ v: CGFloat) -> CGFloat { rect.minY + v * s }
         var p = Path()
-        // 竖屏手机（大圆角矩形）
-        p.addRoundedRect(in: CGRect(x: X(2.0), y: Y(3.2), width: 8.2 * s, height: 17.4 * s),
-                         cornerSize: CGSize(width: 2.4 * s, height: 2.4 * s))
-        // 顶部听筒短线
-        p.move(to: CGPoint(x: X(4.0), y: Y(5.6)))
-        p.addLine(to: CGPoint(x: X(6.6), y: Y(5.6)))
+        // 竖屏手机（高瘦圆角矩形）
+        p.addRoundedRect(in: CGRect(x: X(1.0), y: Y(0.8), width: 11.6 * s, height: 21.6 * s),
+                         cornerSize: CGSize(width: 2.6 * s, height: 2.6 * s))
+        // 顶部听筒：一条**粗短横条**（比线宽更粗，用双倍线宽画短横线）
+        p.move(to: CGPoint(x: X(5.0), y: Y(3.3)))
+        p.addLine(to: CGPoint(x: X(8.6), y: Y(3.3)))
         // 横屏小屏（左边与手机右边共用、底边与手机底边齐平）
-        p.addRoundedRect(in: CGRect(x: X(10.2), y: Y(13.2), width: 8.4 * s, height: 7.4 * s),
-                         cornerSize: CGSize(width: 2.0 * s, height: 2.0 * s))
-        // 右上角弯曲箭头：平滑弧线从左上弯到右下，末端回勾成锐尖
-        p.move(to: CGPoint(x: X(13.4), y: Y(2.2)))
-        p.addCurve(to: CGPoint(x: X(20.8), y: Y(7.2)),
-                   control1: CGPoint(x: X(16.6), y: Y(2.2)),
-                   control2: CGPoint(x: X(20.8), y: Y(4.6)))
-        p.addLine(to: CGPoint(x: X(17.4), y: Y(10.2)))
+        p.addRoundedRect(in: CGRect(x: X(12.6), y: Y(11.2), width: 9.2 * s, height: 11.2 * s),
+                         cornerSize: CGSize(width: 2.4 * s, height: 2.4 * s))
+        // 右上角：粗弧线从左上弯到右下
+        p.move(to: CGPoint(x: X(14.4), y: Y(1.4)))
+        p.addCurve(to: CGPoint(x: X(21.0), y: Y(6.0)),
+                   control1: CGPoint(x: X(17.6), y: Y(1.4)),
+                   control2: CGPoint(x: X(21.0), y: Y(3.2)))
+        // 弧末的 V 形箭头尖（两条翼，尖端朝左下）
+        p.move(to: CGPoint(x: X(19.2), y: Y(4.6)))
+        p.addLine(to: CGPoint(x: X(21.0), y: Y(6.0)))
+        p.addLine(to: CGPoint(x: X(22.4), y: Y(4.8)))
         return p
     }
 }
