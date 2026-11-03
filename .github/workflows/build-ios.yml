@@ -48,26 +48,44 @@ jobs:
             echo "未配置 LICENSE_SECRET，使用源码里的默认授权密钥"
           fi
 
-      # 🔴 内置音源不走 git —— 第三方脚本没有 license 声明，仓库无权再分发，
-      # 所以 ios/BundledSources/*.js 被 .gitignore 排除，checkout 拿不到。
+      # 🔴 内置音源的两种来源（v2.9.22 起）：
       #
-      # 方案：从本仓库的 v2.5.0 Release 资产拉 bundedsources.tar.gz
-      #（44KB 的脚本 base64 后会超过 GitHub Secret 48KB 上限，Secret 方案不可行）。
-      # 资产可以用 ship-ipa 脚本随时替换，CI 每次构建都取最新版本。
-      # 资产不存在时静默跳过 —— 出的包就是「无内置音源」的干净包。
+      # ① 仓库内：洛雪音源6（`ios/BundledSources/luoxue.js`，MIT 许可，允许再分发）
+      #    → 直接跟代码一起 checkout，CI 一定有。
+      #
+      # ② Release 资产：bundled-sources.tar.gz —— 给「自己下载、自己放本地槽位」
+      #    的无 license 脚本用（那类代码仓库无权再分发，不能进 git）。
+      #    资产不存在时静默跳过，产出的包只含 ① 里的内置音源。
+      #
+      # 注意：仓库版本优先 —— 解包后逐个比对，仓库里已有的同名文件直接跳过，
+      # 避免 CDN 缓存把旧脚本（或已下架的 changqing.js）塞回来。
       - name: Fetch bundled sources from release asset
         run: |
           set -euo pipefail
           URL="https://github.com/${{ github.repository }}/releases/download/v2.5.0/bundled-sources.tar.gz"
-          mkdir -p ios/BundledSources
+          mkdir -p ios/BundledSources /tmp/bundled
           if curl -fsSL --retry 3 --max-time 120 "$URL" -o /tmp/bundled.tar.gz; then
-            tar -xzf /tmp/bundled.tar.gz -C ios/BundledSources
-            rm -f /tmp/bundled.tar.gz
-            echo "✅ 已从 Release 取回内置音源："
+            tar -xzf /tmp/bundled.tar.gz -C /tmp/bundled
+            # 只把仓库里没有的脚本搬进去，仓库版本优先
+            for f in /tmp/bundled/*.js; do
+              [ -e "$f" ] || continue
+              b=$(basename "$f")
+              # 已下架的脚本永不装回（CDN 可能还在发旧 tarball）
+              case "$b" in
+                changqing.js) echo "   跳过（已下架）: $b"; continue;;
+              esac
+              if [ -e "ios/BundledSources/$b" ]; then
+                echo "   跳过（仓库已有同名文件）: $b"
+              else
+                cp "$f" "ios/BundledSources/$b"
+                echo "   已加入本地槽位: $b"
+              fi
+            done
+            rm -rf /tmp/bundled /tmp/bundled.tar.gz
+            echo "✅ 内置音源就绪："
             ls -la ios/BundledSources/
           else
-            echo "⚠️ 未找到 bundled-sources.tar.gz（$URL），本包不含内置音源"
-            echo "   上传方法见 ios/BundledSources/README.local.md"
+            echo "⚠️ 未找到 bundled-sources.tar.gz（$URL），只使用仓库内的内置音源"
           fi
 
       - name: Select Xcode

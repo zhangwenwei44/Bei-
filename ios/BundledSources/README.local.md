@@ -1,6 +1,6 @@
-# 本地音源槽位
+# 内置音源目录
 
-把第三方洛雪音源脚本（`.js`）直接丢在这个目录，重新打包就会被塞进 IPA。
+第三方洛雪音源脚本（`.js`）放这个目录，重新打包就会被塞进 IPA。
 
 ```
 ios/BundledSources/你的音源.js
@@ -8,29 +8,37 @@ ios/BundledSources/你的音源.js
 
 ## 规则
 
-- 所有脚本文件都被 `.gitignore` 排除：**会打进 IPA，但不会进仓库**
-- 这样做是因为没有 license 声明的代码默认保留所有权利，仓库无权再分发；
-  但你自己下载、自己打包使用不受影响
+- **`luoxue.js`（洛雪音源6）随包发布，故意入库** —— 它头部声明了 `@license MIT`，
+  允许再分发。见 `THIRD_PARTY_NOTICES.md`。
+- **其他没有 license 声明的脚本被 `.gitignore` 排除**：会打进 IPA，但不会进仓库。
+  这样做是因为没有 license 声明的代码默认保留所有权利，仓库无权再分发；
+  但你自己下载、自己打包使用不受影响。
 
 ## CI 怎么拿到这些文件
 
-`actions/checkout` 因为上面的 .gitignore 规则拿不到脚本，所以 CI 改成从
+`actions/checkout` 因为上面的 .gitignore 规则拿不到无 license 的脚本，所以 CI 改成从
 **v2.5.0 Release 资产 `bundled-sources.tar.gz`** 下载解包：
 
 ```
 https://github.com/zhangwenwei44/Bei-/releases/download/v2.5.0/bundled-sources.tar.gz
 ```
 
-资产不存在时 CI 打印警告并继续，产出「无内置音源」的干净包
+**仓库版本优先**：解包后逐个比对，仓库里已有的同名文件直接跳过，
+所以 CDN 缓存导致拿到旧 tarball 也不会覆盖仓库里的脚本。
+
+资产不存在时 CI 打印警告并继续，产出的包只含仓库内的 `luoxue.js`
 （用户手动导入音源，功能不受影响）。
 
-## 更新内置音源
+## 更新本地槽位里的脚本
 
 ```bash
 cd ios/BundledSources
-tar -czf bundled-sources.tar.gz *.js
+tar -czf bundled-sources.tar.gz *.local.js
 # 上传到 v2.5.0 Release，资产名必须叫 bundled-sources.tar.gz
 ```
+
+> 仓库里的 `luoxue.js` 不用放进 tarball —— CI 会跳过与仓库同名的文件，
+> 仓库版本优先。
 
 验证上传是否正确（**必须能解出 .js 才算成功**）：
 
@@ -49,7 +57,7 @@ tar -tzf /tmp/b.tgz          # 应列出 .js 文件名
 ## 生效方式
 
 应用启动时会把本目录里所有 `.js` 都注册成可选音源，
-在「我的 → 第三方音源 → 内置音源」里点「添加」即可。
+在「我的 → 第三方音源 → 音源列表」里以「默认音源」显示。
 
 音源名、版本、作者、许可从脚本头部的注释里读：
 

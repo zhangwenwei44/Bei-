@@ -23,10 +23,21 @@ enum BundledSources {
 
     /// 随包发布、已确认许可的脚本。
     ///
-    /// 目前为空：墨澜音源已下架，长青SVIP（无 license）按约定以
-    /// `ios/BundledSources/changqing.js` 本地放置（.gitignore 排除，
-    /// 打进 IPA 但不入库），元信息走头注释解析。
-    private static let known: [Preset] = []
+    /// 🔴 v2.9.22：**长青SVIP（changqing.js）已下架删除**，换成洛雪音源6
+    /// （`K×H测试` v1.7.17，作者 HYW & Koneko，**MIT 许可**）。
+    ///
+    /// 为什么这次可以进仓库：洛雪音源6 头部明确声明 `@license MIT`，
+    /// 允许再分发，所以脚本本体随仓库走（`ios/BundledSources/luoxue.js`），
+    /// CI 不再需要从 Release 资产拉 tarball。
+    private static let known: [Preset] = [
+        Preset(scriptName: "luoxue",
+              displayName: "洛雪音源6",
+              version: "1.7.17",
+              author: "HYW & Koneko",
+              license: "MIT",
+              homepage: "https://github.com/Miao-moe",
+              notes: "多源聚合 + 多链路回退，支持网易云/QQ/酷我/酷狗/咪咕")
+    ]
 
     /// 历史上随包发过的音源。设备上已经装过的要在启动时清掉，
     /// 否则包里删了、用户列表里还留着一堆失效音源。
@@ -34,14 +45,33 @@ enum BundledSources {
         "墨澜聚合音源",
         "星海音乐源",
         "独家音源",
+        // 长青SVIP 已下架（脚本无 license 声明，且已从包内移除）
+        "长青SVIP音源(二改修复版)",
+    ]
+
+    /// 已下架、**永远不要再注册**的脚本文件名。
+    ///
+    /// 🔴 v2.9.22：长青SVIP（changqing.js）下架。为什么除了 legacyBundledNames
+    /// 还要在这里按**文件名**再挡一道：
+    /// `installMissing` 的执行顺序是「先清理旧的 → 再装新的」，
+    /// 如果包内又冒出 changqing.js（比如 CI 从 Release 资产拉到了被 CDN 缓存的
+    /// 旧 tarball），它会在清理之后被重新装回来 —— 删除等于白做。
+    /// 按文件名硬拦，顺序问题就不存在了。
+    private static let retiredScriptNames: Set<String> = [
+        "changqing",
     ]
 
     /// 包里所有能读到的音源脚本（含本地放的）。
     static var available: [Preset] {
         var result: [Preset] = []
         for url in scriptURLs() {
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
             let name = url.deletingPathExtension().lastPathComponent
+            // 已下架的脚本直接跳过，绝不注册
+            guard !retiredScriptNames.contains(name) else {
+                Log.info("内置音源", "跳过已下架的脚本「\(name)」")
+                continue
+            }
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
             if let preset = known.first(where: { $0.scriptName == name }) {
                 result.append(preset)
             } else {
