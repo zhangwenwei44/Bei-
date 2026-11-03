@@ -132,20 +132,26 @@ private struct DownloadBox: Shape {
         let s = rect.width / 24.0
         let x0 = 2.4, x1 = 21.7, y0 = 0.3, y1 = 18.8, r = 2.4
         var p = Path()
-        // ── 顶边左段（箭头左侧的短横条）
-        p.move(to: b.p(x0 + r, y0)); p.addLine(to: b.p(7.6, y0))
-        // ── 左上圆角 → 左边框
+        // 🔴 v2.9.21 修复：**addArc 的 clockwise 语义是 Core Graphics 约定 ——
+        // clockwise: true = 角度**递增**（0°→90° 是右→下，视觉顺时针）；
+        // 我之前按「视觉顺时针」反着理解，左上/左下两个圆角都画到了错误方位，
+        // addArc 又会自动从当前点连一条直线到弧起点 —— 于是左上角甩出一个斜钩。
+        // 同时每段路径必须连续：圆角弧的起点 = 上一段的终点。
+        // ── 左边框上端 → 左上圆角（180°→270° 递增）→ 顶边左段
+        p.move(to: b.p(x0, y0 + r))
         p.addArc(center: b.p(x0 + r, y0 + r), radius: r * s,
-                 startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+                 startAngle: .degrees(180), endAngle: .degrees(270), clockwise: true)
+        p.addLine(to: b.p(7.6, y0))
+        // ── 左边框下半段 → 左下圆角（180°→90° 递减）→ 底边
+        p.move(to: b.p(x0, y0 + r))
         p.addLine(to: b.p(x0, y1 - r))
-        // ── 左下圆角 → 底边（向右到箭头正下方断开）
         p.addArc(center: b.p(x0 + r, y1 - r), radius: r * s,
-                 startAngle: .degrees(180), endAngle: .degrees(90), clockwise: true)
+                 startAngle: .degrees(180), endAngle: .degrees(90), clockwise: false)
         p.addLine(to: b.p(12.5, y1))
-        // ── 顶边右段（箭头右侧的短横条）+ 右上圆角 → 右边框（下端止于箭尖高度）
+        // ── 顶边右段 → 右上圆角（270°→360° 递增）→ 右边框
         p.move(to: b.p(16.3, y0)); p.addLine(to: b.p(x1 - r, y0))
         p.addArc(center: b.p(x1 - r, y0 + r), radius: r * s,
-                 startAngle: .degrees(270), endAngle: .degrees(0), clockwise: true)
+                 startAngle: .degrees(270), endAngle: .degrees(360), clockwise: true)
         p.addLine(to: b.p(x1, 12.5))
         return p
     }
@@ -306,17 +312,19 @@ private struct DownloadedGlyph: Shape {
         let s = rect.width / 24.0
         let x0 = 2.4, x1 = 21.7, y0 = 0.3, y1 = 18.8, r = 2.4
         var p = Path()
-        // 外框（与 DownloadBox 完全同坐标）
-        p.move(to: b.p(x0 + r, y0)); p.addLine(to: b.p(7.6, y0))
+        // 外框（与 DownloadBox 完全同坐标，同样保证每段路径连续、圆角方向正确）
+        p.move(to: b.p(x0, y0 + r))
         p.addArc(center: b.p(x0 + r, y0 + r), radius: r * s,
-                 startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+                 startAngle: .degrees(180), endAngle: .degrees(270), clockwise: true)
+        p.addLine(to: b.p(7.6, y0))
+        p.move(to: b.p(x0, y0 + r))
         p.addLine(to: b.p(x0, y1 - r))
         p.addArc(center: b.p(x0 + r, y1 - r), radius: r * s,
-                 startAngle: .degrees(180), endAngle: .degrees(90), clockwise: true)
+                 startAngle: .degrees(180), endAngle: .degrees(90), clockwise: false)
         p.addLine(to: b.p(12.5, y1))
         p.move(to: b.p(16.3, y0)); p.addLine(to: b.p(x1 - r, y0))
         p.addArc(center: b.p(x1 - r, y0 + r), radius: r * s,
-                 startAngle: .degrees(270), endAngle: .degrees(0), clockwise: true)
+                 startAngle: .degrees(270), endAngle: .degrees(360), clockwise: true)
         p.addLine(to: b.p(x1, 12.5))
         // 对勾（替代箭头，位置与箭尖重合）
         p.move(to: b.p(8.0, 10.6))
