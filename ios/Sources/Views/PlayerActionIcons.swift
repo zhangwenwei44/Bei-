@@ -41,17 +41,19 @@ struct PlayerActionIcon: View {
                 if active { HeartGlyph().fill(tint) }
                 HeartGlyph().stroke(tint, style: stroke)
             case .download:
-                // 「⊓」形外框 + 贯穿箭头 + 右下角 VIP 角标
+                // 外框（左「Γ」+ 右「¬」+ 底横条）+ 贯穿箭头 + 右下角斜体 VIP
                 ZStack {
-                    // 🔴 v2.9.17：用户明确要按 8658 参考图 1:1 还原 ——
-                    // **「⊓」形外框**（上开口）+ 贯穿到底的向下箭头 + 右下角斜体 VIP。
+                    // 🔴 v2.9.22：按参考图 8658 逐像素量出的几何，
+                    // 圆角改为**显式三次贝塞尔**（不再用 addArc，详见 downloadFramePath）。
                     DownloadBox().stroke(tint, style: stroke)
                     DownloadArrow().stroke(tint, style: stroke)
+                    // VIP 角标位置按参考图量：底边与外框底横条大致齐平，
+                    // 右缘略微穿出右边框（参考图 VIP 右缘 x=63 > 外框右缘 x=59）
                     Text("VIP")
                         .font(.system(size: size * 0.23, weight: .heavy))
                         .italic()
                         .foregroundStyle(tint)
-                        .offset(x: size * 0.185, y: size * 0.167)
+                        .offset(x: size * 0.28, y: size * 0.20)
                 }
             case .quality:
                 ZStack {
@@ -122,49 +124,85 @@ private struct HeartGlyph: Shape {
     }
 }
 
-/// 下载外框（参考图 55fc6499 / 8658「下载」同款）：
-/// **「⊓」形（上开口）外框**，四角是「短横条 + 四分之一圆弧 + 竖线」的**凹口**造型
-/// —— 横条与竖线之间被圆弧隔开，形成一个像小口袋的缺口（用户指出「左上跟右上凹进去」）。
-/// 🔴 v2.9.18：两角改圆弧凹口 + 全动作行线宽统一。
+/// 下载图标的共享几何：参考图 8658「下载」线稿逐像素量出，1:1 映射到 24×24 画布。
+///
+/// 形状 = 左「Γ」+ 右「¬」+ 中间向下箭头 + 右下角 VIP：
+/// · 左竖线从顶横条一路向下，到底部左转成底横条（底横条到箭杆正下方断开）
+/// · 顶横条被箭杆分成左右两段
+/// · 右竖线从顶横条向下，到箭头高度附近收尾
+private enum DownloadGlyph {
+    static let xL: CGFloat = 2.4          // 左竖线中心
+    static let xR: CGFloat = 21.7         // 右竖线中心
+    static let yTop: CGFloat = 0.7        // 顶横条中心
+    static let yBottom: CGFloat = 18.9    // 底横条中心
+    static let r: CGFloat = 1.6           // 圆角（中心线半径）
+    static let topLeftEnd: CGFloat = 7.6      // 顶横条左段右端
+    static let topRightStart: CGFloat = 16.3  // 顶横条右段左端
+    static let rightBottom: CGFloat = 12.5    // 右竖线下端
+    static let bottomEnd: CGFloat = 12.5      // 底横条右端
+    static let arrowX: CGFloat = 11.9         // 箭杆中心
+    static let arrowTop: CGFloat = 0.0        // 箭杆顶端
+    static let arrowTipY: CGFloat = 13.6      // 箭尖
+    static let wingTopY: CGFloat = 9.0        // 箭头两翼起点高度
+    static let wingLeftX: CGFloat = 8.3       // 左翼端点
+    static let wingRightX: CGFloat = 15.6     // 右翼端点
+}
+
+/// 圆弧的三次贝塞尔逼近系数（90° 圆弧的标准值）。
+private let downloadArcK: CGFloat = 0.5522847498
+
+/// 画下载图标的「框」：底横条 → 左竖线 → 顶横条左段，以及顶横条右段 → 右竖线。
+///
+/// 🔴 v2.9.22 重写：**不再用 `Path.addArc`**。
+/// SwiftUI 的 `addArc(center:radius:startAngle:endAngle:clockwise:)` 里，
+/// `clockwise: true` 会把 180°→270° 扫成 **270°** 的整圈 —— 渲染出来就是
+/// 用户实机截图里左上/右上角那两个巨大的圆钩。
+/// 改用**显式三次贝塞尔**：起点 / 两个控制点 / 终点全部写死，方向绝对可控，
+/// 且本地预览可以用同一套公式渲染，所见即所得。
+private func downloadFramePath(_ b: GlyphBox) -> Path {
+    let g = DownloadGlyph
+    let k = downloadArcK
+    var p = Path()
+    // ── 连续笔画：底横条右端 → 左下圆角 → 左竖线 → 左上圆角 → 顶横条左段
+    p.move(to: b.p(g.bottomEnd, g.yBottom))
+    p.addLine(to: b.p(g.xL + g.r, g.yBottom))
+    p.addCurve(to: b.p(g.xL, g.yBottom - g.r),
+               control1: b.p(g.xL + g.r - k * g.r, g.yBottom),
+               control2: b.p(g.xL, g.yBottom - g.r + k * g.r))
+    p.addLine(to: b.p(g.xL, g.yTop + g.r))
+    p.addCurve(to: b.p(g.xL + g.r, g.yTop),
+               control1: b.p(g.xL, g.yTop + g.r - k * g.r),
+               control2: b.p(g.xL + g.r - k * g.r, g.yTop))
+    p.addLine(to: b.p(g.topLeftEnd, g.yTop))
+    // ── 顶横条右段 → 右上圆角 → 右竖线（下端止于箭尖高度）
+    p.move(to: b.p(g.topRightStart, g.yTop))
+    p.addLine(to: b.p(g.xR - g.r, g.yTop))
+    p.addCurve(to: b.p(g.xR, g.yTop + g.r),
+               control1: b.p(g.xR - g.r + k * g.r, g.yTop),
+               control2: b.p(g.xR, g.yTop + g.r - k * g.r))
+    p.addLine(to: b.p(g.xR, g.rightBottom))
+    return p
+}
+
+/// 下载外框（参考图 8658「下载」同款）：
+/// 左「Γ」+ 右「¬」+ 底横条，与箭杆和 VIP 角标叠在一起。
 private struct DownloadBox: Shape {
     func path(in rect: CGRect) -> Path {
-        let b = GlyphBox(rect: rect)
-        let s = rect.width / 24.0
-        let x0 = 2.4, x1 = 21.7, y0 = 0.3, y1 = 18.8, r = 2.4
-        var p = Path()
-        // 🔴 v2.9.21 修复：**addArc 的 clockwise 语义是 Core Graphics 约定 ——
-        // clockwise: true = 角度**递增**（0°→90° 是右→下，视觉顺时针）；
-        // 我之前按「视觉顺时针」反着理解，左上/左下两个圆角都画到了错误方位，
-        // addArc 又会自动从当前点连一条直线到弧起点 —— 于是左上角甩出一个斜钩。
-        // 同时每段路径必须连续：圆角弧的起点 = 上一段的终点。
-        // ── 左边框上端 → 左上圆角（180°→270° 递增）→ 顶边左段
-        p.move(to: b.p(x0, y0 + r))
-        p.addArc(center: b.p(x0 + r, y0 + r), radius: r * s,
-                 startAngle: .degrees(180), endAngle: .degrees(270), clockwise: true)
-        p.addLine(to: b.p(7.6, y0))
-        // ── 左边框下半段 → 左下圆角（180°→90° 递减）→ 底边
-        p.move(to: b.p(x0, y0 + r))
-        p.addLine(to: b.p(x0, y1 - r))
-        p.addArc(center: b.p(x0 + r, y1 - r), radius: r * s,
-                 startAngle: .degrees(180), endAngle: .degrees(90), clockwise: false)
-        p.addLine(to: b.p(12.5, y1))
-        // ── 顶边右段 → 右上圆角（270°→360° 递增）→ 右边框
-        p.move(to: b.p(16.3, y0)); p.addLine(to: b.p(x1 - r, y0))
-        p.addArc(center: b.p(x1 - r, y0 + r), radius: r * s,
-                 startAngle: .degrees(270), endAngle: .degrees(360), clockwise: true)
-        p.addLine(to: b.p(x1, 12.5))
-        return p
+        downloadFramePath(GlyphBox(rect: rect))
     }
 }
 
-/// 下载箭头：从画布最顶端贯穿下来的向下箭头（杆在 x=11.0，箭尖落在 y=15.7，
-/// 斜边从 (6.0,10.2) 展开到 (14.3,10.2)）—— 全部按 8658 参考图 1:1 量出。
+/// 下载箭头：从画布顶端贯穿下来的向下箭头（杆居中，两翼斜边展开）。
 private struct DownloadArrow: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
+        let g = DownloadGlyph
         var p = Path()
-        p.move(to: b.p(11.9, 0.2)); p.addLine(to: b.p(11.9, 13.6))
-        p.move(to: b.p(8.8, 10.2)); p.addLine(to: b.p(11.9, 13.6)); p.addLine(to: b.p(15.2, 10.2))
+        p.move(to: b.p(g.arrowX, g.arrowTop))
+        p.addLine(to: b.p(g.arrowX, g.arrowTipY))
+        p.move(to: b.p(g.wingLeftX, g.wingTopY))
+        p.addLine(to: b.p(g.arrowX, g.arrowTipY))
+        p.addLine(to: b.p(g.wingRightX, g.wingTopY))
         return p
     }
 }
@@ -302,29 +340,14 @@ private struct MoreGlyph: Shape {
     }
 }
 
-/// 已下载：**跟「下载」同一个「⊓」形外框**，把箭头换成对勾 ——
+/// 已下载：**跟「下载」同一个外框**，把箭头换成对勾 ——
 /// 一眼认得出"这是下载这件事完成了"，而不是一个孤零零的对勾。
-/// 外框坐标与 DownloadBox 完全一致，线宽也一致，视觉重量对齐。
+/// 外框直接复用 downloadFramePath（坐标与线宽与下载态完全一致）。
 private struct DownloadedGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
-        let s = rect.width / 24.0
-        let x0 = 2.4, x1 = 21.7, y0 = 0.3, y1 = 18.8, r = 2.4
-        var p = Path()
-        // 外框（与 DownloadBox 完全同坐标，同样保证每段路径连续、圆角方向正确）
-        p.move(to: b.p(x0, y0 + r))
-        p.addArc(center: b.p(x0 + r, y0 + r), radius: r * s,
-                 startAngle: .degrees(180), endAngle: .degrees(270), clockwise: true)
-        p.addLine(to: b.p(7.6, y0))
-        p.move(to: b.p(x0, y0 + r))
-        p.addLine(to: b.p(x0, y1 - r))
-        p.addArc(center: b.p(x0 + r, y1 - r), radius: r * s,
-                 startAngle: .degrees(180), endAngle: .degrees(90), clockwise: false)
-        p.addLine(to: b.p(12.5, y1))
-        p.move(to: b.p(16.3, y0)); p.addLine(to: b.p(x1 - r, y0))
-        p.addArc(center: b.p(x1 - r, y0 + r), radius: r * s,
-                 startAngle: .degrees(270), endAngle: .degrees(360), clockwise: true)
-        p.addLine(to: b.p(x1, 12.5))
+        let g = DownloadGlyph
+        var p = downloadFramePath(b)
         // 对勾（替代箭头，位置与箭尖重合）
         p.move(to: b.p(8.0, 10.6))
         p.addLine(to: b.p(10.9, 13.6))
