@@ -278,15 +278,9 @@ struct PlayerView: View {
                     .truncationMode(.tail)
                     .layoutPriority(1)
                 vipPill
-                // 🔴 v2.5.46：音质标签改成与 VIP 同款黄色胶囊（原白色半透明）
-                Text(qualityText)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(AppStyle.gold)
-                    .lineLimit(1)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(AppStyle.gold.opacity(0.18), in: Capsule())
-                    .overlay(Capsule().stroke(AppStyle.gold.opacity(0.55), lineWidth: 0.6))
+                // 🔴 v2.9.16：音质胶囊改成**可点击**（点击换音质），
+                // 音质入口从动作行挪到这里。档位名由 QualityPill 自己订阅 SourceStore。
+                QualityPill(statusText: qualityStatusText) { showQualityMenu = true }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -384,10 +378,9 @@ struct PlayerView: View {
             // ② 下载 / 下载中 / 已下载（状态图标）
             classicDownloadButton
             Spacer(minLength: 0)
-            // ③ 音质（v2.5.45：原「评论」改为「音质」—— 点开音质选择）
-            classicActionButton(glyph: .quality) { showQualityMenu = true }
-            Spacer(minLength: 0)
-            // ③·⑤ 音效（新增：放在音质后面，点开音效预设面板）
+            // 🔴 v2.9.16：音质按钮从动作行移除（用户要求）——
+            // 音质入口改到「歌手名」后面的胶囊标签，点击即换音质。
+            // ③·⑤ 音效（新增：点开音效预设面板）
             classicActionButton(glyph: .soundEffect) { showSoundEffectPanel = true }
             Spacer(minLength: 0)
             // ④ 歌词页
@@ -1197,11 +1190,14 @@ struct PlayerView: View {
         .overlay(Capsule().stroke(AppStyle.gold.opacity(0.55), lineWidth: 0.6))
     }
 
-    private var qualityText: String {
+    /// 播放状态提示（缓冲中 / 解析中 / 无法播放）；正常播放时为空 ——
+    /// 此时音质胶囊显示**当前选择的音质档位**（由 QualityPill 自己订阅 SourceStore，
+    /// 改完音质立刻刷新，不用整棵播放页树重建）。
+    private var qualityStatusText: String {
         if store.isBuffering { return "缓冲中" }
         if store.isLoading { return "解析中" }
         if store.playbackError != nil { return "无法播放" }
-        return store.bitrateLabel.isEmpty ? SourceStore.shared.quality.title : store.bitrateLabel
+        return ""
     }
 
     /// 双行歌词 —— 已拆到独立子视图 LyricPill（见其注释）：
@@ -1352,9 +1348,10 @@ private struct GlowDot: View {
 /// 缺字不渲染，按钮变成一个"空圆圈"（用户截图实测）。Circle trim / 自绘路径 100% 可用。
 private struct LandscapeToggleIcon: View {
     var body: some View {
+        // 🔴 v2.9.16：用户反馈太大 —— 30→26pt，线宽同步按比例收细（1.9→1.65）。
         LandscapeIconShape()
-            .stroke(.white, style: StrokeStyle(lineWidth: 1.9, lineCap: .round, lineJoin: .round))
-            .frame(width: 30, height: 30)
+            .stroke(.white, style: StrokeStyle(lineWidth: 1.65, lineCap: .round, lineJoin: .round))
+            .frame(width: 26, height: 26)
     }
 }
 
@@ -1388,6 +1385,39 @@ private struct LandscapeIconShape: Shape {
         p.addLine(to: CGPoint(x: X(21.0), y: Y(6.0)))
         p.addLine(to: CGPoint(x: X(22.1), y: Y(5.3)))
         return p
+    }
+}
+
+/// 歌手名后的**音质胶囊**：显示当前选择的音质档位，点击可切换音质。
+/// 🔴 v2.9.16：音质入口从动作行移到歌手名旁边（用户要求）。
+/// 刻意做成**独立子视图**并自己订阅 SourceStore —— PlayerView 本体不订阅它，
+/// 避免音源列表变化时整棵播放页树重建（与 playback/lyricState 的处理原则一致）。
+private struct QualityPill: View {
+    /// 播放状态提示（缓冲中/解析中/无法播放）；为空时显示当前音质档位
+    var statusText: String = ""
+    var onTap: () -> Void
+
+    @ObservedObject private var sourceStore = SourceStore.shared
+
+    private var title: String {
+        statusText.isEmpty ? sourceStore.quality.title : statusText
+    }
+
+    var body: some View {
+        Button {
+            onTap()
+            Haptics.light()
+        } label: {
+            Text(title)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(AppStyle.gold)
+                .lineLimit(1)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(AppStyle.gold.opacity(0.18), in: Capsule())
+                .overlay(Capsule().stroke(AppStyle.gold.opacity(0.55), lineWidth: 0.6))
+        }
+        .buttonStyle(.plain)
     }
 }
 
