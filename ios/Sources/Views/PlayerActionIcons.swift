@@ -129,27 +129,17 @@ private struct HeartGlyph: Shape {
 private struct DownloadBox: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
-        let s = rect.width / 24.0
-        let lx = 0.9, rx = 21.9          // 左/右边框
-        let ty = 1.4                       // 横条中心
-        let arcR = 2.9                     // 圆弧半径（小钩）
-        let hookX = 4.4                    // 小钩圆心 x
+        let lx = 1.0, rx = 21.6          // 左/右边框
+        let by = 20.4                      // 底边
         var p = Path()
-        // ── 左上角：横条（向右伸出、右端悬空）+ 小钩从横条下方连回左边框 → 中间是「凹口」
-        p.move(to: b.p(1.4, ty))
-        p.addLine(to: b.p(5.6, ty))
-        p.addArc(center: b.p(hookX, ty + arcR), radius: arcR * s,
-                 startAngle: .degrees(270), endAngle: .degrees(180), clockwise: true)
-        p.addLine(to: b.p(lx, 20.4))
-        // ── 左下角：圆角 → 底边（向右到箭头正下方断开）
-        p.addArc(center: b.p(lx + 1.4, 19.0), radius: 1.4 * s,
-                 startAngle: .degrees(180), endAngle: .degrees(90), clockwise: true)
-        p.addLine(to: b.p(9.3, 20.4))
-        // ── 右上角：横条（向左伸出）+ 小钩连回右边框（镜像造型）
-        p.move(to: b.p(18.4, ty))
-        p.addLine(to: b.p(rx, ty))
-        p.addArc(center: b.p(rx - arcR, ty + arcR), radius: arcR * s,
-                 startAngle: .degrees(270), endAngle: .degrees(0), clockwise: true)
+        // ── 左侧竖线（左上角平切：无横条、无小钩、无凹陷）
+        p.move(to: b.p(lx, 1.0))
+        p.addLine(to: b.p(lx, by - 1.4))
+        // ── 左下角圆滑 → 底边（向右到箭头正下方断开）
+        p.addQuadCurve(to: b.p(lx + 1.4, by), control: b.p(lx, by))
+        p.addLine(to: b.p(9.3, by))
+        // ── 右侧竖线（右上角同样平切，下端止于箭尖高度）
+        p.move(to: b.p(rx, 1.0))
         p.addLine(to: b.p(rx, 15.9))
         return p
     }
@@ -307,29 +297,20 @@ private struct MoreGlyph: Shape {
 private struct DownloadedGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
-        let s = rect.width / 24.0
-        let lx = 0.9, rx = 21.9
-        let ty = 1.4
-        let arcR = 2.9
+        let lx = 1.0, rx = 21.6
+        let by = 20.4
         var p = Path()
-        // 外框（与 DownloadBox 完全同坐标、同凹口造型）
-        p.move(to: b.p(1.4, ty))
-        p.addLine(to: b.p(5.6, ty))
-        p.addArc(center: b.p(4.4, ty + arcR), radius: arcR * s,
-                 startAngle: .degrees(270), endAngle: .degrees(180), clockwise: true)
-        p.addLine(to: b.p(0.9, 20.4))
-        p.addArc(center: b.p(2.3, 19.0), radius: 1.4 * s,
-                 startAngle: .degrees(180), endAngle: .degrees(90), clockwise: true)
-        p.addLine(to: b.p(9.3, 20.4))
-        p.move(to: b.p(18.4, ty))
-        p.addLine(to: b.p(21.9, ty))
-        p.addArc(center: b.p(19.0, ty + arcR), radius: arcR * s,
-                 startAngle: .degrees(270), endAngle: .degrees(0), clockwise: true)
-        p.addLine(to: b.p(21.9, 15.9))
+        // 外框（与 DownloadBox 完全同坐标：两角平切、左下圆滑）
+        p.move(to: b.p(lx, 1.0))
+        p.addLine(to: b.p(lx, by - 1.4))
+        p.addQuadCurve(to: b.p(lx + 1.4, by), control: b.p(lx, by))
+        p.addLine(to: b.p(9.3, by))
+        p.move(to: b.p(rx, 1.0))
+        p.addLine(to: b.p(rx, 15.9))
         // 对勾（替代箭头，位置与箭尖重合）
-        p.move(to: b.p(6.6, 12.8))
-        p.addLine(to: b.p(9.6, 16.0))
-        p.addLine(to: b.p(15.4, 9.0))
+        p.move(to: b.p(5.2, 12.8))
+        p.addLine(to: b.p(8.4, 16.0))
+        p.addLine(to: b.p(14.2, 9.0))
         return p
     }
 }

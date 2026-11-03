@@ -367,12 +367,10 @@ struct PlayerView: View {
                 store.toggleFavorite()
                 Haptics.light()
             } label: {
-                // 🔴 v2.9.18：改用**自绘**心形 —— SF Symbol 的心形线宽和大小都不可控，
-                // 跟旁边自绘图标排一起粗细明显不齐（用户反馈「线条大小都设一样」）。
-                PlayerActionIcon(glyph: .favorite,
-                                active: store.isLiked,
-                                tint: store.isLiked ? AppStyle.like : .white,
-                                size: 24)
+                // 🔴 v2.9.19：改回 **SF Symbol 心形** —— 用户要求「收藏改回之前的，不要动」。
+                Image(systemName: store.isLiked ? "heart.fill" : "heart")
+                    .font(.system(size: 22))
+                    .foregroundStyle(store.isLiked ? AppStyle.like : .white)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
