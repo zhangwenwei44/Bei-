@@ -208,8 +208,7 @@ private struct QualityRings: Shape {
         let s = rect.width / 24.0
         let cx = rect.minX + 12 * s
         let cy = rect.minY + 12 * s
-        let r = 8.4 * s
-        let rr = 1.55 * s
+        let rr = 1.55 * s   // 小圆半径（环半径改用 dist 参数，此处不再需要 r）
         var p = Path()
         // 左上（10 点方向）与右下（4 点方向）各悬一个空心小圆，都略微凸出环外
         for (deg, dist) in [(221.0, 9.9), (39.0, 9.9)] {
