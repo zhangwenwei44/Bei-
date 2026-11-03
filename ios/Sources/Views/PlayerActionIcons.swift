@@ -26,8 +26,9 @@ struct PlayerActionIcon: View {
     var tint: Color = .white
     var size: CGFloat = 22
 
-    /// 线宽 1.8/24 —— 比原来的 2.0 略细，配合更大的字形更接近酷狗的精致感。
-    private var lineWidth: CGFloat { size / 24 * 1.8 }
+    /// 🔴 v2.9.18：**全动作行统一线宽** —— 之前下载 1.25、音效 1.30、歌词 1.80 各不相同，
+    /// 一排看过去粗细明显不齐。现在所有自绘图标共用这一个值（24 画布里 1.5 单位）。
+    private var lineWidth: CGFloat { size / 24 * 1.5 }
 
     private var stroke: StrokeStyle {
         StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
@@ -44,19 +45,13 @@ struct PlayerActionIcon: View {
                 ZStack {
                     // 🔴 v2.9.17：用户明确要按 8658 参考图 1:1 还原 ——
                     // **「⊓」形外框**（上开口）+ 贯穿到底的向下箭头 + 右下角斜体 VIP。
-                    DownloadBox().stroke(
-                        tint,
-                        style: StrokeStyle(lineWidth: size / 24 * 1.25,
-                                           lineCap: .round, lineJoin: .round))
-                    DownloadArrow().stroke(
-                        tint,
-                        style: StrokeStyle(lineWidth: size / 24 * 1.25,
-                                           lineCap: .round, lineJoin: .round))
+                    DownloadBox().stroke(tint, style: stroke)
+                    DownloadArrow().stroke(tint, style: stroke)
                     Text("VIP")
-                        .font(.system(size: size * 0.29, weight: .heavy))
+                        .font(.system(size: size * 0.27, weight: .heavy))
                         .italic()
                         .foregroundStyle(tint)
-                        .offset(x: size * 0.233, y: size * 0.321)
+                        .offset(x: size * 0.235, y: size * 0.315)
                 }
             case .quality:
                 ZStack {
@@ -64,20 +59,13 @@ struct PlayerActionIcon: View {
                     // 两个空心小圆用稍细的线，避免小尺寸下糊成一坨
                     QualityRings().stroke(
                         tint,
-                        style: StrokeStyle(lineWidth: lineWidth * 0.78,
+                        style: StrokeStyle(lineWidth: lineWidth * 0.85,
                                            lineCap: .round, lineJoin: .round))
                 }
             case .soundEffect:
                 ZStack {
-                    // 🔴 v2.9.15：参考图线宽只有图宽的 4.4%，整体收细一档
-                    SoundEffectGlyph().stroke(
-                        tint,
-                        style: StrokeStyle(lineWidth: lineWidth * 0.72,
-                                           lineCap: .round, lineJoin: .round))
-                    SoundEffectHandles().stroke(
-                        tint,
-                        style: StrokeStyle(lineWidth: lineWidth * 0.72,
-                                           lineCap: .round, lineJoin: .round))
+                    SoundEffectGlyph().stroke(tint, style: stroke)
+                    SoundEffectHandles().stroke(tint, style: stroke)
                     // 右下角「OFF」角标：**实心粗体斜体**（参考图同款，不是空心线条）
                     Text("OFF")
                         .font(.system(size: size * 0.19, weight: .heavy))
@@ -101,10 +89,7 @@ struct PlayerActionIcon: View {
                 // 🔴 v2.9.4：之前是「实心圆底 + 白勾」，跟旁边纯线条图标完全不是一路的，
                 // 看着像贴上去的另一个控件。现在改成同一套白色描边线条。
                 // v2.9.16：托盘线宽跟「下载」一致（手绘风托盘是粗的）。
-                DownloadedGlyph().stroke(
-                    tint,
-                    style: StrokeStyle(lineWidth: size / 24 * 1.25,
-                                       lineCap: .round, lineJoin: .round))
+                DownloadedGlyph().stroke(tint, style: stroke)
             }
         }
         .frame(width: size, height: size)
@@ -125,45 +110,47 @@ private struct HeartGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         var p = Path()
-        p.move(to: b.p(12, 20.4))
-        p.addCurve(to: b.p(3.0, 12.6),  control1: b.p(7.6, 18.0),  control2: b.p(3.4, 15.6))
-        p.addCurve(to: b.p(7.4, 5.2),   control1: b.p(3.0, 10.4),  control2: b.p(4.6, 7.0))
-        p.addCurve(to: b.p(12, 9.6),    control1: b.p(9.2, 5.2),   control2: b.p(12, 6.6))
-        p.addCurve(to: b.p(16.6, 5.2),  control1: b.p(12, 6.6),    control2: b.p(14.8, 5.2))
-        p.addCurve(to: b.p(21.0, 12.6), control1: b.p(19.4, 7.0),  control2: b.p(21.0, 10.4))
-        p.addCurve(to: b.p(12, 20.4),   control1: b.p(20.6, 15.6), control2: b.p(16.4, 18.0))
+        p.move(to: b.p(12, 21.0))
+        p.addCurve(to: b.p(2.4, 12.6),  control1: b.p(7.4, 18.4),  control2: b.p(2.8, 15.4))
+        p.addCurve(to: b.p(7.2, 4.4),   control1: b.p(2.4, 10.2),  control2: b.p(4.4, 6.4))
+        p.addCurve(to: b.p(12, 9.0),    control1: b.p(9.0, 4.4),   control2: b.p(12, 5.9))
+        p.addCurve(to: b.p(16.8, 4.4),  control1: b.p(12, 5.9),    control2: b.p(15.0, 4.4))
+        p.addCurve(to: b.p(21.6, 12.6), control1: b.p(19.6, 6.4),  control2: b.p(21.6, 10.2))
+        p.addCurve(to: b.p(12, 21.0),   control1: b.p(21.2, 15.4), control2: b.p(16.6, 18.4))
         p.closeSubpath()
         return p
     }
 }
 
-/// 下载外框（参考图 8658「下载」同款，1:1 量过像素）：
-/// **「⊓」形（上开口）外框** —— 左侧竖线 + 底边（向右伸到箭头下方即断开）
-///  + 右侧竖线（下端止于箭尖高度）+ 顶边左右各一小段。
-/// 🔴 v2.9.17：用户明确要求按这张参考图还原，之前误改成 U 形托盘。
+/// 下载外框（参考图 55fc6499 / 8658「下载」同款）：
+/// **「⊓」形（上开口）外框**，四角是「短横条 + 四分之一圆弧 + 竖线」的**凹口**造型
+/// —— 横条与竖线之间被圆弧隔开，形成一个像小口袋的缺口（用户指出「左上跟右上凹进去」）。
+/// 🔴 v2.9.18：两角改圆弧凹口 + 全动作行线宽统一。
 private struct DownloadBox: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         let s = rect.width / 24.0
-        let r = 1.6                       // 圆角半径
-        let lx = 0.6, rx = 21.3           // 左/右边框中心
-        let ty = 0.8, by = 21.3           // 顶/底边中心
+        let lx = 0.9, rx = 21.9          // 左/右边框
+        let ty = 1.4                       // 横条中心
+        let arcR = 2.9                     // 圆弧半径（小钩）
+        let hookX = 4.4                    // 小钩圆心 x
         var p = Path()
-        // 左侧竖线 → 左下圆角 → 底边（向右到箭头下方断开）
-        p.move(to: b.p(lx + r, ty))
-        p.addArc(center: b.p(lx + r, ty + r), radius: r * s,
-                 startAngle: .degrees(270), endAngle: .degrees(180), clockwise: false)
-        p.addLine(to: b.p(lx, by - r))
-        p.addArc(center: b.p(lx + r, by - r), radius: r * s,
+        // ── 左上角：横条（向右伸出、右端悬空）+ 小钩从横条下方连回左边框 → 中间是「凹口」
+        p.move(to: b.p(1.4, ty))
+        p.addLine(to: b.p(5.6, ty))
+        p.addArc(center: b.p(hookX, ty + arcR), radius: arcR * s,
+                 startAngle: .degrees(270), endAngle: .degrees(180), clockwise: true)
+        p.addLine(to: b.p(lx, 20.4))
+        // ── 左下角：圆角 → 底边（向右到箭头正下方断开）
+        p.addArc(center: b.p(lx + 1.4, 19.0), radius: 1.4 * s,
                  startAngle: .degrees(180), endAngle: .degrees(90), clockwise: true)
-        p.addLine(to: b.p(10.8, by))
-        // 顶边左段（箭头左侧）
-        p.move(to: b.p(lx + r, ty)); p.addLine(to: b.p(5.4, ty))
-        // 顶边右段（箭头右侧）→ 右上圆角 → 右侧竖线（下端止于箭尖高度）
-        p.move(to: b.p(15.3, ty)); p.addLine(to: b.p(rx - r, ty))
-        p.addArc(center: b.p(rx - r, ty + r), radius: r * s,
+        p.addLine(to: b.p(9.3, 20.4))
+        // ── 右上角：横条（向左伸出）+ 小钩连回右边框（镜像造型）
+        p.move(to: b.p(18.4, ty))
+        p.addLine(to: b.p(rx, ty))
+        p.addArc(center: b.p(rx - arcR, ty + arcR), radius: arcR * s,
                  startAngle: .degrees(270), endAngle: .degrees(0), clockwise: true)
-        p.addLine(to: b.p(rx, 15.3))
+        p.addLine(to: b.p(rx, 15.9))
         return p
     }
 }
@@ -174,8 +161,8 @@ private struct DownloadArrow: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         var p = Path()
-        p.move(to: b.p(11.0, 0.0)); p.addLine(to: b.p(11.0, 15.7))
-        p.move(to: b.p(6.0, 10.2)); p.addLine(to: b.p(11.0, 15.7)); p.addLine(to: b.p(14.3, 10.2))
+        p.move(to: b.p(9.25, 0.0)); p.addLine(to: b.p(9.25, 15.7))
+        p.move(to: b.p(5.0, 10.2)); p.addLine(to: b.p(9.25, 15.7)); p.addLine(to: b.p(13.5, 10.2))
         return p
     }
 }
@@ -304,9 +291,9 @@ private struct TranslateGlyph: Shape {
 private struct MoreGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
-        let r = 1.8 * rect.width / 24
+        let r = 1.9 * rect.width / 24
         var p = Path()
-        for vy in [5.4, 12.0, 18.6] {
+        for vy in [4.8, 12.0, 19.2] {
             p.addEllipse(in: CGRect(x: b.x(12) - r, y: b.y(vy) - r,
                                     width: r * 2, height: r * 2))
         }
@@ -321,23 +308,24 @@ private struct DownloadedGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         let s = rect.width / 24.0
-        let r = 1.6
-        let lx = 0.6, rx = 21.3
-        let ty = 0.8, by = 21.3
+        let lx = 0.9, rx = 21.9
+        let ty = 1.4
+        let arcR = 2.9
         var p = Path()
-        // 外框（与 DownloadBox 同坐标）
-        p.move(to: b.p(lx + r, ty))
-        p.addArc(center: b.p(lx + r, ty + r), radius: r * s,
-                 startAngle: .degrees(270), endAngle: .degrees(180), clockwise: false)
-        p.addLine(to: b.p(lx, by - r))
-        p.addArc(center: b.p(lx + r, by - r), radius: r * s,
+        // 外框（与 DownloadBox 完全同坐标、同凹口造型）
+        p.move(to: b.p(1.4, ty))
+        p.addLine(to: b.p(5.6, ty))
+        p.addArc(center: b.p(4.4, ty + arcR), radius: arcR * s,
+                 startAngle: .degrees(270), endAngle: .degrees(180), clockwise: true)
+        p.addLine(to: b.p(0.9, 20.4))
+        p.addArc(center: b.p(2.3, 19.0), radius: 1.4 * s,
                  startAngle: .degrees(180), endAngle: .degrees(90), clockwise: true)
-        p.addLine(to: b.p(10.8, by))
-        p.move(to: b.p(lx + r, ty)); p.addLine(to: b.p(5.4, ty))
-        p.move(to: b.p(15.3, ty)); p.addLine(to: b.p(rx - r, ty))
-        p.addArc(center: b.p(rx - r, ty + r), radius: r * s,
+        p.addLine(to: b.p(9.3, 20.4))
+        p.move(to: b.p(18.4, ty))
+        p.addLine(to: b.p(21.9, ty))
+        p.addArc(center: b.p(19.0, ty + arcR), radius: arcR * s,
                  startAngle: .degrees(270), endAngle: .degrees(0), clockwise: true)
-        p.addLine(to: b.p(rx, 15.3))
+        p.addLine(to: b.p(21.9, 15.9))
         // 对勾（替代箭头，位置与箭尖重合）
         p.move(to: b.p(6.6, 12.8))
         p.addLine(to: b.p(9.6, 16.0))

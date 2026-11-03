@@ -367,9 +367,12 @@ struct PlayerView: View {
                 store.toggleFavorite()
                 Haptics.light()
             } label: {
-                Image(systemName: store.isLiked ? "heart.fill" : "heart")
-                    .font(.system(size: 22))
-                    .foregroundStyle(store.isLiked ? AppStyle.like : .white)
+                // 🔴 v2.9.18：改用**自绘**心形 —— SF Symbol 的心形线宽和大小都不可控，
+                // 跟旁边自绘图标排一起粗细明显不齐（用户反馈「线条大小都设一样」）。
+                PlayerActionIcon(glyph: .favorite,
+                                active: store.isLiked,
+                                tint: store.isLiked ? AppStyle.like : .white,
+                                size: 24)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
@@ -446,7 +449,8 @@ struct PlayerView: View {
             if isActive {
                 // 下载中：弱化的下载箭头 + 外圈细环进度（线宽与其它图标一致）
                 ZStack {
-                    PlayerActionIcon(glyph: .download, size: 20)
+                    // 🔴 v2.9.18：统一动作行图标尺寸（原来下载中用 20、其余用 24）
+                    PlayerActionIcon(glyph: .download, size: 24)
                         .opacity(0.35)
                     Circle()
                         .trim(from: 0, to: max(0.02, min(1, item?.progress ?? 0)))
@@ -1348,10 +1352,10 @@ private struct GlowDot: View {
 /// 缺字不渲染，按钮变成一个"空圆圈"（用户截图实测）。Circle trim / 自绘路径 100% 可用。
 private struct LandscapeToggleIcon: View {
     var body: some View {
-        // 🔴 v2.9.16：用户反馈太大 —— 30→26pt，线宽同步按比例收细（1.9→1.65）。
+        // 🔴 v2.9.18：用户连续两次反馈太大 —— 30→26→22pt，线宽按比例 1.9→1.65→1.4。
         LandscapeIconShape()
-            .stroke(.white, style: StrokeStyle(lineWidth: 1.65, lineCap: .round, lineJoin: .round))
-            .frame(width: 26, height: 26)
+            .stroke(.white, style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
+            .frame(width: 22, height: 22)
     }
 }
 
