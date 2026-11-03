@@ -160,27 +160,26 @@ private let downloadArcK: CGFloat = 0.5522847498
 /// 改用**显式三次贝塞尔**：起点 / 两个控制点 / 终点全部写死，方向绝对可控，
 /// 且本地预览可以用同一套公式渲染，所见即所得。
 private func downloadFramePath(_ b: GlyphBox) -> Path {
-    let g = DownloadGlyph
     let k = downloadArcK
     var p = Path()
     // ── 连续笔画：底横条右端 → 左下圆角 → 左竖线 → 左上圆角 → 顶横条左段
-    p.move(to: b.p(g.bottomEnd, g.yBottom))
-    p.addLine(to: b.p(g.xL + g.r, g.yBottom))
-    p.addCurve(to: b.p(g.xL, g.yBottom - g.r),
-               control1: b.p(g.xL + g.r - k * g.r, g.yBottom),
-               control2: b.p(g.xL, g.yBottom - g.r + k * g.r))
-    p.addLine(to: b.p(g.xL, g.yTop + g.r))
-    p.addCurve(to: b.p(g.xL + g.r, g.yTop),
-               control1: b.p(g.xL, g.yTop + g.r - k * g.r),
-               control2: b.p(g.xL + g.r - k * g.r, g.yTop))
-    p.addLine(to: b.p(g.topLeftEnd, g.yTop))
+    p.move(to: b.p(DownloadGlyph.bottomEnd, DownloadGlyph.yBottom))
+    p.addLine(to: b.p(DownloadGlyph.xL + DownloadGlyph.r, DownloadGlyph.yBottom))
+    p.addCurve(to: b.p(DownloadGlyph.xL, DownloadGlyph.yBottom - DownloadGlyph.r),
+               control1: b.p(DownloadGlyph.xL + DownloadGlyph.r - k * DownloadGlyph.r, DownloadGlyph.yBottom),
+               control2: b.p(DownloadGlyph.xL, DownloadGlyph.yBottom - DownloadGlyph.r + k * DownloadGlyph.r))
+    p.addLine(to: b.p(DownloadGlyph.xL, DownloadGlyph.yTop + DownloadGlyph.r))
+    p.addCurve(to: b.p(DownloadGlyph.xL + DownloadGlyph.r, DownloadGlyph.yTop),
+               control1: b.p(DownloadGlyph.xL, DownloadGlyph.yTop + DownloadGlyph.r - k * DownloadGlyph.r),
+               control2: b.p(DownloadGlyph.xL + DownloadGlyph.r - k * DownloadGlyph.r, DownloadGlyph.yTop))
+    p.addLine(to: b.p(DownloadGlyph.topLeftEnd, DownloadGlyph.yTop))
     // ── 顶横条右段 → 右上圆角 → 右竖线（下端止于箭尖高度）
-    p.move(to: b.p(g.topRightStart, g.yTop))
-    p.addLine(to: b.p(g.xR - g.r, g.yTop))
-    p.addCurve(to: b.p(g.xR, g.yTop + g.r),
-               control1: b.p(g.xR - g.r + k * g.r, g.yTop),
-               control2: b.p(g.xR, g.yTop + g.r - k * g.r))
-    p.addLine(to: b.p(g.xR, g.rightBottom))
+    p.move(to: b.p(DownloadGlyph.topRightStart, DownloadGlyph.yTop))
+    p.addLine(to: b.p(DownloadGlyph.xR - DownloadGlyph.r, DownloadGlyph.yTop))
+    p.addCurve(to: b.p(DownloadGlyph.xR, DownloadGlyph.yTop + DownloadGlyph.r),
+               control1: b.p(DownloadGlyph.xR - DownloadGlyph.r + k * DownloadGlyph.r, DownloadGlyph.yTop),
+               control2: b.p(DownloadGlyph.xR, DownloadGlyph.yTop + DownloadGlyph.r - k * DownloadGlyph.r))
+    p.addLine(to: b.p(DownloadGlyph.xR, DownloadGlyph.rightBottom))
     return p
 }
 
@@ -196,13 +195,12 @@ private struct DownloadBox: Shape {
 private struct DownloadArrow: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
-        let g = DownloadGlyph
         var p = Path()
-        p.move(to: b.p(g.arrowX, g.arrowTop))
-        p.addLine(to: b.p(g.arrowX, g.arrowTipY))
-        p.move(to: b.p(g.wingLeftX, g.wingTopY))
-        p.addLine(to: b.p(g.arrowX, g.arrowTipY))
-        p.addLine(to: b.p(g.wingRightX, g.wingTopY))
+        p.move(to: b.p(DownloadGlyph.arrowX, DownloadGlyph.arrowTop))
+        p.addLine(to: b.p(DownloadGlyph.arrowX, DownloadGlyph.arrowTipY))
+        p.move(to: b.p(DownloadGlyph.wingLeftX, DownloadGlyph.wingTopY))
+        p.addLine(to: b.p(DownloadGlyph.arrowX, DownloadGlyph.arrowTipY))
+        p.addLine(to: b.p(DownloadGlyph.wingRightX, DownloadGlyph.wingTopY))
         return p
     }
 }
@@ -346,7 +344,6 @@ private struct MoreGlyph: Shape {
 private struct DownloadedGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
-        let g = DownloadGlyph
         var p = downloadFramePath(b)
         // 对勾（替代箭头，位置与箭尖重合）
         p.move(to: b.p(8.0, 10.6))
