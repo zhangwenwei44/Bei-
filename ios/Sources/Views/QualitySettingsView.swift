@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// 🔴 v2.7.4：音质设置页（版式参考酷狗 App 的「音质」页）。
+/// 🔴 v2.9.27：音质选择页重做为**深色背景 + 黄色（金）字体**，参考用户给的酷狗「音质」页。
 ///
-/// 版式对齐用户给的参考图：
+/// 版式对齐参考图：
 /// 1. 顶部横向特性卡（每张卡 = 一个音质档位 + 能力说明）
 /// 2. 中部「高级音质」列表（档位名 + 体积/码率标注 + 说明 + 右侧选中勾）
 /// 3. 底部「设置不同网络环境下的播放音质」入口
@@ -15,6 +15,16 @@ struct QualitySettingsView: View {
     @ObservedObject private var sourceStore = SourceStore.shared
     @ObservedObject private var network = NetworkStatus.shared
 
+    // 深色主题配色（不跟随系统，强制深色 —— 参考图的黑底金字）
+    private let gold = Color(red: 1.0, green: 0.82, blue: 0.30)
+    private let bg = Color(white: 0.05)
+    private let cardBg = Color(white: 0.10)
+    private let listBg = Color(white: 0.08)
+    private let divider = Color.white.opacity(0.10)
+    private let textPrimary = Color.white
+    private let textSecondary = Color.white.opacity(0.55)
+    private let textTertiary = Color.white.opacity(0.35)
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -24,11 +34,11 @@ struct QualitySettingsView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("音质选择")
                             .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(AppStyle.primaryText)
+                            .foregroundStyle(gold)
                         Spacer(minLength: 8)
                         Text("当前：\(sourceStore.quality.title)")
                             .font(.system(size: 12))
-                            .foregroundStyle(AppStyle.tertiaryText)
+                            .foregroundStyle(textTertiary)
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
@@ -53,14 +63,14 @@ struct QualitySettingsView: View {
                     HStack(spacing: 6) {
                         Text("高级音质")
                             .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(AppStyle.primaryText)
+                            .foregroundStyle(gold)
                         Image(systemName: "diamond.fill")
                             .font(.system(size: 11))
-                            .foregroundStyle(AppStyle.accent)
+                            .foregroundStyle(gold)
                         Spacer(minLength: 8)
                         Text("按音源实际支持的档位播放")
                             .font(.system(size: 11))
-                            .foregroundStyle(AppStyle.tertiaryText)
+                            .foregroundStyle(textTertiary)
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 22)
@@ -76,11 +86,11 @@ struct QualitySettingsView: View {
                             }
                             .buttonStyle(.plain)
                             if quality != MusicQuality.allCases.last {
-                                Divider().padding(.leading, 16)
+                                Divider().background(divider).padding(.leading, 16)
                             }
                         }
                     }
-                    .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(listBg, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .padding(.horizontal, 16)
                 }
 
@@ -95,28 +105,28 @@ struct QualitySettingsView: View {
                         HStack(spacing: 12) {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(AppStyle.accent.opacity(0.14))
+                                    .fill(gold.opacity(0.15))
                                 Image(systemName: "wifi")
                                     .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(AppStyle.accent)
+                                    .foregroundStyle(gold)
                             }
                             .frame(width: 26, height: 26)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("不同网络环境下的音质")
                                     .font(.system(size: 15, weight: .medium))
-                                    .foregroundStyle(AppStyle.primaryText)
+                                    .foregroundStyle(textPrimary)
                                 Text(network.isCellular ? "当前：蜂窝网络" : "当前：非蜂窝网络")
                                     .font(.system(size: 11))
-                                    .foregroundStyle(AppStyle.tertiaryText)
+                                    .foregroundStyle(textTertiary)
                             }
                             Spacer(minLength: 6)
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(AppStyle.tertiaryText)
+                                .foregroundStyle(textTertiary)
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
-                        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .background(listBg, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -125,7 +135,7 @@ struct QualitySettingsView: View {
 
                     Text("说明：实际播放音质取决于音源本身是否提供该档位，选择更高档位不会凭空提升码率。")
                         .font(.system(size: 11))
-                        .foregroundStyle(AppStyle.tertiaryText)
+                        .foregroundStyle(textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 16)
@@ -134,11 +144,13 @@ struct QualitySettingsView: View {
             }
             .padding(.bottom, 30)
         }
-        .background(AppStyle.background)
+        .background(bg.ignoresSafeArea())
         .navigationTitle("音质")
         .navigationBarTitleDisplayMode(.inline)
-        // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
-        .kugouNavigationBarBackground()
+        // 🔴 v2.9.27：强制深色 + 金标题，匹配用户参考图（黑底金字）。
+        .preferredColorScheme(.dark)
+        .kugouNavigationBarBackground(UIColor(white: 0.05, alpha: 1),
+                                      titleColor: UIColor(red: 1.0, green: 0.82, blue: 0.30, alpha: 1))
     }
 
     // MARK: - 顶部特性卡
@@ -153,35 +165,34 @@ struct QualitySettingsView: View {
                 HStack(alignment: .top, spacing: 6) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(selected ? AppStyle.accent
-                                  : AppStyle.accent.opacity(0.14))
+                            .fill(selected ? gold : gold.opacity(0.15))
                         Image(systemName: quality.icon)
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(selected ? AppStyle.onAccent : AppStyle.accent)
+                            .foregroundStyle(selected ? Color.black : gold)
                     }
                     .frame(width: 24, height: 24)
                     Spacer(minLength: 0)
                     if selected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 13))
-                            .foregroundStyle(AppStyle.accent)
+                            .foregroundStyle(gold)
                     }
                 }
                 .padding(.bottom, 9)
 
                 Text(quality.title)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(selected ? AppStyle.accent : AppStyle.primaryText)
+                    .foregroundStyle(selected ? gold : textPrimary)
                     .lineLimit(1)
 
                 Text(quality.sizeLabel)
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(AppStyle.tertiaryText)
+                    .foregroundStyle(textTertiary)
                     .padding(.top, 2)
 
                 Text(quality.featureLine)
                     .font(.system(size: 10.5))
-                    .foregroundStyle(AppStyle.tertiaryText)
+                    .foregroundStyle(textTertiary)
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -196,20 +207,16 @@ struct QualitySettingsView: View {
             .background(
                 ZStack {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(AppStyle.surface)
+                        .fill(cardBg)
                     if selected {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(LinearGradient(colors: [AppStyle.accent.opacity(0.20),
-                                                          AppStyle.accent.opacity(0.04)],
-                                                 startPoint: .topLeading,
-                                                 endPoint: .bottomTrailing))
+                            .fill(gold.opacity(0.12))
                     }
                 }
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(selected ? AppStyle.accent : AppStyle.stroke,
-                            lineWidth: selected ? 1.5 : 0.6)
+                    .stroke(selected ? gold : .clear, lineWidth: selected ? 1.5 : 0)
             )
         }
         .buttonStyle(.plain)
@@ -226,25 +233,25 @@ struct QualitySettingsView: View {
                 HStack(spacing: 8) {
                     Text(quality.title)
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(AppStyle.primaryText)
+                        .foregroundStyle(selected ? gold : textPrimary)
                     Text(quality.sizeLabel)
                         .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(AppStyle.tertiaryText)
+                        .foregroundStyle(textTertiary)
                     if quality.isAdvanced {
                         Image(systemName: "diamond.fill")
                             .font(.system(size: 10))
-                            .foregroundStyle(AppStyle.accent)
+                            .foregroundStyle(gold)
                     }
                 }
                 Text(downgraded ? "蜂窝网络下已自动降为高品音质" : quality.detailLine)
                     .font(.system(size: 12))
-                    .foregroundStyle(downgraded ? AppStyle.accent : AppStyle.secondaryText)
+                    .foregroundStyle(downgraded ? gold : textSecondary)
             }
             Spacer(minLength: 8)
             if selected {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 20))
-                    .foregroundStyle(AppStyle.accent)
+                    .foregroundStyle(gold)
             }
         }
         .padding(.horizontal, 16)
@@ -312,29 +319,39 @@ extension MusicQuality {
 
 
 /// 🔴 v2.7.5：按网络环境设置（从音质页 push 进来，不套 sheet）。
+/// 🔴 v2.9.27：同步改成深色主题 + 金标题。
 private struct NetworkQualityView: View {
     @ObservedObject private var sourceStore = SourceStore.shared
     @ObservedObject private var network = NetworkStatus.shared
+
+    private let gold = Color(red: 1.0, green: 0.82, blue: 0.30)
+    private let bg = Color(white: 0.05)
+    private let listBg = Color(white: 0.08)
 
     var body: some View {
         Form {
             Section {
                 Toggle(isOn: $sourceStore.cellularFallback) {
                     Text("蜂窝网络自动降为高品音质")
+                        .foregroundStyle(.white)
                 }
-                .tint(AppStyle.accent)
+                .tint(gold)
             } header: {
                 Text("流量环境")
+                    .foregroundStyle(gold)
             } footer: {
                 Text(network.isCellular
                      ? "当前正在使用蜂窝网络，关闭后仍按所选音质播放（更耗流量）。"
                      : "当前不是蜂窝网络。开启后，用 4G/5G 播放时会自动降到高品音质以省流量。")
                     .font(.system(size: 12))
+                    .foregroundStyle(Color.white.opacity(0.45))
             }
         }
+        .background(bg.ignoresSafeArea())
+        .preferredColorScheme(.dark)
         .navigationTitle("按网络环境")
         .navigationBarTitleDisplayMode(.inline)
-        // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
-        .kugouNavigationBarBackground()
+        .kugouNavigationBarBackground(UIColor(white: 0.05, alpha: 1),
+                                      titleColor: UIColor(red: 1.0, green: 0.82, blue: 0.30, alpha: 1))
     }
 }

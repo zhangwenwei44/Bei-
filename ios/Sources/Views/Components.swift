@@ -314,8 +314,9 @@ extension View {
     ///   false = 不透明实底。歌手页用它做「未收起 = 透明 / 收起后 = 白底」的动态切换 ——
     ///   @State 变化会触发 updateUIViewController 重新刷外观。
     func kugouNavigationBarBackground(_ color: UIColor = AppStyle.plainNavigationBarBackgroundUIColor,
-                                     transparent: Bool = false) -> some View {
-        background(NavigationBarItemAppearance(color: color, transparent: transparent))
+                                     transparent: Bool = false,
+                                     titleColor: UIColor? = nil) -> some View {
+        background(NavigationBarItemAppearance(color: color, transparent: transparent, titleColor: titleColor))
     }
 
     /// 🔴 v2.9.7：把当前页的导航栏变成**完全透明**。
@@ -342,20 +343,24 @@ struct NavigationBarItemAppearance: UIViewControllerRepresentable {
     /// 🔴 v2.9.7：透明模式 —— 导航栏完全透明，让页面内容（歌手大图）透到状态栏区域。
     /// 这时必须配合页面自己把内容 `ignoresSafeArea(.top)` 顶上去。
     var transparent: Bool = false
+    /// 🔴 v2.9.27：可选的标题颜色（如深色页的金色标题）。nil = 沿用全局外观的标题色。
+    var titleColor: UIColor? = nil
 
     func makeUIViewController(context: Context) -> Controller {
-        Controller(color: color, transparent: transparent)
+        Controller(color: color, transparent: transparent, titleColor: titleColor)
     }
 
     func updateUIViewController(_ controller: Controller, context: Context) {
         controller.color = color
         controller.transparent = transparent
+        controller.titleColor = titleColor
         controller.applyIfPossible()
     }
 
     final class Controller: UIViewController {
         var color: UIColor
         var transparent: Bool
+        var titleColor: UIColor?
 
         /// 上次刷上去的样式标识 + 累计刷新次数。
         ///
@@ -369,9 +374,10 @@ struct NavigationBarItemAppearance: UIViewControllerRepresentable {
         private var appliedToken: String?
         private var applyCount = 0
 
-        init(color: UIColor, transparent: Bool) {
+        init(color: UIColor, transparent: Bool, titleColor: UIColor? = nil) {
             self.color = color
             self.transparent = transparent
+            self.titleColor = titleColor
             super.init(nibName: nil, bundle: nil)
         }
 
@@ -459,7 +465,7 @@ struct NavigationBarItemAppearance: UIViewControllerRepresentable {
 
             // 「变了才刷」：样式没变就直接跳过，避免 UIKit 重排 → SwiftUI 重渲染
             // → 再进 updateUIViewController 的无限循环（见 appliedToken 的说明）。
-            let token = "\(transparent)|\(color.description)"
+            let token = "\(transparent)|\(color.description)|\(titleColor?.description ?? "-")"
             if !force, appliedToken == token, host.navigationItem.standardAppearance != nil {
                 return
             }
@@ -481,6 +487,13 @@ struct NavigationBarItemAppearance: UIViewControllerRepresentable {
                 appearance.shadowImage = UIImage()
             } else {
                 appearance = AppStyle.makeNavigationBarAppearance(background: color)
+            }
+
+            // 🔴 v2.9.27：可选标题颜色（深色页用金色标题）。
+            if let tc = titleColor {
+                let attrs: [NSAttributedString.Key: Any] = [.foregroundColor: tc]
+                appearance.titleTextAttributes = attrs
+                appearance.largeTitleTextAttributes = attrs
             }
 
             // ① per-item：这才是"只改这一页"的正解。

@@ -364,25 +364,26 @@ struct PlayerView: View {
 
     /// 动作行（参考图同款）：纯图标、无文字、整行均分 —— 喜欢 / 下载 / 评论 / 歌词 / ⋯
     private var classicActionRow: some View {
-        // 🔴 v2.9.26：引用音效状态，使动作行 OFF/ON 角标随预设切换实时刷新
+        // 🔴 v2.9.27：引用音效状态，使动作行 OFF/ON 角标随预设切换实时刷新
         _ = soundEffectSetting.current
         return HStack(spacing: 0) {
-            // ① 喜欢 —— 🔴 v2.5.46：改回最初用的 SF Symbol 心形（用户要求）
+            // ① 喜欢 —— 🔴 v2.9.27：改用自绘 HeartGlyph（同一个 PlayerActionIcon 体系），
+            // 线宽 = size/24*1.5、画布占满 24pt，与下载/音效图标**完全相同**的线条粗细与大小
+            // （原来 SF Symbol 心形在 24pt 常规字重下描边偏细、字形偏小，和旁边的不一致）。
             Button {
                 store.toggleFavorite()
                 Haptics.light()
             } label: {
-                // 🔴 v2.9.23：竖屏动作行收藏图标与「下载 / 音效」同尺寸同线宽 ——
-                // SF Symbol 在 24pt 常规字重下描边恰好 1.5pt，与自绘图标（size/24*1.5）完全一致，
-                // 既保留用户要求的心形外观，又和动作行其它图标视觉重量齐平（原来缩在 22pt、偏细）。
-                Image(systemName: store.isLiked ? "heart.fill" : "heart")
-                    .font(.system(size: 24))
-                    .foregroundStyle(store.isLiked ? AppStyle.like : .white)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-                    // 🔴 v2.9.25：SF 心形字形高度(~17pt)小于自绘图标的 24pt 方盒，
-                    // 居中后视觉顶部比下载/音效低约 3pt —— 上移 3pt 使视觉顶部与下载按钮齐平。
-                    .offset(y: -3)
+                PlayerActionIcon(
+                    glyph: .favorite,
+                    active: store.isLiked,
+                    tint: store.isLiked ? AppStyle.like : .white,
+                    size: 24
+                )
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+                // 自绘心形顶部(y≈4.4)比下载顶栏(y≈0.7)低约 3.7pt —— 上移使视觉顶部齐平。
+                .offset(y: -3.5)
             }
             .buttonStyle(.plain)
             Spacer(minLength: 0)
@@ -392,7 +393,21 @@ struct PlayerView: View {
             // 🔴 v2.9.16：音质按钮从动作行移除（用户要求）——
             // 音质入口改到「歌手名」后面的胶囊标签，点击即换音质。
             // ③·⑤ 音效（新增：点开音效预设面板）
-            classicActionButton(glyph: .soundEffect) { showSoundEffectPanel = true }
+            // 🔴 v2.9.27：显式传入 soundEffectOn（来自 PlayerView 订阅的 soundEffectSetting），
+            // 保证切预设/开总开关后角标立刻 OFF↔ON，不依赖图标内部读单例的渲染时机。
+            Button {
+                showSoundEffectPanel = true
+                Haptics.light()
+            } label: {
+                PlayerActionIcon(
+                    glyph: .soundEffect,
+                    soundEffectOn: soundEffectSetting.current != .off,
+                    size: 24
+                )
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
             Spacer(minLength: 0)
             // ④ 歌词页
             classicActionButton(glyph: .lyric) { openLyricsPage() }
