@@ -177,6 +177,72 @@ enum AppStyle {
         UINavigationBar.appearance().scrollEdgeAppearance = appearance
         UINavigationBar.appearance().compactAppearance = appearance
     }
+
+    // MARK: 🔴 v2.9.32：底部导航栏外观（严格对齐酷狗 UI 规范 · 浅色模式）
+
+    /// 选中态：图标 + 文字 酷狗蓝 #1E88F5（深浅同色）。
+    static let tabBarSelected = Color(uiColor: hex(0x1E88F5))
+    /// 未选中态：图标 + 文字 浅灰 #8892A0（深浅同色）。
+    static let tabBarUnselected = Color(uiColor: hex(0x8892A0))
+
+    /// 安装底部 TabBar 外观 —— 取代系统默认的半透明模糊栏。
+    ///
+    /// 规范要点（酷狗 UI 规范 · 浅色模式）：
+    /// 1. 底色：纯白（深色模式跟随页面底色，不刺眼）
+    /// 2. 顶部：一条 #EEEEEE 极淡发丝分割线（没有厚重阴影 / 模糊）
+    /// 3. 选中：图标 + 文字 #1E88F5（酷狗蓝）
+    /// 4. 未选中：图标 + 文字 #8892A0
+    /// 5. 布局：图标在上、文字在下，文字 12px
+    ///
+    /// ⚠️ 必须在 `App.init()` 里调用（appearance 代理只对之后创建的 TabBar 生效）。
+    static func installTabBarAppearance() {
+        let appearance = UITabBarAppearance()
+        appearance.configureWithOpaqueBackground()
+
+        // 底色：浅色纯白；深色跟随页面底色（#12141C，与规范深色页底同值）
+        appearance.backgroundColor = UIColor { trait in
+            trait.userInterfaceStyle == .dark ? hex(0x12141C) : hex(0xFFFFFF)
+        }
+
+        // 顶部 1 物理像素 #EEEEEE 发丝分割线 —— 取代系统默认阴影/模糊。
+        // （直接用 shadowColor 在部分 iOS 版本不生效，故显式画一条 1px 线最稳。）
+        let sep = UIColor { trait in
+            trait.userInterfaceStyle == .dark ? hex(0x2A2A2E) : hex(0xEEEEEE)
+        }
+        appearance.shadowImage = hairlineImage(color: sep)
+        appearance.shadowColor = nil
+
+        let normalAttr: [NSAttributedString.Key: Any] = [
+            .foregroundColor: UIColor { _ in hex(0x8892A0) },
+            .font: UIFont.systemFont(ofSize: 12, weight: .regular)
+        ]
+        let selectedAttr: [NSAttributedString.Key: Any] = [
+            .foregroundColor: UIColor { _ in hex(0x1E88F5) },
+            .font: UIFont.systemFont(ofSize: 12, weight: .medium)
+        ]
+
+        // 图标在上、文字在下的标准堆叠布局
+        let stacked = appearance.stackedLayoutAppearance
+        stacked.normal.iconColor = UIColor { _ in hex(0x8892A0) }
+        stacked.normal.titleTextAttributes = normalAttr
+        stacked.selected.iconColor = UIColor { _ in hex(0x1E88F5) }
+        stacked.selected.titleTextAttributes = selectedAttr
+
+        UITabBar.appearance().standardAppearance = appearance
+        UITabBar.appearance().scrollEdgeAppearance = appearance
+    }
+
+    /// 生成 1 物理像素高的纯色发丝线图片（用作 TabBar 顶部分割线）。
+    private static func hairlineImage(color: UIColor) -> UIImage {
+        let scale = UIScreen.main.scale
+        let h = 1.0 / scale
+        let fmt = UIGraphicsImageRendererFormat.default()
+        fmt.scale = scale
+        return UIGraphicsImageRenderer(size: CGSize(width: 1, height: h), format: fmt).image { ctx in
+            color.setFill()
+            ctx.fill(CGRect(origin: .zero, size: CGSize(width: 1, height: h)))
+        }
+    }
 }
 
 /// 🔴 v2.9.6：酷狗风格的顶部淡蓝 → 白色渐变带。

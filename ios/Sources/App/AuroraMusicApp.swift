@@ -46,6 +46,9 @@ struct AuroraMusicApp: App {
         // 底部分隔线（黑线）。页面渐变带顶部是同色纯色块，颜色无缝衔接。
         // 必须在 init 里装，appearance 代理只对之后创建的导航栏生效。
         AppStyle.installNavigationBarAppearance()
+        // 🔴 v2.9.32：底部 TabBar 严格对齐酷狗 UI 规范（浅色：纯白底 + #EEEEEE 发丝线，
+        // 选中蓝 #1E88F5 / 未选中灰 #8892A0，文字 12px，去掉系统模糊与阴影）。
+        AppStyle.installTabBarAppearance()
 
         // 恢复用户登录态
         if let user = auth.currentUser {

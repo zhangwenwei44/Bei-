@@ -159,7 +159,7 @@ private struct MainTabs: View {
         .onReceive(NotificationCenter.default.publisher(for: .auroraShowKugouLogin)) { _ in
             showKugouLogin = true
         }
-        .tint(AppStyle.accent)
+        .tint(AppStyle.tabBarSelected)
         // 🔴 头像兜底：已登录但本地没存头像的存量用户（二维码登录响应没给、
         // 或旧版本登录的），启动时走 usercenter 补拉一次。失败静默，不影响使用。
         .task {
@@ -396,17 +396,19 @@ private struct MiniPlayerProgressBar: View {
 /// 线宽 2.4、圆头圆角、黑色描边/填充（之后 `.template` 跟随 tab 选中色）。
 /// 既然四个 canvas 与线宽完全一致，显示尺寸必然一致，从根上解决大小不齐。
 private func renderTabIcon(_ draw: (CGContext, (CGFloat, CGFloat) -> CGPoint) -> Void) -> UIImage {
-    let side: CGFloat = 28
+    // 🔴 v2.9.32：酷狗规范 —— 24×24 画布直接对应 24px 图标，线宽统一 1.5px 细线。
+    // 四图标共用此渲染器 → 尺寸/线宽绝对一致，均为 template 跟随 TabBar 选中色。
+    let side: CGFloat = 24
     let r = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
     return r.image { ctx in
         let c = ctx.cgContext
         c.setFillColor(UIColor.black.cgColor)
         c.setStrokeColor(UIColor.black.cgColor)
-        c.setLineWidth(2.4)
+        c.setLineWidth(1.5)
         c.setLineCap(.round)
         c.setLineJoin(.round)
-        // 24 网格 → 28 画布（上下左右各留 2pt 内边距）
-        let T: (CGFloat, CGFloat) -> CGPoint = { CGPoint(x: 2 + $0, y: 2 + $1) }
+        // 24 网格 = 24pt 画布（无额外内边距），坐标直接落位
+        let T: (CGFloat, CGFloat) -> CGPoint = { CGPoint(x: $0, y: $1) }
         draw(c, T)
     }
 }
@@ -437,20 +439,20 @@ struct SearchTabIcon: View {
     }
 }
 
-/// 底栏「我的音乐」图标 —— 双音符（自绘，与另外三个完全相同的渲染器）。
+/// 底栏「我的音乐」图标 —— 双音符（细线，与另外三个完全相同的渲染器 / 1.5px 线宽）。
 struct MyMusicTabIcon: View {
     var body: some View { Image(uiImage: Self.icon).renderingMode(.template) }
     private static let icon = renderTabIcon { c, T in
-        // 两个实心符头（椭圆）
+        // 两个线性符头（描边椭圆，不填充 —— 与「线性细线」风格统一）
         for (hx, hy) in [(7.0, 16.5), (16.0, 16.5)] {
-            c.fillEllipse(in: CGRect(x: T(hx - 2.6, hy - 2.3).x, y: T(hx - 2.6, hy - 2.3).y,
+            c.addEllipse(in: CGRect(x: T(hx - 2.6, hy - 2.3).x, y: T(hx - 2.6, hy - 2.3).y,
                                     width: 5.2, height: 4.6))
         }
-        // 符杆 + 横梁（加粗）
-        c.setLineWidth(3.2)
-        c.move(to: T(9.6, 16.5)); c.addLine(to: T(9.6, 5.0))
-        c.move(to: T(18.2, 16.5)); c.addLine(to: T(18.2, 5.0))
-        c.move(to: T(9.6, 5.0)); c.addLine(to: T(18.2, 5.0))
+        c.strokePath()
+        // 符杆 + 横梁（统一 1.5px 细线，不单独加粗）
+        c.move(to: T(9.6, 16.5)); c.addLine(to: T(9.6, 6.0))
+        c.move(to: T(18.6, 16.5)); c.addLine(to: T(18.6, 6.0))
+        c.move(to: T(9.6, 6.0)); c.addLine(to: T(18.6, 6.0))
         c.strokePath()
     }
 }
