@@ -142,20 +142,16 @@ private struct MainTabs: View {
     var body: some View {
         TabView(selection: $tab) {
             tabRoot(DiscoverView())
-                // 🔴 v2.9.29：主页/设置改回 SF **描边**符号（house / gearshape），
-                //   与自绘的搜索/我的音乐统一为同一描边风格 —— 之前用 house.fill /
-                //   gearshape.fill 实心符号，视觉分量比两个线描图标重一大圈，
-                //   整排「又大又小」不整齐。现在四个全描边、线宽/占格一致。
-                .tabItem { Label("主页", systemImage: "house") }.tag(Tab.discover)
+                // 🔴 v2.9.31：四个 tab 图标全部自绘，共用同一 renderTabIcon 渲染器
+                //   （28pt 画布 / 2pt 内边距 / 线宽 2.4），显示尺寸与线宽绝对一致，
+                //   彻底解决「又大又小」。均 template 跟随 tab 选中色（蓝/灰）。
+                .tabItem { Label { Text("主页") } icon: { HomeTabIcon() } }.tag(Tab.discover)
             tabRoot(SearchView())
                 .tabItem { Label { Text("搜索") } icon: { SearchTabIcon() } }.tag(Tab.search)
             tabRoot(LibraryView())
-                // 🔴 v2.9.29：四个 tab 统一描边风格 —— 主页/设置用 SF 描边符号
-                //   (house / gearshape)，搜索/我的音乐用自绘描边图标，线宽与占格
-                //   一致，整排不再「又大又小」。均 template 跟随 tab 选中色。
                 .tabItem { Label { Text("我的音乐") } icon: { MyMusicTabIcon() } }.tag(Tab.library)
             tabRoot(ProfileView())
-                .tabItem { Label("设置", systemImage: "gearshape") }.tag(Tab.profile)
+                .tabItem { Label { Text("设置") } icon: { GearTabIcon() } }.tag(Tab.profile)
         }
         // 键盘弹出时不抬 TabBar/播放条（搜索页打字时保持原位，与旧版行为一致）
         .ignoresSafeArea(.keyboard)
@@ -389,85 +385,92 @@ private struct MiniPlayerProgressBar: View {
 }
 
 
-// MARK: - 🔴 底栏图标（自绘，线宽一致、跟随 tab 选中色）
+// MARK: - 🔴 底栏图标（四个全部自绘，共用同一渲染器 → 大小/线宽绝对一致）
 
-/// 底栏「我的音乐」图标 —— 双音符（自绘，描边风格，与 house/gearshape 统一）。
+/// 统一渲染底栏图标。
 ///
-/// 🔴 v2.9.29：上一版（v2.9.28）音符头太大（占满下半部）、杆/梁太细，整体「头重脚轻」
-/// 且比其它 tab 小一圈。现重做：① 音符头缩小为扁椭圆（rx2.3/ry2.0）并实心填充；
-/// ② 竖杆加粗到 3.0、横梁加粗到 3.6，与实心头视觉重量匹配；③ 整体占格与
-/// house/gearshape 对齐（宽 ≈14、高 ≈14.5），不再偏小。
-/// 渲染成 template 图跟随 tab tint（选中蓝 / 未选中灰）。
-struct MyMusicTabIcon: View {
-    var body: some View {
-        Image(uiImage: Self.icon).renderingMode(.template)
+/// 🔴 之前「主页/设置」用 SF Symbol（`house`/`gearshape`），「搜索/我的音乐」用自绘
+/// `UIImage`。SF 符号由系统按标准 25pt tab 槽渲染，而自绘 UIImage 按**自身像素尺寸**
+/// 渲染——两边 canvas 不同 → 整排「又大又小」（自绘图标比 SF 大一倍）。
+/// 现四个图标全部自绘，共用同一套渲染器：28pt 画布、2pt 内边距（内容区 24×24）、
+/// 线宽 2.4、圆头圆角、黑色描边/填充（之后 `.template` 跟随 tab 选中色）。
+/// 既然四个 canvas 与线宽完全一致，显示尺寸必然一致，从根上解决大小不齐。
+private func renderTabIcon(_ draw: (CGContext, (CGFloat, CGFloat) -> CGPoint) -> Void) -> UIImage {
+    let side: CGFloat = 28
+    let r = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
+    return r.image { ctx in
+        let c = ctx.cgContext
+        c.setFillColor(UIColor.black.cgColor)
+        c.setStrokeColor(UIColor.black.cgColor)
+        c.setLineWidth(2.4)
+        c.setLineCap(.round)
+        c.setLineJoin(.round)
+        // 24 网格 → 28 画布（上下左右各留 2pt 内边距）
+        let T: (CGFloat, CGFloat) -> CGPoint = { CGPoint(x: 2 + $0, y: 2 + $1) }
+        draw(c, T)
     }
-
-    private static let icon: UIImage = {
-        let side: CGFloat = 50
-        let r = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
-        return r.image { ctx in
-            let c = ctx.cgContext
-            c.setFillColor(UIColor.black.cgColor)
-            c.setStrokeColor(UIColor.black.cgColor)
-            c.setLineCap(.round)
-            c.setLineJoin(.round)
-            let s = side / 24.0
-            let X = { (v: CGFloat) -> CGFloat in v * s }
-            let Y = { (v: CGFloat) -> CGFloat in v * s }
-            // 🔴 v2.9.30：整体放大到与 house/gearshape 同占格（之前偏小一圈），
-            // 两个实心扁椭圆（音符头，rx2.6/ry2.3）贴在底部，竖杆/横梁加粗到 3.2/3.8。
-            for (cx, cy) in [(7.0, 16.5), (15.6, 16.5)] {
-                c.fillEllipse(in: CGRect(x: X(cx - 2.6), y: Y(cy - 2.3),
-                                         width: X(5.2), height: Y(4.6)))
-            }
-            // 两根加粗竖杆（从音符头右侧向上）
-            c.setLineWidth(3.2)
-            c.move(to: CGPoint(x: X(9.6), y: Y(16.5)))
-            c.addLine(to: CGPoint(x: X(9.6), y: Y(3.4)))
-            c.move(to: CGPoint(x: X(18.2), y: Y(16.5)))
-            c.addLine(to: CGPoint(x: X(18.2), y: Y(2.2)))
-            c.strokePath()
-            // 加粗横梁（连接两竖杆顶部）
-            c.setLineWidth(3.8)
-            c.move(to: CGPoint(x: X(9.6), y: Y(3.4)))
-            c.addLine(to: CGPoint(x: X(18.2), y: Y(2.2)))
-            c.strokePath()
-        }
-    }()
 }
 
-/// 底栏「搜索」图标 —— 放大镜（自绘，描边风格，与 house/gearshape 统一）。
-///
-/// 🔴 v2.9.29：上一版圆环偏大、手柄偏短，和 house/gearshape 占格不一致。
-/// 现重做：圆环中心 (11.5,11) 半径 6、线宽 2.4；手柄从 45° 处斜向右下到 (19.5,19.5)，
-/// 整体占格与 house/gearshape 对齐；template 渲染跟随 tab tint。
-struct SearchTabIcon: View {
-    var body: some View {
-        Image(uiImage: Self.icon).renderingMode(.template)
+/// 底栏「主页」图标 —— 房子（自绘，与另外三个完全相同的渲染器）。
+struct HomeTabIcon: View {
+    var body: some View { Image(uiImage: Self.icon).renderingMode(.template) }
+    private static let icon = renderTabIcon { c, T in
+        c.move(to: T(12, 2.5)); c.addLine(to: T(2.5, 10.5)); c.addLine(to: T(21.5, 10.5)); c.closePath()  // 屋顶
+        c.move(to: T(5, 10.5)); c.addLine(to: T(5, 21)); c.addLine(to: T(19, 21)); c.addLine(to: T(19, 10.5)) // 主体
+        c.move(to: T(10, 21)); c.addLine(to: T(10, 15)); c.addLine(to: T(14, 15)); c.addLine(to: T(14, 21))   // 门
+        c.strokePath()
     }
+}
 
-    private static let icon: UIImage = {
-        let side: CGFloat = 50
-        let r = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
-        return r.image { ctx in
-            let c = ctx.cgContext
-            c.setStrokeColor(UIColor.black.cgColor)
-            // 🔴 v2.9.30：圆环放大（中心 (11,11) 半径 7.5）+ 线宽加粗到 3.2，
-            // 使占格与 house/gearshape 对齐；手柄从 45° 处斜向右下到 (19.5,19.5)，不出框。
-            c.setLineWidth(3.2)
-            c.setLineCap(.round)
-            c.setLineJoin(.round)
-            let s = side / 24.0
-            let X = { (v: CGFloat) -> CGFloat in v * s }
-            let Y = { (v: CGFloat) -> CGFloat in v * s }
-            c.addEllipse(in: CGRect(x: X(3.5), y: Y(3.5), width: X(15.0), height: Y(15.0)))
-            c.strokePath()
-            let hx = 11.0 + 7.5 * 0.70710678
-            let hy = 11.0 + 7.5 * 0.70710678
-            c.move(to: CGPoint(x: X(hx), y: Y(hy)))
-            c.addLine(to: CGPoint(x: X(19.5), y: Y(19.5)))
-            c.strokePath()
+/// 底栏「搜索」图标 —— 放大镜（自绘，与另外三个完全相同的渲染器）。
+struct SearchTabIcon: View {
+    var body: some View { Image(uiImage: Self.icon).renderingMode(.template) }
+    private static let icon = renderTabIcon { c, T in
+        let cx: CGFloat = 12, cy: CGFloat = 12, R: CGFloat = 7.2
+        c.addEllipse(in: CGRect(x: T(cx - R, cy - R).x, y: T(cx - R, cy - R).y,
+                                width: 2 * R, height: 2 * R))
+        c.strokePath()
+        let a = CGFloat.pi / 4
+        c.move(to: T(cx + R * cos(a), cy + R * sin(a)))
+        c.addLine(to: T(21, 21))
+        c.strokePath()
+    }
+}
+
+/// 底栏「我的音乐」图标 —— 双音符（自绘，与另外三个完全相同的渲染器）。
+struct MyMusicTabIcon: View {
+    var body: some View { Image(uiImage: Self.icon).renderingMode(.template) }
+    private static let icon = renderTabIcon { c, T in
+        // 两个实心符头（椭圆）
+        for (hx, hy) in [(7.0, 16.5), (16.0, 16.5)] {
+            c.fillEllipse(in: CGRect(x: T(hx - 2.6, hy - 2.3).x, y: T(hx - 2.6, hy - 2.3).y,
+                                    width: 5.2, height: 4.6))
         }
-    }()
+        // 符杆 + 横梁（加粗）
+        c.setLineWidth(3.2)
+        c.move(to: T(9.6, 16.5)); c.addLine(to: T(9.6, 5.0))
+        c.move(to: T(18.2, 16.5)); c.addLine(to: T(18.2, 5.0))
+        c.move(to: T(9.6, 5.0)); c.addLine(to: T(18.2, 5.0))
+        c.strokePath()
+    }
+}
+
+/// 底栏「设置」图标 —— 齿轮（自绘，与另外三个完全相同的渲染器）。
+struct GearTabIcon: View {
+    var body: some View { Image(uiImage: Self.icon).renderingMode(.template) }
+    private static let icon = renderTabIcon { c, T in
+        let cx: CGFloat = 12, cy: CGFloat = 12
+        let rOut: CGFloat = 9.0, rIn: CGFloat = 6.8, n = 8
+        let deg = { (d: CGFloat) -> CGFloat in d * .pi / 180 }
+        c.move(to: T(cx + rIn * cos(deg(-22.5)), cy + rIn * sin(deg(-22.5))))
+        for k in 0..<n {
+            c.addLine(to: T(cx + rOut * cos(deg(CGFloat(k) * 45 - 13)), cy + rOut * sin(deg(CGFloat(k) * 45 - 13))))
+            c.addLine(to: T(cx + rOut * cos(deg(CGFloat(k) * 45 + 13)), cy + rOut * sin(deg(CGFloat(k) * 45 + 13))))
+            c.addLine(to: T(cx + rIn * cos(deg(CGFloat(k) * 45 + 22.5)), cy + rIn * sin(deg(CGFloat(k) * 45 + 22.5))))
+        }
+        c.closePath(); c.strokePath()
+        // 中心孔
+        c.addEllipse(in: CGRect(x: T(cx - 3, cy - 3).x, y: T(cx - 3, cy - 3).y, width: 6, height: 6))
+        c.strokePath()
+    }
 }
