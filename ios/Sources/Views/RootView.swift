@@ -142,15 +142,20 @@ private struct MainTabs: View {
     var body: some View {
         TabView(selection: $tab) {
             tabRoot(DiscoverView())
-                .tabItem { Label("主页", systemImage: "house.fill") }.tag(Tab.discover)
+                // 🔴 v2.9.29：主页/设置改回 SF **描边**符号（house / gearshape），
+                //   与自绘的搜索/我的音乐统一为同一描边风格 —— 之前用 house.fill /
+                //   gearshape.fill 实心符号，视觉分量比两个线描图标重一大圈，
+                //   整排「又大又小」不整齐。现在四个全描边、线宽/占格一致。
+                .tabItem { Label("主页", systemImage: "house") }.tag(Tab.discover)
             tabRoot(SearchView())
                 .tabItem { Label { Text("搜索") } icon: { SearchTabIcon() } }.tag(Tab.search)
             tabRoot(LibraryView())
-                // 🔴 v2.9.28：我的音乐图标改为自绘双音符（线宽加粗 + 两个圆实心），
-                //   搜索图标改为自绘放大镜（线宽加粗）；二者均 template 渲染跟随 tab 选中色。
+                // 🔴 v2.9.29：四个 tab 统一描边风格 —— 主页/设置用 SF 描边符号
+                //   (house / gearshape)，搜索/我的音乐用自绘描边图标，线宽与占格
+                //   一致，整排不再「又大又小」。均 template 跟随 tab 选中色。
                 .tabItem { Label { Text("我的音乐") } icon: { MyMusicTabIcon() } }.tag(Tab.library)
             tabRoot(ProfileView())
-                .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
+                .tabItem { Label("设置", systemImage: "gearshape") }.tag(Tab.profile)
         }
         // 键盘弹出时不抬 TabBar/播放条（搜索页打字时保持原位，与旧版行为一致）
         .ignoresSafeArea(.keyboard)
@@ -386,18 +391,20 @@ private struct MiniPlayerProgressBar: View {
 
 // MARK: - 🔴 底栏图标（自绘，线宽一致、跟随 tab 选中色）
 
-/// 底栏「我的音乐」图标 —— 双音符。
+/// 底栏「我的音乐」图标 —— 双音符（自绘，描边风格，与 house/gearshape 统一）。
 ///
-/// 🔴 v2.9.28：之前用自带 PNG（细描边、空心圆头），用户要求**线条加粗 + 两个圆改实心**。
-/// 改为 UIGraphicsImageRenderer 现画：两个实心填充圆头 + 加粗竖杆 + 加粗横梁，
-/// 渲染成 template 图跟随 tab tint（选中蓝 / 未选中灰），与其它 tab 完全一致。
+/// 🔴 v2.9.29：上一版（v2.9.28）音符头太大（占满下半部）、杆/梁太细，整体「头重脚轻」
+/// 且比其它 tab 小一圈。现重做：① 音符头缩小为扁椭圆（rx2.3/ry2.0）并实心填充；
+/// ② 竖杆加粗到 3.0、横梁加粗到 3.6，与实心头视觉重量匹配；③ 整体占格与
+/// house/gearshape 对齐（宽 ≈14、高 ≈14.5），不再偏小。
+/// 渲染成 template 图跟随 tab tint（选中蓝 / 未选中灰）。
 struct MyMusicTabIcon: View {
     var body: some View {
         Image(uiImage: Self.icon).renderingMode(.template)
     }
 
     private static let icon: UIImage = {
-        let side: CGFloat = 25
+        let side: CGFloat = 50
         let r = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
         return r.image { ctx in
             let c = ctx.cgContext
@@ -408,54 +415,57 @@ struct MyMusicTabIcon: View {
             let s = side / 24.0
             let X = { (v: CGFloat) -> CGFloat in v * s }
             let Y = { (v: CGFloat) -> CGFloat in v * s }
-            // 两个实心圆（音符头）
-            for (cx, cy) in [(7.0, 15.5), (15.5, 15.5)] {
-                c.fillEllipse(in: CGRect(x: X(cx - 3.0), y: Y(cy - 3.0),
-                                         width: X(6.0), height: Y(6.0)))
+            // 两个实心扁椭圆（音符头）
+            for (cx, cy) in [(7.6, 15.5), (15.2, 15.5)] {
+                c.fillEllipse(in: CGRect(x: X(cx - 2.3), y: Y(cy - 2.0),
+                                         width: X(4.6), height: Y(4.0)))
             }
-            // 两根加粗竖杆（从圆右侧向上）
-            c.setLineWidth(2.6)
-            c.move(to: CGPoint(x: X(10.0), y: Y(15.5)))
-            c.addLine(to: CGPoint(x: X(10.0), y: Y(4.0)))
-            c.move(to: CGPoint(x: X(18.5), y: Y(15.5)))
-            c.addLine(to: CGPoint(x: X(18.5), y: Y(2.0)))
+            // 两根加粗竖杆（从音符头右侧向上）
+            c.setLineWidth(3.0)
+            c.move(to: CGPoint(x: X(9.9), y: Y(15.5)))
+            c.addLine(to: CGPoint(x: X(9.9), y: Y(5.2)))
+            c.move(to: CGPoint(x: X(17.5), y: Y(15.5)))
+            c.addLine(to: CGPoint(x: X(17.5), y: Y(3.2)))
             c.strokePath()
             // 加粗横梁（连接两竖杆顶部）
-            c.setLineWidth(3.2)
-            c.move(to: CGPoint(x: X(10.0), y: Y(4.0)))
-            c.addLine(to: CGPoint(x: X(18.5), y: Y(2.0)))
+            c.setLineWidth(3.6)
+            c.move(to: CGPoint(x: X(9.9), y: Y(5.2)))
+            c.addLine(to: CGPoint(x: X(17.5), y: Y(3.2)))
             c.strokePath()
         }
     }()
 }
 
-/// 底栏「搜索」图标 —— 放大镜。
+/// 底栏「搜索」图标 —— 放大镜（自绘，描边风格，与 house/gearshape 统一）。
 ///
-/// 🔴 v2.9.28：之前用 SF Symbol `magnifyingglass`（系统默认细描边），用户要求**线条加粗**。
-/// 改为自绘：加粗圆环 + 加粗手柄，template 渲染跟随 tab tint。
+/// 🔴 v2.9.29：上一版圆环偏大、手柄偏短，和 house/gearshape 占格不一致。
+/// 现重做：圆环中心 (11.5,11) 半径 6、线宽 2.4；手柄从 45° 处斜向右下到 (19.5,19.5)，
+/// 整体占格与 house/gearshape 对齐；template 渲染跟随 tab tint。
 struct SearchTabIcon: View {
     var body: some View {
         Image(uiImage: Self.icon).renderingMode(.template)
     }
 
     private static let icon: UIImage = {
-        let side: CGFloat = 25
+        let side: CGFloat = 50
         let r = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
         return r.image { ctx in
             let c = ctx.cgContext
             c.setStrokeColor(UIColor.black.cgColor)
-            c.setLineWidth(2.6)
+            c.setLineWidth(2.4)
             c.setLineCap(.round)
             c.setLineJoin(.round)
             let s = side / 24.0
             let X = { (v: CGFloat) -> CGFloat in v * s }
             let Y = { (v: CGFloat) -> CGFloat in v * s }
-            // 圆环（中心 (10,10) 半径 6.5）
-            c.addEllipse(in: CGRect(x: X(3.5), y: Y(3.5), width: X(13.0), height: Y(13.0)))
+            // 圆环（中心 (11.5,11) 半径 6）
+            c.addEllipse(in: CGRect(x: X(5.5), y: Y(5.0), width: X(12.0), height: Y(12.0)))
             c.strokePath()
             // 手柄（圆环 45° 处 → 右下角）
-            c.move(to: CGPoint(x: X(14.6), y: Y(14.6)))
-            c.addLine(to: CGPoint(x: X(20.5), y: Y(20.5)))
+            let hx = 11.5 + 6 * 0.70710678
+            let hy = 11.0 + 6 * 0.70710678
+            c.move(to: CGPoint(x: X(hx), y: Y(hy)))
+            c.addLine(to: CGPoint(x: X(19.5), y: Y(19.5)))
             c.strokePath()
         }
     }()
