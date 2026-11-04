@@ -172,11 +172,11 @@ final class PlayerStore: ObservableObject {
     /// 🔴 v2.9.8：连续「播不了就跳过」的次数 —— 防止整个队列都坏时无限跳歌。
     /// 真正开始出声（播放头推进）后清零。
     private var consecutiveSkipFailures = 0
-    /// 🔴 v2.9.8：最近一次失败的歌曲 id + 时间 —— 同一次失败可能被
-    /// 「item.status = .failed」和「failedToPlayToEndTime」各报一次，
-    /// 不去重的话第二次会误判成「换源也救不回来」→ 白白跳过一首好歌。
-    private var lastFailureSongID: String?
-    private var lastFailureTime: Date?
+    /// 🔴 v2.9.26：用 **失败 item 的身份** 去重（不是 3 秒时间窗）。
+    /// 旧逻辑用时间窗：重试 prepare 命中缓存 → 重新 attach 同一个坏 URL → 再次失败，
+    /// 但这次失败离上一次不到 3 秒，被「忽略本次」吞掉 → 既不重试也不跳下一首 → 永久卡死。
+    /// 改成「同一个 AVPlayerItem 只处理一次」：真正重试后的新 item 失败不会被吞，会走到 skip。
+    private var lastHandledFailedItem: AVPlayerItem?
     /// prepare() 开始时间戳 —— 后台超时兜底用
     private var lastPrepareStart: TimeInterval = 0
     private var preparingTask: Task<Void, Never>?
@@ -237,7 +237,16 @@ final class PlayerStore: ObservableObject {
     /// 🔴 把当前音效预设实时挂到正在播放的 item（切了预设立刻生效，不重启曲目）。
     private func applySoundEffect() {
         guard let item = player.currentItem else { return }
-        item.audioMix = SoundEffectEngine.audioMix(for: SoundEffectSetting.shared.current)
+        let preset = SoundEffectSetting.shared.current
+        item.audioMix = SoundEffectEngine.audioMix(for: preset)
+        Log.info("音效", "应用音效预设：\(preset.title)，audioMix=\(item.audioMix != nil ? "已挂载" : "nil(关闭)")")
+        // 🔴 v2.9.26：已播放的 item 上直接改 audioMix，在部分 iOS 版本不会立即重建渲染链，
+        // 表现就是「切了音效听不到变化」。用一次「同位置精确 seek」强制解码管线重新走新的 tap，
+        // 确保音效立刻生效；精确容差保证一定会重新解码，不是 no-op。
+        if player.rate > 0 {
+            let t = player.currentTime()
+            player.seek(to: t, toleranceBefore: .zero, toleranceAfter: .zero)
+        }
     }
 
     deinit {
@@ -606,6 +615,8 @@ final class PlayerStore: ObservableObject {
     private func attach(url: URL, thirdParty: Bool, autoplay: Bool) {
         itemObservers.forEach { $0.invalidate() }
         itemObservers.removeAll()
+        // 🔴 v2.9.26：新 item 挂上来，清掉上一次失败的 item 引用，避免跨歌误去重
+        lastHandledFailedItem = nil
 
         // 如果刚好有 preloaded item 对应当前歌曲（切到了被预加载的那首），直接用它 ——
         // AVAsset 已经预建 CDN 连接，切歌更快；preloadedItem 还没 attach 给任何 player，可以安全复用。
@@ -1234,18 +1245,17 @@ final class PlayerStore: ObservableObject {
     /// 同一首歌最多自动重试 1 次，再多就会把音源打熔断，殃及后面所有歌。
     private func handlePlaybackFailure() {
         guard let songID = current?.id else { return }
-        // 🔴 v2.9.8：同一次失败可能有两个通知来源，3 秒内对同一首歌只处理一次
-        if lastFailureSongID == songID,
-           let t = lastFailureTime,
-           Date().timeIntervalSince(t) < 3 {
-            Log.warn("播放", "同一首歌短时间内重复报错，忽略本次（\(songID.prefix(8))）")
+        // 🔴 v2.9.26：用 **item 身份** 去重，而不是 3 秒时间窗（详见属性注释）。
+        // 同一种失败事件来自多个通知来源时才忽略；真正重试后的新 item 失败不会被吞。
+        guard let failedItem = player.currentItem else { return }
+        if let last = lastHandledFailedItem, last === failedItem {
+            Log.warn("播放", "同一 item 重复报错，忽略（\(songID.prefix(8))）")
             return
         }
-        lastFailureSongID = songID
-        lastFailureTime = Date()
+        lastHandledFailedItem = failedItem
 
         guard itemThirdParty,
-              let asset = player.currentItem?.asset as? AVURLAsset,
+              let asset = failedItem.asset as? AVURLAsset,
               let host = asset.url.host?.lowercased() else {
             playbackError = "播放失败，换个音源试试"
             pause()
@@ -1266,8 +1276,12 @@ final class PlayerStore: ObservableObject {
             return
         }
         recoveryAttempts += 1
+        // 🔴 v2.9.26：把坏节点拉黑 + 清掉当前歌的 URL 缓存，让重试真正换源。
+        // 否则 prepare 命中缓存还是同一个坏 URL（如证书无效的 fs.youthandroid2.kugou.com），
+        // 重新 attach 必然再次失败，而被去重逻辑吞掉 → 卡死在这一首。
         failedHosts.insert(host)
         if failedHosts.count > 8 { failedHosts.removeAll() }
+        resolvedURLCache.removeValue(forKey: songID)
         playbackError = "当前节点不可用，正在换源"
         prepare(autoplay: true)
     }

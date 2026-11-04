@@ -68,9 +68,11 @@ struct PlayerActionIcon: View {
                 ZStack {
                     SoundEffectGlyph().stroke(tint, style: stroke)
                     SoundEffectHandles().stroke(tint, style: stroke)
-                    // 右下角「OFF」角标：**实心粗体斜体**（参考图同款，不是空心线条）
-                    Text("OFF")
-                        .font(.system(size: size * 0.19, weight: .heavy))
+                    // 右下角状态角标：**实心粗体斜体**，字号与下载「VIP」一致。
+                    // 未开音效显示 OFF，开启后显示 ON（随 SoundEffectSetting 实时刷新）。
+                    let seOn = SoundEffectSetting.shared.current != .off
+                    Text(seOn ? "ON" : "OFF")
+                        .font(.system(size: size * 0.23, weight: .heavy))
                         .italic()
                         .foregroundStyle(tint)
                         .offset(x: size * 0.30, y: size * 0.20)
@@ -88,10 +90,17 @@ struct PlayerActionIcon: View {
             case .more:
                 MoreGlyph().fill(tint)
             case .downloaded:
-                // 🔴 v2.9.4：之前是「实心圆底 + 白勾」，跟旁边纯线条图标完全不是一路的，
-                // 看着像贴上去的另一个控件。现在改成同一套白色描边线条。
-                // v2.9.16：托盘线宽跟「下载」一致（手绘风托盘是粗的）。
-                DownloadedGlyph().stroke(tint, style: stroke)
+                // 🔴 v2.9.26：已下载图标改成与「未下载」完全同款（同一外框 + 同一箭头），
+                // 不再用对勾版本；区别只靠角标文字：未下载是「VIP」，已下载是「已下载」。
+                ZStack {
+                    DownloadBox().stroke(tint, style: stroke)
+                    DownloadArrow().stroke(tint, style: stroke)
+                    Text("已下载")
+                        .font(.system(size: size * 0.19, weight: .heavy))
+                        .italic()
+                        .foregroundStyle(tint)
+                        .offset(x: size * 0.10, y: size * 0.22)
+                }
             }
         }
         .frame(width: size, height: size)

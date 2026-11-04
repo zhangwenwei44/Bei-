@@ -6,6 +6,9 @@ struct PlayerView: View {
     /// 🔴 v2.9.3：订阅下载管理器，让动作行的「下载」按钮实时反映
     /// 当前歌曲的下载状态（未下载 / 下载中 / 已下载）。
     @ObservedObject private var downloads = DownloadManager.shared
+    /// 🔴 v2.9.26：订阅音效设置，使动作行「OFF/ON」角标随预设切换实时刷新
+    /// （PlayerActionIcon 内部读 SoundEffectSetting.shared，但只有订阅方重渲染才会反映）。
+    @ObservedObject private var soundEffectSetting = SoundEffectSetting.shared
     /// 🔴 刻意用 `let` 不用 @ObservedObject（v2.5.35 关键修复）：
     /// playback.currentTime 播放时 4fps 变化，若 PlayerView 订阅它，整棵播放页树
     /// （含横屏全部按钮/进度/歌词）每秒被重建 4 次 —— SwiftUI 在持续 re-diff 期间
@@ -361,6 +364,8 @@ struct PlayerView: View {
 
     /// 动作行（参考图同款）：纯图标、无文字、整行均分 —— 喜欢 / 下载 / 评论 / 歌词 / ⋯
     private var classicActionRow: some View {
+        // 🔴 v2.9.26：引用音效状态，使动作行 OFF/ON 角标随预设切换实时刷新
+        _ = soundEffectSetting.current
         HStack(spacing: 0) {
             // ① 喜欢 —— 🔴 v2.5.46：改回最初用的 SF Symbol 心形（用户要求）
             Button {
@@ -403,10 +408,9 @@ struct PlayerView: View {
                 QualitySettingsView()
             }
         }
-        .sheet(isPresented: $showSoundEffectPanel) {
-            CompatNavigationStack {
-                SoundEffectPanel()
-            }
+        // 🔴 v2.9.26：音效页改为全屏呈现（用户要求全屏显示，匹配蝰蛇音效参考页）
+        .fullScreenCover(isPresented: $showSoundEffectPanel) {
+            SoundEffectPanel()
         }
         .confirmationDialog("更多", isPresented: $showMoreMenu, titleVisibility: .visible) {
             Button("完整歌词") { openLyricsPage() }
