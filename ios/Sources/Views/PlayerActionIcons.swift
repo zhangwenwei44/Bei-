@@ -119,18 +119,18 @@ private struct GlyphBox {
     func p(_ vx: CGFloat, _ vy: CGFloat) -> CGPoint { CGPoint(x: x(vx), y: y(vy)) }
 }
 
-/// 心形（重新设计，对称饱满，双瓣圆润、底尖利落）
+/// 心形（重画：左右严格镜像对称，双瓣圆润饱满，顶部 V 凹口浅而平滑，底尖居中收锐）
 private struct HeartGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         var p = Path()
-        p.move(to: b.p(12, 21.0))
-        p.addCurve(to: b.p(2.4, 12.6),  control1: b.p(7.4, 18.4),  control2: b.p(2.8, 15.4))
-        p.addCurve(to: b.p(7.2, 4.4),   control1: b.p(2.4, 10.2),  control2: b.p(4.4, 6.4))
-        p.addCurve(to: b.p(12, 9.0),    control1: b.p(9.0, 4.4),   control2: b.p(12, 5.9))
-        p.addCurve(to: b.p(16.8, 4.4),  control1: b.p(12, 5.9),    control2: b.p(15.0, 4.4))
-        p.addCurve(to: b.p(21.6, 12.6), control1: b.p(19.6, 6.4),  control2: b.p(21.6, 10.2))
-        p.addCurve(to: b.p(12, 21.0),   control1: b.p(21.2, 15.4), control2: b.p(16.6, 18.4))
+        p.move(to: b.p(12, 21.0))                                   // 底尖（中轴）
+        p.addCurve(to: b.p(3.0, 11.8),  control1: b.p(8.5, 19.0),  control2: b.p(3.0, 16.5))   // 左下半
+        p.addCurve(to: b.p(6.4, 4.2),   control1: b.p(3.0, 8.5),   control2: b.p(4.4, 4.2))    // 左瓣（顶水平切向=圆润）
+        p.addCurve(to: b.p(12, 8.8),    control1: b.p(8.4, 4.2),   control2: b.p(11.2, 7.8))   // 左瓣 → 中凹（浅 V）
+        p.addCurve(to: b.p(17.6, 4.2),  control1: b.p(12.8, 7.8),  control2: b.p(15.6, 4.2))   // 中凹 → 右瓣
+        p.addCurve(to: b.p(21.0, 11.8), control1: b.p(19.6, 4.2),  control2: b.p(21.0, 8.5))   // 右瓣 → 右下半
+        p.addCurve(to: b.p(12, 21.0),   control1: b.p(21.0, 16.5), control2: b.p(15.5, 19.0))  // 右下半 → 底尖
         p.closeSubpath()
         return p
     }
