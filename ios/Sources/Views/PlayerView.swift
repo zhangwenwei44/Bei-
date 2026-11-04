@@ -366,7 +366,7 @@ struct PlayerView: View {
     private var classicActionRow: some View {
         // 🔴 v2.9.26：引用音效状态，使动作行 OFF/ON 角标随预设切换实时刷新
         _ = soundEffectSetting.current
-        HStack(spacing: 0) {
+        return HStack(spacing: 0) {
             // ① 喜欢 —— 🔴 v2.5.46：改回最初用的 SF Symbol 心形（用户要求）
             Button {
                 store.toggleFavorite()
