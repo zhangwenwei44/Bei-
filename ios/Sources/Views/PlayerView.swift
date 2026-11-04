@@ -401,8 +401,8 @@ struct PlayerView: View {
             } label: {
                 PlayerActionIcon(
                     glyph: .soundEffect,
-                    soundEffectOn: soundEffectSetting.current != .off,
-                    size: 24
+                    size: 24,
+                    soundEffectOn: soundEffectSetting.current != .off
                 )
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
