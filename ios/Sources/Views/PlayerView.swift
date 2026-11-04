@@ -375,6 +375,9 @@ struct PlayerView: View {
                     .foregroundStyle(store.isLiked ? AppStyle.like : .white)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
+                    // 🔴 v2.9.25：SF 心形字形高度(~17pt)小于自绘图标的 24pt 方盒，
+                    // 居中后视觉顶部比下载/音效低约 3pt —— 上移 3pt 使视觉顶部与下载按钮齐平。
+                    .offset(y: -3)
             }
             .buttonStyle(.plain)
             Spacer(minLength: 0)
