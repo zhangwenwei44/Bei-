@@ -415,22 +415,23 @@ struct MyMusicTabIcon: View {
             let s = side / 24.0
             let X = { (v: CGFloat) -> CGFloat in v * s }
             let Y = { (v: CGFloat) -> CGFloat in v * s }
-            // 两个实心扁椭圆（音符头）
-            for (cx, cy) in [(7.6, 15.5), (15.2, 15.5)] {
-                c.fillEllipse(in: CGRect(x: X(cx - 2.3), y: Y(cy - 2.0),
-                                         width: X(4.6), height: Y(4.0)))
+            // 🔴 v2.9.30：整体放大到与 house/gearshape 同占格（之前偏小一圈），
+            // 两个实心扁椭圆（音符头，rx2.6/ry2.3）贴在底部，竖杆/横梁加粗到 3.2/3.8。
+            for (cx, cy) in [(7.0, 16.5), (15.6, 16.5)] {
+                c.fillEllipse(in: CGRect(x: X(cx - 2.6), y: Y(cy - 2.3),
+                                         width: X(5.2), height: Y(4.6)))
             }
             // 两根加粗竖杆（从音符头右侧向上）
-            c.setLineWidth(3.0)
-            c.move(to: CGPoint(x: X(9.9), y: Y(15.5)))
-            c.addLine(to: CGPoint(x: X(9.9), y: Y(5.2)))
-            c.move(to: CGPoint(x: X(17.5), y: Y(15.5)))
-            c.addLine(to: CGPoint(x: X(17.5), y: Y(3.2)))
+            c.setLineWidth(3.2)
+            c.move(to: CGPoint(x: X(9.6), y: Y(16.5)))
+            c.addLine(to: CGPoint(x: X(9.6), y: Y(3.4)))
+            c.move(to: CGPoint(x: X(18.2), y: Y(16.5)))
+            c.addLine(to: CGPoint(x: X(18.2), y: Y(2.2)))
             c.strokePath()
             // 加粗横梁（连接两竖杆顶部）
-            c.setLineWidth(3.6)
-            c.move(to: CGPoint(x: X(9.9), y: Y(5.2)))
-            c.addLine(to: CGPoint(x: X(17.5), y: Y(3.2)))
+            c.setLineWidth(3.8)
+            c.move(to: CGPoint(x: X(9.6), y: Y(3.4)))
+            c.addLine(to: CGPoint(x: X(18.2), y: Y(2.2)))
             c.strokePath()
         }
     }()
@@ -452,18 +453,18 @@ struct SearchTabIcon: View {
         return r.image { ctx in
             let c = ctx.cgContext
             c.setStrokeColor(UIColor.black.cgColor)
-            c.setLineWidth(2.4)
+            // 🔴 v2.9.30：圆环放大（中心 (11,11) 半径 7.5）+ 线宽加粗到 3.2，
+            // 使占格与 house/gearshape 对齐；手柄从 45° 处斜向右下到 (19.5,19.5)，不出框。
+            c.setLineWidth(3.2)
             c.setLineCap(.round)
             c.setLineJoin(.round)
             let s = side / 24.0
             let X = { (v: CGFloat) -> CGFloat in v * s }
             let Y = { (v: CGFloat) -> CGFloat in v * s }
-            // 圆环（中心 (11.5,11) 半径 6）
-            c.addEllipse(in: CGRect(x: X(5.5), y: Y(5.0), width: X(12.0), height: Y(12.0)))
+            c.addEllipse(in: CGRect(x: X(3.5), y: Y(3.5), width: X(15.0), height: Y(15.0)))
             c.strokePath()
-            // 手柄（圆环 45° 处 → 右下角）
-            let hx = 11.5 + 6 * 0.70710678
-            let hy = 11.0 + 6 * 0.70710678
+            let hx = 11.0 + 7.5 * 0.70710678
+            let hy = 11.0 + 7.5 * 0.70710678
             c.move(to: CGPoint(x: X(hx), y: Y(hy)))
             c.addLine(to: CGPoint(x: X(19.5), y: Y(19.5)))
             c.strokePath()

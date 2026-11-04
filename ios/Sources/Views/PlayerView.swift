@@ -382,8 +382,9 @@ struct PlayerView: View {
                 )
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
-                // 自绘心形顶部(y≈4.4)比下载顶栏(y≈0.7)低约 3.7pt —— 上移使视觉顶部齐平。
-                .offset(y: -3.5)
+                // 🔴 v2.9.30：心形已放大撑满画布（顶到 y≈2.5、底到 y≈21.5），
+                // 与下载框（顶 y≈0.7）顶部基本齐平，仅需轻微上移 2pt 让视觉顶部对齐。
+                .offset(y: -2)
             }
             .buttonStyle(.plain)
             Spacer(minLength: 0)

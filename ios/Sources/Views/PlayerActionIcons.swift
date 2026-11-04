@@ -119,24 +119,22 @@ private struct GlyphBox {
     func p(_ vx: CGFloat, _ vy: CGFloat) -> CGPoint { CGPoint(x: x(vx), y: y(vy)) }
 }
 
-/// 心形（v2.9.29 重画：圆钝底 + 饱满双瓣 + 浅圆凹，严格对照参考图「收藏动效」）。
-///
-/// 🔴 v2.9.28 版底尖是「收锐」的尖角，与参考图「底部圆钝、不是锐利尖角」不符，
-/// 用户反馈「收藏还是不行」。现重画：① 底部改为宽圆弧（左右两段在底心用
-/// **水平切线** 平滑相接），是明显的圆钝底而非尖角；② 双瓣控制点外扩到 x≈3/21、
-/// 顶到 y≈4.5，呈饱满半圆隆起；③ 中凹抬浅到 y≈7.5（<1/3 高度）且两侧弧线收成
-/// 圆滑浅凹。左右严格镜像对称。
+/// 心形（v2.9.30 重画：在 v2.9.29 圆钝底/饱满双瓣/浅圆凹的造型基础上，
+/// **整体放大撑满画布**，使与同排「下载」图标（框顶 y≈0.7、底 y≈18.9）占格完全一致 ——
+/// 之前心形只占画布 y 4.5–20.6 且偏下，看着比下载小一圈，用户要求「收藏与下载一样大」。
+/// 现按等比放大（x×1.072 / y×1.18 锚定顶部），顶到 y≈2.5、底到 y≈21.5，宽度与下载框齐平。
+/// 造型特征保留：圆钝底（水平切线相接）、饱满双瓣、中凹抬浅 y≈6、左右严格镜像。
 private struct HeartGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let b = GlyphBox(rect: rect)
         var p = Path()
-        p.move(to: b.p(12.0, 7.5))                                                  // 中凹底（圆滑）
-        p.addCurve(to: b.p(17.2, 4.8),  control1: b.p(13.2, 5.0),  control2: b.p(15.0, 4.5))   // 右瓣顶（饱满）
-        p.addCurve(to: b.p(21.0, 11.0), control1: b.p(20.2, 5.2),  control2: b.p(21.0, 8.0))   // 右瓣外缘 → 外侧
-        p.addCurve(to: b.p(12.0, 20.6), control1: b.p(21.0, 15.5), control2: b.p(15.5, 20.3))  // 右下 → 圆钝底（水平切线）
-        p.addCurve(to: b.p(3.0, 11.0),  control1: b.p(8.5, 20.3),  control2: b.p(3.0, 15.5))   // 圆钝底 → 左下
-        p.addCurve(to: b.p(6.8, 4.8),   control1: b.p(3.0, 8.0),   control2: b.p(3.8, 5.2))    // 左外侧 → 左瓣外缘
-        p.addCurve(to: b.p(12.0, 7.5),  control1: b.p(9.0, 4.5),   control2: b.p(10.8, 5.0))   // 左瓣顶 → 中凹
+        p.move(to: b.p(12.00, 6.04))                                                  // 中凹底（圆滑）
+        p.addCurve(to: b.p(17.57, 2.85), control1: b.p(13.29, 3.09), control2: b.p(15.22, 2.50))  // 右瓣顶（饱满）
+        p.addCurve(to: b.p(21.65, 10.17), control1: b.p(20.79, 3.33), control2: b.p(21.65, 6.63))  // 右瓣外缘 → 外侧
+        p.addCurve(to: b.p(12.00, 21.50), control1: b.p(21.65, 15.48), control2: b.p(15.75, 21.14)) // 右下 → 圆钝底（水平切线）
+        p.addCurve(to: b.p(2.35, 10.17), control1: b.p(8.25, 21.14), control2: b.p(2.35, 15.48))   // 圆钝底 → 左下
+        p.addCurve(to: b.p(6.43, 2.85), control1: b.p(2.35, 6.63), control2: b.p(3.21, 3.33))    // 左外侧 → 左瓣外缘
+        p.addCurve(to: b.p(12.00, 6.04), control1: b.p(8.78, 2.50), control2: b.p(10.71, 3.09))   // 左瓣顶 → 中凹
         p.closeSubpath()
         return p
     }
