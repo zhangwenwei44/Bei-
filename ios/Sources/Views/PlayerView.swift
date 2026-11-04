@@ -367,9 +367,11 @@ struct PlayerView: View {
                 store.toggleFavorite()
                 Haptics.light()
             } label: {
-                // 🔴 v2.9.19：改回 **SF Symbol 心形** —— 用户要求「收藏改回之前的，不要动」。
+                // 🔴 v2.9.23：竖屏动作行收藏图标与「下载 / 音效」同尺寸同线宽 ——
+                // SF Symbol 在 24pt 常规字重下描边恰好 1.5pt，与自绘图标（size/24*1.5）完全一致，
+                // 既保留用户要求的心形外观，又和动作行其它图标视觉重量齐平（原来缩在 22pt、偏细）。
                 Image(systemName: store.isLiked ? "heart.fill" : "heart")
-                    .font(.system(size: 22))
+                    .font(.system(size: 24))
                     .foregroundStyle(store.isLiked ? AppStyle.like : .white)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())

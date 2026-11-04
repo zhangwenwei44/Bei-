@@ -79,6 +79,12 @@ final class SoundEffectSetting: ObservableObject {
 // MARK: - 实时 DSP（纯 Swift 处理 PCM 浮点采样，三频段 tone control）
 
 /// 每个 tap 实例持有一份处理状态；按声道保存一阶 IIR 状态。
+///
+/// 🔴 v2.9.23 重写 **格式兼容**：原来 `process` 里有 `guard ... isFloat else { return }`，
+/// 而 iOS 上 AAC/MP3 经 MTAudioProcessingTap 交付的往往是 **16-bit 整型 LPCM**（不是 Float32），
+/// 于是 `isFloat == false` → 每个预设的处理都提前 return → **切任何音效都听不到变化**。
+/// 现在不依赖浮点交付：先按交付格式把样本读成 Float，在 Float 域做三频段处理，再按原格式量化写回，
+/// 整型 / 浮点 / 交错 / 非交错一律正确处理。
 private final class SoundEffectProcessor {
     let preset: SoundEffectPreset
     private let bg: Float
@@ -87,10 +93,12 @@ private final class SoundEffectProcessor {
     private let master: Float
     private var lpA: Float = 0   // 低通系数
     private var hpA: Float = 0   // 高通系数
-    private var isFloat = false
-    private var channelCount = 1
     /// 每声道状态：[低通y, 高通y, 高通x1]
     private var st: [[Float]] = [[]]
+    // 交付格式（prepare 里探明，process 据此读写；兼容整型/浮点、交错/非交错）
+    private var fmtIsFloat = true
+    private var fmtIsSigned = true
+    private var fmtBitDepth = 32
 
     init(preset: SoundEffectPreset) {
         self.preset = preset
@@ -114,39 +122,131 @@ private final class SoundEffectProcessor {
         lpA = min(0.999, dt / (rcLP + dt))
         let rcHP = 1.0 / (2 * Float.pi * 3500)
         hpA = min(0.999, rcHP / (rcHP + dt))
-        isFloat = (description.mFormatFlags & kAudioFormatFlagIsFloat) != 0
-        channelCount = max(1, Int(description.mChannelsPerFrame))
-        st = (0..<channelCount).map { _ in [Float](repeating: 0, count: 3) }
+        fmtIsFloat = (description.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+        fmtIsSigned = (description.mFormatFlags & kAudioFormatFlagIsSignedInteger) != 0
+        fmtBitDepth = Int(description.mBitsPerChannel)
     }
 
-    /// 在已解码的音频 buffer 上原地做三频段处理（仅 Float32、单声道/非交错）。
+    // MARK: - 三频段处理（Float 域）
+
+    /// 单样本三频段 tone control + 总增益 + 软裁剪（内部统一在 Float 域计算）。
+    private func processSample(_ s: inout Float, channel c: Int) {
+        var lpY = st[c][0], hpY = st[c][1], hpX1 = st[c][2]
+        lpY += lpA * (s - lpY)
+        let hp = hpA * (s - hpX1 + hpY)
+        hpY = hp
+        hpX1 = s
+        let mid = s - lpY - hpY
+        var out = (lpY * bg + mid * mg + hpY * tg) * master
+        // 软裁剪，防止增益叠加爆音
+        if out > 1 { out = 1 } else if out < -1 { out = -1 }
+        out = Float(tanh(Double(out)))
+        st[c][0] = lpY; st[c][1] = hpY; st[c][2] = hpX1
+        s = out
+    }
+
+    // MARK: - 格式无关的读写
+
+    /// 把一个声道的样本读成 [Float]（兼容整型/浮点、交错/非交错）。
+    private func readChannel(_ raw: UnsafeMutableRawPointer, n: Int, channel c: Int, totalCh: Int, interleaved: Bool) -> [Float] {
+        let stride = interleaved ? totalCh : 1
+        let base = interleaved ? c : 0
+        var out = [Float](repeating: 0, count: n)
+        if fmtIsFloat {
+            if fmtBitDepth == 64 {
+                let p = raw.bindMemory(to: Double.self, capacity: n * stride)
+                for i in 0..<n { out[i] = Float(p[i * stride + base]) }
+            } else {
+                let p = raw.bindMemory(to: Float32.self, capacity: n * stride)
+                for i in 0..<n { out[i] = p[i * stride + base] }
+            }
+        } else if fmtBitDepth == 16 {
+            let denom = fmtIsSigned ? (Float(Int16.max) + 1) : 32768.0
+            let p = raw.bindMemory(to: Int16.self, capacity: n * stride)
+            for i in 0..<n {
+                let v = p[i * stride + base]
+                out[i] = fmtIsSigned ? Float(v) / denom : (Float(v) - 32768) / 32768.0
+            }
+        } else if fmtBitDepth == 32 {
+            let denom = fmtIsSigned ? (Float(Int32.max) + 1) : 2147483648.0
+            let p = raw.bindMemory(to: Int32.self, capacity: n * stride)
+            for i in 0..<n {
+                let v = p[i * stride + base]
+                out[i] = fmtIsSigned ? Float(v) / denom : (Float(v) - 2147483648) / 2147483648.0
+            }
+        } else if fmtBitDepth == 8 {
+            let p = raw.bindMemory(to: Int8.self, capacity: n * stride)
+            for i in 0..<n {
+                let v = p[i * stride + base]
+                out[i] = fmtIsSigned ? Float(v) / 128.0 : (Float(v) - 128) / 128.0
+            }
+        }
+        return out
+    }
+
+    /// 把处理后的 [Float] 写回原缓冲区（按交付格式量化回去）。
+    private func writeChannel(_ raw: UnsafeMutableRawPointer, values: [Float], channel c: Int, totalCh: Int, interleaved: Bool) {
+        let n = values.count
+        let stride = interleaved ? totalCh : 1
+        let base = interleaved ? c : 0
+        if fmtIsFloat {
+            if fmtBitDepth == 64 {
+                let p = raw.bindMemory(to: Double.self, capacity: n * stride)
+                for i in 0..<n { p[i * stride + base] = Double(values[i]) }
+            } else {
+                let p = raw.bindMemory(to: Float32.self, capacity: n * stride)
+                for i in 0..<n { p[i * stride + base] = values[i] }
+            }
+        } else if fmtBitDepth == 16 {
+            let p = raw.bindMemory(to: Int16.self, capacity: n * stride)
+            for i in 0..<n {
+                var v = Int(values[i] * 32768)
+                if v < -32768 { v = -32768 } else if v > 32767 { v = 32767 }
+                p[i * stride + base] = Int16(v)
+            }
+        } else if fmtBitDepth == 32 {
+            let p = raw.bindMemory(to: Int32.self, capacity: n * stride)
+            for i in 0..<n {
+                var v = Int(values[i] * 2147483648)
+                if v < -2147483648 { v = -2147483648 } else if v > 2147483647 { v = 2147483647 }
+                p[i * stride + base] = Int32(v)
+            }
+        } else if fmtBitDepth == 8 {
+            let p = raw.bindMemory(to: Int8.self, capacity: n * stride)
+            for i in 0..<n {
+                var v = Int(values[i] * 128)
+                if v < -128 { v = -128 } else if v > 127 { v = 127 }
+                p[i * stride + base] = Int8(v)
+            }
+        }
+    }
+
+    /// 在音频 buffer 上做三频段处理：兼容任意 LPCM 交付格式（整型/浮点、交错/非交错）。
     func process(_ abl: UnsafeMutablePointer<AudioBufferList>, frames: CMItemCount) {
-        guard preset != .off, isFloat else { return }
+        guard preset != .off else { return }
         let n = Int(frames)
         guard n > 0 else { return }
         let buffers = UnsafeMutableAudioBufferListPointer(abl)
-        let ch = buffers.count
-        if st.count != ch { st = (0..<ch).map { _ in [Float](repeating: 0, count: 3) } }
-        for c in 0..<ch {
-            guard let raw = buffers[c].mData else { continue }
-            // 仅处理非交错单声道 buffer（AVPlayer 解码输出通常如此）；交错则跳过，安全直通。
-            if buffers[c].mNumberChannels > 1 { continue }
-            let data = raw.bindMemory(to: Float.self, capacity: n)
-            var lpY = st[c][0], hpY = st[c][1], hpX1 = st[c][2]
-            for i in 0..<n {
-                let x = data[i]
-                lpY += lpA * (x - lpY)
-                let hp = hpA * (x - hpX1 + hpY)
-                hpY = hp
-                hpX1 = x
-                let mid = x - lpY - hpY
-                var out = (lpY * bg + mid * mg + hpY * tg) * master
-                // 软裁剪，防止增益叠加爆音
-                if out > 1 { out = 1 } else if out < -1 { out = -1 }
-                out = Float(tanh(Double(out)))
-                data[i] = out
+        // 交错：单 buffer 且声道数 > 1；非交错：每声道一个 buffer。
+        let interleaved = (buffers.count == 1 && buffers[0].mNumberChannels > 1)
+        let totalCh = interleaved ? Int(buffers[0].mNumberChannels) : buffers.count
+        guard totalCh > 0 else { return }
+        if st.count != totalCh { st = (0..<totalCh).map { _ in [Float](repeating: 0, count: 3) } }
+
+        if interleaved {
+            guard let raw = buffers[0].mData else { return }
+            for c in 0..<totalCh {
+                var ch = readChannel(raw, n: n, channel: c, totalCh: totalCh, interleaved: true)
+                for i in 0..<n { processSample(&ch[i], channel: c) }
+                writeChannel(raw, values: ch, channel: c, totalCh: totalCh, interleaved: true)
             }
-            st[c][0] = lpY; st[c][1] = hpY; st[c][2] = hpX1
+        } else {
+            for c in 0..<totalCh {
+                guard let raw = buffers[c].mData else { continue }
+                var ch = readChannel(raw, n: n, channel: 0, totalCh: 1, interleaved: false)
+                for i in 0..<n { processSample(&ch[i], channel: c) }
+                writeChannel(raw, values: ch, channel: 0, totalCh: 1, interleaved: false)
+            }
         }
     }
 }
