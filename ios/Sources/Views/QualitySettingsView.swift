@@ -29,14 +29,14 @@ struct QualitySettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
 
-                // ── 顶部：横向特性卡 ────────────────────────────────
+                // ── 顶部：当前选择音质卡片（单张，不横向滑动） ──────────
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("音质选择")
                             .font(.system(size: 17, weight: .bold))
                             .foregroundStyle(gold)
                         Spacer(minLength: 8)
-                        Text("当前：\(sourceStore.quality.title)")
+                        Text("当前播放音质")
                             .font(.system(size: 12))
                             .foregroundStyle(textTertiary)
                     }
@@ -44,18 +44,10 @@ struct QualitySettingsView: View {
                     .padding(.top, 14)
                     .padding(.bottom, 10)
 
-                    // 🔴 v2.7.6：卡片必须等高 —— 之前只写死 width、高度由文案行数决定，
-                    // 说明文字一行 / 两行的卡就变成「一大一小」（用户反馈）。
-                    // 现在整张卡写死 152×130，文案再多也不影响外框尺寸。
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(MusicQuality.allCases) { quality in
-                                featureCard(quality)
-                            }
-                        }
+                    // 🔴 v2.9.28：去掉横向滑动特性卡（用户要求：不要横滑显示全部音质），
+                    // 改为「当前选择」单张卡片，下面音质列表再逐档列出。
+                    currentQualityCard
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 2)   // 给选中描边留位置，避免被裁掉
-                    }
                 }
 
                 // ── 中部：高级音质列表 ───────────────────────────────
@@ -153,73 +145,64 @@ struct QualitySettingsView: View {
                                       titleColor: UIColor(red: 1.0, green: 0.82, blue: 0.30, alpha: 1))
     }
 
-    // MARK: - 顶部特性卡
+    // MARK: - 顶部当前选择卡片
 
-    private func featureCard(_ quality: MusicQuality) -> some View {
-        let selected = sourceStore.quality == quality
-        return Button {
-            sourceStore.quality = quality
-            Haptics.light()
-        } label: {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top, spacing: 6) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(selected ? gold : gold.opacity(0.15))
-                        Image(systemName: quality.icon)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(selected ? Color.black : gold)
-                    }
-                    .frame(width: 24, height: 24)
-                    Spacer(minLength: 0)
-                    if selected {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 13))
-                            .foregroundStyle(gold)
-                    }
-                }
-                .padding(.bottom, 9)
-
-                Text(quality.title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(selected ? gold : textPrimary)
-                    .lineLimit(1)
-
-                Text(quality.sizeLabel)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(textTertiary)
-                    .padding(.top, 2)
-
-                Text(quality.featureLine)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(textTertiary)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .padding(.top, 5)
-
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 11)
-            // 🔴 写死宽高 —— 卡片等高（之前只有 width 写死，说明文字行数不同就一大一小）
-            .frame(width: 152, height: 130, alignment: .topLeading)
-            .background(
+    /// 🔴 v2.9.28：当前选中音质的单张卡片（替换原来的横向滑动特性卡）。
+    private var currentQualityCard: some View {
+        let q = sourceStore.quality
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(cardBg)
-                    if selected {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(gold.opacity(0.12))
-                    }
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(gold.opacity(0.18))
+                    Image(systemName: q.icon)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(gold)
                 }
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(selected ? gold : .clear, lineWidth: selected ? 1.5 : 0)
-            )
+                .frame(width: 40, height: 40)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(q.title)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(gold)
+                        Text(q.sizeLabel)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(textSecondary)
+                        if q.isAdvanced {
+                            Image(systemName: "diamond.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(gold)
+                        }
+                    }
+                    Text(q.featureLine)
+                        .font(.system(size: 12))
+                        .foregroundStyle(textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 6)
+
+                HStack(spacing: 3) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(gold)
+                    Text("当前")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(gold)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
         }
-        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(cardBg)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(gold, lineWidth: 1.5)
+                )
+        )
     }
 
     // MARK: - 列表行
@@ -229,6 +212,11 @@ struct QualitySettingsView: View {
         // 蜂窝降档开着且当前是蜂窝 → 高于高品的档位显示"已降档"提示
         let downgraded = sourceStore.cellularFallback && network.isCellular && quality != .standard
         return HStack(spacing: 12) {
+            // 🔴 v2.9.28：音质名前加图标（与顶部卡片同款系统符号）
+            Image(systemName: quality.icon)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(selected ? gold : textSecondary)
+                .frame(width: 22, alignment: .center)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Text(quality.title)

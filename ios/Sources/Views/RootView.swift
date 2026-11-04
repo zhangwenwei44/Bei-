@@ -144,12 +144,10 @@ private struct MainTabs: View {
             tabRoot(DiscoverView())
                 .tabItem { Label("主页", systemImage: "house.fill") }.tag(Tab.discover)
             tabRoot(SearchView())
-                .tabItem { Label("搜索", systemImage: "magnifyingglass") }.tag(Tab.search)
+                .tabItem { Label { Text("搜索") } icon: { SearchTabIcon() } }.tag(Tab.search)
             tabRoot(LibraryView())
-                // 🔴 v2.9.11：原来的 `play.square.stack.fill` 在部分系统上不存在 → 图标静默渲染空白
-                //   （用户反馈"我的音乐按钮显示不出来"）。
-                //   现在改用 App 自带的双音符 PNG 资源（MyMusicIcon，template 模式自动跟随选中色），
-                //   任何系统都能显示，且本来就是之前 Round 定稿时挑的那版双音符图标。
+                // 🔴 v2.9.28：我的音乐图标改为自绘双音符（线宽加粗 + 两个圆实心），
+                //   搜索图标改为自绘放大镜（线宽加粗）；二者均 template 渲染跟随 tab 选中色。
                 .tabItem { Label { Text("我的音乐") } icon: { MyMusicTabIcon() } }.tag(Tab.library)
             tabRoot(ProfileView())
                 .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(Tab.profile)
@@ -386,34 +384,79 @@ private struct MiniPlayerProgressBar: View {
 }
 
 
-// MARK: - 🔴 底栏「我的音乐」图标（用自带 PNG，任何系统都能显示）
+// MARK: - 🔴 底栏图标（自绘，线宽一致、跟随 tab 选中色）
 
-/// 底栏「我的音乐」图标。
+/// 底栏「我的音乐」图标 —— 双音符。
 ///
-/// 🔴 v2.9.11：之前用 SF Symbol `play.square.stack.fill`，但在部分 iOS 版本上
-///   该符号不存在 → `Image(systemName:)` **静默渲染成空白**（不报错），用户只看到
-///   "我的音乐"四个字上面没有图标。
-///   现在改用 App 自带的 `MyMusicIcon` 资源（template 渲染模式，会自动跟随 tab 选中/未选中颜色），
-///   彻底不依赖系统符号。
+/// 🔴 v2.9.28：之前用自带 PNG（细描边、空心圆头），用户要求**线条加粗 + 两个圆改实心**。
+/// 改为 UIGraphicsImageRenderer 现画：两个实心填充圆头 + 加粗竖杆 + 加粗横梁，
+/// 渲染成 template 图跟随 tab tint（选中蓝 / 未选中灰），与其它 tab 完全一致。
 struct MyMusicTabIcon: View {
     var body: some View {
-        if let img = UIImage(named: "MyMusicIcon")?.withRenderingMode(.alwaysTemplate) {
-            // 🔴 v2.9.11：资源已重做为规范 1x/2x/3x（22pt 基准、裁掉透明边距）。
-            //   用 Image(uiImage:) + .renderingMode(.template) → 纯黑描边会被 tab 的
-            //   tint（选中蓝 / 未选中灰）着色，与其它三个 tab 完全一致；
-            //   **不要**再手动 .frame()，否则和资源自身尺寸打架（之前图标过大且压住文字）。
-            // ⚠️ **不要加 .resizable()**：没有 frame 约束时 resizable 的图会撑满可用空间
-            //   （之前图标巨大、压住了"我的音乐"文字）。直接用 UIImage 的固有尺寸（22pt）即可。
-            Image(uiImage: img)
-                // 显式 template 渲染 → 纯黑描边按当前 tint（选中蓝 / 未选中灰）着色
-                .renderingMode(.template)
-        } else {
-            // 资源万一丢了，至少给个能显示的符号。
-            // 备选顺序：play.square.stack.fill（iOS 14+ 的"播放列表堆叠"）→ music.note.list → music.note
-            // （后两个 iOS 13 就有，几乎必然存在）
-            SafeIcon(systemName: "play.square.stack.fill",
-                     fallback: "music.note.list")
-                .font(.system(size: 19, weight: .semibold))
-        }
+        Image(uiImage: Self.icon).renderingMode(.template)
     }
+
+    private static let icon: UIImage = {
+        let side: CGFloat = 25
+        let r = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
+        return r.image { ctx in
+            let c = ctx.cgContext
+            c.setFillColor(UIColor.black.cgColor)
+            c.setStrokeColor(UIColor.black.cgColor)
+            c.setLineCap(.round)
+            c.setLineJoin(.round)
+            let s = side / 24.0
+            let X = { (v: CGFloat) -> CGFloat in v * s }
+            let Y = { (v: CGFloat) -> CGFloat in v * s }
+            // 两个实心圆（音符头）
+            for (cx, cy) in [(7.0, 15.5), (15.5, 15.5)] {
+                c.fillEllipse(in: CGRect(x: X(cx - 3.0), y: Y(cy - 3.0),
+                                         width: X(6.0), height: Y(6.0)))
+            }
+            // 两根加粗竖杆（从圆右侧向上）
+            c.setLineWidth(2.6)
+            c.move(to: CGPoint(x: X(10.0), y: Y(15.5)))
+            c.addLine(to: CGPoint(x: X(10.0), y: Y(4.0)))
+            c.move(to: CGPoint(x: X(18.5), y: Y(15.5)))
+            c.addLine(to: CGPoint(x: X(18.5), y: Y(2.0)))
+            c.strokePath()
+            // 加粗横梁（连接两竖杆顶部）
+            c.setLineWidth(3.2)
+            c.move(to: CGPoint(x: X(10.0), y: Y(4.0)))
+            c.addLine(to: CGPoint(x: X(18.5), y: Y(2.0)))
+            c.strokePath()
+        }
+    }()
+}
+
+/// 底栏「搜索」图标 —— 放大镜。
+///
+/// 🔴 v2.9.28：之前用 SF Symbol `magnifyingglass`（系统默认细描边），用户要求**线条加粗**。
+/// 改为自绘：加粗圆环 + 加粗手柄，template 渲染跟随 tab tint。
+struct SearchTabIcon: View {
+    var body: some View {
+        Image(uiImage: Self.icon).renderingMode(.template)
+    }
+
+    private static let icon: UIImage = {
+        let side: CGFloat = 25
+        let r = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
+        return r.image { ctx in
+            let c = ctx.cgContext
+            c.setStrokeColor(UIColor.black.cgColor)
+            c.setLineWidth(2.6)
+            c.setLineCap(.round)
+            c.setLineJoin(.round)
+            let s = side / 24.0
+            let X = { (v: CGFloat) -> CGFloat in v * s }
+            let Y = { (v: CGFloat) -> CGFloat in v * s }
+            // 圆环（中心 (10,10) 半径 6.5）
+            c.addEllipse(in: CGRect(x: X(3.5), y: Y(3.5), width: X(13.0), height: Y(13.0)))
+            c.strokePath()
+            // 手柄（圆环 45° 处 → 右下角）
+            c.move(to: CGPoint(x: X(14.6), y: Y(14.6)))
+            c.addLine(to: CGPoint(x: X(20.5), y: Y(20.5)))
+            c.strokePath()
+        }
+    }()
 }
