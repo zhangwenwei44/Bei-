@@ -122,24 +122,7 @@ struct ProfileView: View {
                                 .font(.system(size: 13))
                                 .foregroundStyle(AppStyle.secondaryText)
                         }
-                        switch cloud.syncState {
-                        case .idle:
-                            Text("收藏与歌单会在登录后自动同步到云端。")
-                                .font(.system(size: 12))
-                                .foregroundStyle(AppStyle.tertiaryText)
-                        case .syncing:
-                            Text("同步中…")
-                                .font(.system(size: 12))
-                                .foregroundStyle(AppStyle.tertiaryText)
-                        case .done(let msg):
-                            Text(msg)
-                                .font(.system(size: 12))
-                                .foregroundStyle(.green)
-                        case .failed(let msg):
-                            Text("同步失败：\(msg)")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.red)
-                        }
+                        // 🔴 用户要求：云账号不显示歌曲同步信息（同步中/已同步/同步失败等状态文字），保留邮箱与同步按钮。
                         HStack(spacing: 12) {
                             Button {
                                 Task { await cloud.pushToCloud() }

@@ -39,6 +39,7 @@ enum Lucide: String, CaseIterable {
     case info  // 关于
     case userGroup  // QQ群
     case chevronRight  // 箭头
+    case chevronLeft  // 返回箭头（chevron-right 的 x 镜像）
     case chevronsUpDown  // 上下箭头
     case copy  // 复制
 
@@ -608,6 +609,11 @@ enum Lucide: String, CaseIterable {
             p.move(to: g.p(9.000, 18.000))
             p.addLine(to: g.p(15.000, 12.000))
             p.addLine(to: g.p(9.000, 6.000))
+
+        case .chevronLeft:  // 返回箭头 — chevron-left（chevron-right 的 x 镜像）
+            p.move(to: g.p(15.000, 18.000))
+            p.addLine(to: g.p(9.000, 12.000))
+            p.addLine(to: g.p(15.000, 6.000))
 
         case .chevronsUpDown:  // 上下箭头 — chevrons-up-down
             p.move(to: g.p(7.000, 15.000))
