@@ -41,8 +41,8 @@ struct PlayerActionIcon: View {
         ZStack {
             switch glyph {
             case .favorite:
-                if active { HeartGlyph().fill(tint) }
-                HeartGlyph().stroke(tint, style: stroke)
+                // 🔴 Lucide 心形（项目图标源 lucide-icons）：选中(filled)填红、未选描边。
+                LucideIcon(icon: .heart, size: size, color: tint, filled: active)
             case .download:
                 // 外框（左「Γ」+ 右「¬」+ 底横条）+ 贯穿箭头 + 右下角斜体 VIP
                 ZStack {
@@ -117,27 +117,6 @@ private struct GlyphBox {
     func x(_ v: CGFloat) -> CGFloat { rect.minX + v * rect.width / 24 }
     func y(_ v: CGFloat) -> CGFloat { rect.minY + v * rect.height / 24 }
     func p(_ vx: CGFloat, _ vy: CGFloat) -> CGPoint { CGPoint(x: x(vx), y: y(vy)) }
-}
-
-/// 心形（v2.9.30 重画：在 v2.9.29 圆钝底/饱满双瓣/浅圆凹的造型基础上，
-/// **整体放大撑满画布**，使与同排「下载」图标（框顶 y≈0.7、底 y≈18.9）占格完全一致 ——
-/// 之前心形只占画布 y 4.5–20.6 且偏下，看着比下载小一圈，用户要求「收藏与下载一样大」。
-/// 现按等比放大（x×1.072 / y×1.18 锚定顶部），顶到 y≈2.5、底到 y≈21.5，宽度与下载框齐平。
-/// 造型特征保留：圆钝底（水平切线相接）、饱满双瓣、中凹抬浅 y≈6、左右严格镜像。
-private struct HeartGlyph: Shape {
-    func path(in rect: CGRect) -> Path {
-        let b = GlyphBox(rect: rect)
-        var p = Path()
-        p.move(to: b.p(12.00, 6.04))                                                  // 中凹底（圆滑）
-        p.addCurve(to: b.p(17.57, 2.85), control1: b.p(13.29, 3.09), control2: b.p(15.22, 2.50))  // 右瓣顶（饱满）
-        p.addCurve(to: b.p(21.65, 10.17), control1: b.p(20.79, 3.33), control2: b.p(21.65, 6.63))  // 右瓣外缘 → 外侧
-        p.addCurve(to: b.p(12.00, 21.50), control1: b.p(21.65, 15.48), control2: b.p(15.75, 21.14)) // 右下 → 圆钝底（水平切线）
-        p.addCurve(to: b.p(2.35, 10.17), control1: b.p(8.25, 21.14), control2: b.p(2.35, 15.48))   // 圆钝底 → 左下
-        p.addCurve(to: b.p(6.43, 2.85), control1: b.p(2.35, 6.63), control2: b.p(3.21, 3.33))    // 左外侧 → 左瓣外缘
-        p.addCurve(to: b.p(12.00, 6.04), control1: b.p(8.78, 2.50), control2: b.p(10.71, 3.09))   // 左瓣顶 → 中凹
-        p.closeSubpath()
-        return p
-    }
 }
 
 /// 下载图标的共享几何：参考图 8658「下载」线稿逐像素量出，1:1 映射到 24×24 画布。

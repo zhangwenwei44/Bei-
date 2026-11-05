@@ -87,9 +87,7 @@ struct ProfileView: View {
                                     .foregroundStyle(AppStyle.tertiaryText)
                             }
                             Spacer()
-                            Image(systemName: "qrcode.viewfinder")
-                                .font(.system(size: 20))
-                                .foregroundStyle(AppStyle.tertiaryText)
+                            LucideIcon(icon: .qrCode, size: 20, color: AppStyle.tertiaryText)
                         }
                     }
                     .buttonStyle(.plain)
@@ -107,7 +105,11 @@ struct ProfileView: View {
                 if cloud.isSignedIn {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            Label("Aurora 云账号", systemImage: "cloud.fill")
+                            Label {
+                                Text("Aurora 云账号")
+                            } icon: {
+                                LucideIcon(icon: .cloud, size: 18, color: AppStyle.primaryText)
+                            }
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundStyle(AppStyle.primaryText)
                             Spacer()
@@ -185,9 +187,7 @@ struct ProfileView: View {
                             cloudError = nil
                         } label: {
                             HStack(spacing: 10) {
-                                Image(systemName: "cloud")
-                                    .font(.system(size: 15))
-                                    .foregroundStyle(AppStyle.accent)
+                                LucideIcon(icon: .cloud, size: 18, color: AppStyle.accent)
                                 Text("登录云账号")
                                     .font(.system(size: 15))
                                     .foregroundStyle(AppStyle.primaryText)
@@ -198,7 +198,7 @@ struct ProfileView: View {
                                 Text("未登录")
                                     .font(.system(size: 13))
                                     .foregroundStyle(AppStyle.tertiaryText)
-                                Image(systemName: "chevron.right")
+                                LucideIcon(icon: .chevronRight, size: 12, color: AppStyle.tertiaryText)
                                     .font(.system(size: 12, weight: .semibold))
                                     .foregroundStyle(AppStyle.tertiaryText)
                                     .rotationEffect(.degrees(cloudExpanded ? 90 : 0))
@@ -261,7 +261,11 @@ struct ProfileView: View {
                     SourceSettingsView()
                 } label: {
                     HStack {
-                        Label("第三方音源", systemImage: "antenna.radiowaves.left.and.right")
+                        Label {
+                            Text("第三方音源")
+                        } icon: {
+                            LucideIcon(icon: .radioTower, size: 18, color: AppStyle.secondaryText)
+                        }
                         Spacer()
                         Text(sourceSummary)
                             .font(.system(size: 13))
@@ -285,7 +289,11 @@ struct ProfileView: View {
                         Text(mode.title).tag(mode)
                     }
                 } label: {
-                    Label("外观", systemImage: "circle.lefthalf.filled")
+                    Label {
+                        Text("外观")
+                    } icon: {
+                        LucideIcon(icon: .sunMoon, size: 18, color: AppStyle.secondaryText)
+                    }
                 }
             } header: {
                 headerText("外观")
@@ -302,18 +310,26 @@ struct ProfileView: View {
                     QualitySettingsView()
                 } label: {
                     HStack {
-                        Label("播放音质", systemImage: "waveform")
+                        Label {
+                            Text("播放音质")
+                        } icon: {
+                            LucideIcon(icon: .audioWaveform, size: 18, color: AppStyle.secondaryText)
+                        }
                         Spacer()
                         Text(sourceStore.quality.title)
                             .foregroundStyle(AppStyle.tertiaryText)
-                        Image(systemName: "chevron.right")
+                        LucideIcon(icon: .chevronRight, size: 12, color: AppStyle.tertiaryText)
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(AppStyle.tertiaryText)
                     }
                 }
 
                 HStack {
-                    Label("睡眠定时", systemImage: "moon.zzz")
+                    Label {
+                        Text("睡眠定时")
+                    } icon: {
+                        LucideIcon(icon: .moon, size: 18, color: AppStyle.secondaryText)
+                    }
                     Spacer()
                     Menu {
                         Button("关闭") { store.setSleepTimer(minutes: 0) }
@@ -324,7 +340,7 @@ struct ProfileView: View {
                         HStack(spacing: 4) {
                             Text(sleepText)
                                 .foregroundStyle(AppStyle.tertiaryText)
-                            Image(systemName: "chevron.up.chevron.down")
+                            LucideIcon(icon: .chevronsUpDown, size: 10, color: AppStyle.tertiaryText)
                                 .font(.system(size: 10))
                                 .foregroundStyle(AppStyle.tertiaryText)
                         }
@@ -332,7 +348,11 @@ struct ProfileView: View {
                 }
 
                 HStack {
-                    Label("歌词翻译", systemImage: "character.bubble")
+                    Label {
+                        Text("歌词翻译")
+                    } icon: {
+                        LucideIcon(icon: .languages, size: 18, color: AppStyle.secondaryText)
+                    }
                     Spacer()
                     Toggle("", isOn: Binding(get: { store.showTranslation },
                                               set: { store.showTranslation = $0 }))
@@ -341,7 +361,11 @@ struct ProfileView: View {
                 }
 
                 HStack {
-                    Label("高刷新率", systemImage: "speedometer")
+                    Label {
+                        Text("高刷新率")
+                    } icon: {
+                        LucideIcon(icon: .gauge, size: 18, color: AppStyle.secondaryText)
+                    }
                     Spacer()
                     Toggle("", isOn: Binding(
                         get: { HighRefreshController.shared.isEnabled },
@@ -361,7 +385,7 @@ struct ProfileView: View {
                                 .foregroundStyle(AppStyle.tertiaryText)
                         }
                     } icon: {
-                        Image(systemName: "arrow.triangle.2.circlepath")
+                        LucideIcon(icon: .refreshCw, size: 18, color: AppStyle.secondaryText)
                     }
                     .tint(AppStyle.accent)
                 }
@@ -375,7 +399,7 @@ struct ProfileView: View {
                                 .foregroundStyle(AppStyle.tertiaryText)
                         }
                     } icon: {
-                        Image(systemName: "person.crop.rectangle.fill")
+                        LucideIcon(icon: .squareUser, size: 18, color: AppStyle.secondaryText)
                     }
                     .tint(AppStyle.accent)
                 }
@@ -388,7 +412,11 @@ struct ProfileView: View {
                     sheet = .update
                 } label: {
                     HStack {
-                        Label("检查更新", systemImage: "arrow.down.circle")
+                        Label {
+                            Text("检查更新")
+                        } icon: {
+                            LucideIcon(icon: .download, size: 18, color: AppStyle.secondaryText)
+                        }
                         Spacer()
                         if updater.phase.isBusy {
                             ProgressView()
@@ -404,9 +432,13 @@ struct ProfileView: View {
                     sheet = .changelog
                 } label: {
                     HStack {
-                        Label("更新日志", systemImage: "list.bullet.rectangle")
+                        Label {
+                            Text("更新日志")
+                        } icon: {
+                            LucideIcon(icon: .listChecks, size: 18, color: AppStyle.secondaryText)
+                        }
                         Spacer()
-                        Image(systemName: "chevron.right")
+                        LucideIcon(icon: .chevronRight, size: 12, color: AppStyle.tertiaryText)
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(AppStyle.tertiaryText)
                     }
@@ -422,12 +454,16 @@ struct ProfileView: View {
                     DiagnosticsView()
                 } label: {
                     HStack {
-                        Label("运行日志", systemImage: "doc.text.magnifyingglass")
+                        Label {
+                            Text("运行日志")
+                        } icon: {
+                            LucideIcon(icon: .fileText, size: 18, color: AppStyle.secondaryText)
+                        }
                         Spacer()
                         Text("\(LogStore.shared.entries.count)")
                             .font(.system(size: 12))
                             .foregroundStyle(AppStyle.tertiaryText)
-                        Image(systemName: "chevron.right")
+                        LucideIcon(icon: .chevronRight, size: 12, color: AppStyle.tertiaryText)
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(AppStyle.tertiaryText)
                     }
@@ -440,12 +476,16 @@ struct ProfileView: View {
                     Haptics.light()
                 } label: {
                     HStack {
-                        Label("授权状态", systemImage: "lock.shield")
+                        Label {
+                            Text("授权状态")
+                        } icon: {
+                            LucideIcon(icon: .shield, size: 18, color: AppStyle.secondaryText)
+                        }
                         Spacer()
                         Text(license.isActivated ? "已激活" : "未激活")
                             .font(.system(size: 12))
                             .foregroundStyle(license.isActivated ? AppStyle.accent : Color.red)
-                        Image(systemName: "doc.on.doc")
+                        LucideIcon(icon: .copy, size: 12, color: AppStyle.tertiaryText)
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(AppStyle.tertiaryText)
                     }
@@ -456,9 +496,13 @@ struct ProfileView: View {
                     sheet = .about
                 } label: {
                     HStack {
-                        Label("关于 Aurora Music", systemImage: "info.circle")
+                        Label {
+                            Text("关于 Aurora Music")
+                        } icon: {
+                            LucideIcon(icon: .info, size: 18, color: AppStyle.secondaryText)
+                        }
                         Spacer()
-                        Image(systemName: "chevron.right")
+                        LucideIcon(icon: .chevronRight, size: 12, color: AppStyle.tertiaryText)
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(AppStyle.tertiaryText)
                     }
@@ -470,12 +514,16 @@ struct ProfileView: View {
                     showQQGroup = true
                 } label: {
                     HStack {
-                        Label("加入 QQ 交流群", systemImage: "person.3.fill")
+                        Label {
+                            Text("加入 QQ 交流群")
+                        } icon: {
+                            LucideIcon(icon: .userGroup, size: 18, color: AppStyle.secondaryText)
+                        }
                         Spacer()
                         Text(QQAnnouncementView.groupNumber)
                             .font(.system(size: 12, design: .monospaced))
                             .foregroundStyle(AppStyle.tertiaryText)
-                        Image(systemName: "chevron.right")
+                        LucideIcon(icon: .chevronRight, size: 12, color: AppStyle.tertiaryText)
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(AppStyle.tertiaryText)
                     }
