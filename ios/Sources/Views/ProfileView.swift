@@ -18,6 +18,8 @@ struct ProfileView: View {
     @AppStorage("aurora.autoPrecache") private var autoPrecacheEnabled: Bool = true
     /// 🔴 v2.6.2：歌词页歌手写真背景开关（歌词页背景默认用当前歌手的写真）
     @AppStorage("aurora.lyricsArtistPhoto") private var lyricsArtistPhoto: Bool = true
+    /// 🔴 v2.9.11：下载歌曲（我的音乐）是否按字母（拼音首字母）排序；开启=分组+右侧 A–Z 索引，关闭=按下载顺序平铺。
+    @AppStorage("aurora.downloadAlphabeticalSort") private var downloadAlphabeticalSort: Bool = true
     // 🔴 v2.5.39：播放器主题精简为唯一的「经典封面」，主题选择器已移除（保留旧键不影响）。
     private var autoPrecacheBinding: Binding<Bool> {
         Binding(get: { autoPrecacheEnabled },
@@ -38,7 +40,7 @@ struct ProfileView: View {
     @State private var cloudError: String? = nil
     // 🔴 v2.9.8：未登录时云账号默认折叠（只留一行入口，点开才显示登录框）
     @State private var cloudExpanded = false
-    @State private var cloudSignedInExpanded = true  // 🔴 登录后云账号区默认展开，可折叠收起
+    @State private var cloudSignedInExpanded = false  // 🔴 登录后云账号区默认折叠，点开才展开
 
     var body: some View {
         List {
@@ -379,6 +381,22 @@ struct ProfileView: View {
                         }
                     } icon: {
                         LucideIcon(icon: .squareUser, size: 18, color: AppStyle.secondaryText)
+                    }
+                    .tint(AppStyle.accent)
+                }
+                // 🔴 v2.9.11：下载歌曲（我的音乐）按字母排序开关
+                Toggle(isOn: $downloadAlphabeticalSort) {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("下载歌曲按字母排序")
+                            Text("开启后按歌名拼音首字母分组并显示右侧 A–Z 索引；关闭则按下载顺序平铺")
+                                .font(.system(size: 11))
+                                .foregroundStyle(AppStyle.tertiaryText)
+                        }
+                    } icon: {
+                        Image(systemName: "textformat.abc")
+                            .font(.system(size: 18, weight: .regular))
+                            .foregroundStyle(AppStyle.secondaryText)
                     }
                     .tint(AppStyle.accent)
                 }

@@ -1165,20 +1165,30 @@ struct PlayingBarsIndicator: View {
 
 // MARK: - 歌曲行
 
-/// 可复用的 VIP 标签：深灰文字 + 轻薄透明底（酷狗样式）。
-/// - dark：用于播放页深色封面，用浅色半透明底保证深灰字可读；列表（白底）用极浅灰底即可。
-struct VIPBadge: View {
-    var dark: Bool = false
+/// 统一 VIP 标签：与迷你播放器完全一致（红字 + 淡红半透明底，小圆角、无图标、无边框）。
+struct VIPTag: View {
     var body: some View {
         Text("VIP")
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(Color(.darkGray))
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(Color.red)
             .padding(.horizontal, 6)
-            .padding(.vertical, 2.5)
-            .background(
-                dark ? Color.white.opacity(0.85) : Color.black.opacity(0.06),
-                in: RoundedRectangle(cornerRadius: 4, style: .continuous)
-            )
+            .padding(.vertical, 2)
+            .background(Color.red.opacity(0.16), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+    }
+}
+
+/// 统一音质标签：与迷你播放器完全一致（蓝字 + 淡蓝半透明底，小圆角、无图标、无边框）。
+struct QualityTag: View {
+    var title: String
+    var body: some View {
+        Text(title)
+            .font(.system(size: 9, weight: .medium))
+            .foregroundStyle(Color.blue)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.blue.opacity(0.16), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 }
 
@@ -1248,9 +1258,9 @@ struct SongRow: View {
                         .foregroundStyle(AppStyle.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    // 🔴 接真实 VIP 状态：歌曲 tags 含 "VIP" 才显示标签（歌手名后）
+                    // 🔴 接真实 VIP 状态：歌曲 tags 含 "VIP" 才显示标签（歌手名后）；样式与迷你播放器一致。
                     if song.tags.contains("VIP") {
-                        VIPBadge()
+                        VIPTag()
                     }
                 }
             }

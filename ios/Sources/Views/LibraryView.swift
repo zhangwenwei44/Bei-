@@ -404,9 +404,14 @@ private struct KugouLibraryPage: View {
     /// 🔴 v2.8.3：曲库板块滑块（自建歌单 / 收藏歌单 / 下载歌曲）
     @State private var section: KugouSection = .created
 
-    /// 下载歌曲按首字母分组（供列表分区 + A–Z 索引使用）。
+    /// 下载歌曲分组：开关开启时按首字母（拼音首字母）分组 + A–Z 索引；
+    /// 关闭时按下载顺序平铺（单组、无索引）。
+    @AppStorage("aurora.downloadAlphabeticalSort") private var downloadAlphabeticalSort = true
     private var downloadGroups: [SongGroup] {
-        DownloadsList.makeGroups(library.downloads)
+        if downloadAlphabeticalSort {
+            return DownloadsList.makeGroups(library.downloads)
+        }
+        return [SongGroup(letter: "", songs: library.downloads)]
     }
 
     var body: some View {
@@ -452,9 +457,9 @@ private struct KugouLibraryPage: View {
                             }
                         }
                         .refreshable { await reloadPlaylists() }
-                        // 🔴 下载列表右侧的 A–Z 快速索引（仅「下载歌曲」板块显示）
+                        // 🔴 下载列表右侧的 A–Z 快速索引（仅「下载歌曲」板块且开启字母排序时显示）
                         .overlay(alignment: .trailing) {
-                            if section == .download && !downloadGroups.isEmpty {
+                            if section == .download && downloadAlphabeticalSort && !downloadGroups.isEmpty {
                                 DownloadIndex(letters: downloadGroups.map(\.letter), proxy: proxy)
                                     .padding(.trailing, 4)
                             }
