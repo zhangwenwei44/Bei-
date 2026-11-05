@@ -281,16 +281,16 @@ struct MiniPlayer: View {
                         .lineLimit(1)
                         .layoutPriority(1)
                     if !mini.qualityName.isEmpty {
-                        // 🔴 v2.5.47：音质标签改成与播放页同款黄色胶囊（原蓝色纯文字）
+                        // 🔴 用户要求：迷你条音质标签与播放页同步 —— 蓝色淡底 + 蓝色字 + 浅蓝边框的小圆角（不要纯白、不要胶囊）。
                         Text(mini.qualityName)
                             .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(AppStyle.gold)
+                            .foregroundStyle(Color.blue)
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(AppStyle.gold.opacity(0.18), in: Capsule())
-                            .overlay(Capsule().stroke(AppStyle.gold.opacity(0.55), lineWidth: 0.5))
+                            .background(Color.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(Color.blue.opacity(0.4), lineWidth: 0.5))
                     }
                 }
             }

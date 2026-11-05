@@ -38,6 +38,7 @@ struct ProfileView: View {
     @State private var cloudError: String? = nil
     // 🔴 v2.9.8：未登录时云账号默认折叠（只留一行入口，点开才显示登录框）
     @State private var cloudExpanded = false
+    @State private var cloudSignedInExpanded = true  // 🔴 登录后云账号区默认展开，可折叠收起
 
     var body: some View {
         List {
@@ -103,13 +104,55 @@ struct ProfileView: View {
             // MARK: Aurora 云账号（Supabase）—— 邮箱登录 + 收藏歌单同步
             Section {
                 if cloud.isSignedIn {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Label {
-                                Text("Aurora 云账号")
-                            } icon: {
-                                LucideIcon(icon: .cloud, size: 18, color: AppStyle.primaryText)
+                    // 🔴 用户要求：登录后云账号区改为可折叠（DisclosureGroup）。
+                    DisclosureGroup(isExpanded: $cloudSignedInExpanded) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            if let email = cloud.userEmail {
+                                Text(email)
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(AppStyle.secondaryText)
                             }
+                            // 🔴 用户要求：云账号不显示歌曲同步信息（同步中/已同步/同步失败等状态文字），保留邮箱与同步按钮。
+                            HStack(spacing: 12) {
+                                Button {
+                                    Task { await cloud.pushToCloud() }
+                                } label: {
+                                    Text("解锁码")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 9)
+                                        .background(AppStyle.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
+                                        .foregroundStyle(AppStyle.accent)
+                                }
+                                .buttonStyle(.plain)
+                                Button {
+                                    Task { await cloud.pullFromCloud() }
+                                } label: {
+                                    Text("横屏广告更换")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 9)
+                                        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
+                                        .foregroundStyle(AppStyle.primaryText)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            Button {
+                                Task {
+                                    do { try await cloud.signOut() }
+                                    catch { cloudError = CloudAccount.localizedCloudError(error) }
+                                }
+                            } label: {
+                                Text("退出登录")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            LucideIcon(icon: .cloud, size: 18, color: AppStyle.primaryText)
+                            Text("Aurora 云账号")
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundStyle(AppStyle.primaryText)
                             Spacer()
@@ -117,47 +160,6 @@ struct ProfileView: View {
                                 ProgressView().controlSize(.small)
                             }
                         }
-                        if let email = cloud.userEmail {
-                            Text(email)
-                                .font(.system(size: 13))
-                                .foregroundStyle(AppStyle.secondaryText)
-                        }
-                        // 🔴 用户要求：云账号不显示歌曲同步信息（同步中/已同步/同步失败等状态文字），保留邮箱与同步按钮。
-                        HStack(spacing: 12) {
-                            Button {
-                                Task { await cloud.pushToCloud() }
-                            } label: {
-                                Text("同步到云端")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 9)
-                                    .background(AppStyle.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
-                                    .foregroundStyle(AppStyle.accent)
-                            }
-                            .buttonStyle(.plain)
-                            Button {
-                                Task { await cloud.pullFromCloud() }
-                            } label: {
-                                Text("从云端恢复")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 9)
-                                    .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
-                                    .foregroundStyle(AppStyle.primaryText)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        Button {
-                            Task {
-                                do { try await cloud.signOut() }
-                                catch { cloudError = CloudAccount.localizedCloudError(error) }
-                            }
-                        } label: {
-                            Text("退出登录")
-                                .font(.system(size: 14))
-                                .foregroundStyle(.red)
-                        }
-                        .buttonStyle(.plain)
                     }
                 } else {
                     VStack(spacing: 10) {
@@ -328,19 +330,6 @@ struct ProfileView: View {
                                 .foregroundStyle(AppStyle.tertiaryText)
                         }
                     }
-                }
-
-                HStack {
-                    Label {
-                        Text("歌词翻译")
-                    } icon: {
-                        LucideIcon(icon: .languages, size: 18, color: AppStyle.secondaryText)
-                    }
-                    Spacer()
-                    Toggle("", isOn: Binding(get: { store.showTranslation },
-                                              set: { store.showTranslation = $0 }))
-                        .labelsHidden()
-                        .tint(AppStyle.accent)
                 }
 
                 HStack {

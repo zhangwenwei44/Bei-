@@ -218,8 +218,9 @@ struct PlayerView: View {
         HStack(alignment: .center, spacing: 8) {
             // 🔴 v2.5.42：用户要求「向下箭头」改「向左箭头」（返回语义）
             Button { animateOut() } label: {
-                // 🔴 改用 Lucide chevronLeft（项目图标源）：1.5px 圆角细线，线条更细更干净（按酷狗风格）。
-                LucideIcon(icon: .chevronLeft, size: 22, color: .white)
+                // 🔴 用户要求：只改线条粗细（改细），不改图标与大小 —— 还原 SF Symbol chevron.left，仅降字重让线条更细。
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 21, weight: .regular))
                     .frame(width: 40, height: 40)
                     .contentShape(Rectangle())
                     .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
@@ -1053,8 +1054,9 @@ struct PlayerView: View {
                 showLandscapeQueue = false
                 Haptics.light()
             } label: {
-                // 🔴 改用 Lucide chevronLeft（项目图标源）：1.5px 圆角细线，按酷狗风格。
-                LucideIcon(icon: .chevronLeft, size: 26, color: .white)
+                // 🔴 用户要求：只改线条粗细（改细），不改图标与大小 —— 还原 SF Symbol chevron.left，仅降字重让线条更细。
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 23, weight: .regular))
                     .frame(width: 56, height: 56)
                     .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
             }
@@ -1202,14 +1204,14 @@ struct PlayerView: View {
     /// 顶掉原来的黄色「极高音质」音质徽标（qualityPill 已删除）：
     /// 用户要求「移除黄色极高音质标签、移除专辑标签、加入 VIP 标签」。
     private var vipPill: some View {
-        // 🔴 用户要求：去掉前面的皇冠图标，只显示「VIP」文字；背景金色改灰白、胶囊改小圆角；VIP 红色字体。
+        // 🔴 用户要求：不要纯白底 —— 改为红色淡底 + 红色字 + 浅红边框的小圆角标签（同一色系，不刺眼）。
         Text("VIP")
             .font(.system(size: 10, weight: .bold))
             .foregroundStyle(Color.red)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(Color.gray.opacity(0.35), lineWidth: 0.6))
+            .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(Color.red.opacity(0.4), lineWidth: 0.6))
     }
 
     /// 播放状态提示（缓冲中 / 解析中 / 无法播放）；正常播放时为空 ——
@@ -1436,8 +1438,8 @@ private struct QualityPill: View {
                 .lineLimit(1)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
-                .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 4, style: .continuous))  // 🔴 灰白底 + 小圆角（去掉胶囊）
-                .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(Color.gray.opacity(0.35), lineWidth: 0.6))
+                .background(Color.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 4, style: .continuous))  // 🔴 蓝色淡底 + 小圆角（不要纯白）
+                .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(Color.blue.opacity(0.4), lineWidth: 0.6))
         }
         .buttonStyle(.plain)
     }
@@ -1776,8 +1778,9 @@ struct LyricsPageView: View {
                     } label: {
                         // 🔴 v2.7.0：返回按钮去掉圆圈底（用户要求），只留箭头 + 阴影。
                         // 之前套了半透明黑圆，在亮色写真上像一个小黑点。
-                        // 🔴 改用 Lucide chevronLeft（项目图标源）：1.5px 圆角细线，线条更细更干净（按酷狗风格）。
-                        LucideIcon(icon: .chevronLeft, size: 22, color: .white)
+                        // 🔴 用户要求：只改线条粗细（改细），不改图标与大小 —— 还原 SF Symbol chevron.left，仅降字重让线条更细。
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 20, weight: .regular))
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                             .shadow(color: .black.opacity(0.55), radius: 4, y: 1)
