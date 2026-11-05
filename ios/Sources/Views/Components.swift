@@ -1177,18 +1177,20 @@ struct VIPTag: View {
     }
 }
 
-/// 统一音质标签：与迷你播放器完全一致（蓝字 + 淡蓝半透明底，小圆角、无图标、无边框）。
+/// 统一音质标签：默认与迷你播放器一致（蓝字 + 淡蓝半透明底，小圆角、无图标、无边框）。
+/// - tint：可覆盖主色（如迷你播放器音质标签要黄色时传 .yellow）。
 struct QualityTag: View {
     var title: String
+    var tint: Color = .blue
     var body: some View {
         Text(title)
             .font(.system(size: 9, weight: .medium))
-            .foregroundStyle(Color.blue)
+            .foregroundStyle(tint)
             .lineLimit(1)
             .truncationMode(.tail)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(Color.blue.opacity(0.16), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .background(tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 }
 

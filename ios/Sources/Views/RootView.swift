@@ -283,8 +283,8 @@ struct MiniPlayer: View {
                     // 🔴 用户要求：迷你条 VIP 标签，样式与全站一致（红字 + 淡红半透明底，小圆角）。
                     VIPTag()
                     if !mini.qualityName.isEmpty {
-                        // 🔴 用户要求：迷你条音质标签，样式与全站一致（蓝字 + 淡蓝半透明底，小圆角）。
-                        QualityTag(title: mini.qualityName)
+                        // 🔴 用户要求：迷你条音质标签改成黄色（黄字 + 淡黄半透明底，小圆角，其余样式不变）。
+                        QualityTag(title: mini.qualityName, tint: .yellow)
                     }
                 }
             }
