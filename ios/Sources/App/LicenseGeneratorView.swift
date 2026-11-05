@@ -113,7 +113,7 @@ struct LicenseGeneratorView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var store = LicenseRecordStore.shared
 
-    @State private var unlocked = LicenseAdmin.isUnlocked
+    @State private var unlocked = LicenseAdmin.isUnlocked || CloudAccount.shared.isAdmin
     @State private var adminEmail = ""
     @State private var adminPassword = ""
     @State private var passError: String?

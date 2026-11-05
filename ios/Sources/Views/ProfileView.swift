@@ -414,7 +414,7 @@ struct ProfileView: View {
                         Label {
                             Text("更新日志")
                         } icon: {
-                            LucideIcon(icon: .listChecks, size: 18, color: AppStyle.secondaryText)
+                            LucideIcon(icon: .fileClock, size: 18, color: AppStyle.secondaryText)
                         }
                         Spacer()
                         LucideIcon(icon: .chevronRight, size: 12, color: AppStyle.tertiaryText)
@@ -496,7 +496,7 @@ struct ProfileView: View {
                         Label {
                             Text("加入 QQ 交流群")
                         } icon: {
-                            LucideIcon(icon: .userGroup, size: 18, color: AppStyle.secondaryText)
+                            LucideIcon(icon: .users, size: 18, color: AppStyle.secondaryText)
                         }
                         Spacer()
                         Text(QQAnnouncementView.groupNumber)

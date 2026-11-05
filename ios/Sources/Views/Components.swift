@@ -1165,6 +1165,23 @@ struct PlayingBarsIndicator: View {
 
 // MARK: - 歌曲行
 
+/// 可复用的 VIP 标签：深灰文字 + 轻薄透明底（酷狗样式）。
+/// - dark：用于播放页深色封面，用浅色半透明底保证深灰字可读；列表（白底）用极浅灰底即可。
+struct VIPBadge: View {
+    var dark: Bool = false
+    var body: some View {
+        Text("VIP")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(Color(.darkGray))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2.5)
+            .background(
+                dark ? Color.white.opacity(0.85) : Color.black.opacity(0.06),
+                in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+            )
+    }
+}
+
 struct SongRow: View {
     let song: Song
     var isCurrent: Bool = false
@@ -1225,11 +1242,17 @@ struct SongRow: View {
                             .fixedSize()
                     }
                 }
-                Text(song.artist)
-                    .font(.system(size: artistFontSize))
-                    .foregroundStyle(AppStyle.secondaryText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                HStack(spacing: 4) {
+                    Text(song.artist)
+                        .font(.system(size: artistFontSize))
+                        .foregroundStyle(AppStyle.secondaryText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    // 🔴 接真实 VIP 状态：歌曲 tags 含 "VIP" 才显示标签（歌手名后）
+                    if song.tags.contains("VIP") {
+                        VIPBadge()
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(0)

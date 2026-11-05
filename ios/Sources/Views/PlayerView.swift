@@ -1206,13 +1206,13 @@ struct PlayerView: View {
     /// 顶掉原来的黄色「极高音质」音质徽标（qualityPill 已删除）：
     /// 用户要求「移除黄色极高音质标签、移除专辑标签、加入 VIP 标签」。
     private var vipPill: some View {
-        // 🔴 用户要求：改成「透明的酷狗样式」—— 半透明浅色底 + 无边框 + 小圆角 + 无图标（参考图：限免/标准/音效 那种半透明浅灰标签）。
-        Text("VIP")
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(Color.red)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(Color.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+        // 🔴 用户要求：VIP 标签按歌曲真实 VIP 状态显示（tags 含 "VIP" 才出现）；
+        // 文字改深灰、透明酷狗样式（浅色半透明底 + 小圆角 + 无图标）。
+        Group {
+            if store.current?.tags.contains("VIP") ?? false {
+                VIPBadge(dark: true)
+            }
+        }
     }
 
     /// 播放状态提示（缓冲中 / 解析中 / 无法播放）；正常播放时为空 ——
@@ -1435,11 +1435,11 @@ private struct QualityPill: View {
         } label: {
             Text(title)
                 .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(Color.blue)  // 🔴 音质蓝色字体
+                .foregroundStyle(Color(.darkGray))  // 🔴 用户要求：音质文字改深灰
                 .lineLimit(1)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
-                .background(Color.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 4, style: .continuous))  // 🔴 透明酷狗样式：半透明浅底 + 无边框 + 小圆角
+                .background(Color.white.opacity(0.85), in: RoundedRectangle(cornerRadius: 4, style: .continuous))  // 🔴 透明酷狗样式：浅色半透明底 + 小圆角
         }
         .buttonStyle(.plain)
     }

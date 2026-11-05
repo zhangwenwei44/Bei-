@@ -1961,10 +1961,16 @@ struct FeedSongRow: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(AppStyle.primaryText)
                     .lineLimit(1)
-                Text(song.artist)
-                    .font(.system(size: 13))
-                    .foregroundStyle(AppStyle.secondaryText)
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(song.artist)
+                        .font(.system(size: 13))
+                        .foregroundStyle(AppStyle.secondaryText)
+                        .lineLimit(1)
+                    // 🔴 接真实 VIP 状态：歌曲 tags 含 "VIP" 才显示标签（歌手名后）
+                    if song.tags.contains("VIP") {
+                        VIPBadge()
+                    }
+                }
             }
             Spacer(minLength: 4)
             Button {

@@ -542,9 +542,9 @@ struct LabView: View {
     var body: some View {
         CompatNavigationStack {
             Group {
-                // 🔴 v2.9.11：门禁 = **必须验证管理员账号密码**。
-                // 之前只判"有没有登录云账号" → 任何人注册后都能进来把管理员的横幅换掉（真实事故）。
-                if verified && cloud.isAdmin {
+                // 🔴 v2.9.11 门禁：已登录且是管理员 → 直接进入、不再弹验证（用户要求自动识别管理员）；
+                // 否则（未登录 / 登录了但不是管理员）仍要验证管理员账号密码。
+                if cloud.isAdmin {
                     adminPanel
                 } else {
                     verifyGate

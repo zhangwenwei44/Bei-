@@ -104,24 +104,40 @@ struct SourceSettingsView: View {
                         Task { await importFromFiles(urls) }
                     }
                 } label: {
-                    Label("从文件导入", systemImage: "doc.badge.plus")
+                    Label {
+                        Text("从文件导入")
+                    } icon: {
+                        LucideIcon(icon: .filePlus, size: 18, color: AppStyle.accent)
+                    }
                 }
                 Button {
                     sheet = .urlImport
                 } label: {
-                    Label("从网址导入", systemImage: "link")
+                    Label {
+                        Text("从网址导入")
+                    } icon: {
+                        LucideIcon(icon: .link, size: 18, color: AppStyle.accent)
+                    }
                 }
                 Button {
                     sheet = .export
                 } label: {
-                    Label("导出全部音源", systemImage: "square.and.arrow.up")
+                    Label {
+                        Text("导出全部音源")
+                    } icon: {
+                        LucideIcon(icon: .share, size: 18, color: AppStyle.accent)
+                    }
                 }
                 .disabled(store.sources.isEmpty)
                 Button {
                     importMessage = nil
                     Task { await SourceHealth.shared.checkAll() }
                 } label: {
-                    Label("重新检测全部音源", systemImage: "arrow.clockwise")
+                    Label {
+                        Text("重新检测全部音源")
+                    } icon: {
+                        LucideIcon(icon: .refreshCw, size: 18, color: AppStyle.accent)
+                    }
                 }
                 // 🔴 用户要求：音源自动检测开关（默认开）。关掉后启动检测与进页全量体检都跳过，手动「重新检测」仍可用。
                 Toggle("自动检测音源可用性", isOn: Binding(
