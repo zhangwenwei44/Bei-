@@ -385,94 +385,9 @@ private struct MiniPlayerProgressBar: View {
 }
 
 
-// MARK: - 🔴 底栏图标（四个全部自绘，共用同一渲染器 → 大小/线宽绝对一致）
+// MARK: - 底栏图标（来自 Lucide，见 LucideTabIcons.swift）
 
-/// 统一渲染底栏图标。
-///
-/// 🔴 之前「主页/设置」用 SF Symbol（`house`/`gearshape`），「搜索/我的音乐」用自绘
-/// `UIImage`。SF 符号由系统按标准 25pt tab 槽渲染，而自绘 UIImage 按**自身像素尺寸**
-/// 渲染——两边 canvas 不同 → 整排「又大又小」（自绘图标比 SF 大一倍）。
-/// 现四个图标全部自绘，共用同一套渲染器：28pt 画布、2pt 内边距（内容区 24×24）、
-/// 线宽 2.4、圆头圆角、黑色描边/填充（之后 `.template` 跟随 tab 选中色）。
-/// 既然四个 canvas 与线宽完全一致，显示尺寸必然一致，从根上解决大小不齐。
-private func renderTabIcon(_ draw: (CGContext, (CGFloat, CGFloat) -> CGPoint) -> Void) -> UIImage {
-    // 🔴 v2.9.32：酷狗规范 —— 24×24 画布直接对应 24px 图标，线宽统一 1.5px 细线。
-    // 四图标共用此渲染器 → 尺寸/线宽绝对一致，均为 template 跟随 TabBar 选中色。
-    let side: CGFloat = 24
-    let r = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
-    return r.image { ctx in
-        let c = ctx.cgContext
-        c.setFillColor(UIColor.black.cgColor)
-        c.setStrokeColor(UIColor.black.cgColor)
-        c.setLineWidth(1.5)
-        c.setLineCap(.round)
-        c.setLineJoin(.round)
-        // 24 网格 = 24pt 画布（无额外内边距），坐标直接落位
-        let T: (CGFloat, CGFloat) -> CGPoint = { CGPoint(x: $0, y: $1) }
-        draw(c, T)
-    }
-}
-
-/// 底栏「主页」图标 —— 房子（自绘，与另外三个完全相同的渲染器）。
-struct HomeTabIcon: View {
-    var body: some View { Image(uiImage: Self.icon).renderingMode(.template) }
-    private static let icon = renderTabIcon { c, T in
-        c.move(to: T(12, 2.5)); c.addLine(to: T(2.5, 10.5)); c.addLine(to: T(21.5, 10.5)); c.closePath()  // 屋顶
-        c.move(to: T(5, 10.5)); c.addLine(to: T(5, 21)); c.addLine(to: T(19, 21)); c.addLine(to: T(19, 10.5)) // 主体
-        c.move(to: T(10, 21)); c.addLine(to: T(10, 15)); c.addLine(to: T(14, 15)); c.addLine(to: T(14, 21))   // 门
-        c.strokePath()
-    }
-}
-
-/// 底栏「搜索」图标 —— 放大镜（自绘，与另外三个完全相同的渲染器）。
-struct SearchTabIcon: View {
-    var body: some View { Image(uiImage: Self.icon).renderingMode(.template) }
-    private static let icon = renderTabIcon { c, T in
-        let cx: CGFloat = 12, cy: CGFloat = 12, R: CGFloat = 7.2
-        c.addEllipse(in: CGRect(x: T(cx - R, cy - R).x, y: T(cx - R, cy - R).y,
-                                width: 2 * R, height: 2 * R))
-        c.strokePath()
-        let a = CGFloat.pi / 4
-        c.move(to: T(cx + R * cos(a), cy + R * sin(a)))
-        c.addLine(to: T(21, 21))
-        c.strokePath()
-    }
-}
-
-/// 底栏「我的音乐」图标 —— 双音符（细线，与另外三个完全相同的渲染器 / 1.5px 线宽）。
-struct MyMusicTabIcon: View {
-    var body: some View { Image(uiImage: Self.icon).renderingMode(.template) }
-    private static let icon = renderTabIcon { c, T in
-        // 两个线性符头（描边椭圆，不填充 —— 与「线性细线」风格统一）
-        for (hx, hy) in [(7.0, 16.5), (16.0, 16.5)] {
-            c.addEllipse(in: CGRect(x: T(hx - 2.6, hy - 2.3).x, y: T(hx - 2.6, hy - 2.3).y,
-                                    width: 5.2, height: 4.6))
-        }
-        c.strokePath()
-        // 符杆 + 横梁（统一 1.5px 细线，不单独加粗）
-        c.move(to: T(9.6, 16.5)); c.addLine(to: T(9.6, 6.0))
-        c.move(to: T(18.6, 16.5)); c.addLine(to: T(18.6, 6.0))
-        c.move(to: T(9.6, 6.0)); c.addLine(to: T(18.6, 6.0))
-        c.strokePath()
-    }
-}
-
-/// 底栏「设置」图标 —— 齿轮（自绘，与另外三个完全相同的渲染器）。
-struct GearTabIcon: View {
-    var body: some View { Image(uiImage: Self.icon).renderingMode(.template) }
-    private static let icon = renderTabIcon { c, T in
-        let cx: CGFloat = 12, cy: CGFloat = 12
-        let rOut: CGFloat = 9.0, rIn: CGFloat = 6.8, n = 8
-        let deg = { (d: CGFloat) -> CGFloat in d * .pi / 180 }
-        c.move(to: T(cx + rIn * cos(deg(-22.5)), cy + rIn * sin(deg(-22.5))))
-        for k in 0..<n {
-            c.addLine(to: T(cx + rOut * cos(deg(CGFloat(k) * 45 - 13)), cy + rOut * sin(deg(CGFloat(k) * 45 - 13))))
-            c.addLine(to: T(cx + rOut * cos(deg(CGFloat(k) * 45 + 13)), cy + rOut * sin(deg(CGFloat(k) * 45 + 13))))
-            c.addLine(to: T(cx + rIn * cos(deg(CGFloat(k) * 45 + 22.5)), cy + rIn * sin(deg(CGFloat(k) * 45 + 22.5))))
-        }
-        c.closePath(); c.strokePath()
-        // 中心孔
-        c.addEllipse(in: CGRect(x: T(cx - 3, cy - 3).x, y: T(cx - 3, cy - 3).y, width: 6, height: 6))
-        c.strokePath()
-    }
-}
+// 🔴 四个 tab 图标（HomeTabIcon / SearchTabIcon / MyMusicTabIcon / GearTabIcon）
+// 及其统一渲染器 renderTabIcon 已迁移到 LucideTabIcons.swift，
+// 由 lucide_to_swift.py 从 lucide-icons 仓库生成（house / search / list-music / settings）。
+// 本文件仅引用这些结构体（见下方 TabView 的 .tabItem）。
