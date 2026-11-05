@@ -221,6 +221,7 @@ struct PlayerView: View {
                 // 🔴 用户要求：只改线条粗细（改细），不改图标与大小 —— 还原 SF Symbol chevron.left，仅降字重让线条更细。
                 Image(systemName: "chevron.left")
                     .font(.system(size: 21, weight: .regular))
+                    .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
                     .contentShape(Rectangle())
                     .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
@@ -1057,6 +1058,7 @@ struct PlayerView: View {
                 // 🔴 用户要求：只改线条粗细（改细），不改图标与大小 —— 还原 SF Symbol chevron.left，仅降字重让线条更细。
                 Image(systemName: "chevron.left")
                     .font(.system(size: 23, weight: .regular))
+                    .foregroundStyle(.white)
                     .frame(width: 56, height: 56)
                     .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
             }
@@ -1204,14 +1206,13 @@ struct PlayerView: View {
     /// 顶掉原来的黄色「极高音质」音质徽标（qualityPill 已删除）：
     /// 用户要求「移除黄色极高音质标签、移除专辑标签、加入 VIP 标签」。
     private var vipPill: some View {
-        // 🔴 用户要求：不要纯白底 —— 改为红色淡底 + 红色字 + 浅红边框的小圆角标签（同一色系，不刺眼）。
+        // 🔴 用户要求：改成「透明的酷狗样式」—— 半透明浅色底 + 无边框 + 小圆角 + 无图标（参考图：限免/标准/音效 那种半透明浅灰标签）。
         Text("VIP")
             .font(.system(size: 10, weight: .bold))
             .foregroundStyle(Color.red)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(Color.red.opacity(0.4), lineWidth: 0.6))
+            .background(Color.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 
     /// 播放状态提示（缓冲中 / 解析中 / 无法播放）；正常播放时为空 ——
@@ -1438,8 +1439,7 @@ private struct QualityPill: View {
                 .lineLimit(1)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
-                .background(Color.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 4, style: .continuous))  // 🔴 蓝色淡底 + 小圆角（不要纯白）
-                .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(Color.blue.opacity(0.4), lineWidth: 0.6))
+                .background(Color.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 4, style: .continuous))  // 🔴 透明酷狗样式：半透明浅底 + 无边框 + 小圆角
         }
         .buttonStyle(.plain)
     }
@@ -1781,6 +1781,7 @@ struct LyricsPageView: View {
                         // 🔴 用户要求：只改线条粗细（改细），不改图标与大小 —— 还原 SF Symbol chevron.left，仅降字重让线条更细。
                         Image(systemName: "chevron.left")
                             .font(.system(size: 20, weight: .regular))
+                            .foregroundStyle(.white)
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                             .shadow(color: .black.opacity(0.55), radius: 4, y: 1)

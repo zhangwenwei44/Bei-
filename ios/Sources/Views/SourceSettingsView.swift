@@ -123,6 +123,11 @@ struct SourceSettingsView: View {
                 } label: {
                     Label("重新检测全部音源", systemImage: "arrow.clockwise")
                 }
+                // 🔴 用户要求：音源自动检测开关（默认开）。关掉后启动检测与进页全量体检都跳过，手动「重新检测」仍可用。
+                Toggle("自动检测音源可用性", isOn: Binding(
+                    get: { SourceHealth.autoDetectEnabled },
+                    set: { SourceHealth.autoDetectEnabled = $0 }
+                ))
             } header: {
                 Text("添加")
                     .font(.system(size: 12))

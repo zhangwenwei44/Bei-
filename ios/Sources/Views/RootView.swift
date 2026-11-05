@@ -280,8 +280,15 @@ struct MiniPlayer: View {
                         .foregroundStyle(AppStyle.secondaryText)
                         .lineLimit(1)
                         .layoutPriority(1)
+                    // 🔴 用户要求：迷你条也加 VIP 标签，样式与播放页一致（透明酷狗样式）。
+                    Text("VIP")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color.red)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.red.opacity(0.16), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
                     if !mini.qualityName.isEmpty {
-                        // 🔴 用户要求：迷你条音质标签与播放页同步 —— 蓝色淡底 + 蓝色字 + 浅蓝边框的小圆角（不要纯白、不要胶囊）。
+                        // 🔴 用户要求：迷你条音质标签与播放页同步 —— 透明酷狗样式（蓝色淡底 + 蓝字 + 无边框小圆角）。
                         Text(mini.qualityName)
                             .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(Color.blue)
@@ -289,8 +296,7 @@ struct MiniPlayer: View {
                             .truncationMode(.tail)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(Color.blue.opacity(0.4), lineWidth: 0.5))
+                            .background(Color.blue.opacity(0.16), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
                     }
                 }
             }

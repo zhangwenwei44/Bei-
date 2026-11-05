@@ -39,6 +39,13 @@ final class SourceHealth: ObservableObject {
     /// ⚠️ 绝不能在这把锁的保护范围内写 @Published（会引发上面说的递归死锁）。
     private let lock = NSLock()
 
+    /// 🔴 用户要求：音源自动检测总开关（默认开）。
+    /// 关掉后「启动检测」+「进音源页全量体检」都跳过，但「重新检测全部音源」手动按钮仍可用。
+    static var autoDetectEnabled: Bool {
+        get { !UserDefaults.standard.bool(forKey: "aurora.source.autoDetectDisabled") }
+        set { UserDefaults.standard.set(!newValue, forKey: "aurora.source.autoDetectDisabled") }
+    }
+
     // MARK: 读取
 
     /// 读状态。**不取锁** —— 状态字典的写入全在主线程、读可能在后台
@@ -110,6 +117,7 @@ final class SourceHealth: ObservableObject {
 
     /// 只检测过期的音源（进入音源设置页时调用）。
     func checkStale() async {
+        guard SourceHealth.autoDetectEnabled else { return }
         let now = Date()
         for source in SourceStore.shared.sources where source.enabled && source.isUsable {
             lock.lock()
@@ -126,6 +134,7 @@ final class SourceHealth: ObservableObject {
     /// 可用 → 自动开启，无用（连探针都解析不出） → 自动关闭（红关绿开）。
     /// 不可用的源（脚本空 / 配置不完整）跳过，不强行开关。
     func detectAllAndApply() async {
+        guard SourceHealth.autoDetectEnabled else { return }
         let targets = SourceStore.shared.sources.filter { $0.isUsable }
         // 先统一标成「检测中」：否则刚进页面时一个绿/红点都没有，用户会以为页面卡死。
         for source in targets { set(.checking, for: source.id) }

@@ -25,7 +25,7 @@ struct ProfileView: View {
     }
     /// 「检查更新」和「关于」点了完全没反应，只有排在最后的更新日志能弹出来。
     private enum Sheet: String, Identifiable {
-        case about, update, changelog, kugouLogin, licenseMaker
+        case about, update, changelog, kugouLogin, licenseMaker, unlock, banner
         var id: String { rawValue }
     }
 
@@ -115,7 +115,7 @@ struct ProfileView: View {
                             // 🔴 用户要求：云账号不显示歌曲同步信息（同步中/已同步/同步失败等状态文字），保留邮箱与同步按钮。
                             HStack(spacing: 12) {
                                 Button {
-                                    Task { await cloud.pushToCloud() }
+                                    sheet = .unlock
                                 } label: {
                                     Text("解锁码")
                                         .font(.system(size: 14, weight: .medium))
@@ -126,7 +126,7 @@ struct ProfileView: View {
                                 }
                                 .buttonStyle(.plain)
                                 Button {
-                                    Task { await cloud.pullFromCloud() }
+                                    sheet = .banner
                                 } label: {
                                     Text("横屏广告更换")
                                         .font(.system(size: 14, weight: .medium))
@@ -143,9 +143,16 @@ struct ProfileView: View {
                                     catch { cloudError = CloudAccount.localizedCloudError(error) }
                                 }
                             } label: {
-                                Text("退出登录")
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(.red)
+                                HStack(spacing: 6) {
+                                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                                        .font(.system(size: 14, weight: .medium))
+                                    Text("退出登录")
+                                        .font(.system(size: 14, weight: .medium))
+                                }
+                                .foregroundStyle(.red)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 9)
+                                .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                             }
                             .buttonStyle(.plain)
                         }
@@ -528,6 +535,8 @@ struct ProfileView: View {
             case .changelog: ChangelogView()
             case .kugouLogin: KugouLoginSheet()
             case .licenseMaker: LicenseGeneratorView()
+            case .unlock: LicenseGeneratorView()   // 🔴 解锁码：打开授权码生成器（真实功能）
+            case .banner: LabView()                // 🔴 横屏广告更换：打开横幅广告管理（真实功能）
             }
         }
         .task {
