@@ -642,6 +642,9 @@ struct CoverImage: View {
     /// 🔴 填充方式：.fill=默认铺满裁切（封面/头像）；.fit=完整显示不裁切（歌手大图不想被裁掉头部）。
     /// 仅歌手主页大图用 .fit。
     var contentMode: ContentMode = .fill
+    /// 图片在显示框内的对齐方式（默认居中）。歌手大图用 .top 让头部顶到导航栏、
+    /// 既铺满整框不露白边，又避免被裁掉头部（之前居中填充裁掉了头）。
+    var imageAlignment: Alignment = .center
 
     @State private var image: UIImage?
     @State private var resolved: URL?
@@ -668,7 +671,7 @@ struct CoverImage: View {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: contentMode)
-                    .frame(width: w, height: h)
+                    .frame(width: w, height: h, alignment: imageAlignment)
                     .clipped()
             } else {
                 Image(systemName: "music.note")

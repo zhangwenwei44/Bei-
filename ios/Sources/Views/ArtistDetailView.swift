@@ -321,14 +321,14 @@ struct ArtistDetailView: View {
     private var heroImageContent: some View {
         let screenW = UIScreen.main.bounds.width
         return ZStack(alignment: .bottom) {
-            // 🔴 深色背板：.fit 模式不裁切，图片居中显示，四周留白用深色接住，
-            // 既保证整张歌手图完整可见，又让顶部白色导航按钮（返回/收藏）始终可读。
+            // 🔴 深色背板（兜底）：图片加载失败/letterbox 时接住留白，避免露白。
             LinearGradient(colors: [Color(red: 0.07, green: 0.07, blue: 0.09),
                                     Color(red: 0.13, green: 0.13, blue: 0.15)],
                            startPoint: .top, endPoint: .bottom)
                 .frame(width: screenW, height: headerBaseHeight)
-                .ignoresSafeArea(edges: .top)
 
+            // 🔴 大图：改回 .fill 铺满整框（不再露白边/白顶），但用 .top 对齐——
+            // 把歌手头部顶到导航栏位置，既盖住顶栏不露白，又避免居中填充把头裁掉（之前"图片显示不全"的根因）。
             CoverImage(
                 url: hiResCoverURL,
                 fallbackKeys: [artist.id],
@@ -337,7 +337,8 @@ struct ArtistDetailView: View {
                 corner: 0,
                 displayWidth: screenW,
                 displayHeight: headerBaseHeight,
-                contentMode: .fit
+                contentMode: .fill,
+                imageAlignment: .top
             )
             .frame(width: screenW, height: headerBaseHeight)
             .clipped()
@@ -398,7 +399,8 @@ struct ArtistDetailView: View {
                 size: max(screenW, 800),
                 corner: 0,
                 displayWidth: screenW,
-                displayHeight: headerBaseHeight
+                displayHeight: headerBaseHeight,
+                imageAlignment: .top
             )
             .frame(width: screenW, height: headerBaseHeight)
             .clipped()
