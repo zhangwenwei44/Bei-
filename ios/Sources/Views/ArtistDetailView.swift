@@ -55,8 +55,8 @@ struct ArtistDetailView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // ① 滚动列表（最底层）：顶部留白占位把列表推到大图正下方，
-            // 首行 1px 透明测量点读取滚动偏移，驱动大图收起 / 毛玻璃渐入。
+            // ① 滚动内容：大图是 ScrollView 内容的**第一项**，因此必然随列表一起上滑（不会冻在顶部）。
+            // 整个 ScrollView 忽略顶部安全区 → 内容顶到 y=0，大图静止即盖住透明导航栏。
             ScrollView {
                 LazyVStack(spacing: 0) {
                     GeometryReader { geo in
@@ -66,9 +66,8 @@ struct ArtistDetailView: View {
                     }
                     .frame(height: 1)
 
-                    // 占位：预留大图高度，让列表从大图正下方开始。
-                    Color.clear
-                        .frame(height: headerBaseHeight)
+                    // 大图本体：放进滚动内容，随列表自然上滑；ignoresSafeArea 让它盖住状态栏 + 导航栏。
+                    heroImageContent
 
                     tabBar
                     if tab == 0 {
@@ -80,15 +79,10 @@ struct ArtistDetailView: View {
             }
             .coordinateSpace(name: "artistScroll")
             .background(AppStyle.background)
+            .ignoresSafeArea(edges: .top)
 
-            // ② 大图：钉在顶部（盖住顶部导航栏），随滚动整体上移 —— 视觉上「随列表一起向上滚走」。
-            // 上滑到顶栏时整块移出屏幕，露出下方的毛玻璃导航栏背景。
-            heroImageContent
-                .offset(y: min(0, headerScroll))
-                .allowsHitTesting(false)
-
-            // ③ 毛玻璃导航栏背景：盖在大图之上，随收起进度渐入；
-            // 大图移走后它就是毛玻璃导航栏背景，系统工具栏（返回 / 歌手名 / 收藏）浮在其上。
+            // ② 毛玻璃导航栏背景：钉在顶部、盖在大图之上，随收起进度渐入；
+            // 大图滑走后它就是毛玻璃导航栏背景，系统工具栏（返回 / 歌手名 / 收藏）浮在其上。
             navbarFrostedBackground
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -267,12 +261,11 @@ struct ArtistDetailView: View {
         return min(1, drag / maxDrag)
     }
 
-    // MARK: - 顶部大图（钉在顶部、随滚动整体上移的独立层）
+    // MARK: - 顶部大图（滚动内容第一项，随列表上滑）
 
-    /// 大图本体：钉在 ZStack 顶部，覆盖整个顶部（含状态栏 + 导航栏），
-    /// 由 body 里 `.offset(y:)` 随滚动整体上移 —— 视觉上「随列表一起向上滚走」。
-    /// ignoresSafeArea(.top) 让它铺到屏幕最上端、盖住透明导航栏；
-    /// 整块移出屏幕后，下方的毛玻璃导航栏背景（navbarFrostedBackground）接管。
+    /// 大图本体：作为 ScrollView 内容的**第一项**放进滚动内容，因此必然随列表一起上滑（不会冻在顶部）；
+    /// ScrollView 整体忽略顶部安全区，使其静止时顶到 y=0、盖住透明导航栏。
+    /// ignoresSafeArea(.top) 再补一层，确保铺到屏幕最上端；上滑时整块随内容移走，歌手名 / 粉丝淡出交给导航栏。
     private var heroImageContent: some View {
         let screenW = UIScreen.main.bounds.width
         return ZStack(alignment: .bottom) {
