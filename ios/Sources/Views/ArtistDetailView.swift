@@ -27,6 +27,10 @@ struct ArtistDetailView: View {
     // 由 ScrollViewOffsetTracker 通过 KVO 写入，驱动大图收缩 / 锁定 / 毛玻璃渐入 / 歌手名转入导航栏标题。
     @State private var headerScroll: CGFloat = 0
 
+    /// 🔴 吸顶头（分段 Tab + 全部播放）的高度：由 PreferenceKey 实测，
+    /// 用来给滚动内容预留占位，使列表从吸顶头下方开始。
+    @State private var stickyHeaderHeight: CGFloat = 100
+
     /// 酷狗同款收藏按钮的黄色
     private static let collectYellow = Color(red: 0.98, green: 0.87, blue: 0.20)
 
@@ -55,45 +59,49 @@ struct ArtistDetailView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // ① 滚动内容：大图放进滚动内容，随列表一起上滑（不冻顶）。
-            // 整个 ScrollView 忽略顶部安全区 → 内容顶到 y=0，大图静止即盖住透明导航栏。
+            // ① 滚动内容：大图随列表上滑（滚走变毛玻璃）；大图之后留「吸顶头」高度的占位，
+            // 列表从吸顶头下方开始。吸顶头（分段 Tab + 全部播放）由下方 overlay 钉在顶栏下方。
             //
             // 🔴 滚动偏移检测：用 ScrollViewOffsetTracker（UIKit contentOffset + KVO）写入 headerScroll。
             // 之前用 SwiftUI 的 GeometryReader + preference 测量，在 ScrollView 滚动时不一定
             // 重算并上报偏移，导致 headerScroll 恒为 0、毛玻璃 opacity 永远 0、毛玻璃从不出现。
             ScrollView {
                 VStack(spacing: 0) {
-                    // 🔴 滚动偏移探针：必须放进滚动内容内部（不能放 .background）。
-                    // .background 里的视图是 ScrollView 的兄弟节点，superview 链上找不到 UIScrollView，
-                    // KVO 拿不到 contentOffset（这正是之前 headerScroll 恒为 0、毛玻璃不出的根因）。
-                    // 放进内容后它一定是 UIScrollView 内容层级的 subview，链上能找到 UIScrollView。
+                    // 🔴 滚动偏移探针：必须放进滚动内容内部（不能放 .background），
+                    // 否则 superview 链上找不到 UIScrollView，KVO 拿不到 contentOffset（经验教训）。
                     ScrollViewOffsetTracker { y in
                         DispatchQueue.main.async { headerScroll = y }
                     }
                     .frame(height: 0)
 
-                    // 大图本体：作为 ScrollView 内容的**第一项**放进滚动内容，必然随列表一起上滑；
-                    // ScrollView 整体忽略顶部安全区，使其静止时顶到 y=0、盖住透明导航栏。
+                    // 大图本体：放进滚动内容，随列表上滑、滚走后由毛玻璃导航栏接管。
                     heroImageContent
 
-                    // 列表：内层 LazyVStack 懒加载，长列表不卡。
-                    LazyVStack(spacing: 0) {
-                        tabBar
-                        if tab == 0 {
-                            songListSection
-                        } else {
-                            albumGridSection
-                        }
+                    // 吸顶头占位：预留「分段 Tab + 全部播放」的高度，列表从它下方开始；
+                    // 高度跟随吸顶头实测值（stickyHeaderHeight），保证列表紧贴吸顶头。
+                    Color.clear.frame(height: stickyHeaderHeight)
+
+                    // 列表主体（不含 全部播放 / 分段 Tab，那些已提到吸顶头）。
+                    if tab == 0 {
+                        songListBody
+                    } else {
+                        albumGridSection
                     }
                 }
             }
             .background(AppStyle.background)
             .ignoresSafeArea(edges: .top)
 
-            // ② 毛玻璃导航栏背景：钉在顶部、盖在大图之上，随收起进度渐入；
-            // 大图滑走后它就是毛玻璃导航栏背景，系统工具栏（返回 / 歌手名 / 收藏）浮在其上。
+            // ② 毛玻璃导航栏背景：大图滚走后渐入，系统工具栏（返回 / 歌手名 / 收藏）浮在其上。
             navbarFrostedBackground
+
+            // ③ 吸顶头（分段 Tab + 全部播放）：钉在顶栏下方，不随列表滚走；
+            // 大图未收起时随列表上移（跟踪大图底边），收起后固定在 topInset（顶栏正下方）。
+            stickyHeader
+                .offset(y: stickyY)
+                .background(AppStyle.background)
         }
+        .onPreferenceChange(StickyHeaderHeightKey.self) { stickyHeaderHeight = $0 }
         .navigationBarTitleDisplayMode(.inline)
         // 🔴 v2.9.8：导航栏一直浮在大图上 → 永远透明、白字，大图始终盖住顶栏。
         .compatToolbarDynamicScheme(dark: true)
@@ -275,6 +283,32 @@ struct ArtistDetailView: View {
         max(0, min(1, (collapseProgress - 0.8) / 0.2))
     }
 
+    /// 🔴 吸顶头（分段 Tab + 全部播放）相对 ZStack 顶部的偏移：
+    /// ZStack 顶部在导航栏底边（屏幕 y≈topInset），而滚动内容因 ignoresSafeArea 顶到屏幕 y=0，
+    /// 所以吸顶头不能直接用屏幕坐标。静止时它应贴在大图底边（屏幕 y=headerBaseHeight），
+    /// 即相对 ZStack 顶部偏移 = headerBaseHeight - topInset = maxDrag；
+    /// 随滚动上移该偏移递减，大图收起（headerScroll≥maxDrag）后钉在顶栏正下方（偏移 0）。
+    private var stickyY: CGFloat {
+        max(0, (headerBaseHeight - topInset) - headerScroll)
+    }
+
+    /// 🔴 吸顶头：分段 Tab（单曲/专辑）+ 全部播放行。钉在顶栏下方，不随列表滚走。
+    /// 仅单曲 Tab 显示「全部播放」；专辑 Tab 只显示分段 Tab（高度随内容自适应）。
+    /// 背景用 GeometryReader 实测高度，写入 StickyHeaderHeightKey 供滚动占位使用。
+    private var stickyHeader: some View {
+        VStack(spacing: 0) {
+            tabBar
+            if tab == 0 {
+                allPlayRow
+            }
+        }
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: StickyHeaderHeightKey.self, value: geo.size.height)
+            }
+        )
+    }
+
     // MARK: - 顶部大图（滚动内容第一项，随列表上滑）
 
     /// 大图本体：作为 ScrollView 内容的**第一项**放进滚动内容，因此必然随列表一起上滑（不会冻在顶部）；
@@ -372,61 +406,64 @@ struct ArtistDetailView: View {
 
     // MARK: - 歌曲列表（酷狗同款：全部播放行 + 最新/最热 + 扁平编号列表）
 
-    private var songListSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // 全部播放行：金色播放圆钮 + 排序切换 + 多选下载
-            HStack(spacing: 10) {
+    /// 🔴 全部播放行（蓝色播放圆钮 + 排序切换 + 多选下载）—— 提到「吸顶头」，不随列表滚走。
+    private var allPlayRow: some View {
+        HStack(spacing: 10) {
+            Button {
+                guard !songs.isEmpty else { return }
+                Haptics.soft()
+                store.queueID = "artist:\(artist.id)"
+                store.play(songs, startAt: 0)
+            } label: {
+                HStack(spacing: 8) {
+                    // 🔴 v2.5.47：播放圆钮改蓝色（原金色）
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(AppStyle.accent))
+                    Text("全部播放")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(AppStyle.primaryText)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(songs.isEmpty)
+
+            Spacer(minLength: 0)
+
+            // 最新 / 最热 胶囊切换
+            HStack(spacing: 0) {
+                sortButton("最新", selected: sortNewest) { sortNewest = true }
+                sortButton("最热", selected: !sortNewest) { sortNewest = false }
+            }
+            .background(AppStyle.surface.opacity(0.9), in: Capsule())
+            .overlay(Capsule().stroke(AppStyle.stroke, lineWidth: 0.5))
+
+            // 多选（下载用）
+            if !isSelecting {
                 Button {
-                    guard !songs.isEmpty else { return }
-                    Haptics.soft()
-                    store.queueID = "artist:\(artist.id)"
-                    store.play(songs, startAt: 0)
+                    isSelecting = true
+                    selectedIDs.removeAll()
                 } label: {
-                    HStack(spacing: 8) {
-                        // 🔴 v2.5.47：播放圆钮改蓝色（原金色）
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 26, height: 26)
-                            .background(Circle().fill(AppStyle.accent))
-                        Text("全部播放")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(AppStyle.primaryText)
-                    }
-                    .contentShape(Rectangle())
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 17))
+                        .foregroundStyle(AppStyle.secondaryText)
+                        .frame(width: 34, height: 34)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(songs.isEmpty)
-
-                Spacer(minLength: 0)
-
-                // 最新 / 最热 胶囊切换
-                HStack(spacing: 0) {
-                    sortButton("最新", selected: sortNewest) { sortNewest = true }
-                    sortButton("最热", selected: !sortNewest) { sortNewest = false }
-                }
-                .background(AppStyle.surface.opacity(0.9), in: Capsule())
-                .overlay(Capsule().stroke(AppStyle.stroke, lineWidth: 0.5))
-
-                // 多选（下载用）
-                if !isSelecting {
-                    Button {
-                        isSelecting = true
-                        selectedIDs.removeAll()
-                    } label: {
-                        Image(systemName: "arrow.down.circle")
-                            .font(.system(size: 17))
-                            .foregroundStyle(AppStyle.secondaryText)
-                            .frame(width: 34, height: 34)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
 
+    /// 🔴 歌曲列表主体（不含 全部播放行 / 分段 Tab，那些已提到吸顶头）。
+    private var songListBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
             if isLoading {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: 60)
                     .padding(.horizontal, 16)
@@ -769,6 +806,15 @@ private struct ArtistSongRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+}
+
+// MARK: - 🔴 吸顶头高度（PreferenceKey，实测「分段 Tab + 全部播放」高度供滚动占位）
+
+private struct StickyHeaderHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 100
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
