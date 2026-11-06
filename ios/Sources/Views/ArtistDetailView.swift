@@ -27,10 +27,6 @@ struct ArtistDetailView: View {
     // 由 ScrollViewOffsetTracker 通过 KVO 写入，驱动大图收缩 / 锁定 / 毛玻璃渐入 / 歌手名转入导航栏标题。
     @State private var headerScroll: CGFloat = 0
 
-    /// 🔴 吸顶头（分段 Tab + 全部播放）的高度：由 PreferenceKey 实测，
-    /// 用来给滚动内容预留占位，使列表从吸顶头下方开始。
-    @State private var stickyHeaderHeight: CGFloat = 100
-
     /// 酷狗同款收藏按钮的黄色
     private static let collectYellow = Color(red: 0.98, green: 0.87, blue: 0.20)
 
@@ -59,14 +55,9 @@ struct ArtistDetailView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // ① 滚动内容：大图随列表上滑（滚走变毛玻璃）；大图之后留「吸顶头」高度的占位，
-            // 列表从吸顶头下方开始。吸顶头（分段 Tab + 全部播放）由下方 overlay 钉在顶栏下方。
-            //
-            // 🔴 滚动偏移检测：用 ScrollViewOffsetTracker（UIKit contentOffset + KVO）写入 headerScroll。
-            // 之前用 SwiftUI 的 GeometryReader + preference 测量，在 ScrollView 滚动时不一定
-            // 重算并上报偏移，导致 headerScroll 恒为 0、毛玻璃 opacity 永远 0、毛玻璃从不出现。
+            // 滚动内容：大图随列表上滑滚走；大图之后是「Tab+全部播放」吸顶头，列表在其之下滚动。
             ScrollView {
-                VStack(spacing: 0) {
+                LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                     // 🔴 滚动偏移探针：必须放进滚动内容内部（不能放 .background），
                     // 否则 superview 链上找不到 UIScrollView，KVO 拿不到 contentOffset（经验教训）。
                     ScrollViewOffsetTracker { y in
@@ -74,34 +65,30 @@ struct ArtistDetailView: View {
                     }
                     .frame(height: 0)
 
-                    // 大图本体：放进滚动内容，随列表上滑、滚走后由毛玻璃导航栏接管。
+                    // ① 大图头部：作为滚动内容第一项随列表上滑滚走；
+                    // ignoresSafeArea(.top) 顶到屏幕最顶端，盖住透明导航栏
+                    // （导航栏透明由 kugouNavigationBarBackground(.clear, transparent:) 负责，已验证可用）。
                     heroImageContent
+                        .ignoresSafeArea(.top)
 
-                    // 吸顶头占位：预留「分段 Tab + 全部播放」的高度，列表从它下方开始；
-                    // 高度跟随吸顶头实测值（stickyHeaderHeight），保证列表紧贴吸顶头。
-                    Color.clear.frame(height: stickyHeaderHeight)
-
-                    // 列表主体（不含 全部播放 / 分段 Tab，那些已提到吸顶头）。
-                    if tab == 0 {
-                        songListBody
-                    } else {
-                        albumGridSection
+                    // ② 分段 Tab + 全部播放 作为 Section 吸顶头：滚动时钉在顶栏下方（用户画红线的位置），
+                    //    下方列表在它之下滚动。用原生 pinnedViews 吸顶，不需要任何手动 offset 叠层。
+                    Section {
+                        if tab == 0 {
+                            songListBody
+                        } else {
+                            albumGridSection
+                        }
+                    } header: {
+                        stickyHeader
                     }
                 }
             }
             .background(AppStyle.background)
-            .ignoresSafeArea(edges: .top)
 
-            // ② 毛玻璃导航栏背景：大图滚走后渐入，系统工具栏（返回 / 歌手名 / 收藏）浮在其上。
+            // ③ 毛玻璃导航栏背景：大图滚走后渐入，系统工具栏（返回 / 歌手名 / 收藏）浮在其上。
             navbarFrostedBackground
-
-            // ③ 吸顶头（分段 Tab + 全部播放）：钉在顶栏下方，不随列表滚走；
-            // 大图未收起时随列表上移（跟踪大图底边），收起后固定在 topInset（顶栏正下方）。
-            stickyHeader
-                .offset(y: stickyY)
-                .background(AppStyle.background)
         }
-        .onPreferenceChange(StickyHeaderHeightKey.self) { stickyHeaderHeight = $0 }
         .navigationBarTitleDisplayMode(.inline)
         // 🔴 v2.9.8：导航栏一直浮在大图上 → 永远透明、白字，大图始终盖住顶栏。
         .compatToolbarDynamicScheme(dark: true)
@@ -281,22 +268,6 @@ struct ArtistDetailView: View {
     /// 这里从 0.8 才开始渐入、1.0 完全不透明，与导航栏标题同步。
     private var navFrostOpacity: CGFloat {
         max(0, min(1, (collapseProgress - 0.8) / 0.2))
-    }
-
-    /// 🔴 吸顶头（分段 Tab + 全部播放）相对 ZStack 顶部的偏移：
-    /// ZStack 顶部在导航栏底边（屏幕 y≈topInset），而滚动内容因 ignoresSafeArea 顶到屏幕 y=0，
-    /// 所以吸顶头不能直接用屏幕坐标。静止时它应贴在大图底边（屏幕 y=headerBaseHeight），
-    /// 即相对 ZStack 顶部偏移 = headerBaseHeight - topInset = maxDrag。
-    ///
-    /// 🔴 用户要求：大图上滑滚走时，吸顶头要「尽快升到顶栏下方钉住」，不要跟着大图一路走到顶。
-    /// 系数 2 表示大图滚走约一半（headerScroll≈maxDrag/2）时吸顶头已到达顶栏并锁定，
-    /// 之后大图继续滚走变毛玻璃、只有列表在吸顶头下方滚动。系数越大吸顶越早、升得越快。
-    private var stickyY: CGFloat {
-        let maxDrag = headerBaseHeight - topInset
-        // 🔴 系数 1：吸顶头与大图底边 1:1 同步上滑，贴着大图底边；
-        // 大图完全滚走（headerScroll≈maxDrag）后正好钉在顶栏下方，之后只有列表在下方滚动。
-        // （之前系数 2 会让吸顶头以 2× 速度甩开大图、提前冲到顶栏，视觉上像按钮比图片飞得快）
-        return max(0, maxDrag - headerScroll)
     }
 
     /// 🔴 吸顶头：分段 Tab（单曲/专辑）+ 全部播放行。钉在顶栏下方，不随列表滚走。
