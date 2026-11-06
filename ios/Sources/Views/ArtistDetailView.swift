@@ -111,7 +111,7 @@ struct ArtistDetailView: View {
                         .foregroundStyle(.white)
                         .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
                         .lineLimit(1)
-                        .opacity(collapseProgress)
+                        .opacity(navFrostOpacity)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -268,6 +268,13 @@ struct ArtistDetailView: View {
         return min(1, drag / maxDrag)
     }
 
+    /// 🔴 用户要求：毛玻璃导航栏背景只在「滚到图片底部、图片快滚完」时才渐显，
+    /// 不要提前出现。collapseProgress=1 表示图片底部已抵达导航栏（图片完全收起），
+    /// 这里从 0.8 才开始渐入、1.0 完全不透明，与导航栏标题同步。
+    private var navFrostOpacity: CGFloat {
+        max(0, min(1, (collapseProgress - 0.8) / 0.2))
+    }
+
     // MARK: - 顶部大图（滚动内容第一项，随列表上滑）
 
     /// 大图本体：作为 ScrollView 内容的**第一项**放进滚动内容，因此必然随列表一起上滑（不会冻在顶部）；
@@ -335,9 +342,7 @@ struct ArtistDetailView: View {
     /// 大图随列表滑走后，它渐入成为「毛玻璃导航栏背景」；渐入进度由收起后段驱动，避免与正在滑动的大图重影。
     private var navbarFrostedBackground: some View {
         let screenW = UIScreen.main.bounds.width
-        // 🔴 毛玻璃从收起过半(0.5)开始渐入，0.85 时完全不透明 —— 收起过程中就能明显看到，
-        // 避免之前要滚到尽头才突变。
-        let navFrostOpacity = max(0, min(1, (collapseProgress - 0.5) / 0.35))
+        // 🔴 毛玻璃只在滚到图片底部（collapseProgress→1）才渐显，复用 navFrostOpacity 计算属性。
         return ZStack(alignment: .top) {
             CoverImage(
                 url: hiResCoverURL,
