@@ -66,10 +66,9 @@ struct ArtistDetailView: View {
                     .frame(height: 0)
 
                     // ① 大图头部：作为滚动内容第一项随列表上滑滚走；
-                    // ignoresSafeArea(.top) 顶到屏幕最顶端，盖住透明导航栏
+                    // 大图自身已 ignoresSafeArea(edges: .top) 顶到屏幕最顶端，盖住透明导航栏
                     // （导航栏透明由 kugouNavigationBarBackground(.clear, transparent:) 负责，已验证可用）。
                     heroImageContent
-                        .ignoresSafeArea(.top)
 
                     // ② 分段 Tab + 全部播放 作为 Section 吸顶头：滚动时钉在顶栏下方（用户画红线的位置），
                     //    下方列表在它之下滚动。用原生 pinnedViews 吸顶，不需要任何手动 offset 叠层。
