@@ -64,10 +64,14 @@ struct ArtistDetailView: View {
             // 这里用外层非懒 VStack 包住「测量点 + 大图」，列表仍用内层 LazyVStack 懒加载。
             ScrollView {
                 VStack(spacing: 0) {
+                    // 🔴 测量滚动偏移：用 **.global（屏幕绝对坐标）** 而不是 .named("artistScroll")。
+                    // 实测 .named 在 ScrollView 上取子视图坐标，滚动时该坐标不随滚动变化，
+                    // 导致 headerScroll 恒为 0、毛玻璃 opacity 永远 0、毛玻璃不出现。
+                    // .global 是屏幕绝对坐标：内容上滑时这 1px 的屏幕 y 必然变负 → headerScroll 稳定驱动。
                     GeometryReader { geo in
                         Color.clear
                             .preference(key: ArtistHeaderOffsetKey.self,
-                                        value: geo.frame(in: .named("artistScroll")).minY)
+                                        value: geo.frame(in: .global).minY)
                     }
                     .frame(height: 1)
 
@@ -85,7 +89,6 @@ struct ArtistDetailView: View {
                     }
                 }
             }
-            .coordinateSpace(name: "artistScroll")
             .background(AppStyle.background)
             .ignoresSafeArea(edges: .top)
 
@@ -357,7 +360,7 @@ struct ArtistDetailView: View {
                 .frame(width: screenW, height: headerBaseHeight)
 
             Rectangle()
-                .fill(.ultraThinMaterial)
+                .fill(.thinMaterial)
         }
         .frame(width: screenW, height: topInset)
         .clipped()
