@@ -63,6 +63,15 @@ struct ArtistDetailView: View {
             // 重算并上报偏移，导致 headerScroll 恒为 0、毛玻璃 opacity 永远 0、毛玻璃从不出现。
             ScrollView {
                 VStack(spacing: 0) {
+                    // 🔴 滚动偏移探针：必须放进滚动内容内部（不能放 .background）。
+                    // .background 里的视图是 ScrollView 的兄弟节点，superview 链上找不到 UIScrollView，
+                    // KVO 拿不到 contentOffset（这正是之前 headerScroll 恒为 0、毛玻璃不出的根因）。
+                    // 放进内容后它一定是 UIScrollView 内容层级的 subview，链上能找到 UIScrollView。
+                    ScrollViewOffsetTracker { y in
+                        DispatchQueue.main.async { headerScroll = y }
+                    }
+                    .frame(height: 0)
+
                     // 大图本体：作为 ScrollView 内容的**第一项**放进滚动内容，必然随列表一起上滑；
                     // ScrollView 整体忽略顶部安全区，使其静止时顶到 y=0、盖住透明导航栏。
                     heroImageContent
@@ -78,10 +87,6 @@ struct ArtistDetailView: View {
                     }
                 }
             }
-            .background(ScrollViewOffsetTracker { y in
-                // 已上滑距离（contentOffset.y，>=0）→ 驱动大图收起 / 毛玻璃渐入。
-                DispatchQueue.main.async { headerScroll = y }
-            })
             .background(AppStyle.background)
             .ignoresSafeArea(edges: .top)
 
@@ -351,7 +356,7 @@ struct ArtistDetailView: View {
                 .frame(width: screenW, height: headerBaseHeight)
 
             Rectangle()
-                .fill(.thinMaterial)
+                .fill(.regularMaterial)
         }
         .frame(width: screenW, height: topInset)
         .clipped()
