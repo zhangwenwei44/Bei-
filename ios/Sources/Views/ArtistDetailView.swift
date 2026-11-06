@@ -286,10 +286,14 @@ struct ArtistDetailView: View {
     /// 🔴 吸顶头（分段 Tab + 全部播放）相对 ZStack 顶部的偏移：
     /// ZStack 顶部在导航栏底边（屏幕 y≈topInset），而滚动内容因 ignoresSafeArea 顶到屏幕 y=0，
     /// 所以吸顶头不能直接用屏幕坐标。静止时它应贴在大图底边（屏幕 y=headerBaseHeight），
-    /// 即相对 ZStack 顶部偏移 = headerBaseHeight - topInset = maxDrag；
-    /// 随滚动上移该偏移递减，大图收起（headerScroll≥maxDrag）后钉在顶栏正下方（偏移 0）。
+    /// 即相对 ZStack 顶部偏移 = headerBaseHeight - topInset = maxDrag。
+    ///
+    /// 🔴 用户要求：大图上滑滚走时，吸顶头要「尽快升到顶栏下方钉住」，不要跟着大图一路走到顶。
+    /// 系数 2 表示大图滚走约一半（headerScroll≈maxDrag/2）时吸顶头已到达顶栏并锁定，
+    /// 之后大图继续滚走变毛玻璃、只有列表在吸顶头下方滚动。系数越大吸顶越早、升得越快。
     private var stickyY: CGFloat {
-        max(0, (headerBaseHeight - topInset) - headerScroll)
+        let maxDrag = headerBaseHeight - topInset
+        return max(0, maxDrag - headerScroll * 2)
     }
 
     /// 🔴 吸顶头：分段 Tab（单曲/专辑）+ 全部播放行。钉在顶栏下方，不随列表滚走。
