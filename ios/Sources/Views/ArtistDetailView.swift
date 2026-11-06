@@ -55,10 +55,15 @@ struct ArtistDetailView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // ① 滚动内容：大图是 ScrollView 内容的**第一项**，因此必然随列表一起上滑（不会冻在顶部）。
+            // ① 滚动内容：大图放进滚动内容，随列表一起上滑（不冻顶）。
             // 整个 ScrollView 忽略顶部安全区 → 内容顶到 y=0，大图静止即盖住透明导航栏。
+            //
+            // ⚠️ 关键修复：测量滚动偏移的 1px GeometryReader + 大图必须放在**非懒加载**的
+            // VStack 里。LazyVStack 会把滚出屏幕的视图卸载，导致 1px 测量点被回收、
+            // headerScroll 被重置为 0 → 毛玻璃层 opacity 归零而消失（上一版的根因）。
+            // 这里用外层非懒 VStack 包住「测量点 + 大图」，列表仍用内层 LazyVStack 懒加载。
             ScrollView {
-                LazyVStack(spacing: 0) {
+                VStack(spacing: 0) {
                     GeometryReader { geo in
                         Color.clear
                             .preference(key: ArtistHeaderOffsetKey.self,
@@ -69,11 +74,14 @@ struct ArtistDetailView: View {
                     // 大图本体：放进滚动内容，随列表自然上滑；ignoresSafeArea 让它盖住状态栏 + 导航栏。
                     heroImageContent
 
-                    tabBar
-                    if tab == 0 {
-                        songListSection
-                    } else {
-                        albumGridSection
+                    // 列表：内层 LazyVStack 懒加载，长列表不卡。
+                    LazyVStack(spacing: 0) {
+                        tabBar
+                        if tab == 0 {
+                            songListSection
+                        } else {
+                            albumGridSection
+                        }
                     }
                 }
             }
@@ -328,7 +336,9 @@ struct ArtistDetailView: View {
     /// 大图随列表滑走后，它渐入成为「毛玻璃导航栏背景」；渐入进度由收起后段驱动，避免与正在滑动的大图重影。
     private var navbarFrostedBackground: some View {
         let screenW = UIScreen.main.bounds.width
-        let navFrostOpacity = max(0, min(1, (collapseProgress - 0.55) / 0.45))
+        // 🔴 毛玻璃从收起过半(0.5)开始渐入，0.85 时完全不透明 —— 收起过程中就能明显看到，
+        // 避免之前要滚到尽头才突变。
+        let navFrostOpacity = max(0, min(1, (collapseProgress - 0.5) / 0.35))
         return ZStack(alignment: .top) {
             CoverImage(
                 url: hiResCoverURL,
