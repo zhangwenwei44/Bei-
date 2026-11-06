@@ -645,6 +645,9 @@ struct CoverImage: View {
     /// 图片在显示框内的对齐方式（默认居中）。歌手大图用 .top 让头部顶到导航栏、
     /// 既铺满整框不露白边，又避免被裁掉头部（之前居中填充裁掉了头）。
     var imageAlignment: Alignment = .center
+    /// 🔴 .fill 模式的兜底底色（图未加载时显示）。默认浅灰渐变；
+    /// 歌手大图传入深色，避免透明导航栏区域在图加载前闪现白块。
+    var fallbackColor: Color? = nil
 
     @State private var image: UIImage?
     @State private var resolved: URL?
@@ -659,9 +662,11 @@ struct CoverImage: View {
     var body: some View {
         ZStack {
             // 兜底背景：.fit 模式（歌手大图）透明，让外层深色背板透出来，避免 letterbox 出现刺眼白块；
-            // .fill 模式沿用原来的浅灰渐变。
+            // .fill 模式默认浅灰渐变，传入 fallbackColor 时改用该色（歌手大图传深色，图未加载也不露白）。
             if contentMode == .fit {
                 Color.clear
+            } else if let fc = fallbackColor {
+                fc
             } else {
                 LinearGradient(colors: [Color(white: 0.97), Color(white: 0.93)],
                                startPoint: .topLeading,

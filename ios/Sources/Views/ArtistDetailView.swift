@@ -27,6 +27,10 @@ struct ArtistDetailView: View {
     // 由 ScrollViewOffsetTracker 通过 KVO 写入，驱动大图收缩 / 锁定 / 毛玻璃渐入 / 歌手名转入导航栏标题。
     @State private var headerScroll: CGFloat = 0
 
+    /// 🔴 吸顶头（分段 Tab + 全部播放）的高度：由 PreferenceKey 实测，
+    /// 用来给滚动内容预留占位，使列表从吸顶头下方开始。
+    @State private var stickyHeaderHeight: CGFloat = 100
+
     /// 酷狗同款收藏按钮的黄色
     private static let collectYellow = Color(red: 0.98, green: 0.87, blue: 0.20)
 
@@ -55,9 +59,14 @@ struct ArtistDetailView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // 滚动内容：大图随列表上滑滚走；大图之后是「Tab+全部播放」吸顶头，列表在其之下滚动。
+            // ① 滚动内容：大图随列表上滑（滚走变毛玻璃）；大图之后留「吸顶头」高度的占位，
+            // 列表从吸顶头下方开始。吸顶头（分段 Tab + 全部播放）由下方 overlay 钉在顶栏下方。
+            //
+            // 🔴 滚动偏移检测：用 ScrollViewOffsetTracker（UIKit contentOffset + KVO）写入 headerScroll。
+            // 之前用 SwiftUI 的 GeometryReader + preference 测量，在 ScrollView 滚动时不一定
+            // 重算并上报偏移，导致 headerScroll 恒为 0、毛玻璃 opacity 永远 0、毛玻璃从不出现。
             ScrollView {
-                LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                VStack(spacing: 0) {
                     // 🔴 滚动偏移探针：必须放进滚动内容内部（不能放 .background），
                     // 否则 superview 链上找不到 UIScrollView，KVO 拿不到 contentOffset（经验教训）。
                     ScrollViewOffsetTracker { y in
@@ -65,33 +74,41 @@ struct ArtistDetailView: View {
                     }
                     .frame(height: 0)
 
-                    // ① 大图头部：作为滚动内容第一项随列表上滑滚走；
-                    // 大图自身已 ignoresSafeArea(edges: .top) 顶到屏幕最顶端，盖住透明导航栏
-                    // （导航栏透明由 kugouNavigationBarBackground(.clear, transparent:) 负责，已验证可用）。
+                    // 大图本体：放进滚动内容，随列表上滑、滚走后由毛玻璃导航栏接管。
                     heroImageContent
 
-                    // ② 分段 Tab + 全部播放 作为 Section 吸顶头：滚动时钉在顶栏下方（用户画红线的位置），
-                    //    下方列表在它之下滚动。用原生 pinnedViews 吸顶，不需要任何手动 offset 叠层。
-                    Section {
-                        if tab == 0 {
-                            songListBody
-                        } else {
-                            albumGridSection
-                        }
-                    } header: {
-                        stickyHeader
+                    // 吸顶头占位：预留「分段 Tab + 全部播放」的高度，列表从它下方开始；
+                    // 高度跟随吸顶头实测值（stickyHeaderHeight），保证列表紧贴吸顶头。
+                    Color.clear.frame(height: stickyHeaderHeight)
+
+                    // 列表主体（不含 全部播放 / 分段 Tab，那些已提到吸顶头）。
+                    if tab == 0 {
+                        songListBody
+                    } else {
+                        albumGridSection
                     }
                 }
             }
             .background(AppStyle.background)
+            .ignoresSafeArea(edges: .top)
 
-            // ③ 毛玻璃导航栏背景：大图滚走后渐入，系统工具栏（返回 / 歌手名 / 收藏）浮在其上。
+            // ② 毛玻璃导航栏背景：大图滚走后渐入，系统工具栏（返回 / 歌手名 / 收藏）浮在其上。
             navbarFrostedBackground
+
+            // ③ 吸顶头（分段 Tab + 全部播放）：钉在顶栏下方，不随列表滚走；
+            // 大图未收起时随列表上移（跟踪大图底边），收起后固定在 topInset（顶栏正下方）。
+            stickyHeader
+                .offset(y: stickyY)
+                .background(AppStyle.background)
         }
+        .onPreferenceChange(StickyHeaderHeightKey.self) { stickyHeaderHeight = $0 }
         .navigationBarTitleDisplayMode(.inline)
         // 🔴 v2.9.8：导航栏一直浮在大图上 → 永远透明、白字，大图始终盖住顶栏。
         .compatToolbarDynamicScheme(dark: true)
         .kugouNavigationBarBackground(.clear, transparent: true)
+        // 🔴 双保险：SwiftUI 原生隐藏系统导航栏背景，直接让大图透到状态栏区域；
+        // 绕过 per-item appearance 代理在某些时序下不生效的问题（iOS 16+）。
+        .modifier(ArtistTransparentNavBar())
         .toolbar {
             ToolbarItem(placement: .principal) {
                 if isSelecting {
@@ -269,6 +286,21 @@ struct ArtistDetailView: View {
         max(0, min(1, (collapseProgress - 0.8) / 0.2))
     }
 
+    /// 🔴 吸顶头（分段 Tab + 全部播放）相对 ZStack 顶部的偏移：
+    /// ZStack 顶部在导航栏底边（屏幕 y≈topInset），而滚动内容因 ignoresSafeArea 顶到屏幕 y=0，
+    /// 所以吸顶头不能直接用屏幕坐标。静止时它应贴在大图底边（屏幕 y=headerBaseHeight），
+    /// 即相对 ZStack 顶部偏移 = headerBaseHeight - topInset = maxDrag。
+    ///
+    /// 🔴 用户要求：大图上滑滚走时，吸顶头要「尽快升到顶栏下方钉住」，不要跟着大图一路走到顶。
+    /// 系数 2 表示大图滚走约一半（headerScroll≈maxDrag/2）时吸顶头已到达顶栏并锁定，
+    /// 之后大图继续滚走变毛玻璃、只有列表在吸顶头下方滚动。系数越大吸顶越早、升得越快。
+    private var stickyY: CGFloat {
+        let maxDrag = headerBaseHeight - topInset
+        // 🔴 系数 1：吸顶头与大图底边 1:1 同步上滑（贴着大图底边），大图完全滚走后才钉在顶栏下方；
+        // 之前系数 2 让吸顶头以 2× 速度甩开大图、提前冲到顶栏，视觉上"按钮比图片飞得快"。
+        return max(0, maxDrag - headerScroll)
+    }
+
     /// 🔴 吸顶头：分段 Tab（单曲/专辑）+ 全部播放行。钉在顶栏下方，不随列表滚走。
     /// 仅单曲 Tab 显示「全部播放」；专辑 Tab 只显示分段 Tab（高度随内容自适应）。
     /// 背景用 GeometryReader 实测高度，写入 StickyHeaderHeightKey 供滚动占位使用。
@@ -294,12 +326,14 @@ struct ArtistDetailView: View {
     private var heroImageContent: some View {
         let screenW = UIScreen.main.bounds.width
         return ZStack(alignment: .bottom) {
-            // 🔴 深色兜底背板：图片未加载/letterbox 时也不露白（CoverImage 的 .fill 兜底是浅灰近白，必加此层）。
+            // 🔴 深色兜底背板：CoverImage 的 .fill 兜底是浅灰近白，图未加载时会露白；
+            // 垫一层深色，任何情况下顶部（含导航栏区域）都不会是白色。
             Color(red: 0.07, green: 0.07, blue: 0.09)
                 .frame(width: screenW, height: headerBaseHeight)
 
             // 🔴 大图：.fill 铺满整框（不露白边/白顶）；.top 顶部对齐把歌手头部顶到导航栏，
             // 既盖住顶栏不露白，又避免居中填充把头部裁掉（用户最早反馈"图片显示不全"的根因）。
+            // fallbackColor 同步深色，图未加载瞬间也不露白。
             CoverImage(
                 url: hiResCoverURL,
                 fallbackKeys: [artist.id],
@@ -309,7 +343,8 @@ struct ArtistDetailView: View {
                 displayWidth: screenW,
                 displayHeight: headerBaseHeight,
                 contentMode: .fill,
-                imageAlignment: .top
+                imageAlignment: .top,
+                fallbackColor: Color(red: 0.07, green: 0.07, blue: 0.09)
             )
             .frame(width: screenW, height: headerBaseHeight)
             .clipped()
@@ -372,7 +407,8 @@ struct ArtistDetailView: View {
                 displayWidth: screenW,
                 displayHeight: headerBaseHeight,
                 contentMode: .fill,
-                imageAlignment: .top
+                imageAlignment: .top,
+                fallbackColor: Color(red: 0.07, green: 0.07, blue: 0.09)
             )
             .frame(width: screenW, height: headerBaseHeight)
             .clipped()
@@ -715,6 +751,22 @@ struct ArtistDetailView: View {
     private func formatFans(_ n: Int) -> String {
         if n >= 10000 { return String(format: "%.1f万", Double(n) / 10000) }
         return "\(n)"
+    }
+}
+
+// MARK: - 🔴 沉浸式导航栏：原生隐藏系统栏背景（双保险）
+
+/// 在 iOS 16+ 用 SwiftUI 原生 `toolbarBackground(.hidden)` 直接隐藏系统导航栏背景，
+/// 让大图透到状态栏区域。与 `kugouNavigationBarBackground(.clear, transparent:)` 双管齐下，
+/// 规避 per-item appearance 代理在部分时序下不生效、导致导航栏露出白底的问题。
+/// iOS 15 无此 API，退回 appearance 代理（已在 body 里设置）。
+private struct ArtistTransparentNavBar: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            content.toolbarBackground(.hidden, for: .navigationBar)
+        } else {
+            content
+        }
     }
 }
 
