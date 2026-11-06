@@ -23,8 +23,8 @@ struct ArtistDetailView: View {
     @State private var isSelecting = false
     @State private var selectedIDs: Set<String> = []
 
-    // 🔴 v2.9.8：滚动偏移（<=0 表示已上滑；>0 表示下拉拉伸），驱动大图收缩 / 锁定 /
-    // 毛玻璃渐入 / 歌手名转入导航栏标题。
+    // 🔴 v2.9.8：滚动偏移 = UIScrollView.contentOffset.y（>=0 表示已上滑，<0 表示下拉拉伸），
+    // 由 ScrollViewOffsetTracker 通过 KVO 写入，驱动大图收缩 / 锁定 / 毛玻璃渐入 / 歌手名转入导航栏标题。
     @State private var headerScroll: CGFloat = 0
 
     /// 酷狗同款收藏按钮的黄色
@@ -58,24 +58,13 @@ struct ArtistDetailView: View {
             // ① 滚动内容：大图放进滚动内容，随列表一起上滑（不冻顶）。
             // 整个 ScrollView 忽略顶部安全区 → 内容顶到 y=0，大图静止即盖住透明导航栏。
             //
-            // ⚠️ 关键修复：测量滚动偏移的 1px GeometryReader + 大图必须放在**非懒加载**的
-            // VStack 里。LazyVStack 会把滚出屏幕的视图卸载，导致 1px 测量点被回收、
-            // headerScroll 被重置为 0 → 毛玻璃层 opacity 归零而消失（上一版的根因）。
-            // 这里用外层非懒 VStack 包住「测量点 + 大图」，列表仍用内层 LazyVStack 懒加载。
+            // 🔴 滚动偏移检测：用 ScrollViewOffsetTracker（UIKit contentOffset + KVO）写入 headerScroll。
+            // 之前用 SwiftUI 的 GeometryReader + preference 测量，在 ScrollView 滚动时不一定
+            // 重算并上报偏移，导致 headerScroll 恒为 0、毛玻璃 opacity 永远 0、毛玻璃从不出现。
             ScrollView {
                 VStack(spacing: 0) {
-                    // 🔴 测量滚动偏移：用 **.global（屏幕绝对坐标）** 而不是 .named("artistScroll")。
-                    // 实测 .named 在 ScrollView 上取子视图坐标，滚动时该坐标不随滚动变化，
-                    // 导致 headerScroll 恒为 0、毛玻璃 opacity 永远 0、毛玻璃不出现。
-                    // .global 是屏幕绝对坐标：内容上滑时这 1px 的屏幕 y 必然变负 → headerScroll 稳定驱动。
-                    GeometryReader { geo in
-                        Color.clear
-                            .preference(key: ArtistHeaderOffsetKey.self,
-                                        value: geo.frame(in: .global).minY)
-                    }
-                    .frame(height: 1)
-
-                    // 大图本体：放进滚动内容，随列表自然上滑；ignoresSafeArea 让它盖住状态栏 + 导航栏。
+                    // 大图本体：作为 ScrollView 内容的**第一项**放进滚动内容，必然随列表一起上滑；
+                    // ScrollView 整体忽略顶部安全区，使其静止时顶到 y=0、盖住透明导航栏。
                     heroImageContent
 
                     // 列表：内层 LazyVStack 懒加载，长列表不卡。
@@ -89,6 +78,10 @@ struct ArtistDetailView: View {
                     }
                 }
             }
+            .background(ScrollViewOffsetTracker { y in
+                // 已上滑距离（contentOffset.y，>=0）→ 驱动大图收起 / 毛玻璃渐入。
+                DispatchQueue.main.async { headerScroll = y }
+            })
             .background(AppStyle.background)
             .ignoresSafeArea(edges: .top)
 
@@ -97,9 +90,6 @@ struct ArtistDetailView: View {
             navbarFrostedBackground
         }
         .navigationBarTitleDisplayMode(.inline)
-        .onPreferenceChange(ArtistHeaderOffsetKey.self) { offset in
-            headerScroll = offset
-        }
         // 🔴 v2.9.8：导航栏一直浮在大图上 → 永远透明、白字，大图始终盖住顶栏。
         .compatToolbarDynamicScheme(dark: true)
         .kugouNavigationBarBackground(.clear, transparent: true)
@@ -268,7 +258,8 @@ struct ArtistDetailView: View {
     /// 用于毛玻璃平滑渐入，避免折叠完成才突然出现的生硬切换。
     private var collapseProgress: CGFloat {
         let maxDrag = max(1.0, headerBaseHeight - topInset)
-        let drag = max(0, -headerScroll)
+        // headerScroll 现在是 contentOffset.y（已上滑距离，>=0）。
+        let drag = max(0, headerScroll)
         return min(1, drag / maxDrag)
     }
 
@@ -693,15 +684,6 @@ struct ArtistDetailView: View {
     }
 }
 
-// MARK: - 🔴 v2.9.7(二) 头部滚动偏移（驱动导航栏「收起」状态）
-
-private struct ArtistHeaderOffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 // MARK: - 歌手详情里的单行歌曲（酷狗同款：编号 + 歌名 + 歌手·专辑，无封面）
 
 private struct ArtistSongRow: View {
@@ -777,5 +759,63 @@ private struct ArtistSongRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+}
+
+// MARK: - 🔴 滚动偏移检测（UIKit contentOffset + KVO，替代不可靠的 GeometryReader/preference）
+
+/// 透明探针视图：嵌在 ScrollView 层级里，找到所在 UIScrollView 并 KVO 监听其 contentOffset，
+/// 把「已上滑距离」(contentOffset.y，>=0) 回传给 SwiftUI。
+/// 比 GeometryReader + preference 可靠——后者在 ScrollView 滚动时不保证重算并上报偏移，
+/// 会导致 headerScroll 恒为 0、毛玻璃 opacity 永远 0、毛玻璃从不出现。
+private struct ScrollViewOffsetTracker: UIViewRepresentable {
+    let onOffsetChange: (CGFloat) -> Void
+
+    func makeUIView(context: Context) -> TrackerView {
+        let view = TrackerView()
+        view.backgroundColor = .clear
+        view.onOffsetChange = onOffsetChange
+        return view
+    }
+
+    func updateUIView(_ uiView: TrackerView, context: Context) {
+        uiView.onOffsetChange = onOffsetChange
+        uiView.attachToScrollViewIfNeeded()
+    }
+
+    final class TrackerView: UIView {
+        var onOffsetChange: ((CGFloat) -> Void)?
+        private weak var observed: UIScrollView?
+        private var observation: NSKeyValueObservation?
+
+        func attachToScrollViewIfNeeded() {
+            guard observed == nil else { return }
+            var candidate: UIView? = self
+            while let node = candidate {
+                if let scrollView = node as? UIScrollView {
+                    observed = scrollView
+                    observation = scrollView.observe(\.contentOffset, options: [.new, .initial]) { [weak self] _, change in
+                        let y = change.newValue?.y ?? 0
+                        self?.onOffsetChange?(y)
+                    }
+                    return
+                }
+                candidate = node.superview
+            }
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window != nil { attachToScrollViewIfNeeded() }
+        }
+
+        override func didMoveToSuperview() {
+            super.didMoveToSuperview()
+            attachToScrollViewIfNeeded()
+        }
+
+        deinit {
+            observation?.invalidate()
+        }
     }
 }
