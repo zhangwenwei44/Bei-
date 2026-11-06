@@ -57,17 +57,17 @@ struct ArtistDetailView: View {
         ZStack(alignment: .top) {
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    // 🔴 v2.9.8：顶部占位 = 大图锁定后的高度（状态栏 + 导航栏），
-                    // 内容从这里往下排，永远钻不到锁定条下面，也就不会从顶栏透出来。
+                    // 🔴 用户要求：大图放进滚动内容，随列表自然向上滚动（不再是钉在顶部的覆盖层）。
+                    // 这里只放一个透明测量点（高度 1）用来读取滚动偏移，驱动收起进度。
                     GeometryReader { geo in
                         Color.clear
                             .preference(key: ArtistHeaderOffsetKey.self,
                                         value: geo.frame(in: .named("artistScroll")).minY)
                     }
-                    // 🔴 v2.9.8(二)：顶部占位 = 整张大图的高度。
-                    // 大图在 flow 外做「上滑」动画，列表从这里往下排，
-                    // 上滑到顶栏高度时大图锁住成一条，列表在其下方继续滚。
-                    .frame(height: headerBaseHeight)
+                    .frame(height: 1)
+
+                    // 大图本体（随列表上滑，盖住状态栏）。
+                    heroImageContent
 
                     tabBar
                     if tab == 0 {
@@ -80,21 +80,10 @@ struct ArtistDetailView: View {
             .coordinateSpace(name: "artistScroll")
             .background(AppStyle.background)
 
-            // 🔴 v2.9.8：大图「上滑锁定」—— 始终钉在顶部（盖住状态栏 + 导航栏整条），
-            // 上滑时大图收缩成一条锁定条，列表永远在它下面，不会从顶栏透出来。
-            heroHeader
-
             // 🔴 用户要求：大图随列表滚动「收起成导航栏背景 + 毛玻璃」。
-            // 毛玻璃覆盖导航栏整条（状态栏 + 导航栏），透明度随收起进度(collapseProgress)平滑渐入：
-            // 刚展开时为 0（大图原样透出），越往上滑越糊，完全锁定即变成毛玻璃导航栏背景。
-            // 系统工具栏（返回 / 歌手名 / 收藏）浮在它之上。
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .opacity(collapseProgress)
-                .frame(height: topInset)
-                .frame(maxWidth: .infinity)
-                .ignoresSafeArea(edges: .top)
-                .allowsHitTesting(false)
+            // 钉在顶部的固定层：展示大图顶部切片 + 深色渐变 + 毛玻璃，随收起进度渐入；
+            // 大图彻底滑走后它就是毛玻璃导航栏背景；系统工具栏（返回 / 歌手名 / 收藏）浮在它之上。
+            navbarFrostedBackground
         }
         .navigationBarTitleDisplayMode(.inline)
         .onPreferenceChange(ArtistHeaderOffsetKey.self) { offset in
@@ -272,82 +261,98 @@ struct ArtistDetailView: View {
         return min(1, drag / maxDrag)
     }
 
-    /// 🔴 v2.9.8(二)：大图「能上滑、滑到顶栏才锁住」。
-    /// - 整张图随滚动向上平移（translate），上滑时大图整体上移、列表在它下面跟进；
-    /// - 当大图底部上移到「顶栏高度(topInset)」位置时停止平移（锁住），
-    ///   之后变成一条压在状态栏+导航栏后的小图，列表继续在其下方滚动；
-    /// - 下拉时 headerScroll>0，translate 反向（图被往下拉），rubber-band 同款手感。
-    private var heroHeader: some View {
+    // MARK: - 顶部大图（放进滚动内容，随列表自然上滑）
+
+    /// 大图本体：放进 ScrollView 内容里，随列表自然向上滚动（不再钉在顶部）。
+    /// ignoresSafeArea(.top) 让它盖住状态栏；上滑时整块随内容移走，歌手名 / 粉丝淡出交给导航栏。
+    private var heroImageContent: some View {
         let screenW = UIScreen.main.bounds.width
-        let lockHeight = topInset                       // 锁住后小图的高度（= 状态栏+导航栏）
-        let maxDrag = max(1, headerBaseHeight - lockHeight)
-        let drag = max(0, -headerScroll)               // 已上滑距离（>=0）
-        let imageOffset = -min(drag, maxDrag)          // 上滑平移量（锁住后不再增大）
-        let collapsedFrac = min(1, drag / maxDrag)     // 0→1 锁定进度，用于文案淡出
-
-        return ZStack(alignment: .top) {
-            ZStack(alignment: .bottom) {
-                CoverImage(
-                    url: hiResCoverURL,
-                    fallbackKeys: [artist.id],
-                    seed: artist.name,
-                    size: max(screenW, 800),
-                    corner: 0,
-                    displayWidth: screenW,
-                    displayHeight: headerBaseHeight
-                )
-                .frame(width: screenW, height: headerBaseHeight)
-                .clipped()
-
-                LinearGradient(colors: [.clear, Color.black.opacity(0.05), Color.black.opacity(0.72)],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(width: screenW, height: headerBaseHeight)
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(artist.name)
-                        .font(.system(size: 30, weight: .bold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
-
-                    if artist.fansCount > 0 {
-                        Text("粉丝\(formatFans(artist.fansCount))")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.85))
-                    }
-
-                    HStack(spacing: 12) {
-                        CoverImage(
-                            url: hiResCoverURL,
-                            fallbackKeys: [artist.id],
-                            seed: artist.name,
-                            size: 40,
-                            corner: 20
-                        )
-                        .frame(width: 40, height: 40)
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(.white.opacity(0.35), lineWidth: 1.5))
-
-                        Spacer()
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
-                // 上滑时整块文案淡出，名字交给导航栏显示，避免和顶栏按钮叠在一起。
-                .opacity(1 - collapsedFrac)
-            }
-            // 整张大图随滚动向上平移（锁住后停在 maxDrag 处）。
+        return ZStack(alignment: .bottom) {
+            CoverImage(
+                url: hiResCoverURL,
+                fallbackKeys: [artist.id],
+                seed: artist.name,
+                size: max(screenW, 800),
+                corner: 0,
+                displayWidth: screenW,
+                displayHeight: headerBaseHeight
+            )
             .frame(width: screenW, height: headerBaseHeight)
-            .offset(y: imageOffset)
+            .clipped()
+
+            LinearGradient(colors: [.clear, Color.black.opacity(0.05), Color.black.opacity(0.72)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(width: screenW, height: headerBaseHeight)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(artist.name)
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
+
+                if artist.fansCount > 0 {
+                    Text("粉丝\(formatFans(artist.fansCount))")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+
+                HStack(spacing: 12) {
+                    CoverImage(
+                        url: hiResCoverURL,
+                        fallbackKeys: [artist.id],
+                        seed: artist.name,
+                        size: 40,
+                        corner: 20
+                    )
+                    .frame(width: 40, height: 40)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(.white.opacity(0.35), lineWidth: 1.5))
+
+                    Spacer()
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+            // 上滑时整块文案淡出，名字交给导航栏标题显示，避免和顶栏按钮叠在一起。
+            .opacity(1 - collapseProgress)
         }
         .frame(width: screenW, height: headerBaseHeight)
-        // 平移后超出屏幕上沿的部分裁掉，露出下面的列表。
         .clipped()
-        // 🔴 v2.9.8：大图本身不接收手势，滑动手势穿透到下面的 ScrollView；
-        // 收藏 / 更多等交互全部放在导航栏里，互不干扰。
-        .allowsHitTesting(false)
-        // 🔴 v2.9.8：延伸到状态栏 + 导航栏那一整条（覆盖顶栏，列表不会从顶栏透出来）。
+        // 🔴 大图盖住状态栏（与之前一致）。
         .ignoresSafeArea(edges: .top)
+    }
+
+    /// 钉在顶部的固定导航栏背景：展示大图顶部切片 + 深色渐变 + 毛玻璃。
+    /// 大图随列表滑走后，它渐入成为「毛玻璃导航栏背景」；渐入进度由收起后段驱动，避免与正在滑动的大图重影。
+    private var navbarFrostedBackground: some View {
+        let screenW = UIScreen.main.bounds.width
+        let navFrostOpacity = max(0, min(1, (collapseProgress - 0.55) / 0.45))
+        return ZStack(alignment: .top) {
+            CoverImage(
+                url: hiResCoverURL,
+                fallbackKeys: [artist.id],
+                seed: artist.name,
+                size: max(screenW, 800),
+                corner: 0,
+                displayWidth: screenW,
+                displayHeight: headerBaseHeight
+            )
+            .frame(width: screenW, height: headerBaseHeight)
+            .clipped()
+
+            LinearGradient(colors: [.clear, Color.black.opacity(0.05), Color.black.opacity(0.55)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(width: screenW, height: headerBaseHeight)
+
+            Rectangle()
+                .fill(.ultraThinMaterial)
+        }
+        .frame(width: screenW, height: topInset)
+        .clipped()
+        .ignoresSafeArea(edges: .top)
+        .allowsHitTesting(false)
+        .opacity(navFrostOpacity)
     }
 
     // MARK: - 歌曲列表（酷狗同款：全部播放行 + 最新/最热 + 扁平编号列表）
