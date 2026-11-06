@@ -59,9 +59,15 @@ struct ArtistDetailView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // ① 滚动内容：大图随列表上滑（滚走变毛玻璃）；大图之后留「吸顶头」高度的占位，
-            // 列表从吸顶头下方开始。吸顶头（分段 Tab + 全部播放）由下方 overlay 钉在顶栏下方。
-            //
+            // 🔴 ① 大图层（独立背景层，确定性铺到屏幕最顶端 y=0，盖住导航栏）：
+            //    之前大图放在 ScrollView 内容里、靠 .ignoresSafeArea(.top) 顶到 y=0，
+            //    但在带 toolbar 的导航栈里 SwiftUI 不保证内容真顶到 y=0（实测大图停在导航栏下方、露白），
+            //    所以改成独立层（与 KugouTopFade 同套路），并随滚动上移（offset=-headerScroll 与列表同步）。
+            heroImageContent
+                .offset(y: -headerScroll)
+                .zIndex(0)
+
+            // ② 滚动内容：只放「大图高度 + 吸顶头高度」占位与列表；背景透明，让大图透上来。
             // 🔴 滚动偏移检测：用 ScrollViewOffsetTracker（UIKit contentOffset + KVO）写入 headerScroll。
             // 之前用 SwiftUI 的 GeometryReader + preference 测量，在 ScrollView 滚动时不一定
             // 重算并上报偏移，导致 headerScroll 恒为 0、毛玻璃 opacity 永远 0、毛玻璃从不出现。
@@ -74,8 +80,9 @@ struct ArtistDetailView: View {
                     }
                     .frame(height: 0)
 
-                    // 大图本体：放进滚动内容，随列表上滑、滚走后由毛玻璃导航栏接管。
-                    heroImageContent
+                    // 大图占位（高度 = 大图高度）：大图已抽到独立背景层，这里只留占位，
+                    // 让列表从大图正下方开始。
+                    Color.clear.frame(height: headerBaseHeight)
 
                     // 吸顶头占位：预留「分段 Tab + 全部播放」的高度，列表从它下方开始；
                     // 高度跟随吸顶头实测值（stickyHeaderHeight），保证列表紧贴吸顶头。
@@ -89,18 +96,20 @@ struct ArtistDetailView: View {
                     }
                 }
             }
-            .background(AppStyle.background)
+            .background(Color.clear)
             .ignoresSafeArea(edges: .top)
+            .zIndex(1)
 
-            // ② 毛玻璃导航栏背景：大图滚走后渐入，系统工具栏（返回 / 歌手名 / 收藏）浮在其上。
+            // ③ 毛玻璃导航栏背景：大图滚走后渐入，系统工具栏（返回 / 歌手名 / 收藏）浮在其上。
             navbarFrostedBackground
 
-            // ③ 吸顶头（分段 Tab + 全部播放）：钉在顶栏下方，不随列表滚走；
+            // ④ 吸顶头（分段 Tab + 全部播放）：钉在顶栏下方，不随列表滚走；
             // 大图未收起时随列表上移（跟踪大图底边），收起后固定在 topInset（顶栏正下方）。
             stickyHeader
                 .offset(y: stickyY)
                 .background(AppStyle.background)
         }
+        .background(AppStyle.background)
         .onPreferenceChange(StickyHeaderHeightKey.self) { stickyHeaderHeight = $0 }
         .navigationBarTitleDisplayMode(.inline)
         // 🔴 v2.9.8：导航栏一直浮在大图上 → 永远透明、白字，大图始终盖住顶栏。
