@@ -1961,16 +1961,11 @@ struct FeedSongRow: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(AppStyle.primaryText)
                     .lineLimit(1)
-                HStack(spacing: 4) {
-                    Text(song.artist)
-                        .font(.system(size: 13))
-                        .foregroundStyle(AppStyle.secondaryText)
-                        .lineLimit(1)
-                    // 🔴 接真实 VIP 状态：歌曲 tags 含 "VIP" 才显示标签（歌手名后）；样式与迷你播放器一致。
-                    if song.tags.contains("VIP") {
-                        VIPTag()
-                    }
-                }
+                // 🔴 用户要求：列表里不再显示 VIP 标签（只在迷你播放器 / 竖屏播放器保留）。
+                Text(song.artist)
+                    .font(.system(size: 13))
+                    .foregroundStyle(AppStyle.secondaryText)
+                    .lineLimit(1)
             }
             Spacer(minLength: 4)
             Button {

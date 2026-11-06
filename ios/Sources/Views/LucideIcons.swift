@@ -47,6 +47,7 @@ enum Lucide: String, CaseIterable {
     case filePlus  // 从文件导入
     case link  // 从网址导入
     case share  // 导出
+    case alarmClock  // 睡眠定时
 
     /// 在给定 rect 内构造该图标的 Path（描边路径，未闭合填充由调用方决定）。
     func path(in rect: CGRect) -> Path {
@@ -832,6 +833,20 @@ enum Lucide: String, CaseIterable {
             p.addLine(to: g.p(19.902, 20.618))
             p.addLine(to: g.p(20.000, 20.000))
             p.addLine(to: g.p(20.000, 12.000))
+
+        case .alarmClock:  // 睡眠定时 — alarm-clock
+            p.move(to: g.p(12.000, 9.000))
+            p.addLine(to: g.p(12.000, 13.000))
+            p.addLine(to: g.p(14.000, 15.000))
+            p.move(to: g.p(5.000, 3.000))
+            p.addLine(to: g.p(2.000, 6.000))
+            p.move(to: g.p(22.000, 6.000))
+            p.addLine(to: g.p(19.000, 3.000))
+            p.move(to: g.p(6.380, 18.700))
+            p.addLine(to: g.p(4.000, 21.000))
+            p.move(to: g.p(17.640, 18.670))
+            p.addLine(to: g.p(20.000, 21.000))
+            p.addEllipse(in: g.e(12.000, 13.000, 8.000))
 
         }
         return p

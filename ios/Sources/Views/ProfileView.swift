@@ -322,7 +322,7 @@ struct ProfileView: View {
                     Label {
                         Text("睡眠定时")
                     } icon: {
-                        LucideIcon(icon: .moon, size: 18, color: AppStyle.secondaryText)
+                        LucideIcon(icon: .alarmClock, size: 18, color: AppStyle.secondaryText)
                     }
                     Spacer()
                     Menu {

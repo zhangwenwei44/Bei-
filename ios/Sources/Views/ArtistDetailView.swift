@@ -86,6 +86,17 @@ struct ArtistDetailView: View {
             // 🔴 v2.9.8：大图「上滑锁定」—— 始终钉在顶部（盖住状态栏 + 导航栏整条），
             // 上滑时大图收缩成一条锁定条，列表永远在它下面，不会从顶栏透出来。
             heroHeader
+
+            // 🔴 用户要求：大图收起后，导航栏背景改毛玻璃（模糊的大图），不再是纯透明。
+            // 只在锁定(collapsed)时出现，盖在锁定小图上方做模糊背景；系统工具栏(返回/歌手名/收藏)在它之上。
+            if collapsed {
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .frame(height: topInset)
+                    .frame(maxWidth: .infinity)
+                    .ignoresSafeArea(edges: .top)
+                    .allowsHitTesting(false)
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
         .onPreferenceChange(ArtistHeaderOffsetKey.self) { offset in
@@ -234,7 +245,8 @@ struct ArtistDetailView: View {
     // MARK: - 顶部大图头部（酷狗同款；height 由拉伸效果动态传入）
 
     /// 头部基础高度（下拉时由 body 里的 GeometryReader 拉伸放大）
-    private let headerBaseHeight: CGFloat = 400
+    /// 🔴 用户要求：大图整块上移一点 —— 从 400 降到 350，图片下边界上移、列表更早出现。
+    private let headerBaseHeight: CGFloat = 350
 
     /// 导航栏高度（inline 导航栏 = 状态栏下方 44pt 的 bar）。
     /// 大图要盖满整个顶部（连导航栏那一块），偏移量需额外加上这一截。

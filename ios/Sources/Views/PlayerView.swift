@@ -1207,10 +1207,10 @@ struct PlayerView: View {
     /// 用户要求「移除黄色极高音质标签、移除专辑标签、加入 VIP 标签」。
     private var vipPill: some View {
         // 🔴 用户要求：VIP 标签按歌曲真实 VIP 状态显示（tags 含 "VIP" 才出现）；
-        // 样式与迷你播放器完全一致（红字 + 淡红半透明底，小圆角、无图标）。
+        // 文字改灰白、跟歌手名同色（白 0.85 + 淡白半透明底，小圆角、无图标）。
         Group {
             if store.current?.tags.contains("VIP") ?? false {
-                VIPTag()
+                VIPTag(textColor: .white.opacity(0.85))
             }
         }
     }
@@ -1433,14 +1433,14 @@ private struct QualityPill: View {
             onTap()
             Haptics.light()
         } label: {
-            // 🔴 用户要求：音质标签样式与迷你播放器完全一致（蓝字 + 淡蓝半透明底，小圆角、无图标）。
+            // 🔴 用户要求：音质标签文字改灰白、跟歌手名同色（竖屏播放页深色封面上用白 0.85）。
             Text(title)
                 .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(Color.blue)
+                .foregroundStyle(Color.white.opacity(0.85))
                 .lineLimit(1)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(Color.blue.opacity(0.16), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .background(Color.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
         }
         .buttonStyle(.plain)
     }

@@ -1165,15 +1165,17 @@ struct PlayingBarsIndicator: View {
 
 // MARK: - 歌曲行
 
-/// 统一 VIP 标签：与迷你播放器完全一致（红字 + 淡红半透明底，小圆角、无图标、无边框）。
+/// 统一 VIP 标签：默认白字 + 淡白半透明底（小圆角、无图标、无边框）。
+/// - textColor：文字颜色，默认白；迷你条传 AppStyle.secondaryText 让它与歌手名同色（灰白）。
 struct VIPTag: View {
+    var textColor: Color = .white
     var body: some View {
         Text("VIP")
             .font(.system(size: 9, weight: .bold))
-            .foregroundStyle(Color.red)
+            .foregroundStyle(textColor)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(Color.red.opacity(0.16), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .background(textColor.opacity(0.16), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 }
 
@@ -1254,17 +1256,12 @@ struct SongRow: View {
                             .fixedSize()
                     }
                 }
-                HStack(spacing: 4) {
-                    Text(song.artist)
-                        .font(.system(size: artistFontSize))
-                        .foregroundStyle(AppStyle.secondaryText)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    // 🔴 接真实 VIP 状态：歌曲 tags 含 "VIP" 才显示标签（歌手名后）；样式与迷你播放器一致。
-                    if song.tags.contains("VIP") {
-                        VIPTag()
-                    }
-                }
+                // 🔴 用户要求：列表里不再显示 VIP 标签（只在迷你播放器 / 竖屏播放器保留）。
+                Text(song.artist)
+                    .font(.system(size: artistFontSize))
+                    .foregroundStyle(AppStyle.secondaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(0)

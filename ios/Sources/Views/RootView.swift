@@ -280,11 +280,11 @@ struct MiniPlayer: View {
                         .foregroundStyle(AppStyle.secondaryText)
                         .lineLimit(1)
                         .layoutPriority(1)
-                    // 🔴 用户要求：迷你条 VIP 标签，样式与全站一致（红字 + 淡红半透明底，小圆角）。
-                    VIPTag()
+                    // 🔴 用户要求：迷你条 VIP 标签文字改灰白、跟歌手名同色（secondaryText）。
+                    VIPTag(textColor: AppStyle.secondaryText)
                     if !mini.qualityName.isEmpty {
-                        // 🔴 用户要求：迷你条音质标签改成黄色（黄字 + 淡黄半透明底，小圆角，其余样式不变）。
-                        QualityTag(title: mini.qualityName, tint: .yellow)
+                        // 🔴 用户要求：迷你条音质标签文字改灰白、跟歌手名同色（secondaryText）。
+                        QualityTag(title: mini.qualityName, tint: AppStyle.secondaryText)
                     }
                 }
             }
