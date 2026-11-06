@@ -59,15 +59,9 @@ struct ArtistDetailView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // 🔴 ① 大图层（独立背景层，确定性铺到屏幕最顶端 y=0，盖住导航栏）：
-            //    之前大图放在 ScrollView 内容里、靠 .ignoresSafeArea(.top) 顶到 y=0，
-            //    但在带 toolbar 的导航栈里 SwiftUI 不保证内容真顶到 y=0（实测大图停在导航栏下方、露白），
-            //    所以改成独立层（与 KugouTopFade 同套路），并随滚动上移（offset=-headerScroll 与列表同步）。
-            heroImageContent
-                .offset(y: -headerScroll)
-                .zIndex(0)
-
-            // ② 滚动内容：只放「大图高度 + 吸顶头高度」占位与列表；背景透明，让大图透上来。
+            // ① 滚动内容：大图随列表上滑（滚走变毛玻璃）；大图之后留「吸顶头」高度的占位，
+            // 列表从吸顶头下方开始。吸顶头（分段 Tab + 全部播放）由下方 overlay 钉在顶栏下方。
+            //
             // 🔴 滚动偏移检测：用 ScrollViewOffsetTracker（UIKit contentOffset + KVO）写入 headerScroll。
             // 之前用 SwiftUI 的 GeometryReader + preference 测量，在 ScrollView 滚动时不一定
             // 重算并上报偏移，导致 headerScroll 恒为 0、毛玻璃 opacity 永远 0、毛玻璃从不出现。
@@ -80,9 +74,8 @@ struct ArtistDetailView: View {
                     }
                     .frame(height: 0)
 
-                    // 大图占位（高度 = 大图高度）：大图已抽到独立背景层，这里只留占位，
-                    // 让列表从大图正下方开始。
-                    Color.clear.frame(height: headerBaseHeight)
+                    // 大图本体：放进滚动内容，随列表上滑、滚走后由毛玻璃导航栏接管。
+                    heroImageContent
 
                     // 吸顶头占位：预留「分段 Tab + 全部播放」的高度，列表从它下方开始；
                     // 高度跟随吸顶头实测值（stickyHeaderHeight），保证列表紧贴吸顶头。
@@ -96,20 +89,18 @@ struct ArtistDetailView: View {
                     }
                 }
             }
-            .background(Color.clear)
+            .background(AppStyle.background)
             .ignoresSafeArea(edges: .top)
-            .zIndex(1)
 
-            // ③ 毛玻璃导航栏背景：大图滚走后渐入，系统工具栏（返回 / 歌手名 / 收藏）浮在其上。
+            // ② 毛玻璃导航栏背景：大图滚走后渐入，系统工具栏（返回 / 歌手名 / 收藏）浮在其上。
             navbarFrostedBackground
 
-            // ④ 吸顶头（分段 Tab + 全部播放）：钉在顶栏下方，不随列表滚走；
+            // ③ 吸顶头（分段 Tab + 全部播放）：钉在顶栏下方，不随列表滚走；
             // 大图未收起时随列表上移（跟踪大图底边），收起后固定在 topInset（顶栏正下方）。
             stickyHeader
                 .offset(y: stickyY)
                 .background(AppStyle.background)
         }
-        .background(AppStyle.background)
         .onPreferenceChange(StickyHeaderHeightKey.self) { stickyHeaderHeight = $0 }
         .navigationBarTitleDisplayMode(.inline)
         // 🔴 v2.9.8：导航栏一直浮在大图上 → 永远透明、白字，大图始终盖住顶栏。
@@ -297,11 +288,14 @@ struct ArtistDetailView: View {
     /// 所以吸顶头不能直接用屏幕坐标。静止时它应贴在大图底边（屏幕 y=headerBaseHeight），
     /// 即相对 ZStack 顶部偏移 = headerBaseHeight - topInset = maxDrag。
     ///
-    /// 🔴 用户要求：吸顶头要「跟大图底边同步上滑」，不要跑得比大图快（之前系数 2 会让它提前脱离大图、
-    /// 在图片还没滚完时就冲到顶栏，视觉上像是按钮比图片飞得快）。改成系数 1：与大图 1:1 同步移动，
-    /// 始终贴在大图底边；大图完全滚走（headerScroll≈maxDrag）后正好钉在顶栏下方，之后只有列表在下方滚动。
+    /// 🔴 用户要求：大图上滑滚走时，吸顶头要「尽快升到顶栏下方钉住」，不要跟着大图一路走到顶。
+    /// 系数 2 表示大图滚走约一半（headerScroll≈maxDrag/2）时吸顶头已到达顶栏并锁定，
+    /// 之后大图继续滚走变毛玻璃、只有列表在吸顶头下方滚动。系数越大吸顶越早、升得越快。
     private var stickyY: CGFloat {
         let maxDrag = headerBaseHeight - topInset
+        // 🔴 系数 1：吸顶头与大图底边 1:1 同步上滑，贴着大图底边；
+        // 大图完全滚走（headerScroll≈maxDrag）后正好钉在顶栏下方，之后只有列表在下方滚动。
+        // （之前系数 2 会让吸顶头以 2× 速度甩开大图、提前冲到顶栏，视觉上像按钮比图片飞得快）
         return max(0, maxDrag - headerScroll)
     }
 
@@ -330,14 +324,12 @@ struct ArtistDetailView: View {
     private var heroImageContent: some View {
         let screenW = UIScreen.main.bounds.width
         return ZStack(alignment: .bottom) {
-            // 🔴 深色背板（兜底）：图片加载失败/letterbox 时接住留白，避免露白。
-            LinearGradient(colors: [Color(red: 0.07, green: 0.07, blue: 0.09),
-                                    Color(red: 0.13, green: 0.13, blue: 0.15)],
-                           startPoint: .top, endPoint: .bottom)
+            // 🔴 深色兜底背板：图片未加载/letterbox 时也不露白（CoverImage 的 .fill 兜底是浅灰近白，必加此层）。
+            Color(red: 0.07, green: 0.07, blue: 0.09)
                 .frame(width: screenW, height: headerBaseHeight)
 
-            // 🔴 大图：改回 .fill 铺满整框（不再露白边/白顶），但用 .top 对齐——
-            // 把歌手头部顶到导航栏位置，既盖住顶栏不露白，又避免居中填充把头裁掉（之前"图片显示不全"的根因）。
+            // 🔴 大图：.fill 铺满整框（不露白边/白顶）；.top 顶部对齐把歌手头部顶到导航栏，
+            // 既盖住顶栏不露白，又避免居中填充把头部裁掉（用户最早反馈"图片显示不全"的根因）。
             CoverImage(
                 url: hiResCoverURL,
                 fallbackKeys: [artist.id],
@@ -409,6 +401,7 @@ struct ArtistDetailView: View {
                 corner: 0,
                 displayWidth: screenW,
                 displayHeight: headerBaseHeight,
+                contentMode: .fill,
                 imageAlignment: .top
             )
             .frame(width: screenW, height: headerBaseHeight)
