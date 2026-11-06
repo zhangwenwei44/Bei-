@@ -23,11 +23,8 @@ struct ArtistDetailView: View {
     @State private var isSelecting = false
     @State private var selectedIDs: Set<String> = []
 
-    // 🔴 v2.9.7(二)：大图是否已滚过（收起）—— 酷狗同款：
-    // 收起后导航栏从透明变白底，显示歌手名 + 收藏按钮 + 更多。
-    @State private var collapsed = false
-
-    /// 🔴 v2.9.8：滚动偏移（<=0 表示已上滑；>0 表示下拉拉伸），驱动大图收缩 / 锁定。
+    // 🔴 v2.9.8：滚动偏移（<=0 表示已上滑；>0 表示下拉拉伸），驱动大图收缩 / 锁定 /
+    // 毛玻璃渐入 / 歌手名转入导航栏标题。
     @State private var headerScroll: CGFloat = 0
 
     /// 酷狗同款收藏按钮的黄色
@@ -87,24 +84,21 @@ struct ArtistDetailView: View {
             // 上滑时大图收缩成一条锁定条，列表永远在它下面，不会从顶栏透出来。
             heroHeader
 
-            // 🔴 用户要求：大图收起后，导航栏背景改毛玻璃（模糊的大图），不再是纯透明。
-            // 只在锁定(collapsed)时出现，盖在锁定小图上方做模糊背景；系统工具栏(返回/歌手名/收藏)在它之上。
-            if collapsed {
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                    .frame(height: topInset)
-                    .frame(maxWidth: .infinity)
-                    .ignoresSafeArea(edges: .top)
-                    .allowsHitTesting(false)
-            }
+            // 🔴 用户要求：大图随列表滚动「收起成导航栏背景 + 毛玻璃」。
+            // 毛玻璃覆盖导航栏整条（状态栏 + 导航栏），透明度随收起进度(collapseProgress)平滑渐入：
+            // 刚展开时为 0（大图原样透出），越往上滑越糊，完全锁定即变成毛玻璃导航栏背景。
+            // 系统工具栏（返回 / 歌手名 / 收藏）浮在它之上。
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .opacity(collapseProgress)
+                .frame(height: topInset)
+                .frame(maxWidth: .infinity)
+                .ignoresSafeArea(edges: .top)
+                .allowsHitTesting(false)
         }
         .navigationBarTitleDisplayMode(.inline)
         .onPreferenceChange(ArtistHeaderOffsetKey.self) { offset in
             headerScroll = offset
-            // 大图上滑超过「整图高度 - 顶栏高度」即视为锁定（到达顶栏位置）。
-            let maxDrag = max(1.0, headerBaseHeight - topInset)
-            let nowCollapsed = offset <= -maxDrag
-            if nowCollapsed != collapsed { collapsed = nowCollapsed }
         }
         // 🔴 v2.9.8：导航栏一直浮在大图上 → 永远透明、白字，大图始终盖住顶栏。
         .compatToolbarDynamicScheme(dark: true)
@@ -115,13 +109,14 @@ struct ArtistDetailView: View {
                     Text("已选 \(selectedIDs.count) 首")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white)
-                } else if collapsed {
-                    // 🔴 v2.9.8：大图锁定后导航栏中间显示歌手名（白字压在图片上）
+                } else {
+                    // 🔴 用户要求：大图随滚动收起，歌手名从大图中央渐隐、转入导航栏标题（与毛玻璃同步渐显）。
                     Text(artist.name)
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(.white)
                         .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
                         .lineLimit(1)
+                        .opacity(collapseProgress)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -268,6 +263,14 @@ struct ArtistDetailView: View {
 
     /// 🔴 v2.9.8：大图要盖满顶部整条（状态栏 + 导航栏），偏移量 = 二者之和。
     private var topInset: CGFloat { statusBarHeight + navBarHeight }
+
+    /// 🔴 用户要求：大图随滚动收起的进度（0=完全展开，1=完全收起锁定），
+    /// 用于毛玻璃平滑渐入，避免折叠完成才突然出现的生硬切换。
+    private var collapseProgress: CGFloat {
+        let maxDrag = max(1.0, headerBaseHeight - topInset)
+        let drag = max(0, -headerScroll)
+        return min(1, drag / maxDrag)
+    }
 
     /// 🔴 v2.9.8(二)：大图「能上滑、滑到顶栏才锁住」。
     /// - 整张图随滚动向上平移（translate），上滑时大图整体上移、列表在它下面跟进；
