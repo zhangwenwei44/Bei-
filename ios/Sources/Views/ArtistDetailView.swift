@@ -55,10 +55,10 @@ struct ArtistDetailView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
+            // ① 滚动列表（最底层）：顶部留白占位把列表推到大图正下方，
+            // 首行 1px 透明测量点读取滚动偏移，驱动大图收起 / 毛玻璃渐入。
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    // 🔴 用户要求：大图放进滚动内容，随列表自然向上滚动（不再是钉在顶部的覆盖层）。
-                    // 这里只放一个透明测量点（高度 1）用来读取滚动偏移，驱动收起进度。
                     GeometryReader { geo in
                         Color.clear
                             .preference(key: ArtistHeaderOffsetKey.self,
@@ -66,8 +66,9 @@ struct ArtistDetailView: View {
                     }
                     .frame(height: 1)
 
-                    // 大图本体（随列表上滑，盖住状态栏）。
-                    heroImageContent
+                    // 占位：预留大图高度，让列表从大图正下方开始。
+                    Color.clear
+                        .frame(height: headerBaseHeight)
 
                     tabBar
                     if tab == 0 {
@@ -80,9 +81,14 @@ struct ArtistDetailView: View {
             .coordinateSpace(name: "artistScroll")
             .background(AppStyle.background)
 
-            // 🔴 用户要求：大图随列表滚动「收起成导航栏背景 + 毛玻璃」。
-            // 钉在顶部的固定层：展示大图顶部切片 + 深色渐变 + 毛玻璃，随收起进度渐入；
-            // 大图彻底滑走后它就是毛玻璃导航栏背景；系统工具栏（返回 / 歌手名 / 收藏）浮在它之上。
+            // ② 大图：钉在顶部（盖住顶部导航栏），随滚动整体上移 —— 视觉上「随列表一起向上滚走」。
+            // 上滑到顶栏时整块移出屏幕，露出下方的毛玻璃导航栏背景。
+            heroImageContent
+                .offset(y: min(0, headerScroll))
+                .allowsHitTesting(false)
+
+            // ③ 毛玻璃导航栏背景：盖在大图之上，随收起进度渐入；
+            // 大图移走后它就是毛玻璃导航栏背景，系统工具栏（返回 / 歌手名 / 收藏）浮在其上。
             navbarFrostedBackground
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -261,10 +267,12 @@ struct ArtistDetailView: View {
         return min(1, drag / maxDrag)
     }
 
-    // MARK: - 顶部大图（放进滚动内容，随列表自然上滑）
+    // MARK: - 顶部大图（钉在顶部、随滚动整体上移的独立层）
 
-    /// 大图本体：放进 ScrollView 内容里，随列表自然向上滚动（不再钉在顶部）。
-    /// ignoresSafeArea(.top) 让它盖住状态栏；上滑时整块随内容移走，歌手名 / 粉丝淡出交给导航栏。
+    /// 大图本体：钉在 ZStack 顶部，覆盖整个顶部（含状态栏 + 导航栏），
+    /// 由 body 里 `.offset(y:)` 随滚动整体上移 —— 视觉上「随列表一起向上滚走」。
+    /// ignoresSafeArea(.top) 让它铺到屏幕最上端、盖住透明导航栏；
+    /// 整块移出屏幕后，下方的毛玻璃导航栏背景（navbarFrostedBackground）接管。
     private var heroImageContent: some View {
         let screenW = UIScreen.main.bounds.width
         return ZStack(alignment: .bottom) {
