@@ -288,12 +288,12 @@ struct ArtistDetailView: View {
     /// 所以吸顶头不能直接用屏幕坐标。静止时它应贴在大图底边（屏幕 y=headerBaseHeight），
     /// 即相对 ZStack 顶部偏移 = headerBaseHeight - topInset = maxDrag。
     ///
-    /// 🔴 用户要求：大图上滑滚走时，吸顶头要「尽快升到顶栏下方钉住」，不要跟着大图一路走到顶。
-    /// 系数 2 表示大图滚走约一半（headerScroll≈maxDrag/2）时吸顶头已到达顶栏并锁定，
-    /// 之后大图继续滚走变毛玻璃、只有列表在吸顶头下方滚动。系数越大吸顶越早、升得越快。
+    /// 🔴 用户要求：吸顶头要「跟大图底边同步上滑」，不要跑得比大图快（之前系数 2 会让它提前脱离大图、
+    /// 在图片还没滚完时就冲到顶栏，视觉上像是按钮比图片飞得快）。改成系数 1：与大图 1:1 同步移动，
+    /// 始终贴在大图底边；大图完全滚走（headerScroll≈maxDrag）后正好钉在顶栏下方，之后只有列表在下方滚动。
     private var stickyY: CGFloat {
         let maxDrag = headerBaseHeight - topInset
-        return max(0, maxDrag - headerScroll * 2)
+        return max(0, maxDrag - headerScroll)
     }
 
     /// 🔴 吸顶头：分段 Tab（单曲/专辑）+ 全部播放行。钉在顶栏下方，不随列表滚走。
@@ -321,6 +321,14 @@ struct ArtistDetailView: View {
     private var heroImageContent: some View {
         let screenW = UIScreen.main.bounds.width
         return ZStack(alignment: .bottom) {
+            // 🔴 深色背板：.fit 模式不裁切，图片居中显示，四周留白用深色接住，
+            // 既保证整张歌手图完整可见，又让顶部白色导航按钮（返回/收藏）始终可读。
+            LinearGradient(colors: [Color(red: 0.07, green: 0.07, blue: 0.09),
+                                    Color(red: 0.13, green: 0.13, blue: 0.15)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(width: screenW, height: headerBaseHeight)
+                .ignoresSafeArea(edges: .top)
+
             CoverImage(
                 url: hiResCoverURL,
                 fallbackKeys: [artist.id],
@@ -328,7 +336,8 @@ struct ArtistDetailView: View {
                 size: max(screenW, 800),
                 corner: 0,
                 displayWidth: screenW,
-                displayHeight: headerBaseHeight
+                displayHeight: headerBaseHeight,
+                contentMode: .fit
             )
             .frame(width: screenW, height: headerBaseHeight)
             .clipped()

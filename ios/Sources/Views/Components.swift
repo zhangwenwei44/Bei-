@@ -639,6 +639,9 @@ struct CoverImage: View {
     /// 非正方形显示区域：传了就铺满，默认回退到 size×size
     var displayWidth: CGFloat? = nil
     var displayHeight: CGFloat? = nil
+    /// 🔴 填充方式：.fill=默认铺满裁切（封面/头像）；.fit=完整显示不裁切（歌手大图不想被裁掉头部）。
+    /// 仅歌手主页大图用 .fit。
+    var contentMode: ContentMode = .fill
 
     @State private var image: UIImage?
     @State private var resolved: URL?
@@ -652,14 +655,19 @@ struct CoverImage: View {
 
     var body: some View {
         ZStack {
-            // 兜底统一纯白背景
-            LinearGradient(colors: [Color(white: 0.97), Color(white: 0.93)],
-                           startPoint: .topLeading,
-                           endPoint: .bottomTrailing)
+            // 兜底背景：.fit 模式（歌手大图）透明，让外层深色背板透出来，避免 letterbox 出现刺眼白块；
+            // .fill 模式沿用原来的浅灰渐变。
+            if contentMode == .fit {
+                Color.clear
+            } else {
+                LinearGradient(colors: [Color(white: 0.97), Color(white: 0.93)],
+                               startPoint: .topLeading,
+                               endPoint: .bottomTrailing)
+            }
             if let image {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: contentMode)
                     .frame(width: w, height: h)
                     .clipped()
             } else {
