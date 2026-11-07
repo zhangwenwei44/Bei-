@@ -102,16 +102,38 @@ struct PlaylistDetailView: View {
     @State private var isSelecting = false
     @State private var selectedIDs: Set<String> = []
 
+    /// 🔴 2026-11-07：沉浸式头部状态（容器与 toolbar 共用，顶栏配色才能随滚动同步）。
+    @StateObject private var headerState = ImmersiveHeaderState()
+
     private var displaySongs: [Song] {
         if let localPlaylist { return library.songs(in: localPlaylist) }
         return songs
     }
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                header
+    /// 🔴 5 个推荐板块没有自己的封面 → 用第一首歌的封面放大当大图；
+    /// 歌单/专辑有自己的封面就用自己的。
+    private var heroURL: URL? {
+        playlist.coverURL ?? displaySongs.first?.artworkURL
+    }
 
+    var body: some View {
+        ImmersiveSongListContainer(
+            state: headerState,
+            // 🔴 歌曲异步加载完 URL 才出现 → 用身份串让大图浮层刷新一次 rootView。
+            heroKey: "\(heroURL?.absoluteString ?? "-")|\(playlist.name)|\(displaySongs.count)",
+            hero: {
+                ImmersiveCoverHero(
+                    url: heroURL,
+                    fallbackKeys: [playlist.id],
+                    seed: playlist.name,
+                    title: playlist.name,
+                    subtitle: playlist.creatorName.isEmpty ? nil : playlist.creatorName,
+                    detail: displaySongs.isEmpty ? nil : "\(displaySongs.count) 首",
+                    headerHeight: headerState.headerHeight
+                )
+            },
+            sticky: { actionBar },
+            content: {
                 if isLoading, displaySongs.isEmpty {
                     LoadingRow()
                 } else if let errorMessage, displaySongs.isEmpty {
@@ -121,7 +143,6 @@ struct PlaylistDetailView: View {
                                    title: "歌单里还没有歌曲",
                                    message: "重新下拉试试，或换一个榜单")
                 } else {
-                    actionBar
                     VStack(spacing: 0) {
                         ForEach(displaySongs) { song in
                             let selected = selectedIDs.contains(song.id)
@@ -162,14 +183,15 @@ struct PlaylistDetailView: View {
                         }
                     }
                 }
+                Color.clear.frame(height: 30)
             }
-            .padding(.bottom, 30)
-        }
-        .background(AppStyle.background)
-        .navigationTitle(playlist.name)
+        )
         .navigationBarTitleDisplayMode(.inline)
-        // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
-        .kugouNavigationBarBackground()
+        // 🔴 系统返回按钮的 chevron 是全局蓝色，改不了逐页颜色 → 隐藏后自绘。
+        .navigationBarBackButtonHidden(true)
+        // 🔴 大图在顶（深色）= 白字状态栏；收起后毛玻璃浅底 = 黑字状态栏。
+        .compatToolbarDynamicScheme(dark: headerState.navFrostOpacity < 0.5)
+        .kugouNavigationBarBackground(.clear, transparent: true)
         .onChange(of: isSelecting) { newValue in
             withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                 store.isAnyMultiSelecting = newValue
@@ -218,41 +240,55 @@ struct PlaylistDetailView: View {
                 if isSelecting {
                     Text("已选 \(selectedIDs.count) 首")
                         .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(headerState.navContentColor)
+                } else {
+                    ImmersiveNavTitle(title: playlist.name,
+                                      color: headerState.navContentColor,
+                                      opacity: headerState.navFrostOpacity)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 if isSelecting {
-                    HStack(spacing: 14) {
-                        Button {
-                            if selectedIDs.count == displaySongs.count { selectedIDs.removeAll() }
-                            else { selectedIDs = Set(displaySongs.map(\.id)) }
-                        } label: {
-                            Text(selectedIDs.count == displaySongs.count ? "取消全选" : "全选")
-                                .font(.system(size: 14, weight: .medium))
-                        }
+                    Button {
+                        if selectedIDs.count == displaySongs.count { selectedIDs.removeAll() }
+                        else { selectedIDs = Set(displaySongs.map(\.id)) }
+                    } label: {
+                        Text(selectedIDs.count == displaySongs.count ? "取消全选" : "全选")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(headerState.navContentColor)
                     }
                 } else {
                     HStack(spacing: 4) {
                         if !displaySongs.isEmpty {
                             Button { Task { await downloadAllSongs() } } label: {
-                                Image(systemName: "arrow.down.circle.dotted").font(.system(size: 16)).frame(width: 36, height: 36)
+                                Image(systemName: "arrow.down.circle.dotted")
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(headerState.navContentColor)
+                                    .frame(width: 36, height: 36)
                             }
                         }
                         if localPlaylist == nil {
+                            // 🔴 与歌手页一致：蓝色胶囊收藏按钮，文字随顶栏动态白→黑。
                             Button {
                                 isCollected.toggle()
                                 CollectionState.set(isCollected, for: playlist.id)
                                 Haptics.light()
                             } label: {
-                                Image(systemName: isCollected ? "heart.fill" : "heart")
-                                    .font(.system(size: 16))
-                                    .foregroundStyle(isCollected ? AppStyle.like : AppStyle.primaryText)
-                                    .frame(width: 36, height: 36)
+                                Text(isCollected ? "已收藏" : "收藏")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(headerState.navContentColor)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Capsule().fill(ImmersiveStyle.collectBlue))
                             }
+                            .buttonStyle(.plain)
                         }
                         if !displaySongs.isEmpty {
                             Button { isSelecting = true; selectedIDs.removeAll() } label: {
-                                Image(systemName: "checkmark.circle").font(.system(size: 16)).frame(width: 36, height: 36)
+                                Image(systemName: "checkmark.circle")
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(headerState.navContentColor)
+                                    .frame(width: 36, height: 36)
                             }
                         }
                     }
@@ -261,8 +297,12 @@ struct PlaylistDetailView: View {
             ToolbarItem(placement: .topBarLeading) {
                 if isSelecting {
                     Button { isSelecting = false; selectedIDs.removeAll() } label: {
-                        Text("完成").font(.system(size: 14, weight: .medium))
+                        Text("完成")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(headerState.navContentColor)
                     }
+                } else {
+                    ImmersiveBackButton(color: headerState.navContentColor)
                 }
             }
         }
@@ -275,36 +315,8 @@ struct PlaylistDetailView: View {
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 14) {
-            CoverImage(url: playlist.coverURL, fallbackKeys: [playlist.id], seed: playlist.name, size: 112, corner: 12)
-            VStack(alignment: .leading, spacing: 8) {
-                Text(playlist.name)
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(AppStyle.primaryText)
-                    .lineLimit(3)
-                HStack(spacing: 10) {
-                    if !playlist.creatorName.isEmpty {
-                        Label(playlist.creatorName, systemImage: "person.crop.circle")
-                    }
-                    if playlist.trackCount > 0 {
-                        Text("\(playlist.trackCount) 首")
-                    } else if !playlist.creatorName.isEmpty {
-                        // 曲目数还没补到，用进度圈代替（iOS 16 兼容）
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                }
-                .font(.system(size: 12))
-                .foregroundStyle(AppStyle.secondaryText)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 16)
-    }
-
+    /// 🔴 2026-11-07：小方封面 header 已移除 —— 歌单名/创建者/曲目数改由
+    /// `ImmersiveCoverHero` 画在沉浸式大图上，这里只保留吸顶的「播放全部 / 下载全部」行。
     private var actionBar: some View {
         HStack(spacing: 16) {
             Button {
@@ -445,14 +457,30 @@ struct AlbumDetailView: View {
     @State private var songs: [Song] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
+    /// 🔴 2026-11-07：与歌单详情共用沉浸式头部状态。
+    @StateObject private var headerState = ImmersiveHeaderState()
 
     private var isFavorited: Bool { library.isAlbumFavorite(album) }
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                header
+    private var heroURL: URL? { album.coverURL ?? songs.first?.artworkURL }
 
+    var body: some View {
+        ImmersiveSongListContainer(
+            state: headerState,
+            heroKey: "\(heroURL?.absoluteString ?? "-")|\(album.name)|\(songs.count)",
+            hero: {
+                ImmersiveCoverHero(
+                    url: heroURL,
+                    fallbackKeys: album.albumID.isEmpty ? [] : ["al:\(album.albumID)"],
+                    seed: album.name,
+                    title: album.name,
+                    subtitle: album.artist,
+                    detail: songs.isEmpty ? nil : "\(songs.count) 首",
+                    headerHeight: headerState.headerHeight
+                )
+            },
+            sticky: { actionBar },
+            content: {
                 if isLoading, songs.isEmpty {
                     LoadingRow()
                 } else if let errorMessage, songs.isEmpty {
@@ -460,7 +488,6 @@ struct AlbumDetailView: View {
                 } else if songs.isEmpty {
                     EmptyStateView(icon: "music.note.list", title: "专辑里没找到歌曲", message: "可能这个专辑在酷狗上的信息较少")
                 } else {
-                    actionBar
                     VStack(spacing: 0) {
                         ForEach(songs) { song in
                             SongRow(song: song,
@@ -473,57 +500,43 @@ struct AlbumDetailView: View {
                         }
                     }
                 }
+                Color.clear.frame(height: 30)
             }
-            .padding(.bottom, 30)
-        }
-        .background(AppStyle.background)
-        .navigationTitle(album.name)
+        )
         .navigationBarTitleDisplayMode(.inline)
-        // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
-        .kugouNavigationBarBackground()
+        .navigationBarBackButtonHidden(true)
+        .compatToolbarDynamicScheme(dark: headerState.navFrostOpacity < 0.5)
+        .kugouNavigationBarBackground(.clear, transparent: true)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                ImmersiveNavTitle(title: album.name,
+                                  color: headerState.navContentColor,
+                                  opacity: headerState.navFrostOpacity)
+            }
             ToolbarItem(placement: .topBarTrailing) {
+                // 🔴 与歌手页一致：蓝色胶囊收藏按钮，文字随顶栏动态白→黑。
                 Button {
                     _ = library.toggleAlbumFavorite(album)
                     Haptics.light()
                 } label: {
-                    Image(systemName: isFavorited ? "heart.fill" : "heart")
-                        .foregroundStyle(isFavorited ? AppStyle.like : AppStyle.primaryText)
+                    Text(isFavorited ? "已收藏" : "收藏")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(headerState.navContentColor)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(ImmersiveStyle.collectBlue))
                 }
+                .buttonStyle(.plain)
+            }
+            ToolbarItem(placement: .topBarLeading) {
+                ImmersiveBackButton(color: headerState.navContentColor)
             }
         }
         .task { await load() }
     }
 
-    private var header: some View {
-        HStack(spacing: 14) {
-            CoverImage(url: album.coverURL,
-                       fallbackKeys: album.albumID.isEmpty ? [] : ["al:\(album.albumID)"],
-                       seed: album.name,
-                       size: 128,
-                       corner: 12)
-            VStack(alignment: .leading, spacing: 8) {
-                Text(album.name)
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(AppStyle.primaryText)
-                    .lineLimit(3)
-                Text(album.artist)
-                    .font(.system(size: 13))
-                    .foregroundStyle(AppStyle.secondaryText)
-                    .lineLimit(1)
-                if !songs.isEmpty {
-                    Text("\(songs.count) 首")
-                        .font(.system(size: 12))
-                        .foregroundStyle(AppStyle.tertiaryText)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 16)
-    }
-
+    /// 🔴 2026-11-07：小方封面 header 已移除 —— 专辑信息改画在沉浸式大图上，
+    /// 这里只保留吸顶的「播放 / 下载全部」行。
     private var actionBar: some View {
         HStack(spacing: 22) {
             Button {
