@@ -28,12 +28,9 @@ struct ArtistDetailView: View {
     // 🔴 2026-11-07：改成实测值（原来是裸的 contentOffset.y，静止时可能是负数 → 吸顶位置算错）。
     @State private var headerScroll: CGFloat = 0
 
-    /// 🔴 实测：本页根视图（ZStack）在 window 坐标系里的 y = 导航栏底边。
-    /// 毛玻璃条要盖住 0 ~ rootOriginY，吸顶头吸顶后停在 rootOriginY，都靠它定位。
-    @State private var rootOriginY: CGFloat = 0
-
-    /// 🔴 实测：**静止时**「滚动内容 y=0」在 window 坐标系里的 y。
-    /// 列表顶部占位高度用它换算，保证列表正好从「吸顶头下沿」开始（不会错位、也不会留缝）。
+    /// 🔴 实测：静止时「滚动内容 y=0」在 window 坐标系里的 y（探针直接量）。
+    /// 顶部内边距抵消后它应该 = 0；不为 0 说明滚动容器的 frame 没延伸到屏幕顶端，
+    /// 这时用它把大图和列表精确对位（安全网）。
     @State private var contentOriginYRest: CGFloat = 0
 
     /// 🔴 吸顶头（分段 Tab + 全部播放）的高度：由 PreferenceKey 实测，
@@ -68,53 +65,50 @@ struct ArtistDetailView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // ① 滚动内容：大图 + 列表在**同一个内容流**里（一起上滑）。
+            // ① 滚动内容：大图是**内容第一项**，列表紧随其后，一起上滑。
             //
-            // 🔴 位置全部由「实测值」决定，不再靠 SwiftUI 安全区推断：
-            //    · 探针直接量出「滚动内容原点」在 window 里的 y（contentOriginYRest）；
-            //    · 大图用 .offset(y: -contentOriginYRest) 绘制到**屏幕 y=0**（盖住透明导航栏）；
-            //    · 列表用 listTopSpacer 占位，正好从「大图底边 + 吸顶头高度」开始。
-            //    两个公式对任意 contentOriginYRest 都成立，不需要知道安全区多大。
+            // 🔴 大图能盖住透明导航栏的前提：「滚动内容原点」精确落在屏幕 y=0。
+            //    SwiftUI 默认给内容加一段顶部内边距（导航栏那截 ≈91pt），内容原点会掉到
+            //    导航栏下沿 → 顶部露出页面底色 = **白顶**（实测白区 179pt）。
+            //    探针 ScrollViewOffsetTracker 会把 adjustedContentInset.top 抵消成 0，
+            //    内容原点就落在 y=0，这里的大图**零偏移**即可盖住导航栏。
             ScrollView {
-                ZStack(alignment: .top) {
-                    // 列表（顶部留占位）
-                    VStack(spacing: 0) {
-                        // 🔴 滚动几何探针：必须放进滚动内容内部（不能放 .background），
-                        // 否则 superview 链上找不到 UIScrollView，KVO 拿不到 contentOffset（经验教训）。
-                        ScrollViewOffsetTracker { m in
-                            DispatchQueue.main.async {
-                                headerScroll = m.scrolled
-                                contentOriginYRest = m.contentOriginYRest
-                            }
-                        }
-                        .frame(height: 0)
-
-                        // 占位：把列表推到大图底边 + 吸顶头下方。
-                        Color.clear.frame(height: listTopSpacer)
-
-                        // 列表主体（不含 全部播放 / 分段 Tab，那些已提到吸顶头）。
-                        if tab == 0 {
-                            songListBody
-                        } else {
-                            albumGridSection
+                VStack(spacing: 0) {
+                    // 🔴 滚动几何探针：必须放进滚动内容内部（不能放 .background），
+                    // 否则 superview 链上找不到 UIScrollView，KVO 拿不到 contentOffset（经验教训）。
+                    ScrollViewOffsetTracker { m in
+                        DispatchQueue.main.async {
+                            headerScroll = m.scrolled
+                            contentOriginYRest = m.contentOriginYRest
                         }
                     }
+                    .frame(height: 0)
 
-                    // 大图：叠在列表上方（ZStack 同层，不占列表的布局流），
-                    // 用实测内容原点把它绘制到屏幕 y=0；随内容一起上滑（与列表 1:1）。
-                    // allowsHitTesting(false)：浮在列表上方也不能挡住列表点击。
+                    // 大图本体：内容第一项 → 必然随列表一起上滑（不会冻在顶部），
+                    // 静止时从屏幕 y=0 开始，正好盖住透明导航栏。
+                    // 安全网：万一滚动容器的 frame 没延伸到屏幕顶端（实测内容原点 > 0），
+                    // 就用实测值把它提上去，精确落在 y=0。
                     heroImageContent
-                        .offset(y: heroOffsetY)
-                        .allowsHitTesting(false)
+                        .offset(y: -contentOriginYRest)
+
+                    // 吸顶头占位：预留「分段 Tab + 全部播放」的高度，列表从它下方开始。
+                    Color.clear.frame(height: stickyHeaderHeight)
+
+                    // 列表主体（不含 全部播放 / 分段 Tab，那些已提到吸顶头）。
+                    if tab == 0 {
+                        songListBody
+                    } else {
+                        albumGridSection
+                    }
                 }
             }
             .background(AppStyle.background)
             .ignoresSafeArea(edges: .top)
 
             // ② 毛玻璃导航栏背景：大图滚走后渐入，系统工具栏（返回 / 歌手名 / 收藏）浮在其上。
-            //    用实测根原点定位到屏幕最顶端（0 ~ rootOriginY，正好盖住状态栏 + 导航栏）。
+            //    用 offset 把它从「导航栏下沿」提到屏幕最顶端（0 ~ topInset）。
             navbarFrostedBackground
-                .offset(y: -rootOriginY)
+                .offset(y: -topInset)
 
             // ③ 吸顶头（分段 Tab + 全部播放）：钉在顶栏下方，不随列表滚走；
             //    大图未收起时贴着大图底边一起走，收起后固定在顶栏正下方。
@@ -122,15 +116,6 @@ struct ArtistDetailView: View {
                 .offset(y: stickyY)
                 .background(AppStyle.background)
         }
-        // 🔴 实测本页根视图（ZStack）在 window 坐标系里的 y：
-        //    导航栏是「浮在内容之上」的，本页内容从导航栏底边开始，根原点 = 导航栏底边。
-        //    毛玻璃条与吸顶头都要用它定位，所以直接量出来，不再用状态栏高度推算。
-        .background(
-            GeometryReader { geo in
-                Color.clear.preference(key: RootOriginYKey.self, value: geo.frame(in: .global).minY)
-            }
-        )
-        .onPreferenceChange(RootOriginYKey.self) { rootOriginY = $0 }
         .onPreferenceChange(StickyHeaderHeightKey.self) { stickyHeaderHeight = $0 }
         .navigationBarTitleDisplayMode(.inline)
         // 🔴 v2.9.8：导航栏一直浮在大图上 → 永远透明、白字，大图始终盖住顶栏。
@@ -300,30 +285,21 @@ struct ArtistDetailView: View {
     /// 🔴 用户要求：大图随滚动收起的进度（0=完全展开，1=完全收起锁定），
     /// 用于毛玻璃平滑渐入，避免折叠完成才突然出现的生硬切换。
     private var collapseProgress: CGFloat {
-        // 大图底边从 headerBaseHeight 滑到导航栏底边（rootOriginY，实测）时收起完成。
-        let maxDrag = max(1.0, headerBaseHeight - rootOriginY)
+        // 大图底边从 headerBaseHeight 滑到导航栏底边（topInset）时收起完成。
+        let maxDrag = max(1.0, headerBaseHeight - topInset)
         // headerScroll 现在是**实测的内容上移距离**（>=0，静止时为 0）。
         let drag = max(0, headerScroll)
         return min(1, drag / maxDrag)
     }
 
-    /// 🔴 大图在**内容坐标系**里的绘制偏移。
+    /// 🔴 列表顶部占位高度。
     ///
-    /// 内容原点（滚动内容 y=0）在 window 里的实测位置是 contentOriginYRest，
-    /// 所以要把它画到屏幕 y=0，就得往上提 contentOriginYRest。
-    /// （之前用「容器 frame 原点」推算，坐标系换算错了 → 大图仍被顶在 180pt 处 = 白顶；
-    ///   现在直接量内容原点本身，不再做任何换算。）
-    private var heroOffsetY: CGFloat {
-        -contentOriginYRest
-    }
-
-    /// 🔴 列表顶部占位高度（内容坐标系）：让列表正好从「大图底边 + 吸顶头高度」开始。
-    /// 列表的 window 位置 = contentOriginYRest + listTopSpacer = 大图底边 + 吸顶头高度。
+    /// 大图虽然用 offset 提到了屏幕顶端，但 **offset 不改变布局**——它在内容流里仍占
+    /// headerBaseHeight 高度，所以列表的内容位置 = 内容原点 + 大图高 + 本占位。
+    /// 列表要落在「大图底边 + 吸顶头高度」= 350 + 吸顶头高，
+    /// 于是占位 = 吸顶头高 − 实测内容原点。
     private var listTopSpacer: CGFloat {
-        let target = headerBaseHeight + stickyHeaderHeight
-        // 实测值还没上报时先用 topInset 兜底（内容原点通常就在导航栏下沿）。
-        let origin = contentOriginYRest > 0 ? contentOriginYRest : topInset
-        return max(0, target - origin)
+        max(0, stickyHeaderHeight - contentOriginYRest)
     }
 
     /// 🔴 用户要求：毛玻璃导航栏背景只在「滚到图片底部、图片快滚完」时才渐显，
@@ -334,14 +310,14 @@ struct ArtistDetailView: View {
     }
 
     /// 🔴 吸顶头（分段 Tab + 全部播放）相对 ZStack 顶部的偏移。
-    /// ZStack 顶部 = 本页根原点（实测 rootOriginY = 导航栏底边）。
+    /// ZStack 顶部 = 导航栏底边（screen y = topInset）。
     /// 静止时吸顶头贴在大图底边（screen y = headerBaseHeight），
-    /// 即相对根原点偏移 = headerBaseHeight - rootOriginY = maxDrag；
+    /// 即相对根原点偏移 = headerBaseHeight - topInset = maxDrag；
     /// 上滑时与大图底边 1:1 同步上移，大图滚完后钉在导航栏底边（offset 0）。
     private var stickyY: CGFloat {
         // 🔴 静止时吸顶头贴在大图底边（window y = headerBaseHeight），滚到大图完全收起后
-        //    钉在导航栏底边（window y = rootOriginY，实测）。两者之间线性过渡。
-        let maxDrag = headerBaseHeight - rootOriginY
+        //    钉在导航栏底边（window y = topInset）。两者之间线性过渡。
+        let maxDrag = headerBaseHeight - topInset
         // 🔴 系数 1：吸顶头与大图底边 1:1 同步上滑（贴着大图底边），大图完全滚走后才钉在顶栏下方；
         // 之前系数 2 让吸顶头以 2× 速度甩开大图、提前冲到顶栏，视觉上"按钮比图片飞得快"。
         return max(0, maxDrag - headerScroll)
@@ -483,9 +459,9 @@ struct ArtistDetailView: View {
             Rectangle()
                 .fill(.regularMaterial)
         }
-        .frame(width: screenW, height: rootOriginY > 0 ? rootOriginY : topInset)
+        .frame(width: screenW, height: topInset)
         .clipped()
-        // 🔴 位置由外层的 .offset(y: -rootOriginY) 决定（实测根原点），
+        // 🔴 位置由外层的 .offset(y: -topInset) 决定（提到屏幕最顶端），
         //    这里**不能再加** ignoresSafeArea(edges:.top)——那会再往上提一个安全区，
         //    毛玻璃条就错位了（安全区叠加是之前"白顶"的同类坑）。
         .allowsHitTesting(false)
@@ -910,29 +886,19 @@ private struct StickyHeaderHeightKey: PreferenceKey {
     }
 }
 
-/// 🔴 本页根视图在 window 坐标系里的 y（导航栏底边）——用 GeometryReader 的全局坐标直接量。
-struct RootOriginYKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 // MARK: - 🔴 滚动几何实测（UIKit contentOffset + KVO，替代不可靠的 GeometryReader/preference）
 
-/// 🔴 滚动容器的**实测几何**（全部来自 UIKit 直接测量，不做任何坐标系换算）。
+/// 🔴 滚动容器的实测滚动量。
 ///
-/// 之前靠推断（`.ignoresSafeArea` 叠几层、安全区多大）连续几轮算错位置。
-/// 现在只信两个**直接测量值**：
-/// ① `contentOffset`（KVO）→ 内容已上移的距离；
-/// ② 探针自身在 window 里的 y（`convert(_:to: nil)`）→ 滚动内容原点的真实位置。
-/// 大图位置、列表占位、吸顶位置全部由这两个实测值算出，任何安全区行为下都不会错位。
+/// 「大图盖住透明导航栏」不再靠推断，而是靠 UIKit：**把 adjustedContentInset.top 抵消成 0**
+/// （见 ScrollViewOffsetTracker.cancelTopContentInset），滚动内容原点就精确落在屏幕 y=0，
+/// 大图作为内容第一项、零偏移即可盖住导航栏；列表占位 / 吸顶位置也都是常量推导，不再有换算。
 struct ScrollMetrics: Equatable {
     /// 内容已上移的距离（>=0）：滚动量。毛玻璃渐入 / 吸顶 / 大图上移都用它。
     var scrolled: CGFloat = 0
-    /// 探针自身（滚动内容第一项）在 window 坐标系里的 y —— **直接测量**。
-    var trackerWindowY: CGFloat = 0
-    /// **静止时**「滚动内容 y=0」在 window 坐标系里的 y = trackerWindowY + scrolled。
+    /// **静止时**「滚动内容 y=0」在 window 坐标系里的 y（探针直接量）。
+    /// 主机制是「抵消顶部内边距」把内容原点压到 y=0；这个值只作安全网
+    /// （万一滚动容器的 frame 没延伸到屏幕顶端，就用它把大图/列表精确对位）。
     var contentOriginYRest: CGFloat = 0
 }
 
@@ -961,10 +927,6 @@ private struct ScrollViewOffsetTracker: UIViewRepresentable {
         private weak var observed: UIScrollView?
         private var observation: NSKeyValueObservation?
         private var last: ScrollMetrics?
-        /// 静止基准：滚到顶时 contentOffset.y 的值。实测得来，不依赖 inset 语义。
-        private var restOffsetY: CGFloat = 0
-        private var restReady = false
-
         func attachToScrollViewIfNeeded() {
             guard observed == nil else { return }
             var candidate: UIView? = self
@@ -980,33 +942,40 @@ private struct ScrollViewOffsetTracker: UIViewRepresentable {
             }
         }
 
+        /// 🔴 把滚动容器的**顶部内边距抵消成 0** —— 这是「大图盖住透明导航栏」的前提。
+        ///
+        /// SwiftUI 会给 ScrollView 的内容加一段顶部内边距（导航栏那一截 ≈91pt），
+        /// 于是「滚动内容原点」落在导航栏下沿而不是屏幕顶端 → 顶部露出页面底色 = **白顶**。
+        /// （实测白区 179pt = 91(内边距) + 88(又一次叠加)。）
+        ///
+        /// 之前用 `.offset()` 去补偿大图位置，基准（内容原点）本身就带着这段内边距 → 补错位置。
+        /// 现在直接把内边距抵消掉：内容原点精确落在屏幕 y=0，大图作为内容第一项、**零偏移**。
+        ///
+        /// 做法：`adjustedContentInset.top` 是 UIKit 调整后的最终值，
+        /// 把 contentInset.top 减去它就能抵消成 0（不关心 SwiftUI 是用安全区还是 contentInset 加的）。
+        private func cancelTopContentInset() {
+            guard let sv = observed else { return }
+            let adj = sv.adjustedContentInset.top
+            if abs(adj) > 0.5 {
+                sv.contentInset.top -= adj
+            }
+        }
+
         /// 实测并上报几何信息。
         func report() {
             guard let sv = observed else { return }
+            cancelTopContentInset()
             let offsetY = sv.contentOffset.y
 
-            // 静止基准：第一次观测到的位置，或「已经停在顶部且没有回弹/拖拽」时的位置。
-            // （回弹时 offsetY 会小于基准，必须跳过，否则松手后会被算成已滚动。
-            //   注意：iOS 的 UIScrollView 没有 isBouncing（那是 macOS NSScrollView 的），
-            //   下拉回弹期间 isDragging / isDecelerating / isTracking 会为 true，用它们排除。）
-            if !restReady {
-                restOffsetY = offsetY
-                restReady = true
-            } else if offsetY <= restOffsetY + 0.5,
-                      !sv.isDragging, !sv.isDecelerating, !sv.isTracking {
-                restOffsetY = offsetY
-            }
-
-            let scrolled = max(0, offsetY - restOffsetY)
-
-            // 🔴 探针自身在 window 里的 y（**直接测量**，不做任何换算）：
-            // 探针是滚动内容的第一项，所以它就是「内容原点」的实体。
-            // 静止时它所在的 y = 内容原点在 window 里的位置；滚动时它跟着内容上移。
+            // 已上滑距离 = contentOffset.y + adjustedContentInset.top
+            //（顶部内边距已被抵消成 0，所以这里就等于 contentOffset.y；
+            //   保留 +insetTop 是为了在抵消失败时也不会算错。下拉回弹时为负 → 夹到 0。）
+            let scrolled = max(0, offsetY + sv.adjustedContentInset.top)
+            // 探针自身在 window 里的 y（**直接测量**，不做坐标系换算）：
+            // 探针是滚动内容的第一项 → 它就是「内容原点」的实体。
+            // 静止时 = 内容原点的 window y；滚动时它跟着内容上移，所以要加回 scrolled。
             let trackerY = convert(CGPoint.zero, to: nil).y
-
-            let m = ScrollMetrics(scrolled: scrolled,
-                                  trackerWindowY: trackerY,
-                                  contentOriginYRest: trackerY + scrolled)
+            let m = ScrollMetrics(scrolled: scrolled, contentOriginYRest: trackerY + scrolled)
             guard m != last else { return }
             last = m
             onMetricsChange?(m)
