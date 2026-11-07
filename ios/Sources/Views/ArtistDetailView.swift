@@ -37,8 +37,6 @@ struct ArtistDetailView: View {
     /// 下一张截图就能确认 KVO / 内边距是否生效，不用再靠推理猜。
     @State private var debugAdjustedTop: CGFloat = -1
     @State private var debugContentInsetTop: CGFloat = -1
-    /// background 层在 window 里的实测 y（用于把大图顶边校正到屏幕 0）
-    @State private var debugLayerRootY: CGFloat = 0
 
     /// 🔴 吸顶头（分段 Tab + 全部播放）的高度：由 PreferenceKey 实测，
     /// 用来给滚动内容预留占位，使列表从吸顶头下方开始。
@@ -72,15 +70,13 @@ struct ArtistDetailView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // ① 滚动容器：**只放占位 + 列表**；大图挂在它的 background 层（见 scrollBackground）。
+            // ① 滚动容器：**只放占位 + 列表**（大图不在这里）。
             //
-            // 🔴 2026-11-07 第 N+2 轮实锤：上一版把大图做成 ZStack 独立层 + GeometryReader
-            //    「屏幕绝对坐标」，真机上白顶仍是 180pt —— 因为 SwiftUI 把那个
-            //    GeometryReader 层实际放在了屏幕 180pt，而 `frame(in:.global).minY` 却报 0，
-            //    **坐标系换算完全不可信**。现在改用项目里验证过的模式：
-            //    大图挂在 ScrollView 的 background 层 + 只给 background 层加 ignoresSafeArea，
-            //    background 层不受 UIScrollView 内容裁切；再用 UIView 探针直量该层 window y
-            //    （LayerOriginProbe）校正，不信任何 GeometryReader 坐标。
+            // 🔴 2026-11-07 第 N+3 轮实锤：HUD 三行调试文字位于 306~338pt、紧贴大图底边 350pt，
+            //    证明大图一直**画在屏幕 0~350pt**；0~180pt 的白块是盖在它上面的
+            //    UIKit 导航栏/容器背景层。换 ZStack 独立层、GeometryReader 绝对坐标、
+            //    ScrollView background 都改不了这一点 —— 它们在层级里都排在那个 UIKit 层之下。
+            //    正解见 ②：把大图挂到 UINavigationController.view、UINavigationBar 之下。
             ScrollView {
                 VStack(spacing: 0) {
                     // 🔴 滚动几何探针：必须放进滚动内容内部（不能放 .background），
@@ -107,16 +103,27 @@ struct ArtistDetailView: View {
                     }
                 }
             }
-            .background(scrollBackground)
+            .background(AppStyle.background)
             // 🔴 绝不给 ScrollView 本体加 ignoresSafeArea(edges:.top)：
             //    每加一层都会再下推一个安全区（180pt 白顶正是两层叠加的结果）。
 
-            // ② 毛玻璃导航栏背景：大图滚走后渐入，系统工具栏（返回 / 收藏）浮在其上。
+            // ② 大图：UIKit 浮层（挂在导航控制器 view 里、UINavigationBar 之下），
+            //    由 ArtistHeroLayer 管理。屏幕上 0~350pt 那截被 UIKit 导航栏/容器背景盖住，
+            //    无论把大图放在 ZStack 哪一层、ScrollView 内容还是 background，都会被盖；
+            //    只有提到 UIKit 层级、且仍在 bar 之下（返回/收藏按钮照常可见可点）才盖得住。
+            ArtistHeroLayer(scrolled: headerScroll,
+                            headerHeight: headerBaseHeight,
+                            hideThreshold: headerBaseHeight - topInset,
+                            hero: AnyView(heroImageContent))
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+
+            // ③ 毛玻璃导航栏背景：大图滚走后渐入，系统工具栏（返回 / 收藏）浮在其上。
             //    用 offset 把它从「导航栏下沿」提到屏幕最顶端（0 ~ topInset）。
             navbarFrostedBackground
                 .offset(y: -topInset)
 
-            // ③ 吸顶头（分段 Tab + 全部播放）：钉在顶栏下方，不随列表滚走；
+            // ④ 吸顶头（分段 Tab + 全部播放）：钉在顶栏下方，不随列表滚走；
             //    大图未收起时贴着大图底边一起走，收起后固定在顶栏正下方。
             stickyHeader
                 .offset(y: stickyY)
@@ -311,25 +318,6 @@ struct ArtistDetailView: View {
         return max(0, headerBaseHeight + stickyHeaderHeight - p)
     }
 
-    /// 🔴 大图所在的 background 层：不受 UIScrollView 内容裁切。
-    ///
-    /// `LayerOriginProbe` 用 UIKit `convert(.zero, to: window)` **直量本层在 window 里的 y**，
-    /// 再用 offset 减掉它：无论 SwiftUI 把这层放在 y=0 还是 y=180，大图顶边都落在屏幕 0。
-    /// 滚动时再减 `headerScroll`，与列表 1:1 同步上移。
-    private var scrollBackground: some View {
-        ZStack(alignment: .top) {
-            AppStyle.background
-            LayerOriginProbe { y in
-                DispatchQueue.main.async { debugLayerRootY = y }
-            }
-            .frame(height: 0)
-            heroImageContent
-                .offset(y: -debugLayerRootY - headerScroll)
-        }
-        .ignoresSafeArea(edges: .top)
-        .allowsHitTesting(false)
-    }
-
     /// 🔴 用户要求：毛玻璃导航栏背景只在「滚到图片底部、图片快滚完」时才渐显，
     /// 不要提前出现。collapseProgress=1 表示图片底部已抵达导航栏（图片完全收起），
     /// 这里从 0.8 才开始渐入、1.0 完全不透明，与导航栏标题同步。
@@ -368,14 +356,15 @@ struct ArtistDetailView: View {
         )
     }
 
-    // MARK: - 顶部大图（ScrollView 的 background 层，随列表上滑）
+    // MARK: - 顶部大图（UIViewRepresentable 挂到 UINavigationController.view，随列表上滑）
 
-    /// 大图本体：由 `scrollBackground` 挂在滚动容器的背景层上（不是滚动内容的一项）。
+    /// 大图本体：由 `ArtistHeroLayer` 作为 UIKit 浮层承载（不是 SwiftUI ZStack 的任何一层）。
     ///
-    /// 🔴 为什么不能放进 ScrollView 内容：滚动容器 frame 从导航栏下沿开始且 clipsToBounds，
-    ///    大图顶部那一截（安全区叠加时 ≈180pt）会被**裁掉**，抵消 contentInset / offset 都补不回。
-    ///    background 层不受内容裁切，且只在这一层加 ignoresSafeArea，是项目验证过的可靠做法。
-    ///    层原点由 `LayerOriginProbe` 用 UIKit 直量后扣掉，保证大图顶边落在屏幕 y=0。
+    /// 🔴 为什么必须提到 UIKit 层：像素剖析证实大图一直画在屏幕 0~350pt（HUD 三行文字
+    ///    紧贴 350pt 底边），但 0~180pt 被一个不透明的 UIKit 导航栏/容器背景盖住 ——
+    ///    换 ZStack 独立层、换 GeometryReader 绝对坐标、换 ScrollView background 都改不了这一点，
+    ///    因为它们在视图层级里都排在那个 UIKit 层之下。
+    ///    浮层插到 `UINavigationBar` 之下：盖住它的背景，但返回/收藏按钮仍在 bar 内、正常可见可点。
     private var heroImageContent: some View {
         let screenW = UIScreen.main.bounds.width
         return ZStack(alignment: .bottom) {
@@ -455,7 +444,7 @@ struct ArtistDetailView: View {
                 Text("p=\(Int(contentOriginYRest)) adj=\(Int(debugAdjustedTop)) inset=\(Int(debugContentInsetTop))")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.white.opacity(0.75))
-                Text("s=\(Int(headerScroll)) root=\(Int(debugLayerRootY)) top=\(Int(topInset)) H=\(Int(stickyHeaderHeight))")
+                Text("layer=UIKit p=\(Int(contentOriginYRest)) top=\(Int(topInset)) H=\(Int(stickyHeaderHeight))")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.white.opacity(0.75))
             }
@@ -923,49 +912,116 @@ private struct StickyHeaderHeightKey: PreferenceKey {
     }
 }
 
-// MARK: - 🔴 background 层原点实测（UIKit 直量 window 坐标，不信 GeometryReader）
+// MARK: - 🔴 大图 UIKit 浮层（插到 UINavigationBar 之下，绕过所有 SwiftUI 遮盖层）
 
-/// 0 高度探针：量出自己所在层在 window 里的真实 y。
-/// 上一轮用 `GeometryProxy.frame(in:.global).minY` 校正大图，真机上报 0 而实际层在 180pt，
-/// 白顶照旧；这里改成 UIView 的 `convert(.zero, to: window)`，是最底层的 UIKit 事实。
-private struct LayerOriginProbe: UIViewRepresentable {
-    let onChange: (CGFloat) -> Void
+/// 0 尺寸锚点：自己不绘制，只负责把一个 UIHostingController（大图）挂到
+/// UINavigationController.view 里、`UINavigationBar` 的正下方。
+///
+/// 这样大图在视图层级里**高于 SwiftUI 内容容器、低于导航栏按钮**：
+/// - 盖住 UIKit 导航栏/容器那层不透明背景（0~180pt 白块的元凶）；
+/// - 返回 / 收藏 / 歌手名 仍是 UINavigationBar 的子视图，正常显示、正常点击；
+/// - frame 用屏幕绝对坐标，不受 SwiftUI 安全区 / contentInset / clipsToBounds 影响；
+/// - 滚动只改 frame.origin.y，不重建 SwiftUI 视图树（封面 @State 不会被重置、不闪图）。
+private struct ArtistHeroLayer: UIViewRepresentable {
+    let scrolled: CGFloat
+    let headerHeight: CGFloat
+    let hideThreshold: CGFloat
+    let hero: AnyView
 
-    func makeUIView(context: Context) -> ProbeView {
-        let v = ProbeView()
-        v.backgroundColor = .clear
-        v.onChange = onChange
+    func makeUIView(context: Context) -> AnchorView {
+        let v = AnchorView()
+        v.headerHeight = headerHeight
+        v.hideThreshold = hideThreshold
+        v.buildHero = { [hero] in
+            let host = UIHostingController(rootView: hero)
+            let view = host.view!
+            view.backgroundColor = .clear
+            view.isUserInteractionEnabled = false
+            view.clipsToBounds = true
+            return (view, host)
+        }
         return v
     }
 
-    func updateUIView(_ uiView: ProbeView, context: Context) {
-        uiView.onChange = onChange
-        uiView.report()
+    func updateUIView(_ uiView: AnchorView, context: Context) {
+        uiView.scrolled = scrolled
+        uiView.applyFrame()
     }
 
-    final class ProbeView: UIView {
-        var onChange: ((CGFloat) -> Void)?
-        private var lastY: CGFloat?
+    final class AnchorView: UIView {
+        var scrolled: CGFloat = 0
+        var headerHeight: CGFloat = 350
+        var hideThreshold: CGFloat = 262
+        var buildHero: (() -> (UIView, UIHostingController<AnyView>))?
 
-        func report() {
-            guard let w = window else { return }
-            let y = convert(CGPoint.zero, to: w).y
-            guard lastY == nil || abs((lastY ?? 0) - y) > 0.5 else { return }
-            lastY = y
-            onChange?(y)
-        }
+        private var heroView: UIView?
+        private var hosting: UIHostingController<AnyView>?
+        private weak var container: UIView?
+        private var retry = 0
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            report()
-            // 首帧安全区/布局未定，稍后再量两次
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.report() }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.report() }
+            if window == nil {
+                heroView?.removeFromSuperview()
+                heroView = nil
+                hosting = nil
+                container = nil
+                return
+            }
+            installIfNeeded()
         }
 
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            report()
+        /// 沿响应链找本页所在的导航控制器，拿到它的 navigationBar。
+        private func resolveBar() -> UINavigationBar? {
+            var node: UIResponder? = self
+            while let cur = node {
+                if let vc = cur as? UIViewController, let nav = vc.navigationController {
+                    return nav.navigationBar
+                }
+                node = cur.next
+            }
+            return nil
+        }
+
+        private func installIfNeeded() {
+            guard heroView == nil, let build = buildHero else { return }
+            // 🔴 绝不 fallback 到 rootView.addSubview —— 那会把大图盖在返回/收藏按钮上。
+            //    首帧响应链可能还没连到导航控制器，稍后重试即可。
+            guard let bar = resolveBar(), let parent = bar.superview else {
+                if retry < 6 {
+                    retry += 1
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                        self?.installIfNeeded()
+                    }
+                }
+                return
+            }
+            let (view, host) = build()
+            hosting = host
+            heroView = view
+            container = parent
+            view.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: headerHeight)
+            parent.insertSubview(view, belowSubview: bar)
+            applyFrame()
+        }
+
+        func applyFrame() {
+            guard let view = heroView else { return }
+            // window 原点换算到容器坐标，容器不是全屏时也不会错位。
+            var origin = CGPoint.zero
+            if let win = window, let parent = container {
+                origin = parent.convert(CGPoint.zero, from: win)
+            }
+            view.frame.origin = CGPoint(x: origin.x, y: origin.y - scrolled)
+            // 与 SwiftUI 侧毛玻璃的渐入区间（collapseProgress 0.8→1）同步淡出，
+            // 浮层在 bar 之下、SwiftUI 毛玻璃之上，不淡出会把渐入的材质压住。
+            let fadeStart = hideThreshold * 0.8
+            if scrolled <= fadeStart {
+                view.alpha = 1
+            } else {
+                view.alpha = max(0, 1 - (scrolled - fadeStart) / max(1, hideThreshold - fadeStart))
+            }
+            view.isHidden = scrolled >= hideThreshold
         }
     }
 }
