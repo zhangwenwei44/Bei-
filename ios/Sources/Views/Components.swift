@@ -680,40 +680,8 @@ struct CoverImage: View {
                         .frame(width: w, height: h, alignment: imageAlignment)
                         .clipped()
                 } else {
-                    // 🔴 铺满 + 指定对齐：**手动算缩放与偏移**，确定性 100%。
-                    //
-                    // 之前用 `.aspectRatio(contentMode: .fill).frame(width:height:alignment:)`，
-                    // 但 aspectRatio 的 .fill 只做**居中**裁切，
-                    // 后面 frame 的 alignment 对它完全无效 →
-                    //   ① 照片按"适配宽度"缩放、只占画框下半截，上面一大截露出浅灰兜底（白顶）；
-                    //   ② 歌手头部被居中裁掉（用户反馈"图片显示不全"）。
-                    //
-                    // 这里自己算：等比放大到**刚好覆盖** (w,h)（scale = max，必铺满），
-                    // 再按对齐方式摆放（.top = 头顶齐平，露头部不裁顶）。
-                    let iw = max(image.size.width, 1)
-                    let ih = max(image.size.height, 1)
-                    let scale = max(w / iw, h / ih)
-                    let sw = iw * scale
-                    let sh = ih * scale
-                    // 以画框左上角为基准摆放：水平永远居中，垂直按对齐方式。
-                    let dx = (w - sw) / 2
-                    let dy: CGFloat
-                    if imageAlignment == .top {
-                        dy = 0
-                    } else if imageAlignment == .bottom {
-                        dy = h - sh
-                    } else {
-                        dy = (h - sh) / 2
-                    }
-                    Color.clear
-                        .frame(width: w, height: h)
-                        .overlay(alignment: .topLeading) {
-                            Image(uiImage: image)
-                                .resizable()
-                                .frame(width: sw, height: sh)
-                                .offset(x: dx, y: dy)
-                        }
-                        .clipped()
+                    // 🔴 铺满 + 指定对齐：手动算缩放与偏移（见 CoverFillLayer 注释）。
+                    CoverFillLayer(image: image, width: w, height: h, alignment: imageAlignment)
                 }
             } else {
                 Image(systemName: "music.note")
@@ -775,6 +743,60 @@ struct CoverImage: View {
         return UIImage(cgImage: cgImage)
     }
 }
+
+// MARK: - 🔴 CoverImage 的 .fill 图层（手动算缩放与偏移，铺满画框）
+
+/// .fill 模式下把图片**等比放大到刚好铺满** (width, height) 的图层。
+///
+/// ## 为什么不用 `.aspectRatio(.fill).frame(width:height:alignment:)`
+/// `aspectRatio` 的 `.fill` 只做**居中**裁切，它后面的 frame `alignment`（如 `.top`）
+/// 对它**完全无效** —— 结果是：
+/// - ① 宽幅封面按"适配宽度"缩放、只占画框下半截，上半截透明 → 透出页面底色 = **白顶**；
+/// - ② 歌手头部被居中裁掉 = **图片显示不全**。
+///
+/// 这里改成自己算：`scale = max(w/iw, h/ih)` 必定放大到覆盖整个画框，
+/// 再按 alignment 摆放（`.top` = 头顶齐平，露头部不裁顶），最后裁切。
+private struct CoverFillLayer: View {
+    let image: UIImage
+    let width: CGFloat
+    let height: CGFloat
+    let alignment: Alignment
+
+    /// 缩放系数：取 max，必定等比放大到**覆盖**整个画框 (width, height)，不会留白边。
+    private var scale: CGFloat {
+        let iw = max(image.size.width, 1)
+        let ih = max(image.size.height, 1)
+        return max(width / iw, height / ih)
+    }
+
+    /// 缩放后的图片宽高。
+    private var scaledSize: CGSize {
+        CGSize(width: image.size.width * scale, height: image.size.height * scale)
+    }
+
+    /// 水平偏移：永远居中。
+    private var dx: CGFloat { (width - scaledSize.width) / 2 }
+
+    /// 垂直偏移：按对齐方式（.top = 头顶齐平，露头部不裁顶）。
+    private var dy: CGFloat {
+        if alignment == .top { return 0 }
+        if alignment == .bottom { return height - scaledSize.height }
+        return (height - scaledSize.height) / 2
+    }
+
+    var body: some View {
+        Color.clear
+            .frame(width: width, height: height)
+            .overlay(alignment: .topLeading) {
+                Image(uiImage: image)
+                    .resizable()
+                    .frame(width: scaledSize.width, height: scaledSize.height)
+                    .offset(x: dx, y: dy)
+            }
+            .clipped()
+    }
+}
+
 
 /// 封面图片下载。优先 https：设备上 ATS 会拦明文 http（Info.plist 放行了也没用），
 /// 所以 http 地址一律先换 https 试，https 不通再回头试原地址。
