@@ -365,9 +365,12 @@ struct ArtistDetailView: View {
 
     // MARK: - 顶部大图（滚动内容第一项，随列表上滑）
 
-    /// 大图本体：作为 ScrollView 内容的**第一项**放进滚动内容，因此必然随列表一起上滑（不会冻在顶部）；
-    /// ScrollView 整体忽略顶部安全区，使其静止时顶到 y=0、盖住透明导航栏。
-    /// ignoresSafeArea(.top) 再补一层，确保铺到屏幕最上端；上滑时整块随内容移走，歌手名 / 粉丝淡出交给导航栏。
+    /// 大图本体：作为**滚动容器的 overlay**（不是滚动内容的第一项），位置由实测坐标算出、
+    /// 静止时精确落在屏幕 y=0（盖住透明导航栏），上滑时按 1:1 与列表同步上移。
+    ///
+    /// 🔴 为什么不做成滚动内容的第一项：那样「ScrollView 的 ignoresSafeArea」和
+    /// 「大图自己的 ignoresSafeArea」会叠加计算，把大图整体下推 2 个安全区（实测 180pt），
+    /// 顶部就露出页面底色 = 白顶。改成 overlay 后彻底没有这个叠加点。
     private var heroImageContent: some View {
         let screenW = UIScreen.main.bounds.width
         return ZStack(alignment: .bottom) {
@@ -425,16 +428,6 @@ struct ArtistDetailView: View {
 
                     Spacer()
                 }
-
-                // 🔴 构建标识：CI 把本次 commit 写进 Info.plist（GitCommit），
-                // 这里显示出来，避免"装了旧包却以为是新包"导致反复误判。
-                if let buildTag = Bundle.main.infoDictionary?["GitCommit"] as? String,
-                   !buildTag.isEmpty {
-                    Text(buildTag)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.4))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
@@ -443,6 +436,22 @@ struct ArtistDetailView: View {
         }
         .frame(width: screenW, height: headerBaseHeight)
         .clipped()
+        // 🔴 构建标识：CI 把本次 commit 写进 Info.plist（GitCommit），显示在大图右下角，
+        // 避免"装了旧包却以为是新包"导致反复误判。确认修复后即可移除。
+        .overlay(alignment: .bottomTrailing) {
+            if let buildTag = Bundle.main.infoDictionary?["GitCommit"] as? String,
+               !buildTag.isEmpty {
+                Text(buildTag)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(.black.opacity(0.22)))
+                    .padding(.trailing, 12)
+                    .padding(.bottom, 8)
+            }
+        }
     }
 
     /// 钉在顶部的固定导航栏背景：展示大图顶部切片 + 深色渐变 + 毛玻璃。
