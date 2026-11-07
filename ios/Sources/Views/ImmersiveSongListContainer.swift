@@ -274,7 +274,8 @@ struct ImmersiveNavTitle: View {
         Text(title)
             .font(.system(size: 17, weight: .semibold))
             .foregroundStyle(color)
-            .shadow(color: .black.opacity(0.3 * (1 - opacity)), radius: 2, y: 1)
+            // 显式 Double：CGFloat 与 Double 字面量混合做 `-`/`*` 会触发 ambiguous use of operator。
+            .shadow(color: .black.opacity(0.3 * (1 - Double(opacity))), radius: 2, y: 1)
             .lineLimit(1)
             .opacity(opacity)
     }
