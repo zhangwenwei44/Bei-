@@ -112,6 +112,22 @@ jobs:
           grep -m1 objectVersion AuroraMusic.xcodeproj/project.pbxproj
           xcodebuild -list -project AuroraMusic.xcodeproj
 
+      - name: Inject build info into Info.plist
+        working-directory: ios
+        run: |
+          set -uo pipefail
+          # 把本次构建的 commit 写进 Info.plist：App 内可显示，便于确认「装的是哪个包」。
+          # 🔴 这一步绝不能失败阻断构建，任何异常都只告警。
+          SHORT="${GITHUB_SHA:0:7}"
+          PLIST="Sources/Resources/Info.plist"
+          if /usr/libexec/PlistBuddy -c "Set :GitCommit $SHORT" "$PLIST" 2>/dev/null; then
+            echo "GitCommit=$SHORT"
+          elif /usr/libexec/PlistBuddy -c "Add :GitCommit string $SHORT" "$PLIST" 2>/dev/null; then
+            echo "GitCommit=$SHORT"
+          else
+            echo "::warning::无法写入 GitCommit，继续构建"
+          fi
+
       - name: Build (device, no signing)
         working-directory: ios
         continue-on-error: true
