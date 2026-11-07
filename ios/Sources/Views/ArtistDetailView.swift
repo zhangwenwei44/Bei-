@@ -978,12 +978,14 @@ private struct ScrollViewOffsetTracker: UIViewRepresentable {
             let offsetY = sv.contentOffset.y
 
             // 静止基准：第一次观测到的位置，或「已经停在顶部且没有回弹/拖拽」时的位置。
-            // （回弹时 offsetY 会小于基准，必须跳过，否则松手后会被算成已滚动。）
+            // （回弹时 offsetY 会小于基准，必须跳过，否则松手后会被算成已滚动。
+            //   注意：iOS 的 UIScrollView 没有 isBouncing（那是 macOS NSScrollView 的），
+            //   下拉回弹期间 isDragging / isDecelerating / isTracking 会为 true，用它们排除。）
             if !restReady {
                 restOffsetY = offsetY
                 restReady = true
             } else if offsetY <= restOffsetY + 0.5,
-                      !sv.isDragging, !sv.isDecelerating, !sv.isBouncing {
+                      !sv.isDragging, !sv.isDecelerating, !sv.isTracking {
                 restOffsetY = offsetY
             }
 
