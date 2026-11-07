@@ -673,11 +673,48 @@ struct CoverImage: View {
                                endPoint: .bottomTrailing)
             }
             if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: contentMode)
-                    .frame(width: w, height: h, alignment: imageAlignment)
-                    .clipped()
+                if contentMode == .fit {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: w, height: h, alignment: imageAlignment)
+                        .clipped()
+                } else {
+                    // 🔴 铺满 + 指定对齐：**手动算缩放与偏移**，确定性 100%。
+                    //
+                    // 之前用 `.aspectRatio(contentMode: .fill).frame(width:height:alignment:)`，
+                    // 但 aspectRatio 的 .fill 只做**居中**裁切，
+                    // 后面 frame 的 alignment 对它完全无效 →
+                    //   ① 照片按"适配宽度"缩放、只占画框下半截，上面一大截露出浅灰兜底（白顶）；
+                    //   ② 歌手头部被居中裁掉（用户反馈"图片显示不全"）。
+                    //
+                    // 这里自己算：等比放大到**刚好覆盖** (w,h)（scale = max，必铺满），
+                    // 再按对齐方式摆放（.top = 头顶齐平，露头部不裁顶）。
+                    let iw = max(image.size.width, 1)
+                    let ih = max(image.size.height, 1)
+                    let scale = max(w / iw, h / ih)
+                    let sw = iw * scale
+                    let sh = ih * scale
+                    // 以画框左上角为基准摆放：水平永远居中，垂直按对齐方式。
+                    let dx = (w - sw) / 2
+                    let dy: CGFloat
+                    if imageAlignment == .top {
+                        dy = 0
+                    } else if imageAlignment == .bottom {
+                        dy = h - sh
+                    } else {
+                        dy = (h - sh) / 2
+                    }
+                    Color.clear
+                        .frame(width: w, height: h)
+                        .overlay(alignment: .topLeading) {
+                            Image(uiImage: image)
+                                .resizable()
+                                .frame(width: sw, height: sh)
+                                .offset(x: dx, y: dy)
+                        }
+                        .clipped()
+                }
             } else {
                 Image(systemName: "music.note")
                     .font(.system(size: min(w, h) * 0.32, weight: .medium))

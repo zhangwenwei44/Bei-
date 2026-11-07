@@ -75,9 +75,19 @@ struct ArtistDetailView: View {
                     .frame(height: 0)
 
                     // 大图本体：放进滚动内容，随列表上滑、滚走后由毛玻璃导航栏接管。
+                    //
+                    // 🔴 大图**绝对不能**再叠一层 `.ignoresSafeArea(edges: .top)`：
+                    // 外层 ScrollView 已经 ignoresSafeArea(.top)，大图再加一次 →
+                    // 安全区被重复计算，整块大图被下推约一个安全区（≈92pt），
+                    // 顶部导航栏后面就露出页面底色 = **白顶**。
+                    // （run 实测：白区 RGB(246,247,249) 精确等于 AppStyle.background(0xF6F7F9)，
+                    //  就是页面底色，不是导航栏底色；大图底边在 350pt=headerBaseHeight，
+                    //  顶边却在 180pt，正好差一个安全区。）
+                    // 本项目 kugouPinnedTopFade 的注释里也记着这条经验：
+                    //   ".ignoresSafeArea 绝不能加在整个视图上，只能加在 background 层"。
                     heroImageContent
 
-                    // 吸顶头占位：预留「分段 Tab + 全部播放」的高度，列表从它下方开始；
+                    // 吸顶头占位：预留「分段 Tab + 全部播放」的高度，列表从吸顶头下方开始；
                     // 高度跟随吸顶头实测值（stickyHeaderHeight），保证列表紧贴吸顶头。
                     Color.clear.frame(height: stickyHeaderHeight)
 
@@ -388,8 +398,6 @@ struct ArtistDetailView: View {
         }
         .frame(width: screenW, height: headerBaseHeight)
         .clipped()
-        // 🔴 大图盖住状态栏（与之前一致）。
-        .ignoresSafeArea(edges: .top)
     }
 
     /// 钉在顶部的固定导航栏背景：展示大图顶部切片 + 深色渐变 + 毛玻璃。
