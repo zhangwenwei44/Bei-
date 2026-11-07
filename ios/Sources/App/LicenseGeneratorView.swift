@@ -113,7 +113,13 @@ struct LicenseGeneratorView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var store = LicenseRecordStore.shared
 
-    @State private var unlocked = LicenseAdmin.isUnlocked || CloudAccount.shared.isAdmin
+    /// 🔴 2026-11-07：用户要求「设置里连点 7 次版本」直接进生成器，**不用再验证云账号**。
+    /// 生成器本身只在本地算授权码、记录存本机 UserDefaults，**不碰云端**，
+    /// 所以从这个隐藏入口进来时不需要管理员账号校验。
+    /// ⚠️ 实验室（LabView）里的入口仍保留校验——那里能改云端横幅，必须验管理员。
+    let requireCloudLogin: Bool
+
+    @State private var unlocked = false
     @State private var adminEmail = ""
     @State private var adminPassword = ""
     @State private var passError: String?
@@ -125,6 +131,14 @@ struct LicenseGeneratorView: View {
     @State private var toast: String?
     @State private var showShare = false
     @State private var shareText = ""
+
+    init(requireCloudLogin: Bool = true) {
+        self.requireCloudLogin = requireCloudLogin
+        // 免验证入口直接放行；需要校验的入口沿用原来的判断（已解锁过 / 当前就是管理员）。
+        _unlocked = State(initialValue: requireCloudLogin
+                          ? (LicenseAdmin.isUnlocked || CloudAccount.shared.isAdmin)
+                          : true)
+    }
 
     private var trimmedDevice: String {
         deviceInput.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -141,7 +141,9 @@ struct LockScreenView: View {
         }
         .onTapGesture { focused = false }
         .sheet(isPresented: $showGenerator) {
-            LicenseGeneratorView()
+            // 🔴 2026-11-07：应急入口（连点 7 次）直接放行，不用再验证云账号 ——
+            // 本机还没激活时也要能给别人签授权码，不能被登录卡住。
+            LicenseGeneratorView(requireCloudLogin: false)
         }
     }
 

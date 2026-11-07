@@ -552,8 +552,8 @@ struct ProfileView: View {
             case .update: UpdateView()
             case .changelog: ChangelogView()
             case .kugouLogin: KugouLoginSheet()
-            case .licenseMaker: LicenseGeneratorView()
-            case .unlock: LicenseGeneratorView()   // 🔴 解锁码：打开授权码生成器（真实功能）
+            case .licenseMaker: LicenseGeneratorView(requireCloudLogin: false)
+            case .unlock: LicenseGeneratorView(requireCloudLogin: false)   // 🔴 解锁码：打开授权码生成器（真实功能）
             case .banner: LabView()                // 🔴 横屏广告更换：打开横幅广告管理（真实功能）
             }
         }
