@@ -37,6 +37,8 @@ struct ArtistDetailView: View {
     /// 下一张截图就能确认 KVO / 内边距是否生效，不用再靠推理猜。
     @State private var debugAdjustedTop: CGFloat = -1
     @State private var debugContentInsetTop: CGFloat = -1
+    /// background 层在 window 里的实测 y（用于把大图顶边校正到屏幕 0）
+    @State private var debugLayerRootY: CGFloat = 0
 
     /// 🔴 吸顶头（分段 Tab + 全部播放）的高度：由 PreferenceKey 实测，
     /// 用来给滚动内容预留占位，使列表从吸顶头下方开始。
@@ -70,14 +72,15 @@ struct ArtistDetailView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // ① 滚动容器：**只放占位 + 列表**。
+            // ① 滚动容器：**只放占位 + 列表**；大图挂在它的 background 层（见 scrollBackground）。
             //
-            // 🔴 2026-11-07 实锤（像素剖析：大图只露出 180~350pt，0~180pt 是页面底色）：
-            //    大图一旦放进 ScrollView 内容，就会被滚动容器的 frame / clipsToBounds 裁掉
-            //    顶部那一截。无论怎么抵消 contentInset、怎么 offset，都改不了**裁剪边界**，
-            //    所以前几轮"内容原点"方案在真机上全部无效（白顶恒为 180pt）。
-            //    现在把大图提到 ZStack 的独立层（②），用屏幕绝对坐标定位，
-            //    彻底不受 ScrollView 安全区 / 内边距 / 裁切影响。
+            // 🔴 2026-11-07 第 N+2 轮实锤：上一版把大图做成 ZStack 独立层 + GeometryReader
+            //    「屏幕绝对坐标」，真机上白顶仍是 180pt —— 因为 SwiftUI 把那个
+            //    GeometryReader 层实际放在了屏幕 180pt，而 `frame(in:.global).minY` 却报 0，
+            //    **坐标系换算完全不可信**。现在改用项目里验证过的模式：
+            //    大图挂在 ScrollView 的 background 层 + 只给 background 层加 ignoresSafeArea，
+            //    background 层不受 UIScrollView 内容裁切；再用 UIView 探针直量该层 window y
+            //    （LayerOriginProbe）校正，不信任何 GeometryReader 坐标。
             ScrollView {
                 VStack(spacing: 0) {
                     // 🔴 滚动几何探针：必须放进滚动内容内部（不能放 .background），
@@ -104,20 +107,16 @@ struct ArtistDetailView: View {
                     }
                 }
             }
-            .background(AppStyle.background)
-            // 🔴 绝不给 ScrollView 加 ignoresSafeArea(edges:.top)：
+            .background(scrollBackground)
+            // 🔴 绝不给 ScrollView 本体加 ignoresSafeArea(edges:.top)：
             //    每加一层都会再下推一个安全区（180pt 白顶正是两层叠加的结果）。
 
-            // ② 大图：独立层，屏幕绝对坐标（见 heroOverlay），随列表 1:1 上滑。
-            heroOverlay
-                .allowsHitTesting(false)
-
-            // ③ 毛玻璃导航栏背景：大图滚走后渐入，系统工具栏（返回 / 收藏）浮在其上。
+            // ② 毛玻璃导航栏背景：大图滚走后渐入，系统工具栏（返回 / 收藏）浮在其上。
             //    用 offset 把它从「导航栏下沿」提到屏幕最顶端（0 ~ topInset）。
             navbarFrostedBackground
                 .offset(y: -topInset)
 
-            // ④ 吸顶头（分段 Tab + 全部播放）：钉在顶栏下方，不随列表滚走；
+            // ③ 吸顶头（分段 Tab + 全部播放）：钉在顶栏下方，不随列表滚走；
             //    大图未收起时贴着大图底边一起走，收起后固定在顶栏正下方。
             stickyHeader
                 .offset(y: stickyY)
@@ -305,24 +304,30 @@ struct ArtistDetailView: View {
     /// 目标 = 大图底边(350) + 吸顶头高 H → 占位 = 350 + H − p。
     /// p 实测不到时至少按 topInset 兜底（ScrollView 落在安全区内时 p ≈ topInset）。
     private var listPlaceholder: CGFloat {
-        let p = max(topInset, contentOriginYRest)
+        // 🔴 HUD 实测 p=0 / adj=0 / inset=0：归一化后内容原点就是 0。
+        //    不能再拿 topInset(88) 兜底 —— 那样占位少 88pt，吸顶头会和列表重叠
+        //    （本轮截图里「全部播放」压在「晴天/发如雪」上就是这个原因）。
+        let p = max(0, contentOriginYRest)
         return max(0, headerBaseHeight + stickyHeaderHeight - p)
     }
 
-    /// 🔴 大图独立层：**屏幕绝对坐标**定位，不受 ScrollView 裁切/安全区影响。
+    /// 🔴 大图所在的 background 层：不受 UIScrollView 内容裁切。
     ///
-    /// GeometryReader 的坐标系原点未必是 y=0（ZStack 在安全区内时是 topInset），
-    /// 所以用 `geo.frame(in: .global).minY` **直接量**出根原点并减掉：
-    /// 大图中心 = (350/2 − rootY − scrolled) + rootY = 175 − scrolled（屏幕坐标），
-    /// 顶边恒为 −scrolled → 静止时从屏幕 y=0 起、铺满状态栏+透明导航栏，
-    /// 上滑时与列表 1:1 同步滚走。
-    private var heroOverlay: some View {
-        GeometryReader { geo in
+    /// `LayerOriginProbe` 用 UIKit `convert(.zero, to: window)` **直量本层在 window 里的 y**，
+    /// 再用 offset 减掉它：无论 SwiftUI 把这层放在 y=0 还是 y=180，大图顶边都落在屏幕 0。
+    /// 滚动时再减 `headerScroll`，与列表 1:1 同步上移。
+    private var scrollBackground: some View {
+        ZStack(alignment: .top) {
+            AppStyle.background
+            LayerOriginProbe { y in
+                DispatchQueue.main.async { debugLayerRootY = y }
+            }
+            .frame(height: 0)
             heroImageContent
-                .position(x: geo.size.width / 2,
-                          y: headerBaseHeight / 2 - geo.frame(in: .global).minY - headerScroll)
+                .offset(y: -debugLayerRootY - headerScroll)
         }
         .ignoresSafeArea(edges: .top)
+        .allowsHitTesting(false)
     }
 
     /// 🔴 用户要求：毛玻璃导航栏背景只在「滚到图片底部、图片快滚完」时才渐显，
@@ -363,13 +368,14 @@ struct ArtistDetailView: View {
         )
     }
 
-    // MARK: - 顶部大图（ZStack 独立层，屏幕绝对坐标，随列表上滑）
+    // MARK: - 顶部大图（ScrollView 的 background 层，随列表上滑）
 
-    /// 大图本体：由 `heroOverlay` 用屏幕绝对坐标摆放（不是滚动内容的一项）。
+    /// 大图本体：由 `scrollBackground` 挂在滚动容器的背景层上（不是滚动内容的一项）。
     ///
-    /// 🔴 为什么不能放进 ScrollView：滚动容器的 frame 从导航栏下沿开始且 clipsToBounds，
-    ///    大图顶部那一截（状态栏 + 导航栏 ≈ 91pt，安全区叠加时 180pt）会被**裁掉**，
-    ///    再怎么抵消 contentInset / offset 都补不回被裁的像素。
+    /// 🔴 为什么不能放进 ScrollView 内容：滚动容器 frame 从导航栏下沿开始且 clipsToBounds，
+    ///    大图顶部那一截（安全区叠加时 ≈180pt）会被**裁掉**，抵消 contentInset / offset 都补不回。
+    ///    background 层不受内容裁切，且只在这一层加 ignoresSafeArea，是项目验证过的可靠做法。
+    ///    层原点由 `LayerOriginProbe` 用 UIKit 直量后扣掉，保证大图顶边落在屏幕 y=0。
     private var heroImageContent: some View {
         let screenW = UIScreen.main.bounds.width
         return ZStack(alignment: .bottom) {
@@ -449,7 +455,7 @@ struct ArtistDetailView: View {
                 Text("p=\(Int(contentOriginYRest)) adj=\(Int(debugAdjustedTop)) inset=\(Int(debugContentInsetTop))")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.white.opacity(0.75))
-                Text("s=\(Int(headerScroll)) top=\(Int(topInset)) H=\(Int(stickyHeaderHeight))")
+                Text("s=\(Int(headerScroll)) root=\(Int(debugLayerRootY)) top=\(Int(topInset)) H=\(Int(stickyHeaderHeight))")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.white.opacity(0.75))
             }
@@ -914,6 +920,53 @@ private struct StickyHeaderHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 100
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
+    }
+}
+
+// MARK: - 🔴 background 层原点实测（UIKit 直量 window 坐标，不信 GeometryReader）
+
+/// 0 高度探针：量出自己所在层在 window 里的真实 y。
+/// 上一轮用 `GeometryProxy.frame(in:.global).minY` 校正大图，真机上报 0 而实际层在 180pt，
+/// 白顶照旧；这里改成 UIView 的 `convert(.zero, to: window)`，是最底层的 UIKit 事实。
+private struct LayerOriginProbe: UIViewRepresentable {
+    let onChange: (CGFloat) -> Void
+
+    func makeUIView(context: Context) -> ProbeView {
+        let v = ProbeView()
+        v.backgroundColor = .clear
+        v.onChange = onChange
+        return v
+    }
+
+    func updateUIView(_ uiView: ProbeView, context: Context) {
+        uiView.onChange = onChange
+        uiView.report()
+    }
+
+    final class ProbeView: UIView {
+        var onChange: ((CGFloat) -> Void)?
+        private var lastY: CGFloat?
+
+        func report() {
+            guard let w = window else { return }
+            let y = convert(CGPoint.zero, to: w).y
+            guard lastY == nil || abs((lastY ?? 0) - y) > 0.5 else { return }
+            lastY = y
+            onChange?(y)
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            report()
+            // 首帧安全区/布局未定，稍后再量两次
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.report() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.report() }
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            report()
+        }
     }
 }
 
