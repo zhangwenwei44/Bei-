@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// 歌手主页：酷狗同款大图头部（歌手名 + 粉丝 + 黄色收藏）+ 金色下划线分段
+/// 歌手主页：酷狗同款大图头部（歌手名 + 粉丝 + 蓝色收藏）+ 金色下划线分段
 /// 「单曲 / 专辑」+ 全部播放行（最新/最热排序）+ 扁平化编号歌曲列表 + 多选下载。
 struct ArtistDetailView: View {
     let artist: Artist
@@ -33,17 +33,14 @@ struct ArtistDetailView: View {
     /// 这时用它把大图和列表精确对位（安全网）。
     @State private var contentOriginYRest: CGFloat = 0
 
-    /// 🔴 临时几何自检（验证完移除）：真机把 UIKit 实测值显示在大图右下角，
-    /// 下一张截图就能确认 KVO / 内边距是否生效，不用再靠推理猜。
-    @State private var debugAdjustedTop: CGFloat = -1
-    @State private var debugContentInsetTop: CGFloat = -1
-
     /// 🔴 吸顶头（分段 Tab + 全部播放）的高度：由 PreferenceKey 实测，
     /// 用来给滚动内容预留占位，使列表从吸顶头下方开始。
     @State private var stickyHeaderHeight: CGFloat = 100
 
-    /// 酷狗同款收藏按钮的黄色
-    private static let collectYellow = Color(red: 0.98, green: 0.87, blue: 0.20)
+    /// 🔴 2026-11-07：收藏胶囊底色由黄色改为品牌蓝（#2CA2F9，与「全部播放」圆钮同色）。
+    /// 用固定值而不是 AppStyle.accent：顶栏 colorScheme 会随收起状态在 dark↔light 之间切换，
+    /// dynamic 色会跟着跳一下；固定值保证展开/收起时胶囊底色始终一致。
+    private static let collectBlue = Color(red: 44.0 / 255, green: 162.0 / 255, blue: 249.0 / 255)
 
     // 歌曲分页
     @State private var songPage = 1
@@ -85,8 +82,6 @@ struct ArtistDetailView: View {
                         DispatchQueue.main.async {
                             headerScroll = m.scrolled
                             contentOriginYRest = m.contentOriginYRest
-                            debugAdjustedTop = m.adjustedTop
-                            debugContentInsetTop = m.contentInsetTop
                         }
                     }
                     .frame(height: 0)
@@ -131,21 +126,25 @@ struct ArtistDetailView: View {
         }
         .onPreferenceChange(StickyHeaderHeightKey.self) { stickyHeaderHeight = $0 }
         .navigationBarTitleDisplayMode(.inline)
-        // 🔴 v2.9.8：导航栏一直浮在大图上 → 永远透明、白字，大图始终盖住顶栏。
-        .compatToolbarDynamicScheme(dark: true)
+        // 🔴 2026-11-07：系统返回按钮的 chevron 用全局 tintColor（蓝色），无法逐页改色。
+        //    隐藏它、改由 .topBarLeading 自绘「‹ 返回」，颜色才能跟右侧三点一起动态切换。
+        .navigationBarBackButtonHidden(true)
+        // 🔴 状态栏文字：大图在顶（深色）用白字；大图收起、毛玻璃浅底后改黑字。
+        .compatToolbarDynamicScheme(dark: navFrostOpacity < 0.5)
         .kugouNavigationBarBackground(.clear, transparent: true)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 if isSelecting {
                     Text("已选 \(selectedIDs.count) 首")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(navBarContentColor)
                 } else {
                     // 🔴 用户要求：大图随滚动收起，歌手名从大图中央渐隐、转入导航栏标题（与毛玻璃同步渐显）。
                     Text(artist.name)
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+                        .foregroundStyle(navBarContentColor)
+                        // 收起后是浅色毛玻璃，深色投影反而脏，随毛玻璃渐入淡出。
+                        .shadow(color: .black.opacity(0.3 * (1 - navFrostOpacity)), radius: 2, y: 1)
                         .lineLimit(1)
                         .opacity(navFrostOpacity)
                 }
@@ -163,8 +162,8 @@ struct ArtistDetailView: View {
                             .font(.system(size: 14, weight: .medium))
                     }
                 } else {
-                    // 🔴 v2.9.8：导航栏浮在大图上 → 图标统一白字；
-                    // 黄色收藏胶囊一直显示（大图钉在顶部，随时都能收藏）。
+                    // 🔴 2026-11-07：收藏胶囊底色改成品牌蓝；
+                    // 展开（深色大图）时文字与右侧三点同为白色，收起（浅色毛玻璃）后一起转黑。
                     HStack(spacing: 12) {
                         Button {
                             Haptics.soft()
@@ -172,10 +171,10 @@ struct ArtistDetailView: View {
                         } label: {
                             Text(library.isFavoriteArtist(artist) ? "已收藏" : "收藏")
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(.black.opacity(0.85))
+                                .foregroundStyle(navBarContentColor)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 6)
-                                .background(Capsule().fill(Self.collectYellow))
+                                .background(Capsule().fill(Self.collectBlue))
                         }
                         .buttonStyle(.plain)
                         Menu {
@@ -196,7 +195,7 @@ struct ArtistDetailView: View {
                             Image(systemName: "ellipsis")
                                 .font(.system(size: 16, weight: .semibold))
                                 .rotationEffect(.degrees(90))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(navBarContentColor)
                                 .frame(width: 30, height: 30)
                                 .contentShape(Rectangle())
                         }
@@ -211,6 +210,19 @@ struct ArtistDetailView: View {
                     } label: {
                         Text("完成").font(.system(size: 14, weight: .medium))
                     }
+                } else {
+                    // 🔴 自绘返回：颜色与右侧三点一致（展开白 / 收起黑），替代系统蓝色返回按钮。
+                    Button { dismiss() } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 17, weight: .semibold))
+                            Text("返回")
+                                .font(.system(size: 16, weight: .regular))
+                        }
+                        .foregroundStyle(navBarContentColor)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -325,6 +337,14 @@ struct ArtistDetailView: View {
         max(0, min(1, (collapseProgress - 0.8) / 0.2))
     }
 
+    /// 🔴 2026-11-07：顶栏文字/图标色 —— 展开时大图深色 → 白色（与右侧三点同色）；
+    /// 大图收起、毛玻璃（浅色）渐入后线性转黑，避免白字在浅底上看不见。
+    /// 与 `navbarFrostedBackground` 共用 `navFrostOpacity`，颜色切换和底色切换严格同步。
+    private var navBarContentColor: Color {
+        let whiteness = 1 - navFrostOpacity   // 0=纯黑（收起）/ 1=纯白（展开）
+        return Color(uiColor: UIColor(white: whiteness, alpha: 1))
+    }
+
     /// 🔴 吸顶头（分段 Tab + 全部播放）相对 ZStack 顶部的偏移。
     /// ZStack 顶部 = 导航栏底边（screen y = topInset）。
     /// 静止时吸顶头贴在大图底边（screen y = headerBaseHeight），
@@ -430,30 +450,17 @@ struct ArtistDetailView: View {
         }
         .frame(width: screenW, height: headerBaseHeight)
         .clipped()
-        // 🔴 构建标识 + 几何自检：CI 把本次 commit 写进 Info.plist（GitCommit），
-        // 避免"装了旧包却以为是新包"导致反复误判；几何数值让下一张截图能直接定位问题。
-        // 确认修复后即可移除。
+        // 🔴 白顶问题已验证修复，几何自检 HUD 移除；
+        // 只保留极小的 GitCommit 标签，方便截图时确认装的是新包（验证完即可去掉）。
         .overlay(alignment: .bottomTrailing) {
-            VStack(alignment: .trailing, spacing: 2) {
-                if let buildTag = Bundle.main.infoDictionary?["GitCommit"] as? String,
-                   !buildTag.isEmpty {
-                    Text(buildTag)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.75))
-                }
-                Text("p=\(Int(contentOriginYRest)) adj=\(Int(debugAdjustedTop)) inset=\(Int(debugContentInsetTop))")
+            if let buildTag = Bundle.main.infoDictionary?["GitCommit"] as? String,
+               !buildTag.isEmpty {
+                Text(buildTag)
                     .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.75))
-                Text("layer=UIKit p=\(Int(contentOriginYRest)) top=\(Int(topInset)) H=\(Int(stickyHeaderHeight))")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.75))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .padding(.trailing, 10)
+                    .padding(.bottom, 6)
             }
-            .padding(.horizontal, 5)
-            .padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(.black.opacity(0.3)))
-            .padding(.trailing, 10)
-            .padding(.bottom, 6)
         }
     }
 
@@ -1033,7 +1040,7 @@ private struct ArtistHeroLayer: UIViewRepresentable {
 /// 大图已移出滚动流、用屏幕绝对坐标定位，这些数值只用于：
 /// ① `scrolled` 驱动大图上滑 / 吸顶 / 毛玻璃；
 /// ② `contentOriginYRest` 计算列表顶部占位；
-/// ③④ 临时几何自检（显示在大图右下角）。
+/// ③④ 内边距归一化的自检值（白顶修复期间用于 HUD，现已不再显示，保留字段备查）。
 struct ScrollMetrics: Equatable {
     /// 内容已上移的距离（>=0）：滚动量。毛玻璃渐入 / 吸顶 / 大图上移都用它。
     var scrolled: CGFloat = 0
