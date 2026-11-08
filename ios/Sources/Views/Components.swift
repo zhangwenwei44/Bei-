@@ -1354,13 +1354,10 @@ struct SongRow: View {
     }
 }
 
-/// 行尾：收藏 + 下载（两按钮，去掉 ⋯ 给歌名腾空间）
+/// 行尾：收藏 + 三点竖「更多」（下载箭头按钮已收进菜单，2026-11-08 用户要求）。
 private struct RowTrailingButtons: View {
     let song: Song
     @ObservedObject private var library = LibraryStore.shared
-    @ObservedObject private var downloads = DownloadManager.shared
-    // 🔴 v2.9.14：点下载时弹音质选择（默认音质设为具体档位后不再弹）
-    @State private var showQualityPicker = false
 
     var body: some View {
         HStack(spacing: 4) {
@@ -1375,42 +1372,203 @@ private struct RowTrailingButtons: View {
             }
             .buttonStyle(.plain)
 
-            // 🔴 v2.9.9：下载中（等待/下载中）显示旋转进度圈代替下载箭头，并禁用按钮，
-            // 让所有列表（搜索/歌单/队列…）的下载状态都有可见反馈。
-            let isActive = downloads.item(for: song)?.state.isActive == true
-            Button {
-                if song.isRemote {
-                    Haptics.light()
-                    if downloads.defaultDownloadQuality == nil {
-                        // 🔴 v2.9.14：没设默认音质 → 先让用户选
-                        showQualityPicker = true
-                    } else {
-                        Task { _ = try? await downloads.download(song) }
+            SongMoreMenu(song: song)
+        }
+    }
+}
+
+// MARK: - 🔴 2026-11-08 歌曲行三点竖「更多」菜单（所有歌曲列表统一）
+
+/// 菜单：加入歌单 / 下载 / 加入播放列表 / 下一首播放。
+/// 已下载的歌额外给「删除下载」；登录酷狗且有 hash 时给「添加到酷狗歌单」。
+///
+/// 🔴 SF Symbol 红线：这里只用项目里已验证存在的符号名（最低 iOS 15），
+///    写错符号名不会报错、只会静默渲染空白。
+struct SongMoreMenu: View {
+    let song: Song
+    var iconSize: CGFloat = 16
+    var buttonSize: CGFloat = 36
+    var tint: Color = AppStyle.tertiaryText
+
+    @ObservedObject private var library = LibraryStore.shared
+    @ObservedObject private var downloads = DownloadManager.shared
+    @ObservedObject private var kugouAuth = KugouAuth.shared
+    @State private var activeSheet: MoreSheet?
+    @State private var showQualityPicker = false
+
+    private enum MoreSheet: String, Identifiable {
+        case localPlaylist, kugouPlaylist
+        var id: String { rawValue }
+    }
+
+    /// 已下载：磁盘有文件 / 本地导入 / 曲库下载列表里登记过（三种来源都算）。
+    private var isDownloaded: Bool {
+        downloads.isDownloaded(song)
+            || song.source == .local
+            || library.downloads.contains { $0.id == song.id }
+    }
+
+    var body: some View {
+        Menu {
+            Button { present(.localPlaylist) } label: {
+                Label("加入歌单", systemImage: "music.note.list")
+            }
+            if !song.kugouHash.isEmpty {
+                if kugouAuth.isLoggedIn {
+                    Button { present(.kugouPlaylist) } label: {
+                        Label("添加到酷狗歌单", systemImage: "icloud.and.arrow.up")
                     }
-                }
-            } label: {
-                if isActive {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(AppStyle.accent)
-                        .frame(width: 36, height: 36)
                 } else {
-                    Image(systemName: song.source == .local ? "arrow.down.circle.fill" : "arrow.down.circle")
-                        .font(.system(size: 16))
-                        .foregroundStyle(song.source == .local ? AppStyle.tertiaryText.opacity(0.4) : AppStyle.tertiaryText)
-                        .frame(width: 36, height: 36)
+                    Button {
+                        NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
+                    } label: {
+                        Label("登录后添加到酷狗歌单", systemImage: "icloud.and.arrow.up")
+                    }
                 }
             }
-            .buttonStyle(.plain)
-            .disabled(song.source == .local || isActive)
-            // 🔴 v2.9.14：下载音质选择
-            .confirmationDialog("选择下载音质", isPresented: $showQualityPicker, titleVisibility: .visible) {
-                ForEach(MusicQuality.allCases) { quality in
-                    Button(quality.title) {
-                        Task { _ = try? await downloads.download(song, quality: quality) }
+
+            Divider()
+
+            if isDownloaded {
+                Button(role: .destructive) {
+                    downloads.delete(song)
+                    Haptics.light()
+                } label: {
+                    Label("删除下载", systemImage: "trash")
+                }
+            } else if song.isRemote {
+                if downloads.item(for: song)?.state.isActive == true {
+                    Text("下载中…")
+                } else {
+                    Button { startDownload() } label: {
+                        Label("下载", systemImage: "arrow.down.circle")
                     }
                 }
-                Button("取消", role: .cancel) {}
+            }
+
+            Divider()
+
+            Button {
+                PlayerStore.shared.append([song])
+                Haptics.light()
+            } label: {
+                Label("加入播放列表", systemImage: "text.badge.plus")
+            }
+            Button {
+                // 🔴 插到当前曲目后面，不打断当前播放（playNow 是立刻切歌，语义不同）。
+                PlayerStore.shared.insertNext([song])
+                Haptics.light()
+            } label: {
+                Label("下一首播放", systemImage: "play.fill")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: iconSize, weight: .medium))
+                .rotationEffect(.degrees(90))
+                .foregroundStyle(tint)
+                .frame(width: buttonSize, height: buttonSize)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // 🔴 一个 sheet(item:) 承载两种选择页：iOS 15 上链式叠多个 .sheet 只有最后一个生效。
+        .sheet(item: $activeSheet) { item in
+            switch item {
+            case .localPlaylist: LocalPlaylistAddSheet(song: song)
+            case .kugouPlaylist: KugouPlaylistPicker(songs: [song], title: "添加到酷狗歌单")
+            }
+        }
+        .confirmationDialog("选择下载音质", isPresented: $showQualityPicker, titleVisibility: .visible) {
+            ForEach(MusicQuality.allCases) { quality in
+                Button(quality.title) {
+                    Task { _ = try? await downloads.download(song, quality: quality) }
+                }
+            }
+            Button("取消", role: .cancel) {}
+        }
+    }
+
+    /// 菜单消失动画期间立刻 present sheet 会弹不出来（项目里踩过），延后一拍。
+    private func present(_ sheet: MoreSheet) {
+        Haptics.light()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { activeSheet = sheet }
+    }
+
+    private func startDownload() {
+        Haptics.light()
+        if downloads.defaultDownloadQuality == nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { showQualityPicker = true }
+        } else {
+            Task { _ = try? await downloads.download(song) }
+        }
+    }
+}
+
+/// 「加入歌单」选择页：本地自建歌单 + 顺手新建一个（不依赖酷狗登录）。
+private struct LocalPlaylistAddSheet: View {
+    let song: Song
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var library = LibraryStore.shared
+    @State private var newName = ""
+
+    private var trimmedName: String {
+        newName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        CompatNavigationStack {
+            List {
+                Section("我的歌单") {
+                    if library.playlists.isEmpty {
+                        Text("还没有歌单，可以在下面新建一个")
+                            .font(.system(size: 13))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                    } else {
+                        ForEach(library.playlists) { playlist in
+                            Button {
+                                library.add(song, toPlaylist: playlist.id)
+                                Haptics.light()
+                                dismiss()
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "music.note.list")
+                                        .foregroundStyle(AppStyle.accent)
+                                    Text(playlist.name)
+                                        .font(.system(size: 15))
+                                        .foregroundStyle(AppStyle.primaryText)
+                                        .lineLimit(1)
+                                    Spacer(minLength: 0)
+                                    Text("\(playlist.songIDs.count) 首")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(AppStyle.tertiaryText)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                Section("新建歌单并加入") {
+                    HStack(spacing: 10) {
+                        TextField("歌单名称", text: $newName)
+                            .textFieldStyle(.plain)
+                        Button("新建") {
+                            guard !trimmedName.isEmpty else { return }
+                            let created = library.createPlaylist(name: trimmedName)
+                            library.add(song, toPlaylist: created.id)
+                            Haptics.light()
+                            dismiss()
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(AppStyle.accent)
+                        .disabled(trimmedName.isEmpty)
+                    }
+                }
+            }
+            .navigationTitle("加入歌单")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
             }
         }
     }

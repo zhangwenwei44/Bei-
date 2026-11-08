@@ -259,40 +259,32 @@ struct PlaylistDetailView: View {
                             .foregroundStyle(headerState.navContentColor)
                     }
                 } else {
-                    // 🔴 2026-11-08：顶栏只留「收藏胶囊 + 三点竖」，与歌手主页一致。
-                    //    原来的下载图标、圆圈勾多选按钮全部移除 —— 多选改到吸顶行右侧，
-                    //    下载全部 / 多选收进三点竖菜单，功能不丢但顶栏更干净。
-                    HStack(spacing: 8) {
+                    // 🔴 2026-11-08：收藏蓝胶囊移除，右上角只留三点竖；
+                    // 收藏 / 下载全部 / 多选下载统一收进菜单，功能不丢。
+                    Menu {
                         if localPlaylist == nil {
                             Button {
                                 isCollected.toggle()
                                 CollectionState.set(isCollected, for: playlist.id)
                                 Haptics.light()
                             } label: {
-                                Text(isCollected ? "已收藏" : "收藏")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(headerState.navContentColor)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(Capsule().fill(ImmersiveStyle.collectBlue))
+                                Label(isCollected ? "取消收藏" : "收藏歌单",
+                                      systemImage: isCollected ? "heart.slash" : "heart")
                             }
-                            .buttonStyle(.plain)
                         }
-                        Menu {
-                            Button { Task { await downloadAllSongs() } } label: {
-                                Label("下载全部", systemImage: "arrow.down.circle")
-                            }
-                            Button { isSelecting = true; selectedIDs.removeAll() } label: {
-                                Label("多选下载", systemImage: "checkmark.circle")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 16, weight: .semibold))
-                                .rotationEffect(.degrees(90))
-                                .foregroundStyle(headerState.navContentColor)
-                                .frame(width: 30, height: 30)
-                                .contentShape(Rectangle())
+                        Button { Task { await downloadAllSongs() } } label: {
+                            Label("下载全部", systemImage: "arrow.down.circle")
                         }
+                        Button { isSelecting = true; selectedIDs.removeAll() } label: {
+                            Label("多选下载", systemImage: "checkmark.circle")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 16, weight: .semibold))
+                            .rotationEffect(.degrees(90))
+                            .foregroundStyle(headerState.navContentColor)
+                            .frame(width: 30, height: 30)
+                            .contentShape(Rectangle())
                     }
                 }
             }
@@ -530,35 +522,28 @@ struct AlbumDetailView: View {
                             .foregroundStyle(headerState.navContentColor)
                     }
                 } else {
-                    // 🔴 2026-11-08：与歌单页/歌手页一致 —— 收藏胶囊 + 三点竖菜单。
-                    HStack(spacing: 8) {
+                    // 🔴 2026-11-08：收藏蓝胶囊移除，右上角只留三点竖。
+                    Menu {
                         Button {
                             _ = library.toggleAlbumFavorite(album)
                             Haptics.light()
                         } label: {
-                            Text(isFavorited ? "已收藏" : "收藏")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(headerState.navContentColor)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(Capsule().fill(ImmersiveStyle.collectBlue))
+                            Label(isFavorited ? "取消收藏" : "收藏专辑",
+                                  systemImage: isFavorited ? "heart.slash" : "heart")
                         }
-                        .buttonStyle(.plain)
-                        Menu {
-                            Button { Task { await downloadAllAlbumSongs() } } label: {
-                                Label("下载全部", systemImage: "arrow.down.circle")
-                            }
-                            Button { isSelecting = true; selectedIDs.removeAll() } label: {
-                                Label("多选下载", systemImage: "checkmark.circle")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 16, weight: .semibold))
-                                .rotationEffect(.degrees(90))
-                                .foregroundStyle(headerState.navContentColor)
-                                .frame(width: 30, height: 30)
-                                .contentShape(Rectangle())
+                        Button { Task { await downloadAllAlbumSongs() } } label: {
+                            Label("下载全部", systemImage: "arrow.down.circle")
                         }
+                        Button { isSelecting = true; selectedIDs.removeAll() } label: {
+                            Label("多选下载", systemImage: "checkmark.circle")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 16, weight: .semibold))
+                            .rotationEffect(.degrees(90))
+                            .foregroundStyle(headerState.navContentColor)
+                            .frame(width: 30, height: 30)
+                            .contentShape(Rectangle())
                     }
                 }
             }

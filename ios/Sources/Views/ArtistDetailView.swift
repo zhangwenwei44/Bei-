@@ -37,11 +37,6 @@ struct ArtistDetailView: View {
     /// 用来给滚动内容预留占位，使列表从吸顶头下方开始。
     @State private var stickyHeaderHeight: CGFloat = 100
 
-    /// 🔴 2026-11-07：收藏胶囊底色由黄色改为品牌蓝（#2CA2F9，与「全部播放」圆钮同色）。
-    /// 用固定值而不是 AppStyle.accent：顶栏 colorScheme 会随收起状态在 dark↔light 之间切换，
-    /// dynamic 色会跟着跳一下；固定值保证展开/收起时胶囊底色始终一致。
-    private static let collectBlue = Color(red: 44.0 / 255, green: 162.0 / 255, blue: 249.0 / 255)
-
     // 歌曲分页
     @State private var songPage = 1
     @State private var hasMoreSongs = true
@@ -162,43 +157,29 @@ struct ArtistDetailView: View {
                             .font(.system(size: 14, weight: .medium))
                     }
                 } else {
-                    // 🔴 2026-11-07：收藏胶囊底色改成品牌蓝；
-                    // 展开（深色大图）时文字与右侧三点同为白色，收起（浅色毛玻璃）后一起转黑。
-                    HStack(spacing: 12) {
+                    // 🔴 2026-11-08：收藏蓝胶囊移除，右上角只留三点竖。
+                    // 收藏歌手 / 多选下载都收进菜单，功能不丢。
+                    Menu {
                         Button {
                             Haptics.soft()
                             library.toggleArtistFavorite(artist)
                         } label: {
-                            Text(library.isFavoriteArtist(artist) ? "已收藏" : "收藏")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(navBarContentColor)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 6)
-                                .background(Capsule().fill(Self.collectBlue))
+                            Label(library.isFavoriteArtist(artist) ? "取消收藏" : "收藏歌手",
+                                  systemImage: library.isFavoriteArtist(artist) ? "heart.slash" : "heart")
                         }
-                        .buttonStyle(.plain)
-                        Menu {
-                            Button {
-                                Haptics.soft()
-                                library.toggleArtistFavorite(artist)
-                            } label: {
-                                Label(library.isFavoriteArtist(artist) ? "取消收藏" : "收藏歌手",
-                                      systemImage: library.isFavoriteArtist(artist) ? "heart.slash" : "heart")
-                            }
-                            Button {
-                                isSelecting = true
-                                selectedIDs.removeAll()
-                            } label: {
-                                Label("多选下载", systemImage: "checkmark.circle")
-                            }
+                        Button {
+                            isSelecting = true
+                            selectedIDs.removeAll()
                         } label: {
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 16, weight: .semibold))
-                                .rotationEffect(.degrees(90))
-                                .foregroundStyle(navBarContentColor)
-                                .frame(width: 30, height: 30)
-                                .contentShape(Rectangle())
+                            Label("多选下载", systemImage: "checkmark.circle")
                         }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 16, weight: .semibold))
+                            .rotationEffect(.degrees(90))
+                            .foregroundStyle(navBarContentColor)
+                            .frame(width: 30, height: 30)
+                            .contentShape(Rectangle())
                     }
                 }
             }
@@ -450,18 +431,8 @@ struct ArtistDetailView: View {
         }
         .frame(width: screenW, height: headerBaseHeight)
         .clipped()
-        // 🔴 白顶问题已验证修复，几何自检 HUD 移除；
-        // 只保留极小的 GitCommit 标签，方便截图时确认装的是新包（验证完即可去掉）。
-        .overlay(alignment: .bottomTrailing) {
-            if let buildTag = Bundle.main.infoDictionary?["GitCommit"] as? String,
-               !buildTag.isEmpty {
-                Text(buildTag)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .padding(.trailing, 10)
-                    .padding(.bottom, 6)
-            }
-        }
+        // 🔴 2026-11-08：白顶/几何自检用的 GitCommit 数字标签已移除（用户要求）。
+        //    确认装的是哪个包仍可拆 IPA 读 Info.plist 的 GitCommit，不再污染界面。
     }
 
     /// 钉在顶部的固定导航栏背景：展示大图顶部切片 + 深色渐变 + 毛玻璃。
@@ -537,21 +508,8 @@ struct ArtistDetailView: View {
             }
             .background(AppStyle.surface.opacity(0.9), in: Capsule())
             .overlay(Capsule().stroke(AppStyle.stroke, lineWidth: 0.5))
-
-            // 多选（下载用）
-            if !isSelecting {
-                Button {
-                    isSelecting = true
-                    selectedIDs.removeAll()
-                } label: {
-                    Image(systemName: "arrow.down.circle")
-                        .font(.system(size: 17))
-                        .foregroundStyle(AppStyle.secondaryText)
-                        .frame(width: 34, height: 34)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
+            // 🔴 2026-11-08：最新/最热后面的下载（多选）按钮已移除（用户要求）。
+            //    多选下载入口保留在顶栏三点竖菜单里。
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
@@ -841,7 +799,6 @@ private struct ArtistSongRow: View {
     let index: Int
     let onPlay: () -> Void
     @ObservedObject private var library = LibraryStore.shared
-    @ObservedObject private var downloads = DownloadManager.shared
 
     var body: some View {
         HStack(spacing: 10) {
@@ -895,16 +852,8 @@ private struct ArtistSongRow: View {
                 }
                 .buttonStyle(.plain)
 
-                Button {
-                    if song.isRemote { Haptics.light(); Task { _ = try? await downloads.download(song) } }
-                } label: {
-                    Image(systemName: song.source == .local ? "arrow.down.circle.fill" : "arrow.down.circle")
-                        .font(.system(size: 14))
-                        .foregroundStyle(song.source == .local ? AppStyle.tertiaryText.opacity(0.4) : AppStyle.tertiaryText)
-                        .frame(width: 32, height: 32)
-                }
-                .buttonStyle(.plain)
-                .disabled(song.source == .local)
+                // 🔴 2026-11-08：下载箭头换成三点竖「更多」，与其它歌曲列表统一。
+                SongMoreMenu(song: song, iconSize: 14, buttonSize: 32, tint: AppStyle.secondaryText)
             }
         }
         .padding(.horizontal, 12)

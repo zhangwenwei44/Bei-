@@ -339,6 +339,19 @@ final class PlayerStore: ObservableObject {
         queue.append(contentsOf: songs)
     }
 
+    /// 🔴 2026-11-08：歌曲行「下一首播放」——插到当前曲目后面，**不打断当前播放**。
+    /// `playNow` 是「立刻切过去播」，语义不同，别混用。队列为空时没有「下一首」，
+    /// 这时退化为直接播放这一首。
+    func insertNext(_ songs: [Song]) {
+        guard !songs.isEmpty else { return }
+        if queue.isEmpty || currentIndex < 0 {
+            play(songs)
+            return
+        }
+        let position = min(currentIndex + 1, queue.count)
+        queue.insert(contentsOf: songs, at: position)
+    }
+
     // MARK: 🔴 v2.8.3 播放队列元数据补齐
 
     /// 已经反查过元数据的歌曲 id（每个 id 只查一次，songInfo 另有内存缓存）

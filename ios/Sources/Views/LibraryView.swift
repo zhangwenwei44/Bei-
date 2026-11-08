@@ -271,30 +271,9 @@ private struct DownloadsList: View {
                 }
                 .buttonStyle(.plain)
 
-                // 🔴 v2.9.7：已下载图标改成三点竖排「更多」按钮（用户要求）。
-                // 点开菜单：播放 / 删除下载（原来只是个不可点的对勾）。
-                Menu {
-                    Button {
-                        if let index = library.downloads.firstIndex(where: { $0.id == song.id }) {
-                            store.play(library.downloads, startAt: index)
-                        }
-                        Haptics.soft()
-                    } label: {
-                        Label("播放", systemImage: "play")
-                    }
-                    Button(role: .destructive) {
-                        downloads.delete(song)
-                        Haptics.light()
-                    } label: {
-                        Label("删除下载", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(AppStyle.secondaryText)
-                        .frame(width: 40, height: 40)
-                        .rotationEffect(.degrees(90))
-                }
+                // 🔴 2026-11-08：和其它歌曲列表统一的三点竖「更多」菜单
+                //（加入歌单 / 下载 / 加入播放列表 / 下一首播放；已下载的歌带「删除下载」）。
+                SongMoreMenu(song: song, buttonSize: 40, tint: AppStyle.secondaryText)
             }
             // 🔴 v2.9.9：每行是一张独立的白色圆角卡片（搜索歌曲列表样式），
             // 卡片间距由外层 .padding(.vertical, 3) 控制；圆角卡片铺满宽度，盖住身后红色删除按钮。

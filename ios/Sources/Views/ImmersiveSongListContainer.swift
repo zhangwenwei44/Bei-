@@ -7,7 +7,7 @@ import UIKit
 // 这些列表详情页全部按歌手主页的样式来做：
 //   ① 大图铺满状态栏 + 透明导航栏；② 大图随列表 1:1 上滑收起；
 //   ③ 滚到图片底部渐显毛玻璃顶栏；④ 「播放全部」行吸顶、仅列表滚动；
-//   ⑤ 顶栏文字展开白 / 收起黑，收藏按钮蓝底胶囊。
+//   ⑤ 顶栏文字展开白 / 收起黑（2026-11-08 起收藏并入右上角三点竖菜单，不再有蓝胶囊）。
 //
 // ⚠️ 为什么不直接复用 ArtistDetailView 里的组件：
 //   那套实现（ArtistHeroLayer / ScrollViewOffsetTracker / StickyHeaderHeightKey）全是
@@ -25,8 +25,6 @@ import UIKit
 // MARK: - 共享样式
 
 enum ImmersiveStyle {
-    /// 收藏胶囊底色（与歌手页、「全部播放」圆钮同色）。固定值，避免顶栏明暗切换时跳色。
-    static let collectBlue = Color(red: 44.0 / 255, green: 162.0 / 255, blue: 249.0 / 255)
     /// 大图兜底深色：图未加载 / 加载失败时顶部（含状态栏）也绝不露白。
     static let heroFallback = Color(red: 0.07, green: 0.07, blue: 0.09)
     /// 列表底部留白：迷你播放条 + TabBar 的高度，保证最后一首能滚到播放条上方。
