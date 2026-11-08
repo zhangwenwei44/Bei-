@@ -1460,14 +1460,21 @@ struct SongMoreMenu: View {
                     Text("下载中…")
                 } else {
                     Button { startDownload() } label: {
-                        Label("下载", systemImage: "arrow.down.circle")
+                        // 🔴 2026-11-09：图标按用户给的图换成自绘 Lucide（文件夹+向下箭头）。
+                        //    UIKit Menu 只认 Image，走 LucideMenuImage 转模板图。
+                        Label(title: { Text("下载") }, icon: {
+                            Image(uiImage: LucideMenuImage.image(.folderDown))
+                        })
                     }
                 }
             }
 
             // ② 加入酷狗歌单（未登录直接弹扫码登录，已登录弹账号歌单选择器）
+            //    图标 = 唱片（Lucide disc-3）
             Button { addToKugouPlaylist() } label: {
-                Label("加入酷狗歌单", systemImage: "music.note.list")
+                Label(title: { Text("加入酷狗歌单") }, icon: {
+                    Image(uiImage: LucideMenuImage.image(.disc))
+                })
             }
 
             // ③ 下一首播放：插到当前曲目后面，不打断当前播放（playNow 是立刻切歌，语义不同）。
@@ -1475,7 +1482,10 @@ struct SongMoreMenu: View {
                 PlayerStore.shared.insertNext([song])
                 Haptics.light()
             } label: {
-                Label("下一首播放", systemImage: "play.fill")
+                // 图标 = 列表 + 播放三角（Lucide list-video）
+                Label(title: { Text("下一首播放") }, icon: {
+                    Image(uiImage: LucideMenuImage.image(.listVideo))
+                })
             }
 
             // ④ 加入播放列表：追加到队列尾部（2026-11-08 用户要求加回，排第四）。
@@ -1483,7 +1493,10 @@ struct SongMoreMenu: View {
                 PlayerStore.shared.append([song])
                 Haptics.light()
             } label: {
-                Label("加入播放列表", systemImage: "plus.circle")
+                // 图标 = 列表 + 音符（Lucide list-music）
+                Label(title: { Text("加入播放列表") }, icon: {
+                    Image(uiImage: LucideMenuImage.image(.listMusic))
+                })
             }
         } label: {
             Image(systemName: "ellipsis")
@@ -1596,45 +1609,47 @@ extension SongRow: Equatable {
 
 // MARK: - 歌曲操作菜单
 
-/// 列表项通用的操作菜单（🔴 v2.8.1：只保留「添加到酷狗歌单」，移除本地「保存到歌单」）。
+/// 🔴 2026-11-09：用户要求「歌曲列表长按『加入酷狗歌单』移除」。
+/// 这本来就是本 modifier 唯一的一项，所以整块 contextMenu / sheet 一起拿掉：
+/// 普通歌曲行长按不再弹任何菜单；加酷狗歌单仍走三点竖「更多」。
+/// 保留空壳 modifier 是为了不动 8 处 `.songMenu(song)` 调用点；
+/// 歌单详情页自己挂的「从歌单移除」contextMenu 不受影响（另外新增了左滑删除）。
 struct SongMenu: ViewModifier {
-    @EnvironmentObject private var store: PlayerStore
-    @ObservedObject private var downloads = DownloadManager.shared
-    @ObservedObject private var kugouAuth = KugouAuth.shared
     let song: Song
-    /// 🔴 v2.6.4：把歌曲存进酷狗云歌单
-    @State private var showKugouPicker = false
 
     func body(content: Content) -> some View {
         content
-            // 🔴 2026-11-08：与三点竖「更多」卡片保持一致，加歌单只有「加入酷狗歌单」一个入口。
-            // 本地「保存到歌单」已移除；「移除」由歌单详情页自己的 contextMenu 提供。
-            .contextMenu {
-                if !song.kugouHash.isEmpty {
-                    Button {
-                        if !kugouAuth.isLoggedIn {
-                            NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
-                            return
-                        }
-                        // 延后一拍再弹 sheet —— contextMenu 正在关闭动画里，
-                        // 立刻 present 会撞上「菜单正在消失」而弹不出来
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                            showKugouPicker = true
-                        }
-                    } label: {
-                        Label("加入酷狗歌单", systemImage: "icloud.and.arrow.up")
-                    }
-                }
-            }
-            .sheet(isPresented: $showKugouPicker) {
-                KugouPlaylistPicker(songs: [song], title: "加入酷狗歌单")
-            }
     }
 }
 
 extension View {
     func songMenu(_ song: Song) -> some View {
         modifier(SongMenu(song: song))
+    }
+}
+
+/// 🔴 2026-11-09：多选选择框统一由「空心圆 / 实心圆对勾」改成**圆角方框**（用户要求）。
+/// 4 个列表（歌单 / 专辑 / 酷狗歌单 / 搜索）共用这一个组件，外观与
+/// `ImmersiveMultiSelectIcon` 里的小方框保持一致；44×44 是点击区，视觉只有 21×21。
+struct MultiSelectCheckbox: View {
+    let isSelected: Bool
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .stroke(isSelected ? AppStyle.accent : AppStyle.tertiaryText, lineWidth: 1.6)
+                .frame(width: 21, height: 21)
+            if isSelected {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(AppStyle.accent)
+                    .frame(width: 21, height: 21)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
     }
 }
 

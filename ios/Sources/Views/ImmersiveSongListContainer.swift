@@ -40,16 +40,18 @@ enum ImmersiveStyle {
 struct ImmersiveMultiSelectIcon: View {
     let color: Color
 
+    /// 🔴 2026-11-09：整体缩小（原来 23×20 → 19×17），配合「播放全部」按钮一起改小。
+    ///    外层调用点的 30/36pt frame 保持不变 —— 那是点击区，只缩视觉、不损可点性。
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 3) {
             ForEach(0..<2, id: \.self) { _ in
-                HStack(alignment: .center, spacing: 4) {
+                HStack(alignment: .center, spacing: 3) {
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                        .stroke(color, lineWidth: 1.5)
-                        .frame(width: 8, height: 8)
-                    VStack(alignment: .leading, spacing: 2.5) {
-                        Capsule(style: .continuous).fill(color).frame(width: 11, height: 1.5)
-                        Capsule(style: .continuous).fill(color).frame(width: 11, height: 1.5)
+                        .stroke(color, lineWidth: 1.3)
+                        .frame(width: 7, height: 7)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Capsule(style: .continuous).fill(color).frame(width: 9, height: 1.3)
+                        Capsule(style: .continuous).fill(color).frame(width: 9, height: 1.3)
                     }
                 }
             }
@@ -64,8 +66,10 @@ struct ImmersivePlayAllButton: View {
     let action: () -> Void
 
     var body: some View {
+        // 🔴 2026-11-09：按用户要求整体改小（圆钮 44→34、标题 18→15、播放三角 17→13）。
+        //    吸顶条高度由 PreferenceKey 实测，按钮变小后会自动跟着变矮，不用改几何代码。
         Button(action: action) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 ZStack {
                     Circle()
                         .fill(LinearGradient(
@@ -73,17 +77,17 @@ struct ImmersivePlayAllButton: View {
                                      Color(red: 0.06, green: 0.45, blue: 0.93)],
                             startPoint: .top, endPoint: .bottom))
                     Image(systemName: "play.fill")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
                         .offset(x: 1)
                 }
-                .frame(width: 44, height: 44)
+                .frame(width: 34, height: 34)
 
                 Text("播放全部")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Color(red: 0.10, green: 0.11, blue: 0.13))
                 Text("\(count)")
-                    .font(.system(size: 18, weight: .regular))
+                    .font(.system(size: 15, weight: .regular))
                     .foregroundStyle(Color(red: 0.67, green: 0.69, blue: 0.72))
             }
             .contentShape(Rectangle())

@@ -3,6 +3,45 @@
 // 均为 24x24 viewBox, stroke 描边, 1.5px 细线, round caps/joins。
 // 用法: LucideIcon(icon: .heart, size: 22, color: .red)  /  LucideIcon(icon: .cloud)
 import SwiftUI
+import UIKit
+
+/// 🔴 2026-11-09：Menu / contextMenu 底层是 UIKit 的 UIAction，`Label` 的 icon
+/// 只认 `Image`；直接塞 `LucideIcon`（自定义 Shape）会被静默忽略、菜单项没图标。
+/// 这里把同一条 Path 描边成单色模板 UIImage，供菜单里的 Label 使用。
+enum LucideMenuImage {
+    private static let side: CGFloat = 19
+
+    /// 🔴 预渲染一次并缓存：歌曲列表每一行都有「更多」菜单，
+    ///    若每次 body 重算都现渲 4 张图，几百首的歌单会明显掉帧。
+    ///    `static let` 不可变常量，首次访问时初始化一次。
+    private static let cache: [Lucide: UIImage] = {
+        var map: [Lucide: UIImage] = [:]
+        for icon in [Lucide.shirt, .folderDown, .disc, .listVideo, .listMusic] {
+            map[icon] = render(icon)
+        }
+        return map
+    }()
+
+    static func image(_ icon: Lucide) -> UIImage {
+        cache[icon] ?? render(icon)
+    }
+
+    private static func render(_ icon: Lucide) -> UIImage {
+        let rect = CGRect(x: 0, y: 0, width: side, height: side)
+        let cg = icon.path(in: rect).cgPath
+        let fmt = UIGraphicsImageRendererFormat()
+        fmt.scale = UIScreen.main.scale
+        fmt.opaque = false
+        return UIGraphicsImageRenderer(size: rect.size, format: fmt).image { _ in
+            UIColor.label.setStroke()
+            let bez = UIBezierPath(cgPath: cg)
+            bez.lineWidth = side / 24 * 1.7
+            bez.lineCapStyle = .round
+            bez.lineJoinStyle = .round
+            bez.stroke()
+        }.withRenderingMode(.alwaysTemplate)
+    }
+}
 
 /// 24x24 网格 → 实际 rect 的换算器（所有图标共用，构图一致）。
 private struct LucideGrid {
@@ -50,6 +89,11 @@ enum Lucide: String, CaseIterable {
     case alarmClock  // 睡眠定时
     case palette  // 主题更换（播放页顶栏，2026-11-08）
     case arrowUpAZ  // 按英文字母排序（↑ A/Z，2026-11-08）
+    case shirt  // 主题更换（T恤，2026-11-09）
+    case folderDown  // 更多菜单·下载（文件夹+下箭头）
+    case disc  // 更多菜单·加入酷狗歌单（唱片）
+    case listVideo  // 更多菜单·下一首播放（列表+播放三角）
+    case listMusic  // 更多菜单·加入播放列表（列表+音符）
 
     /// 在给定 rect 内构造该图标的 Path（描边路径，未闭合填充由调用方决定）。
     func path(in rect: CGRect) -> Path {
@@ -918,6 +962,145 @@ enum Lucide: String, CaseIterable {
             p.addLine(to: g.p(20.000, 14.000))
             p.addLine(to: g.p(15.000, 20.000))
             p.addLine(to: g.p(20.000, 20.000))
+
+        case .shirt:  // 主题更换（T恤） — shirt
+            p.move(to: g.p(20.380, 3.460))
+            p.addLine(to: g.p(16.000, 2.000))
+            p.addLine(to: g.p(15.759, 3.368))
+            p.addLine(to: g.p(15.064, 4.571))
+            p.addLine(to: g.p(14.000, 5.464))
+            p.addLine(to: g.p(12.695, 5.939))
+            p.addLine(to: g.p(11.305, 5.939))
+            p.addLine(to: g.p(10.000, 5.464))
+            p.addLine(to: g.p(8.936, 4.571))
+            p.addLine(to: g.p(8.241, 3.368))
+            p.addLine(to: g.p(8.000, 2.000))
+            p.addLine(to: g.p(3.620, 3.460))
+            p.addLine(to: g.p(3.115, 3.712))
+            p.addLine(to: g.p(2.700, 4.096))
+            p.addLine(to: g.p(2.410, 4.580))
+            p.addLine(to: g.p(2.266, 5.126))
+            p.addLine(to: g.p(2.280, 5.690))
+            p.addLine(to: g.p(2.860, 9.160))
+            p.addLine(to: g.p(2.944, 9.429))
+            p.addLine(to: g.p(3.099, 9.664))
+            p.addLine(to: g.p(3.314, 9.846))
+            p.addLine(to: g.p(3.571, 9.961))
+            p.addLine(to: g.p(3.850, 10.000))
+            p.addLine(to: g.p(6.000, 10.000))
+            p.addLine(to: g.p(6.000, 20.000))
+            p.addCurve(to: g.p(8.000, 22.000), control1: g.p(6.000, 21.100), control2: g.p(6.900, 22.000))
+            p.addLine(to: g.p(16.000, 22.000))
+            p.addLine(to: g.p(16.618, 21.902))
+            p.addLine(to: g.p(17.176, 21.618))
+            p.addLine(to: g.p(17.618, 21.176))
+            p.addLine(to: g.p(17.902, 20.618))
+            p.addLine(to: g.p(18.000, 20.000))
+            p.addLine(to: g.p(18.000, 10.000))
+            p.addLine(to: g.p(20.150, 10.000))
+            p.addLine(to: g.p(20.429, 9.961))
+            p.addLine(to: g.p(20.686, 9.846))
+            p.addLine(to: g.p(20.901, 9.664))
+            p.addLine(to: g.p(21.056, 9.429))
+            p.addLine(to: g.p(21.140, 9.160))
+            p.addLine(to: g.p(21.720, 5.690))
+            p.addLine(to: g.p(21.734, 5.126))
+            p.addLine(to: g.p(21.590, 4.580))
+            p.addLine(to: g.p(21.300, 4.096))
+            p.addLine(to: g.p(20.885, 3.712))
+            p.addLine(to: g.p(20.380, 3.460))
+
+        case .folderDown:  // 更多菜单·下载 — folder-down
+            p.move(to: g.p(20.000, 20.000))
+            p.addLine(to: g.p(20.618, 19.902))
+            p.addLine(to: g.p(21.176, 19.618))
+            p.addLine(to: g.p(21.618, 19.176))
+            p.addLine(to: g.p(21.902, 18.618))
+            p.addLine(to: g.p(22.000, 18.000))
+            p.addLine(to: g.p(22.000, 8.000))
+            p.addLine(to: g.p(21.902, 7.382))
+            p.addLine(to: g.p(21.618, 6.824))
+            p.addLine(to: g.p(21.176, 6.382))
+            p.addLine(to: g.p(20.618, 6.098))
+            p.addLine(to: g.p(20.000, 6.000))
+            p.addLine(to: g.p(12.100, 6.000))
+            p.addLine(to: g.p(11.605, 5.943))
+            p.addLine(to: g.p(11.140, 5.765))
+            p.addLine(to: g.p(10.733, 5.478))
+            p.addLine(to: g.p(10.410, 5.100))
+            p.addLine(to: g.p(9.600, 3.900))
+            p.addLine(to: g.p(9.280, 3.525))
+            p.addLine(to: g.p(8.878, 3.239))
+            p.addLine(to: g.p(8.419, 3.061))
+            p.addLine(to: g.p(7.930, 3.000))
+            p.addLine(to: g.p(4.000, 3.000))
+            p.addLine(to: g.p(3.382, 3.098))
+            p.addLine(to: g.p(2.824, 3.382))
+            p.addLine(to: g.p(2.382, 3.824))
+            p.addLine(to: g.p(2.098, 4.382))
+            p.addLine(to: g.p(2.000, 5.000))
+            p.addLine(to: g.p(2.000, 18.000))
+            p.addLine(to: g.p(2.098, 18.618))
+            p.addLine(to: g.p(2.382, 19.176))
+            p.addLine(to: g.p(2.824, 19.618))
+            p.addLine(to: g.p(3.382, 19.902))
+            p.addLine(to: g.p(4.000, 20.000))
+            p.move(to: g.p(12.000, 10.000))
+            p.addLine(to: g.p(12.000, 16.000))
+            p.move(to: g.p(15.000, 13.000))
+            p.addLine(to: g.p(12.000, 16.000))
+            p.addLine(to: g.p(9.000, 13.000))
+
+        case .disc:  // 更多菜单·加入酷狗歌单 — disc-3
+            p.move(to: g.p(6.000, 12.000))
+            p.addCurve(to: g.p(7.800, 7.800), control1: g.p(6.000, 10.300), control2: g.p(6.700, 8.800))
+            p.move(to: g.p(18.000, 12.000))
+            p.addCurve(to: g.p(16.200, 16.200), control1: g.p(18.000, 13.700), control2: g.p(17.300, 15.200))
+            p.addEllipse(in: g.e(12.000, 12.000, 10.000))
+            p.addEllipse(in: g.e(12.000, 12.000, 2.000))
+
+        case .listVideo:  // 更多菜单·下一首播放 — list-video
+            p.move(to: g.p(21.000, 5.000))
+            p.addLine(to: g.p(3.000, 5.000))
+            p.move(to: g.p(10.000, 12.000))
+            p.addLine(to: g.p(3.000, 12.000))
+            p.move(to: g.p(10.000, 19.000))
+            p.addLine(to: g.p(3.000, 19.000))
+            p.move(to: g.p(15.000, 12.003))
+            p.addLine(to: g.p(15.044, 11.705))
+            p.addLine(to: g.p(15.176, 11.434))
+            p.addLine(to: g.p(15.382, 11.214))
+            p.addLine(to: g.p(15.644, 11.066))
+            p.addLine(to: g.p(15.938, 11.002))
+            p.addLine(to: g.p(16.239, 11.029))
+            p.addLine(to: g.p(16.517, 11.144))
+            p.addLine(to: g.p(21.514, 14.141))
+            p.addLine(to: g.p(21.742, 14.327))
+            p.addLine(to: g.p(21.906, 14.571))
+            p.addLine(to: g.p(21.991, 14.853))
+            p.addLine(to: g.p(21.991, 15.147))
+            p.addLine(to: g.p(21.906, 15.429))
+            p.addLine(to: g.p(21.742, 15.673))
+            p.addLine(to: g.p(21.514, 15.859))
+            p.addLine(to: g.p(16.517, 18.856))
+            p.addLine(to: g.p(16.238, 18.971))
+            p.addLine(to: g.p(15.938, 18.998))
+            p.addLine(to: g.p(15.644, 18.934))
+            p.addLine(to: g.p(15.381, 18.786))
+            p.addLine(to: g.p(15.175, 18.566))
+            p.addLine(to: g.p(15.044, 18.294))
+            p.addLine(to: g.p(15.000, 17.996))
+
+        case .listMusic:  // 更多菜单·加入播放列表 — list-music
+            p.move(to: g.p(16.000, 5.000))
+            p.addLine(to: g.p(3.000, 5.000))
+            p.move(to: g.p(11.000, 12.000))
+            p.addLine(to: g.p(3.000, 12.000))
+            p.move(to: g.p(11.000, 19.000))
+            p.addLine(to: g.p(3.000, 19.000))
+            p.move(to: g.p(21.000, 16.000))
+            p.addLine(to: g.p(21.000, 5.000))
+            p.addEllipse(in: g.e(18.000, 16.000, 3.000))
 
         }
         return p

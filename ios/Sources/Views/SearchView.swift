@@ -216,9 +216,7 @@ struct SearchView: View {
                                 Button {
                                     if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
                                 } label: {
-                                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                                        .font(.system(size: 22))
-                                        .foregroundStyle(selected ? AppStyle.accent : AppStyle.tertiaryText)
+                                    MultiSelectCheckbox(isSelected: selected)
                                 }
                                 .buttonStyle(.plain)
                             }

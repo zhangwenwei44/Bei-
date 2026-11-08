@@ -145,15 +145,12 @@ struct PlaylistDetailView: View {
                     VStack(spacing: 0) {
                         ForEach(displaySongs) { song in
                             let selected = selectedIDs.contains(song.id)
-                            HStack(spacing: 0) {
+                            let row = HStack(spacing: 0) {
                                 if isSelecting {
                                     Button {
                                         if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
                                     } label: {
-                                        Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                                            .font(.system(size: 24))
-                                            .foregroundStyle(selected ? AppStyle.accent : AppStyle.tertiaryText)
-                                            .frame(width: 44, height: 44)
+                                        MultiSelectCheckbox(isSelected: selected)
                                     }
                                     .buttonStyle(.plain)
                                 }
@@ -178,6 +175,21 @@ struct PlaylistDetailView: View {
                                             }
                                         }
                                     }
+                            }
+                            // 🔴 2026-11-09：新增左滑从歌单移除（原来只有长按菜单）。
+                            //    本地自建歌单 → 持久化删除；在线 / 推荐歌单 → 从当前列表移除（本次会话）。
+                            SwipeToDeleteRow(
+                                onDelete: {
+                                    if let localPlaylist {
+                                        library.remove(song, fromPlaylist: localPlaylist.id)
+                                    } else {
+                                        songs.removeAll { $0.id == song.id }
+                                    }
+                                    Haptics.light()
+                                },
+                                title: "移除"
+                            ) {
+                                row
                             }
                         }
                     }
@@ -461,10 +473,7 @@ struct AlbumDetailView: View {
                                     Button {
                                         if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
                                     } label: {
-                                        Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                                            .font(.system(size: 24))
-                                            .foregroundStyle(selected ? AppStyle.accent : AppStyle.tertiaryText)
-                                            .frame(width: 44, height: 44)
+                                        MultiSelectCheckbox(isSelected: selected)
                                     }
                                     .buttonStyle(.plain)
                                 }

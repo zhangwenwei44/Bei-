@@ -222,10 +222,10 @@ private struct DownloadsList: View {
 
     private func downloadRow(_ song: Song) -> some View {
         // 左滑删除（删本地文件 + 移出下载列表）
-        SwipeToDeleteRow {
+        SwipeToDeleteRow(onDelete: {
             downloads.delete(song)
             Haptics.light()
-        } content: {
+        }) {
             HStack(spacing: 12) {
                 // 🔴 v2.9.8：播放只绑在「封面 + 歌名」这一块上，
                 // 收藏 / 三点作为兄弟按钮（不是嵌套在播放按钮里），
@@ -1061,18 +1061,15 @@ struct KugouPlaylistDetail: View {
                 ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
                     let selected = selectedIDs.contains(song.id)
                     // 🔴 v2.6.4：左滑删除 = 把这首歌移出酷狗歌单
-                    SwipeToDeleteRow {
+                    SwipeToDeleteRow(onDelete: {
                         Task { await removeSong(song) }
-                    } content: {
+                    }, title: "移除") {
                         HStack(spacing: 0) {
                             if isSelecting {
                                 Button {
                                     if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
                                 } label: {
-                                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                                        .font(.system(size: 24))
-                                        .foregroundStyle(selected ? AppStyle.accent : AppStyle.tertiaryText)
-                                        .frame(width: 44, height: 44)
+                                    MultiSelectCheckbox(isSelected: selected)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -1290,9 +1287,22 @@ struct KugouAccountCenter: View {
 /// 左滑露出红色删除按钮的行容器。
 /// 拖动超过阈值吸附显示按钮，点按钮执行 onDelete；再点行内容或往右滑回收。
 /// 不用 List/onDelete：本地音乐页是 ScrollView + LazyVStack 自绘列表。
-private struct SwipeToDeleteRow<Content: View>: View {
+/// 🔴 2026-11-09：去掉 private —— 歌单 / 专辑详情页也要用同一套左滑删除。
+struct SwipeToDeleteRow<Content: View>: View {
     let onDelete: () -> Void
-    @ViewBuilder let content: Content
+    /// 按钮文案：曲库页用「删除」，歌单页用「移除」。
+    var title: String = "删除"
+    let content: Content
+
+    /// 显式 init：保留 `SwipeToDeleteRow { ... } content: { ... }` 这种既有调用写法
+    /// （加了带默认值的 title 之后，memberwise init 的参数顺序会变）。
+    init(onDelete: @escaping () -> Void,
+         title: String = "删除",
+         @ViewBuilder content: () -> Content) {
+        self.onDelete = onDelete
+        self.title = title
+        self.content = content()
+    }
 
     /// 按钮宽度 + 余量 = 最大左滑距离
     private let revealWidth: CGFloat = 76
@@ -1307,7 +1317,7 @@ private struct SwipeToDeleteRow<Content: View>: View {
                 VStack(spacing: 4) {
                     Image(systemName: "trash.fill")
                         .font(.system(size: 16, weight: .semibold))
-                    Text("删除").font(.system(size: 10, weight: .medium))
+                    Text(title).font(.system(size: 10, weight: .medium))
                 }
                 .foregroundStyle(.white)
                 .frame(width: 60, height: 56)

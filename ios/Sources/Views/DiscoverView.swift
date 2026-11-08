@@ -20,6 +20,8 @@ struct DiscoverView: View {
     @State private var allArtists: [Artist] = []
     @State private var isLoadingArtists = false
     @State private var artistsLoaded = false
+    /// 🔴 2026-11-09：歌手 Tab 的搜索框只过滤本页已加载的歌手，不跳全局搜索。
+    @State private var artistQuery = ""
     // 🔴 v2.9.17：热门歌手专辑板块数据（歌手 + 他的一张专辑），从 hotArtists 现拉。
     @State private var artistAlbums: [ArtistAlbum] = []
     @State private var playingArtistID: String?
@@ -110,9 +112,11 @@ struct DiscoverView: View {
                         if selectedTab == .playlists {
                             playlistSearchBar
                         } else {
-                            // 🔴 2026-11-09：推荐 Tab「横幅广告上面的搜索框」移除（用户要求）。
-                            //    底部「搜索」Tab 本来就是独立入口，这里不再重复占位。
-                            if selectedTab != .recommend {
+                            // 🔴 2026-11-09：推荐 Tab「横幅广告上面的搜索框」移除（用户要求）；
+                            //    歌手 Tab 换成「只搜本页歌手」的本地过滤框；其余 Tab 保持全局搜索入口。
+                            if selectedTab == .artists {
+                                artistSearchBar
+                            } else if selectedTab != .recommend {
                                 searchEntry
                             }
                             // 🔴 v2.9.9：横幅广告自动轮播（仅在推荐 Tab）
@@ -130,10 +134,10 @@ struct DiscoverView: View {
                 // 🔴 歌手板块右侧字母索引留出空间，避免挡住歌手行。
                 .padding(.trailing, selectedTab == .artists ? 18 : 0)
             }
-            // 🔴 2026-11-09：歌手板块右侧 A–Z 快速定位条
+            // 🔴 2026-11-09：歌手板块右侧 A–Z 快速定位条（只列筛选后实际有歌手的字母）
             .overlay(alignment: .trailing) {
                 if selectedTab == .artists {
-                    ArtistLetterIndex(letters: artistGroups.map(\.letter), proxy: proxy)
+                    ArtistLetterIndex(letters: filteredArtistGroups.map(\.letter), proxy: proxy)
                         .padding(.trailing, 3)
                 }
             }
@@ -553,9 +557,10 @@ struct DiscoverView: View {
         var id: String { letter }
     }
 
-    private var artistGroups: [ArtistGroup] {
+    /// 分组逻辑抽出来：全量列表和搜索结果共用同一套 A–Z 规则。
+    private func makeArtistGroups(_ source: [Artist]) -> [ArtistGroup] {
         var map: [String: [Artist]] = [:]
-        for artist in allArtists {
+        for artist in source {
             map[artist.initialLetter, default: []].append(artist)
         }
         let letters = map.keys.sorted { lhs, rhs in
@@ -571,10 +576,58 @@ struct DiscoverView: View {
         }
     }
 
+    private var artistGroups: [ArtistGroup] { makeArtistGroups(allArtists) }
+
+    private var artistSearchText: String {
+        artistQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 🔴 2026-11-09：只在本页歌手里按名字 / 拼音首字母过滤，不触发网络搜索。
+    private var filteredArtistGroups: [ArtistGroup] {
+        let q = artistSearchText
+        guard !q.isEmpty else { return artistGroups }
+        let matched = allArtists.filter { artist in
+            artist.name.localizedCaseInsensitiveContains(q)
+            || artist.initialLetter.localizedCaseInsensitiveContains(q)
+        }
+        return makeArtistGroups(matched)
+    }
+
+    /// 🔴 2026-11-09：歌手 Tab 专用搜索框 —— 不跳 SearchView，只改本页列表。
+    private var artistSearchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14))
+                .foregroundStyle(AppStyle.secondaryText)
+            TextField("搜索本页歌手", text: $artistQuery)
+                .font(.system(size: 13))
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+            if !artistQuery.isEmpty {
+                Button { artistQuery = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(AppStyle.secondaryText.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 12)
+    }
+
     private var artistsContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(allArtists.isEmpty ? "歌手" : "全部歌手 · \(allArtists.count) 位")
+                Text(allArtists.isEmpty
+                     ? "歌手"
+                     : (artistSearchText.isEmpty
+                        ? "全部歌手 · \(allArtists.count) 位"
+                        : "找到 \(filteredArtistGroups.reduce(0) { $0 + $1.artists.count }) 位歌手"))
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(AppStyle.primaryText)
                 Spacer()
@@ -592,10 +645,15 @@ struct DiscoverView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .padding(.vertical, 40)
+            } else if filteredArtistGroups.isEmpty {
+                EmptyStateView(icon: "magnifyingglass",
+                               title: "没有找到相关歌手",
+                               message: "换个歌手名或首字母试试")
+                    .padding(.top, 40)
             } else {
                 // 嵌套在页面外层 LazyVStack 里，pinnedViews 不会真的吸顶，去掉避免误导。
                 LazyVStack(spacing: 0) {
-                    ForEach(artistGroups) { group in
+                    ForEach(filteredArtistGroups) { group in
                         Section {
                             ForEach(group.artists) { artist in
                                 NavigationLink {
@@ -626,7 +684,7 @@ struct DiscoverView: View {
                 .padding(.horizontal, 12)
             }
 
-            if artistsLoaded && !allArtists.isEmpty {
+            if artistsLoaded && !allArtists.isEmpty && artistSearchText.isEmpty {
                 Text("已经到底啦 ~")
                     .font(.system(size: 12))
                     .foregroundStyle(AppStyle.tertiaryText)

@@ -230,10 +230,10 @@ struct PlayerView: View {
 
             Spacer(minLength: 0)
 
-            // 🔴 2026-11-08：横屏按钮前面加「主题更换」（调色板图标）。
-            //    功能暂时不写，点击只给「敬请期待」提示。
+            // 🔴 2026-11-08：横屏按钮前面加「主题更换」。
+            // 🔴 2026-11-09：图标按用户给的图换成 T 恤（Lucide shirt），功能仍只提示「敬请期待」。
             Button { show("敬请期待") } label: {
-                LucideIcon(icon: .palette, size: 22, color: .white)
+                LucideIcon(icon: .shirt, size: 22, color: .white)
                     .frame(width: 40, height: 40)
                     .contentShape(Rectangle())
                     .shadow(color: .black.opacity(0.35), radius: 3, y: 1)

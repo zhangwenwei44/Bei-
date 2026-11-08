@@ -619,10 +619,7 @@ struct ArtistDetailView: View {
                                 Button {
                                     if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
                                 } label: {
-                                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                                        .font(.system(size: 24))
-                                        .foregroundStyle(selected ? AppStyle.accent : AppStyle.tertiaryText)
-                                        .frame(width: 44, height: 44)
+                                    MultiSelectCheckbox(isSelected: selected)
                                 }
                                 .buttonStyle(.plain)
                             }
