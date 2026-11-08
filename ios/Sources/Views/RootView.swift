@@ -249,6 +249,8 @@ private struct MiniPlayerOverlay: View {
 // MARK: - 迷你播放条
 
 struct MiniPlayer: View {
+    /// 🔴 3.0.0：订阅下载状态，已下载歌曲在迷你条也能显示「本地」标签。
+    @ObservedObject private var downloads = DownloadManager.shared
     /// 🔴 低频状态走 mini，高频进度走 playback —— 不订阅整个 PlayerStore。
     /// 只要 body 里还读任何一个 PlayerStore 的高频属性（如 currentLyricIndex 4fps），
     /// 整个播放条就会跟着每秒重算 4 次。
@@ -282,6 +284,11 @@ struct MiniPlayer: View {
                         .layoutPriority(1)
                     // 🔴 用户要求：迷你条 VIP 标签文字改灰白、跟歌手名同色（secondaryText）。
                     VIPTag(textColor: AppStyle.secondaryText)
+                    // 🔴 3.0.0：已下载的歌曲在歌手名后面补「本地」标签，与 VIP / 音质标签同色。
+                    if let song = mini.song,
+                       song.source == .local || downloads.item(for: song)?.isDone == true {
+                        LocalTag()
+                    }
                     if !mini.qualityName.isEmpty {
                         // 🔴 用户要求：迷你条音质标签文字改灰白、跟歌手名同色（secondaryText）。
                         QualityTag(title: mini.qualityName, tint: AppStyle.secondaryText)

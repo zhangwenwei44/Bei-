@@ -599,7 +599,7 @@ struct DiscoverView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 14))
                 .foregroundStyle(AppStyle.secondaryText)
-            TextField("搜索本页歌手", text: $artistQuery)
+            TextField("搜索歌手", text: $artistQuery)
                 .font(.system(size: 13))
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)

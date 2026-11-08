@@ -292,6 +292,12 @@ struct PlayerView: View {
                     .truncationMode(.tail)
                     .layoutPriority(1)
                 vipPill
+                // 🔴 3.0.0：已下载的歌曲在歌手名后面补一个「本地」标签，
+                //    与 VIP / 音质胶囊同一套白色半透明视觉。
+                if let current = store.current,
+                   current.source == .local || downloads.item(for: current)?.isDone == true {
+                    LocalTag(textColor: .white.opacity(0.85))
+                }
                 // 🔴 v2.9.16：音质胶囊改成**可点击**（点击换音质），
                 // 音质入口从动作行挪到这里。档位名由 QualityPill 自己订阅 SourceStore。
                 QualityPill(statusText: qualityStatusText) { showQualityMenu = true }

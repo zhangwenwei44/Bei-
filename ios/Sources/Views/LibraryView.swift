@@ -257,24 +257,19 @@ private struct DownloadsList: View {
                                     .truncationMode(.tail)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            // 🔴 v2.9.8(二)：「本地」标签从歌名行移到歌手行后面（用户要求）。
+                            // 🔴 3.0.0：「本地」标签换成与播放页 VIP / 音质标签同款的灰色胶囊，
+                            //    并真正紧跟歌手名字后面（歌手名不再用 maxWidth 把标签推到行尾）。
+                            //    这一页本来全是已下载歌曲，直接显示，不再只认 source == .local。
                             HStack(spacing: 6) {
                                 Text(song.artist)
                                     .font(.system(size: 13))
                                     .foregroundStyle(AppStyle.secondaryText)
                                     .lineLimit(1)
                                     .truncationMode(.tail)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                if song.source == .local {
-                                    Text("本地")
-                                        .font(.system(size: 9))
-                                        .foregroundStyle(AppStyle.accent)
-                                        .padding(.horizontal, 4)
-                                        .padding(.vertical, 1)
-                                        .background(AppStyle.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 3))
-                                        .fixedSize()
-                                }
+                                    .layoutPriority(1)
+                                LocalTag()
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }

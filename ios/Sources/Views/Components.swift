@@ -1254,6 +1254,22 @@ struct VIPTag: View {
     }
 }
 
+/// 🔴 3.0.0：统一「本地」标签 —— 与播放页的 VIP / 音质标签同一套视觉
+///（小字号 + 与文字同色 + 淡色半透明底 + 4pt 圆角），不再是以前那种蓝色高亮。
+/// 列表默认灰色（`AppStyle.secondaryText`），深色播放页传白色系即可。
+struct LocalTag: View {
+    var textColor: Color = AppStyle.secondaryText
+    var body: some View {
+        Text("本地")
+            .font(.system(size: 9, weight: .medium))
+            .foregroundStyle(textColor)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(textColor.opacity(0.16), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .fixedSize()
+    }
+}
+
 /// 统一音质标签：默认与迷你播放器一致（蓝字 + 淡蓝半透明底，小圆角、无图标、无边框）。
 /// - tint：可覆盖主色（如迷你播放器音质标签要黄色时传 .yellow）。
 struct QualityTag: View {
@@ -1273,6 +1289,8 @@ struct QualityTag: View {
 
 struct SongRow: View {
     let song: Song
+    /// 🔴 3.0.0：订阅下载状态，下载完成后「本地」标签能立刻出现。
+    @ObservedObject private var downloads = DownloadManager.shared
     var isCurrent: Bool = false
     var isPlaying: Bool = false
     var showsCover: Bool = true
@@ -1301,6 +1319,12 @@ struct SongRow: View {
         self.artistFontSize = artistFontSize
         self.trailing = trailing
         self.onPlay = onPlay
+    }
+
+    /// 🔴 3.0.0：本地歌曲或下载完成的网络歌曲都算「已下载」。
+    /// 只查内存里的下载索引，不做磁盘 fileExists —— 几百首的大歌单每行都读磁盘会卡。
+    private var isLocalSong: Bool {
+        song.source == .local || downloads.item(for: song)?.isDone == true
     }
 
     var body: some View {
@@ -1347,29 +1371,26 @@ struct SongRow: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(song.cleanTitle)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(isCurrent ? AppStyle.accent : AppStyle.primaryText)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if song.source == .local {
-                        Text("本地")
-                            .font(.system(size: 9))
-                            .foregroundStyle(AppStyle.accent)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(AppStyle.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 3))
-                            .fixedSize()
-                    }
-                }
-                // 🔴 用户要求：列表里不再显示 VIP 标签（只在迷你播放器 / 竖屏播放器保留）。
-                Text(song.artist)
-                    .font(.system(size: artistFontSize))
-                    .foregroundStyle(AppStyle.secondaryText)
+                Text(song.cleanTitle)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(isCurrent ? AppStyle.accent : AppStyle.primaryText)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                // 🔴 3.0.0：列表里不再显示 VIP 标签；「本地」标签从歌名行挪到歌手名后面，
+                //    颜色改成与播放页 VIP / 音质标签同款的灰色胶囊。已下载的网络歌曲也显示。
+                HStack(spacing: 6) {
+                    Text(song.artist)
+                        .font(.system(size: artistFontSize))
+                        .foregroundStyle(AppStyle.secondaryText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(1)
+                    if isLocalSong {
+                        LocalTag()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(0)
@@ -1604,6 +1625,8 @@ extension SongRow: Equatable {
         && lhs.isPlaying == rhs.isPlaying
         && lhs.showsCover == rhs.showsCover
         && lhs.artistFontSize == rhs.artistFontSize
+        // 下载完成时也要让 Equatable 判定不等，否则「本地」标签要等下次刷新才出现。
+        && lhs.isLocalSong == rhs.isLocalSong
     }
 }
 
