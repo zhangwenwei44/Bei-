@@ -101,7 +101,6 @@ struct PlaylistDetailView: View {
     // 多选
     @State private var isSelecting = false
     @State private var selectedIDs: Set<String> = []
-
     /// 🔴 2026-11-07：沉浸式头部状态（容器与 toolbar 共用，顶栏配色才能随滚动同步）。
     @StateObject private var headerState = ImmersiveHeaderState()
 
@@ -219,18 +218,11 @@ struct PlaylistDetailView: View {
                             .foregroundStyle(AppStyle.primaryText).frame(maxWidth: .infinity).padding(.vertical, 12)
                     }.buttonStyle(.plain)
                     Divider().frame(height: 24)
-                    Menu {
-                        if library.playlists.isEmpty { Text("还没有歌单") }
-                        ForEach(library.playlists) { pl in
-                            Button(pl.name) {
-                                for song in selected { library.add(song, toPlaylist: pl.id) }
-                                Haptics.soft(); isSelecting = false; selectedIDs.removeAll()
-                            }
-                        }
-                    } label: {
+                    // 🔴 2026-11-08：不再提示「还没有歌单」，改成把选中歌曲加入酷狗账号歌单。
+                    AddSelectedToKugouButton(songs: selected) {
                         VStack(spacing: 4) { Image(systemName: "text.badge.plus").font(.system(size: 18)); Text("加歌单").font(.system(size: 11)) }
                             .foregroundStyle(AppStyle.primaryText).frame(maxWidth: .infinity).padding(.vertical, 12)
-                    }.buttonStyle(.plain)
+                    }
                 }
                 .background(AppStyle.surface)
                 .overlay(Rectangle().fill(AppStyle.stroke).frame(height: 0.5), alignment: .top)

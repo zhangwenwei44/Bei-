@@ -272,7 +272,7 @@ private struct DownloadsList: View {
                 .buttonStyle(.plain)
 
                 // 🔴 2026-11-08：和其它歌曲列表统一的三点竖「更多」菜单
-                //（加入歌单 / 下载 / 加入播放列表 / 下一首播放；已下载的歌带「删除下载」）。
+                //（加入酷狗歌单 / 下载 / 下一首播放；已下载的歌带「删除下载」）。
                 SongMoreMenu(song: song, buttonSize: 40, tint: AppStyle.secondaryText)
             }
             // 🔴 v2.9.9：每行是一张独立的白色圆角卡片（搜索歌曲列表样式），
@@ -721,7 +721,6 @@ struct KugouPlaylistDetail: View {
     /// 🔴 从列表页传进来 —— 之前详情页封面硬编码 nil，一直是灰色占位块。
     var coverURL: String? = nil
     @EnvironmentObject private var store: PlayerStore
-    @ObservedObject private var kugouAuth = KugouAuth.shared
     @State private var songs: [Song] = []
     @State private var isLoading = false
     @State private var errorMsg: String?
@@ -736,22 +735,55 @@ struct KugouPlaylistDetail: View {
     @State private var downloadFinished = false
     @State private var downloadResult: String?
 
+    // 🔴 2026-11-08：与「新歌推荐」共用沉浸式头部。
+    @StateObject private var headerState = ImmersiveHeaderState()
+    @State private var isSelecting = false
+    @State private var selectedIDs: Set<String> = []
+
+    /// 歌单自己的封面；没有就用第一首歌的封面放大（歌曲是异步加载的，靠 heroKey 刷新浮层）。
+    private var heroURL: URL? {
+        if let coverURL, let url = URL(string: coverURL) { return url }
+        return songs.first?.artworkURL
+    }
+
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                header
-                content
-            }
-        }
-        .background(AppStyle.background)
-        .navigationTitle(name)
+        ImmersiveSongListContainer(
+            state: headerState,
+            heroKey: "\(heroURL?.absoluteString ?? "-")|\(name)|\(songs.count)",
+            hero: {
+                ImmersiveCoverHero(
+                    url: heroURL,
+                    fallbackKeys: ["kg-list:\(listid)"],
+                    seed: name,
+                    title: name,
+                    subtitle: "酷狗歌单",
+                    detail: songs.isEmpty ? nil : "\(songs.count) 首",
+                    headerHeight: headerState.headerHeight
+                )
+            },
+            sticky: { actionBar },
+            content: { content }
+        )
         .navigationBarTitleDisplayMode(.inline)
-        // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
-        .kugouNavigationBarBackground()
+        // 🔴 系统返回按钮的 chevron 取全局 tintColor，逐页改不了色 → 隐藏后自绘。
+        .navigationBarBackButtonHidden(true)
+        .compatToolbarDynamicScheme(dark: headerState.navFrostOpacity < 0.5)
+        .kugouNavigationBarBackground(.clear, transparent: true)
         .task { await load() }
         .sheet(isPresented: $showKugouPicker) {
             KugouPlaylistPicker(songs: songs, title: "加入我的酷狗歌单")
         }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting, !selectedIDs.isEmpty {
+                selectedActionBar
+            }
+        }
+        .onChange(of: isSelecting) { newValue in
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                store.isAnyMultiSelecting = newValue
+            }
+        }
+        .onDisappear { store.isAnyMultiSelecting = false }
         // 🔴 v2.9.5：歌单详情页开着时又存了歌进来 —— 直接插到列表顶部，
         // 不用退出重进（否则要等缓存过期才能看到刚存的那首）。
         .onReceive(NotificationCenter.default.publisher(for: .auroraKugouSongsAdded)) { note in
@@ -771,80 +803,87 @@ struct KugouPlaylistDetail: View {
         } message: {
             Text(removeError ?? "")
         }
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                CoverImage(url: coverURL.flatMap { URL(string: $0) },
-                           fallbackKeys: ["kg-list:\(listid)"],
-                           seed: name, size: 64, corner: 10)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(name).font(.system(size: 16, weight: .bold)).foregroundStyle(AppStyle.primaryText).lineLimit(1)
-                    Text("酷狗歌单 · \(songs.count) 首").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                if isSelecting {
+                    Text("已选 \(selectedIDs.count) 首")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(headerState.navContentColor)
+                } else {
+                    ImmersiveNavTitle(title: name,
+                                      color: headerState.navContentColor,
+                                      opacity: headerState.navFrostOpacity)
                 }
-                Spacer(minLength: 0)
             }
-
-            if !songs.isEmpty {
-                HStack(spacing: 10) {
-                    Button {
-                        Haptics.soft()
-                        store.queueID = "kugou-list:\(listid)"
-                        store.play(songs, startAt: 0)
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "play.fill").font(.system(size: 10, weight: .bold))
-                            Text("播放全部").font(.system(size: 12, weight: .semibold))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(Capsule().fill(AppStyle.accent))
-                    }.buttonStyle(.plain)
-
-                    // 🔴 v2.7.6：把这个歌单的歌全部下载到本地
-                    Button {
-                        Task { await downloadAll() }
-                    } label: {
-                        HStack(spacing: 5) {
-                            if isDownloading {
-                                ProgressView()
-                                    .scaleEffect(0.7)
-                                    .frame(width: 12, height: 12)
-                                    .tint(AppStyle.accent)
-                            } else {
-                                Image(systemName: downloadFinished ? "checkmark.circle"
-                                                                   : "arrow.down.circle")
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            Text(downloadButtonTitle).font(.system(size: 12, weight: .semibold))
-                        }
-                        .foregroundStyle(AppStyle.accent)
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(Capsule().stroke(AppStyle.accent, lineWidth: 1))
-                        .contentShape(Rectangle())
+            ToolbarItem(placement: .topBarLeading) {
+                if isSelecting {
+                    Button { isSelecting = false; selectedIDs.removeAll() } label: {
+                        Text("完成")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(headerState.navContentColor)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(isDownloading)
-
-                    Spacer(minLength: 0)
-
-                    // 🔴 v2.6.4：把这个歌单里的歌一并加入我的其它酷狗歌单
+                } else {
+                    ImmersiveBackButton(color: headerState.navContentColor)
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                if isSelecting {
                     Button {
-                        showKugouPicker = true
+                        if selectedIDs.count == songs.count { selectedIDs.removeAll() }
+                        else { selectedIDs = Set(songs.map(\.id)) }
                     } label: {
-                        Image(systemName: "icloud.and.arrow.up")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(AppStyle.accent)
-                            .frame(width: 34, height: 34)
+                        Text(selectedIDs.count == songs.count ? "取消全选" : "全选")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(headerState.navContentColor)
+                    }
+                } else {
+                    Menu {
+                        Button { Task { await downloadAll() } } label: {
+                            Label("下载全部", systemImage: "arrow.down.circle")
+                        }
+                        Button { showKugouPicker = true } label: {
+                            Label("加入我的酷狗歌单", systemImage: "icloud.and.arrow.up")
+                        }
+                        Button { isSelecting = true; selectedIDs.removeAll() } label: {
+                            Label("多选下载", systemImage: "checkmark.circle")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 16, weight: .semibold))
+                            .rotationEffect(.degrees(90))
+                            .foregroundStyle(headerState.navContentColor)
+                            .frame(width: 30, height: 30)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, 12)
-        // 下载结果提示挂在这里（和「移出歌单失败」的 alert 挂在不同节点上）
+    }
+
+    /// 🔴 吸顶行：与「新歌推荐」一致 —— 蓝色圆钮 ▶ + 播放全部 + 数量 + 右侧多选按钮。
+    private var actionBar: some View {
+        HStack(spacing: 12) {
+            ImmersivePlayAllButton(count: songs.count) {
+                guard !songs.isEmpty else { return }
+                Haptics.soft()
+                store.queueID = "kugou-list:\(listid)"
+                store.play(songs, startAt: 0)
+            }
+            Spacer(minLength: 0)
+            Button {
+                isSelecting = true
+                selectedIDs.removeAll()
+            } label: {
+                ImmersiveMultiSelectIcon(color: AppStyle.primaryText)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 14)
+        // 下载结果提示挂在吸顶行（和「移出歌单失败」的 alert 挂在不同节点上）
         .alert("下载全部", isPresented: Binding(get: { downloadResult != nil },
                                                set: { if !$0 { downloadResult = nil } })) {
             Button("好", role: .cancel) { downloadResult = nil }
@@ -853,9 +892,34 @@ struct KugouPlaylistDetail: View {
         }
     }
 
-    private var downloadButtonTitle: String {
-        if isDownloading { return "\(downloadDone)/\(downloadTotal)" }
-        return downloadFinished ? "已下载" : "下载全部"
+    /// 多选底部条：播放 / 下载 / 加歌单（统一走酷狗账号歌单）。
+    private var selectedActionBar: some View {
+        let selected = songs.filter { selectedIDs.contains($0.id) }
+        return HStack(spacing: 0) {
+            Button {
+                store.queueID = "kugou-list:\(listid)"
+                store.play(selected); Haptics.soft()
+                isSelecting = false; selectedIDs.removeAll()
+            } label: {
+                VStack(spacing: 4) { Image(systemName: "play.fill").font(.system(size: 18)); Text("播放").font(.system(size: 11)) }
+                    .foregroundStyle(AppStyle.primaryText).frame(maxWidth: .infinity).padding(.vertical, 12)
+            }.buttonStyle(.plain)
+            Divider().frame(height: 24)
+            Button {
+                Task { for song in selected { if song.isRemote { _ = try? await DownloadManager.shared.download(song) } } }
+                Haptics.soft(); isSelecting = false; selectedIDs.removeAll()
+            } label: {
+                VStack(spacing: 4) { Image(systemName: "arrow.down.circle").font(.system(size: 18)); Text("下载").font(.system(size: 11)) }
+                    .foregroundStyle(AppStyle.primaryText).frame(maxWidth: .infinity).padding(.vertical, 12)
+            }.buttonStyle(.plain)
+            Divider().frame(height: 24)
+            AddSelectedToKugouButton(songs: selected) {
+                VStack(spacing: 4) { Image(systemName: "text.badge.plus").font(.system(size: 18)); Text("加歌单").font(.system(size: 11)) }
+                    .foregroundStyle(AppStyle.primaryText).frame(maxWidth: .infinity).padding(.vertical, 12)
+            }
+        }
+        .background(AppStyle.surface)
+        .overlay(Rectangle().fill(AppStyle.stroke).frame(height: 0.5), alignment: .top)
     }
 
     /// 🔴 v2.7.6：顺序下载歌单里的全部歌曲（已在本地的跳过）。
@@ -901,36 +965,59 @@ struct KugouPlaylistDetail: View {
         } else if songs.isEmpty {
             EmptyStateView(icon: "music.note.list", title: "歌单是空的").padding(.top, 60)
         } else {
-            ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
-                // 🔴 v2.6.4：左滑删除 = 把这首歌移出酷狗歌单
-                SwipeToDeleteRow {
-                    Task { await removeSong(song) }
-                } content: {
-                    SongRow(song: song,
-                            isCurrent: store.current?.id == song.id,
-                            isPlaying: store.isPlaying,
-                            trailing: nil)
-                        .equatable().songMenu(song)
-                        .onTapGesture {
-                            store.queueID = "kugou-list:\(listid)"
-                            store.play(songs, startAt: index); Haptics.soft()
+            VStack(spacing: 0) {
+                ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
+                    let selected = selectedIDs.contains(song.id)
+                    // 🔴 v2.6.4：左滑删除 = 把这首歌移出酷狗歌单
+                    SwipeToDeleteRow {
+                        Task { await removeSong(song) }
+                    } content: {
+                        HStack(spacing: 0) {
+                            if isSelecting {
+                                Button {
+                                    if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
+                                } label: {
+                                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 24))
+                                        .foregroundStyle(selected ? AppStyle.accent : AppStyle.tertiaryText)
+                                        .frame(width: 44, height: 44)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            SongRow(song: song,
+                                    isCurrent: store.current?.id == song.id,
+                                    isPlaying: store.isPlaying,
+                                    artistFontSize: 11,
+                                    trailing: nil)
+                                .equatable().songMenu(song)
+                                .onTapGesture {
+                                    if isSelecting {
+                                        if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
+                                    } else {
+                                        store.queueID = "kugou-list:\(listid)"
+                                        store.play(songs, startAt: index); Haptics.soft()
+                                    }
+                                }
                         }
                         // 不透明底：盖住身后的红色删除按钮（页面背景同色）
                         .background(AppStyle.background)
-                }
-                .padding(.horizontal, 16)
-                // 长按也可以移出歌单
-                .contextMenu {
-                    Button(role: .destructive) {
-                        Task { await removeSong(song) }
-                    } label: {
-                        Label("移出歌单", systemImage: "trash")
+                    }
+                    .padding(.horizontal, 16)
+                    // 长按也可以移出歌单
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            Task { await removeSong(song) }
+                        } label: {
+                            Label("移出歌单", systemImage: "trash")
+                        }
+                    }
+                    if index < songs.count - 1 {
+                        Divider().padding(.leading, 16 + 48 + 12 + 44)
                     }
                 }
-                if index < songs.count - 1 {
-                    Divider().padding(.leading, 16 + 48 + 12 + 44)
-                }
             }
+            // 🔴 底部留白：让最后一首歌能滚到迷你播放条上方（与其它沉浸式列表一致）。
+            Color.clear.frame(height: ImmersiveStyle.listBottomInset)
         }
     }
 

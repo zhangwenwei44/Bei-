@@ -397,20 +397,17 @@ struct SearchView: View {
                 selectedIDs.removeAll()
             }
             Divider().frame(height: 24)
-            Menu {
-                if library.playlists.isEmpty {
-                    Text("还没有歌单")
+            // 🔴 2026-11-08：加歌单 → 加入酷狗账号歌单（不再提示「还没有歌单」）。
+            AddSelectedToKugouButton(songs: selected) {
+                VStack(spacing: 4) {
+                    Image(systemName: "text.badge.plus")
+                        .font(.system(size: 18))
+                    Text("加歌单")
+                        .font(.system(size: 11))
                 }
-                ForEach(library.playlists) { playlist in
-                    Button(playlist.name) {
-                        for song in selected { library.add(song, toPlaylist: playlist.id) }
-                        Haptics.soft()
-                        isSelecting = false
-                        selectedIDs.removeAll()
-                    }
-                }
-            } label: {
-                actionButton(title: "加入歌单", icon: "text.badge.plus") {}
+                .foregroundStyle(AppStyle.primaryText)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
             }
         }
         .background(AppStyle.surface)

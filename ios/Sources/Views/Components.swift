@@ -1379,8 +1379,10 @@ private struct RowTrailingButtons: View {
 
 // MARK: - 🔴 2026-11-08 歌曲行三点竖「更多」菜单（所有歌曲列表统一）
 
-/// 菜单：加入歌单 / 下载 / 加入播放列表 / 下一首播放。
-/// 已下载的歌额外给「删除下载」；登录酷狗且有 hash 时给「添加到酷狗歌单」。
+/// 🔴 2026-11-08(二)：菜单合成**一张连续卡片**（不再用 Divider 分组，下载上下没有间隙）。
+/// 只保留一个「加入酷狗歌单」入口（原来本地「加入歌单」+「登录后添加到酷狗歌单」两个重复项合并，
+/// 本地歌单页面一并移除），移除「加入播放列表」，保留「下一首播放」。
+/// 已下载的歌给「删除下载」。
 ///
 /// 🔴 SF Symbol 红线：这里只用项目里已验证存在的符号名（最低 iOS 15），
 ///    写错符号名不会报错、只会静默渲染空白。
@@ -1393,13 +1395,8 @@ struct SongMoreMenu: View {
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var downloads = DownloadManager.shared
     @ObservedObject private var kugouAuth = KugouAuth.shared
-    @State private var activeSheet: MoreSheet?
+    @State private var showKugouPicker = false
     @State private var showQualityPicker = false
-
-    private enum MoreSheet: String, Identifiable {
-        case localPlaylist, kugouPlaylist
-        var id: String { rawValue }
-    }
 
     /// 已下载：磁盘有文件 / 本地导入 / 曲库下载列表里登记过（三种来源都算）。
     private var isDownloaded: Bool {
@@ -1410,25 +1407,13 @@ struct SongMoreMenu: View {
 
     var body: some View {
         Menu {
-            Button { present(.localPlaylist) } label: {
-                Label("加入歌单", systemImage: "music.note.list")
-            }
-            if !song.kugouHash.isEmpty {
-                if kugouAuth.isLoggedIn {
-                    Button { present(.kugouPlaylist) } label: {
-                        Label("添加到酷狗歌单", systemImage: "icloud.and.arrow.up")
-                    }
-                } else {
-                    Button {
-                        NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
-                    } label: {
-                        Label("登录后添加到酷狗歌单", systemImage: "icloud.and.arrow.up")
-                    }
-                }
+            // 🔴 2026-11-08：加歌单只保留一个入口「加入酷狗歌单」。
+            // 未登录点它直接弹扫码登录；已登录弹酷狗账号歌单选择器。
+            Button { addToKugouPlaylist() } label: {
+                Label("加入酷狗歌单", systemImage: "music.note.list")
             }
 
-            Divider()
-
+            // 🔴 不再插 Divider：整块菜单是一张连续卡片，下载上下没有间隙。
             if isDownloaded {
                 Button(role: .destructive) {
                     downloads.delete(song)
@@ -1446,14 +1431,7 @@ struct SongMoreMenu: View {
                 }
             }
 
-            Divider()
-
-            Button {
-                PlayerStore.shared.append([song])
-                Haptics.light()
-            } label: {
-                Label("加入播放列表", systemImage: "text.badge.plus")
-            }
+            // 「加入播放列表」已移除，只保留下一首播放。
             Button {
                 // 🔴 插到当前曲目后面，不打断当前播放（playNow 是立刻切歌，语义不同）。
                 PlayerStore.shared.insertNext([song])
@@ -1470,12 +1448,10 @@ struct SongMoreMenu: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        // 🔴 一个 sheet(item:) 承载两种选择页：iOS 15 上链式叠多个 .sheet 只有最后一个生效。
-        .sheet(item: $activeSheet) { item in
-            switch item {
-            case .localPlaylist: LocalPlaylistAddSheet(song: song)
-            case .kugouPlaylist: KugouPlaylistPicker(songs: [song], title: "添加到酷狗歌单")
-            }
+        // 🔴 只有一个酷狗歌单选择器；iOS 15 上链式叠多个 .sheet 只有最后一个生效，
+        //    所以音质选择走 confirmationDialog、歌单选择走这一个 sheet，互不冲突。
+        .sheet(isPresented: $showKugouPicker) {
+            KugouPlaylistPicker(songs: [song], title: "加入酷狗歌单")
         }
         .confirmationDialog("选择下载音质", isPresented: $showQualityPicker, titleVisibility: .visible) {
             ForEach(MusicQuality.allCases) { quality in
@@ -1487,10 +1463,16 @@ struct SongMoreMenu: View {
         }
     }
 
-    /// 菜单消失动画期间立刻 present sheet 会弹不出来（项目里踩过），延后一拍。
-    private func present(_ sheet: MoreSheet) {
+    /// 🔴 2026-11-08：唯一的「加入酷狗歌单」入口。
+    /// 未登录直接拉起扫码登录；已登录弹酷狗账号歌单选择器。
+    private func addToKugouPlaylist() {
         Haptics.light()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { activeSheet = sheet }
+        if !kugouAuth.isLoggedIn {
+            NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
+            return
+        }
+        // 菜单消失动画期间立刻 present sheet 会弹不出来（项目里踩过），延后一拍。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { showKugouPicker = true }
     }
 
     private func startDownload() {
@@ -1503,73 +1485,37 @@ struct SongMoreMenu: View {
     }
 }
 
-/// 「加入歌单」选择页：本地自建歌单 + 顺手新建一个（不依赖酷狗登录）。
-private struct LocalPlaylistAddSheet: View {
-    let song: Song
-    @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var library = LibraryStore.shared
-    @State private var newName = ""
+// MARK: - 🔴 2026-11-08 多选「加歌单」→ 加入酷狗账号歌单（所有多选条共用）
 
-    private var trimmedName: String {
-        newName.trimmingCharacters(in: .whitespacesAndNewlines)
+/// 多选底部条的「加歌单」按钮。
+/// 之前是本地歌单 Menu，一个本地歌单都没有时只弹「还没有歌单」；
+/// 现在统一改成把选中的歌加入**酷狗账号歌单**：
+/// 未登录 → 拉起扫码登录；已登录 → 弹酷狗歌单选择器。
+struct AddSelectedToKugouButton<ButtonContent: View>: View {
+    let songs: [Song]
+    private let label: () -> ButtonContent
+
+    init(songs: [Song], @ViewBuilder label: @escaping () -> ButtonContent) {
+        self.songs = songs
+        self.label = label
     }
 
+    @ObservedObject private var kugouAuth = KugouAuth.shared
+    @State private var showPicker = false
+
     var body: some View {
-        CompatNavigationStack {
-            List {
-                Section("我的歌单") {
-                    if library.playlists.isEmpty {
-                        Text("还没有歌单，可以在下面新建一个")
-                            .font(.system(size: 13))
-                            .foregroundStyle(AppStyle.tertiaryText)
-                    } else {
-                        ForEach(library.playlists) { playlist in
-                            Button {
-                                library.add(song, toPlaylist: playlist.id)
-                                Haptics.light()
-                                dismiss()
-                            } label: {
-                                HStack(spacing: 10) {
-                                    Image(systemName: "music.note.list")
-                                        .foregroundStyle(AppStyle.accent)
-                                    Text(playlist.name)
-                                        .font(.system(size: 15))
-                                        .foregroundStyle(AppStyle.primaryText)
-                                        .lineLimit(1)
-                                    Spacer(minLength: 0)
-                                    Text("\(playlist.songIDs.count) 首")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(AppStyle.tertiaryText)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-                Section("新建歌单并加入") {
-                    HStack(spacing: 10) {
-                        TextField("歌单名称", text: $newName)
-                            .textFieldStyle(.plain)
-                        Button("新建") {
-                            guard !trimmedName.isEmpty else { return }
-                            let created = library.createPlaylist(name: trimmedName)
-                            library.add(song, toPlaylist: created.id)
-                            Haptics.light()
-                            dismiss()
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(AppStyle.accent)
-                        .disabled(trimmedName.isEmpty)
-                    }
-                }
+        Button {
+            guard !songs.isEmpty else { return }
+            Haptics.light()
+            if !kugouAuth.isLoggedIn {
+                NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
+            } else {
+                showPicker = true
             }
-            .navigationTitle("加入歌单")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
-                }
-            }
+        } label: { label() }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showPicker) {
+            KugouPlaylistPicker(songs: songs, title: "加入酷狗账号歌单")
         }
     }
 }
@@ -1599,33 +1545,27 @@ struct SongMenu: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            // 🔴 v2.8.1：长按菜单只保留「添加到酷狗歌单」——
-            // 下一首播放 / 加入播放列表 / 收藏 / 下载 在播放页都有入口；
-            // 本地「保存到歌单」已移除，统一走酷狗云歌单（需求：只保留添加到酷狗歌单）。
-            // 「移除」由歌单详情页自己的 contextMenu 提供（酷狗歌单=移出歌单，本地歌单=从歌单移除）。
+            // 🔴 2026-11-08：与三点竖「更多」卡片保持一致，加歌单只有「加入酷狗歌单」一个入口。
+            // 本地「保存到歌单」已移除；「移除」由歌单详情页自己的 contextMenu 提供。
             .contextMenu {
-                // 🔴 v2.6.4：存进酷狗云歌单（需要已登录 + 歌曲有酷狗 hash）
-                if kugouAuth.isLoggedIn && !song.kugouHash.isEmpty {
+                if !song.kugouHash.isEmpty {
                     Button {
+                        if !kugouAuth.isLoggedIn {
+                            NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
+                            return
+                        }
                         // 延后一拍再弹 sheet —— contextMenu 正在关闭动画里，
                         // 立刻 present 会撞上「菜单正在消失」而弹不出来
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                             showKugouPicker = true
                         }
                     } label: {
-                        Label("添加到酷狗歌单", systemImage: "icloud.and.arrow.up")
-                    }
-                } else if !song.kugouHash.isEmpty {
-                    // 未登录时给个提示入口，点一下弹扫码登录
-                    Button {
-                        NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
-                    } label: {
-                        Label("登录后添加到酷狗歌单", systemImage: "icloud.and.arrow.up")
+                        Label("加入酷狗歌单", systemImage: "icloud.and.arrow.up")
                     }
                 }
             }
             .sheet(isPresented: $showKugouPicker) {
-                KugouPlaylistPicker(songs: [song], title: "添加到酷狗歌单")
+                KugouPlaylistPicker(songs: [song], title: "加入酷狗歌单")
             }
     }
 }

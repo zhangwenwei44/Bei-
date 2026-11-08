@@ -13,6 +13,11 @@ struct ArtistDetailView: View {
     @State private var errorMessage: String?
     @ObservedObject private var library = LibraryStore.shared
 
+    /// 🔴 2026-11-08：歌手简介（异步拉取，失败/为空时不占位置）。
+    @State private var artistIntro: String = ""
+    @State private var introExpanded = false
+    @State private var showIntroSheet = false
+
     // 顶部 Tab：歌曲 / 专辑
     @State private var tab: Int = 0
 
@@ -84,6 +89,11 @@ struct ArtistDetailView: View {
                     // 🔴 占位：让列表静止时正好从「大图底边 + 吸顶头高度」开始。
                     //    列表屏幕 y = 实测内容原点 p + 本占位，目标 = 350 + 吸顶头高。
                     Color.clear.frame(height: listPlaceholder)
+
+                    // 🔴 2026-11-08：歌手简介（放在滚动内容里，不动已验证的大图/吸顶几何）。
+                    if !artistIntro.isEmpty {
+                        artistIntroSection
+                    }
 
                     // 列表主体（不含 全部播放 / 分段 Tab，那些已提到吸顶头）。
                     if tab == 0 {
@@ -173,6 +183,11 @@ struct ArtistDetailView: View {
                         } label: {
                             Label("多选下载", systemImage: "checkmark.circle")
                         }
+                        if !artistIntro.isEmpty {
+                            Button { presentIntroSheet() } label: {
+                                Label("歌手简介", systemImage: "info.circle")
+                            }
+                        }
                     } label: {
                         Image(systemName: "ellipsis")
                             .font(.system(size: 16, weight: .semibold))
@@ -212,7 +227,19 @@ struct ArtistDetailView: View {
                 selectedActionBar
             }
         }
-        .task { await loadSongs() }
+        // 🔴 简介是可选增强：用非结构化 Task 并行发起（只发起不等待），
+        //    既不拖住歌曲加载，也不会因 .task 随视图消失被取消而拿不到结果。
+        .task {
+            Task {
+                let intro = await KugouClient.shared.artistIntro(name: artist.name, artistID: artist.id)
+                guard !intro.isEmpty else { return }
+                await applyArtistIntro(intro)
+            }
+            await loadSongs()
+        }
+        .sheet(isPresented: $showIntroSheet) {
+            ArtistIntroSheet(name: artist.name, intro: artistIntro)
+        }
         .onChange(of: isSelecting) { newValue in
             withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                 store.isAnyMultiSelecting = newValue
@@ -472,6 +499,58 @@ struct ArtistDetailView: View {
         .opacity(navFrostOpacity)
     }
 
+    // MARK: - 🔴 2026-11-08 歌手简介
+
+    /// 列表顶部的简介卡片：默认 3 行，点「展开」看全文，点「全文」进独立弹窗。
+    private var artistIntroSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("歌手简介")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(AppStyle.primaryText)
+                Spacer(minLength: 0)
+                Button { presentIntroSheet() } label: {
+                    Text("全文")
+                        .font(.system(size: 12))
+                        .foregroundStyle(AppStyle.accent)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text(artistIntro)
+                .font(.system(size: 13))
+                .foregroundStyle(AppStyle.secondaryText)
+                .lineSpacing(4)
+                .lineLimit(introExpanded ? nil : 3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onTapGesture { withAnimation(.easeOut(duration: 0.2)) { introExpanded.toggle() } }
+
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) { introExpanded.toggle() }
+            } label: {
+                Text(introExpanded ? "收起" : "展开")
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppStyle.accent)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    /// 菜单里点「歌手简介」时，等菜单消失动画走完再弹 sheet，否则会被吞掉。
+    private func presentIntroSheet() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { showIntroSheet = true }
+    }
+
+    @MainActor
+    private func applyArtistIntro(_ text: String) {
+        artistIntro = text
+    }
+
     // MARK: - 歌曲列表（酷狗同款：全部播放行 + 最新/最热 + 扁平编号列表）
 
     /// 🔴 全部播放行（蓝色播放圆钮 + 排序切换 + 多选下载）—— 提到「吸顶头」，不随列表滚走。
@@ -704,16 +783,8 @@ struct ArtistDetailView: View {
                 .padding(.horizontal, 8)
             }.buttonStyle(.plain)
 
-            // 加歌单
-            Menu {
-                if library.playlists.isEmpty { Text("还没有歌单") }
-                ForEach(library.playlists) { pl in
-                    Button(pl.name) {
-                        for song in selected { library.add(song, toPlaylist: pl.id) }
-                        Haptics.soft(); isSelecting = false; selectedIDs.removeAll()
-                    }
-                }
-            } label: {
+            // 🔴 2026-11-08：加歌单 → 加入酷狗账号歌单（不再提示「还没有歌单」）。
+            AddSelectedToKugouButton(songs: selected) {
                 VStack(spacing: 6) {
                     Image(systemName: "text.badge.plus").font(.system(size: 20))
                     Text("加歌单").font(.system(size: 12, weight: .medium))
@@ -721,7 +792,7 @@ struct ArtistDetailView: View {
                 .foregroundStyle(AppStyle.primaryText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
-            }.buttonStyle(.plain)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -858,6 +929,38 @@ private struct ArtistSongRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+}
+
+// MARK: - 🔴 2026-11-08 歌手简介全文弹窗
+
+/// 二级页/弹窗统一白色导航栏，正文可滚动，长简介（上千字）也能完整读完。
+private struct ArtistIntroSheet: View {
+    let name: String
+    let intro: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        CompatNavigationStack {
+            ScrollView {
+                Text(intro)
+                    .font(.system(size: 15))
+                    .foregroundStyle(AppStyle.primaryText)
+                    .lineSpacing(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 16)
+            }
+            .background(AppStyle.background)
+            .navigationTitle("\(name) · 简介")
+            .navigationBarTitleDisplayMode(.inline)
+            .kugouNavigationBarBackground()
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
     }
 }
 

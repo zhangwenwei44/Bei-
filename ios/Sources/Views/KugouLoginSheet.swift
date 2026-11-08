@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import CoreImage.CIFilterBuiltins
 
 /// 酷狗扫码登录 Sheet：展示二维码 + 轮询登录状态 + 保存登录态
@@ -75,17 +76,21 @@ struct KugouLoginSheet: View {
                 .padding(24)
             }
             .navigationBarTitleDisplayMode(.inline)
-            // 🔴 v2.9.6(修正)：二级页/弹窗的导航栏统一改成白色（主页那四个保持淡蓝渐变）
-            .kugouNavigationBarBackground()
+            // 🔴 2026-11-08：顶栏改成与下方内容一致的深色（不再刷白），整张弹窗连成一片。
+            //    用实色而不是透明：透明会露出 UIKit 容器自带的白底（项目里踩过的白顶坑）。
+            .kugouNavigationBarBackground(UIColor(red: 0.09, green: 0.09, blue: 0.10, alpha: 1),
+                                         titleColor: .white)
+            // 深色顶栏 → 状态栏文字用白色。
+            .compatToolbarLightContent()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { stopPolling(); dismiss() }
-                        // 🔴 v2.9.6(修正)：顶栏改成白色后，白字按钮在白底上看不见 ——
-                        // 改用品牌蓝（和 App 里其它页面的取消按钮一致）。
-                        .foregroundStyle(AppStyle.accent)
+                        .foregroundStyle(.white)
                 }
             }
         }
+        // 兜底：把 sheet 卡片自身的系统背景也压成深色，避免顶部圆角处露白。
+        .background(Color(red: 0.09, green: 0.09, blue: 0.10).ignoresSafeArea())
         .onAppear {
             // 🔴 只在首次呈现时调 startLogin，.task 在 iOS 16 Sheet 里不可靠
             if qrImage == nil && !isStarting && !isSuccess {

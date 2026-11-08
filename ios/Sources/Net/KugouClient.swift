@@ -488,6 +488,69 @@ final class KugouClient {
     // 🔴 v2.7.5：singerid → 写真图片列表的实现已并入 photoURLs(forSingerID:)，
     // 避免两份重复代码。（按歌手名取写真时也统一走它。）
 
+    /// 🔴 2026-11-08：歌手简介缓存（singerid → 正文）。
+    private let artistIntroCache = NSCache<NSString, NSString>()
+
+    /// 歌手主页的「歌手简介」。
+    ///
+    /// 数据源：`mobiles.kugou.com/api/v3/singer/info?singerid=xxx` 的 `data.profile`
+    /// （纯文本、带空行分段；没有时退回旧版 `intro` 并清掉 HTML 标签）。
+    /// 🔴 `Artist.id` 有两种来源：歌手列表给的是数字 singerid，从歌曲/搜索点进来是 `kw:名字`，
+    ///    后者要先按名字反查 singerid 才查得到简介。
+    func artistIntro(name: String, artistID: String) async -> String {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawID = artistID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sid: String
+        if !rawID.isEmpty && rawID.allSatisfy({ $0.isNumber }) {
+            sid = rawID
+        } else {
+            guard let resolved = await singerID(for: trimmedName), !resolved.isEmpty else { return "" }
+            sid = resolved
+        }
+        if let cached = artistIntroCache.object(forKey: sid as NSString) {
+            return cached as String
+        }
+        guard let json = try? await getJSON(path: "/api/v3/singer/info",
+                                            host: "https://mobiles.kugou.com",
+                                            params: ["singerid": sid],
+                                            headers: ["User-Agent": searchUA]),
+              let data = json["data"] as? [String: Any] else { return "" }
+        var text = Self.string(data["profile"]) ?? ""
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            text = Self.string(data["intro"]) ?? ""
+        }
+        let cleaned = Self.cleanArtistIntro(text)
+        guard !cleaned.isEmpty else { return "" }
+        artistIntroCache.setObject(cleaned as NSString, forKey: sid as NSString)
+        return cleaned
+    }
+
+    /// 简介清洗：去 HTML 标签 / 常见实体，逐行去空白，连续空行压成一段。
+    private static func cleanArtistIntro(_ raw: String) -> String {
+        var s = raw
+        s = s.replacingOccurrences(of: #"<[^>]+>"#, with: "\n", options: .regularExpression)
+        let entities: [(String, String)] = [
+            ("&nbsp;", " "), ("&amp;", "&"), ("&quot;", "\""),
+            ("&#39;", "'"), ("&lt;", "<"), ("&gt;", ">"), ("&ldquo;", "“"), ("&rdquo;", "”"),
+        ]
+        for (from, to) in entities { s = s.replacingOccurrences(of: from, with: to) }
+        let lines = s.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        var out: [String] = []
+        var previousBlank = false
+        for line in lines {
+            if line.isEmpty {
+                if previousBlank || out.isEmpty { continue }
+                previousBlank = true
+                out.append("")
+            } else {
+                previousBlank = false
+                out.append(line)
+            }
+        }
+        return out.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// 🔴 v2.6.7：歌手写真图库缓存（歌手名 → 写真 URL 数组）。
     private let photoGalleryCache = NSCache<NSString, NSArray>()
 
