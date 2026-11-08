@@ -48,6 +48,8 @@ enum Lucide: String, CaseIterable {
     case link  // 从网址导入
     case share  // 导出
     case alarmClock  // 睡眠定时
+    case palette  // 主题更换（播放页顶栏，2026-11-08）
+    case arrowUpAZ  // 按英文字母排序（↑ A/Z，2026-11-08）
 
     /// 在给定 rect 内构造该图标的 Path（描边路径，未闭合填充由调用方决定）。
     func path(in rect: CGRect) -> Path {
@@ -847,6 +849,75 @@ enum Lucide: String, CaseIterable {
             p.move(to: g.p(17.640, 18.670))
             p.addLine(to: g.p(20.000, 21.000))
             p.addEllipse(in: g.e(12.000, 13.000, 8.000))
+
+        // MARK: 2026-11-08 新增：主题更换（调色板）/ 按英文字母排序（↑ A/Z）
+        case .palette:  // 主题更换 — palette
+            p.move(to: g.p(12.000, 22.000))
+            p.addLine(to: g.p(8.580, 21.397))
+            p.addLine(to: g.p(5.572, 19.660))
+            p.addLine(to: g.p(3.340, 17.000))
+            p.addLine(to: g.p(2.152, 13.736))
+            p.addLine(to: g.p(2.152, 10.264))
+            p.addLine(to: g.p(3.340, 7.000))
+            p.addLine(to: g.p(5.572, 4.340))
+            p.addLine(to: g.p(8.580, 2.603))
+            p.addLine(to: g.p(12.000, 2.000))
+            p.addLine(to: g.p(15.090, 2.440))
+            p.addLine(to: g.p(17.878, 3.719))
+            p.addLine(to: g.p(20.090, 5.710))
+            p.addLine(to: g.p(21.511, 8.219))
+            p.addLine(to: g.p(22.000, 11.000))
+            p.addLine(to: g.p(21.755, 12.545))
+            p.addLine(to: g.p(21.045, 13.939))
+            p.addLine(to: g.p(19.939, 15.045))
+            p.addLine(to: g.p(18.545, 15.755))
+            p.addLine(to: g.p(17.000, 16.000))
+            p.addLine(to: g.p(14.750, 16.000))
+            p.addLine(to: g.p(14.206, 16.087))
+            p.addLine(to: g.p(13.715, 16.339))
+            p.addLine(to: g.p(13.328, 16.731))
+            p.addLine(to: g.p(13.081, 17.224))
+            p.addLine(to: g.p(13.000, 17.769))
+            p.addLine(to: g.p(13.093, 18.312))
+            p.addLine(to: g.p(13.350, 18.800))
+            p.addLine(to: g.p(13.650, 19.200))
+            p.addLine(to: g.p(13.907, 19.688))
+            p.addLine(to: g.p(14.000, 20.231))
+            p.addLine(to: g.p(13.919, 20.776))
+            p.addLine(to: g.p(13.672, 21.269))
+            p.addLine(to: g.p(13.285, 21.661))
+            p.addLine(to: g.p(12.794, 21.913))
+            p.addLine(to: g.p(12.250, 22.000))
+            p.closeSubpath()
+            p.addEllipse(in: g.e(13.500, 6.500, 0.500))
+            p.addEllipse(in: g.e(17.500, 10.500, 0.500))
+            p.addEllipse(in: g.e(6.500, 12.500, 0.500))
+            p.addEllipse(in: g.e(8.500, 7.500, 0.500))
+
+        case .arrowUpAZ:  // 按英文字母排序 — arrow-up-a-z
+            p.move(to: g.p(3.000, 8.000))
+            p.addLine(to: g.p(7.000, 4.000))
+            p.addLine(to: g.p(11.000, 8.000))
+            p.move(to: g.p(7.000, 4.000))
+            p.addLine(to: g.p(7.000, 20.000))
+            p.move(to: g.p(20.000, 8.000))
+            p.addLine(to: g.p(15.000, 8.000))
+            p.move(to: g.p(15.000, 10.000))
+            p.addLine(to: g.p(15.000, 6.500))
+            p.addLine(to: g.p(15.151, 5.645))
+            p.addLine(to: g.p(15.585, 4.893))
+            p.addLine(to: g.p(16.250, 4.335))
+            p.addLine(to: g.p(17.066, 4.038))
+            p.addLine(to: g.p(17.934, 4.038))
+            p.addLine(to: g.p(18.750, 4.335))
+            p.addLine(to: g.p(19.415, 4.893))
+            p.addLine(to: g.p(19.849, 5.645))
+            p.addLine(to: g.p(20.000, 6.500))
+            p.addLine(to: g.p(20.000, 10.000))
+            p.move(to: g.p(15.000, 14.000))
+            p.addLine(to: g.p(20.000, 14.000))
+            p.addLine(to: g.p(15.000, 20.000))
+            p.addLine(to: g.p(20.000, 20.000))
 
         }
         return p

@@ -1355,6 +1355,11 @@ struct SongRow: View {
 }
 
 /// 行尾：收藏 + 三点竖「更多」（下载箭头按钮已收进菜单，2026-11-08 用户要求）。
+///
+/// 🔴 2026-11-08：行尾整块垫一层「吞点击」背景 —— 调用方普遍在整行挂了
+/// `.onTapGesture { play(song) }`，点行尾按钮之间的空隙（或图标命中区外沿）时会
+/// 穿透到整行手势，误触发播放。这层背景只在最下面吃掉空隙点击，
+/// 收藏按钮 / 更多菜单在它上层，照常可点。
 private struct RowTrailingButtons: View {
     let song: Song
     @ObservedObject private var library = LibraryStore.shared
@@ -1369,27 +1374,37 @@ private struct RowTrailingButtons: View {
                     .font(.system(size: 16))
                     .foregroundStyle(library.isFavorite(song) ? AppStyle.like : AppStyle.tertiaryText)
                     .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
             SongMoreMenu(song: song)
         }
+        .background(
+            Color.clear
+                .frame(height: 64)
+                .contentShape(Rectangle())
+                .onTapGesture { }
+        )
     }
 }
 
 // MARK: - 🔴 2026-11-08 歌曲行三点竖「更多」菜单（所有歌曲列表统一）
 
-/// 🔴 2026-11-08(二)：菜单合成**一张连续卡片**（不再用 Divider 分组，下载上下没有间隙）。
-/// 只保留一个「加入酷狗歌单」入口（原来本地「加入歌单」+「登录后添加到酷狗歌单」两个重复项合并，
-/// 本地歌单页面一并移除），移除「加入播放列表」，保留「下一首播放」。
-/// 已下载的歌给「删除下载」。
+/// 🔴 2026-11-08(三)：菜单合成**一张连续卡片**（不再用 Divider 分组，下载上下没有间隙）。
+/// 顺序由用户指定，固定为：① 下载（已下载=删除下载）② 加入酷狗歌单
+/// ③ 下一首播放 ④ 加入播放列表（重新加回，追加到播放队列尾部）。
+///
+/// 🔴 误触修复：按钮命中区从 36 放大到 44，并在菜单下层垫一块**垂直加高的吞点击区**
+///    （行高约 70pt，图标上下留白最容易点偏）。点在图标周围不会穿透到整行的播放手势，
+///    菜单本身在上层照常弹出。
 ///
 /// 🔴 SF Symbol 红线：这里只用项目里已验证存在的符号名（最低 iOS 15），
 ///    写错符号名不会报错、只会静默渲染空白。
 struct SongMoreMenu: View {
     let song: Song
-    var iconSize: CGFloat = 16
-    var buttonSize: CGFloat = 36
+    var iconSize: CGFloat = 17
+    var buttonSize: CGFloat = 44
     var tint: Color = AppStyle.tertiaryText
 
     @ObservedObject private var library = LibraryStore.shared
@@ -1407,13 +1422,7 @@ struct SongMoreMenu: View {
 
     var body: some View {
         Menu {
-            // 🔴 2026-11-08：加歌单只保留一个入口「加入酷狗歌单」。
-            // 未登录点它直接弹扫码登录；已登录弹酷狗账号歌单选择器。
-            Button { addToKugouPlaylist() } label: {
-                Label("加入酷狗歌单", systemImage: "music.note.list")
-            }
-
-            // 🔴 不再插 Divider：整块菜单是一张连续卡片，下载上下没有间隙。
+            // ① 下载 / 删除下载（不再插 Divider：整块菜单是一张连续卡片）
             if isDownloaded {
                 Button(role: .destructive) {
                     downloads.delete(song)
@@ -1431,23 +1440,47 @@ struct SongMoreMenu: View {
                 }
             }
 
-            // 「加入播放列表」已移除，只保留下一首播放。
+            // ② 加入酷狗歌单（未登录直接弹扫码登录，已登录弹账号歌单选择器）
+            Button { addToKugouPlaylist() } label: {
+                Label("加入酷狗歌单", systemImage: "music.note.list")
+            }
+
+            // ③ 下一首播放：插到当前曲目后面，不打断当前播放（playNow 是立刻切歌，语义不同）。
             Button {
-                // 🔴 插到当前曲目后面，不打断当前播放（playNow 是立刻切歌，语义不同）。
                 PlayerStore.shared.insertNext([song])
                 Haptics.light()
             } label: {
                 Label("下一首播放", systemImage: "play.fill")
+            }
+
+            // ④ 加入播放列表：追加到队列尾部（2026-11-08 用户要求加回，排第四）。
+            Button {
+                PlayerStore.shared.append([song])
+                Haptics.light()
+            } label: {
+                Label("加入播放列表", systemImage: "plus.circle")
             }
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: iconSize, weight: .medium))
                 .rotationEffect(.degrees(90))
                 .foregroundStyle(tint)
-                .frame(width: buttonSize, height: buttonSize)
+                // 🔴 命中区统一不小于 44×44（歌手页 / 下载列表原本传 32 / 40，太容易点偏）。
+                //    44 仍小于封面 50，不会把歌曲行撑高。
+                .frame(width: max(buttonSize, 44), height: max(buttonSize, 44))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // 🔴 误触修复：菜单下层垫一块垂直加高的透明命中区，吃掉图标周围的点按，
+        //    不让它们穿透到整行的播放手势；菜单 label 在上层，照常弹菜单。
+        .background(
+            // 歌手页 / 下载列表会传更小的 buttonSize（32 / 40），这里给个最小 44×64
+            // 兜底，保证所有列表的「更多」周围都有足够大的吞点击区。
+            Color.clear
+                .frame(width: max(buttonSize, 44), height: max(buttonSize + 20, 64))
+                .contentShape(Rectangle())
+                .onTapGesture { }
+        )
         // 🔴 只有一个酷狗歌单选择器；iOS 15 上链式叠多个 .sheet 只有最后一个生效，
         //    所以音质选择走 confirmationDialog、歌单选择走这一个 sheet，互不冲突。
         .sheet(isPresented: $showKugouPicker) {

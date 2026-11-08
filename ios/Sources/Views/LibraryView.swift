@@ -520,12 +520,31 @@ private struct KugouLibraryPage: View {
                 case .fav:
                     favSection
                 case .download:
-                    DownloadsList(groups: downloadGroups)
+                    downloadSection
                 }
             }
             // 🔴 v2.7.7：底部留出迷你播放条的高度 —— 之前最后一行歌单被迷你播放条挡住
             .padding(.bottom, 110)
         }
+    }
+
+    /// 🔴 2026-11-08：「我的音乐」页直接就能切换按英文字母排序，
+    /// 与设置页的开关共用 `aurora.downloadAlphabeticalSort`，两边改哪边都同步。
+    @ViewBuilder
+    private var downloadSection: some View {
+        HStack(spacing: 8) {
+            LucideIcon(icon: .arrowUpAZ, size: 18, color: AppStyle.secondaryText)
+            Text("按英文字母排序")
+                .font(.system(size: 13))
+                .foregroundStyle(AppStyle.primaryText)
+            Spacer(minLength: 0)
+            Toggle("", isOn: $downloadAlphabeticalSort)
+                .labelsHidden()
+                .tint(AppStyle.accent)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        DownloadsList(groups: downloadGroups)
     }
 
     // MARK: 🔴 v2.8.3 三个板块
@@ -793,7 +812,9 @@ struct KugouPlaylistDetail: View {
             let fresh = added.filter { !existing.contains($0.id) }
             guard !fresh.isEmpty else { return }
             withAnimation(.easeOut(duration: 0.2)) {
-                songs = fresh + songs
+                // 🔴 2026-11-08：后加入的歌排第一（一次加多首时最后加的排最前），
+                //    与 KugouRecentAdditions 的记录顺序保持一致。
+                songs = Array(fresh.reversed()) + songs
                 Self.detailCache[listid] = songs
             }
             Haptics.light()
@@ -1061,21 +1082,28 @@ struct KugouPlaylistDetail: View {
             // 会被取消，取消传进 URLSession 会把请求掐断报「已取消」→ 详情页变加载失败。
             let task = Task { try await KugouClient.shared.playlistSongs(listid: listid) }
             let parsed = try await task.value
+            // 🔴 2026-11-08：用户要求歌单歌曲改成**倒叙**（后加入的歌排前面），
+            //    所以先把服务端返回的整体反转，后面每一步（补齐快照 / 缓存）都必须
+            //    沿用同一个倒序基准，不能有一环把顺序打回正序。
+            let reversed = Array(parsed.reversed())
             // 🔴 v2.8.2：二次进入/刷新时保留已补齐的歌手/封面，不把之前的反查成果打回占位
-            let merged = mergePreservingEnriched(parsed)
-            // 🔴 v2.9.5：刚存进来的歌排到第一位（其余保持服务端原顺序）
+            let merged = mergePreservingEnriched(reversed)
+            // 🔴 v2.9.5：刚存进来的歌排到第一位（其余保持上面的倒序）
             let ordered = KugouRecentAdditions.shared.ordered(merged, forListID: listid)
             songs = ordered
             Self.detailCache[listid] = ordered
             Self.cacheTime[listid] = Date()
             // 🔴 v2.8.1/v2.8.2：歌手/封面在后台补齐，`onBatch` 每反查完一小批就把
             // 快照写回 songs —— 逐批随到随填；v2.8.3 起快照同步进缓存。
+            // ⚠️ 快照必须再过一次 ordered()，否则会把「刚加入的歌置顶」冲掉。
             Task { [merged] in
                 let final = await KugouClient.shared.enrichPlaylistSongs(merged) { snapshot in
-                    songs = snapshot
-                    Self.detailCache[listid] = snapshot
+                    let snapped = KugouRecentAdditions.shared.ordered(snapshot, forListID: listid)
+                    songs = snapped
+                    Self.detailCache[listid] = snapped
                 }
-                Self.detailCache[listid] = final
+                let finalOrdered = KugouRecentAdditions.shared.ordered(final, forListID: listid)
+                Self.detailCache[listid] = finalOrdered
                 Self.cacheTime[listid] = Date()
             }
         } catch {

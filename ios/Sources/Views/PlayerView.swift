@@ -230,6 +230,16 @@ struct PlayerView: View {
 
             Spacer(minLength: 0)
 
+            // 🔴 2026-11-08：横屏按钮前面加「主题更换」（调色板图标）。
+            //    功能暂时不写，点击只给「敬请期待」提示。
+            Button { show("敬请期待") } label: {
+                LucideIcon(icon: .palette, size: 22, color: .white)
+                    .frame(width: 40, height: 40)
+                    .contentShape(Rectangle())
+                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+            }
+            .buttonStyle(.plain)
+
             // 🔴 v2.5.42：右上角从「分享」改回「横屏」按钮（分享挪进「更多」菜单）
             Button { toggleLandscape() } label: {
                 LandscapeToggleIcon()
@@ -458,42 +468,22 @@ struct PlayerView: View {
     /// 下载中 → 下载箭头 + 外圈细环进度（禁用，提示「正在下载…」）；
     /// 已下载 → 下载托盘 + 对勾（点一下提示「已经下载好了」）。
     ///
-    /// 🔴 v2.9.4：三个状态全部用同一套自绘线条图标（同线宽、同坐标、纯白），
-    /// 之前「下载中」是系统 ProgressView（灰轨道 + 粗环）、「已下载」是实心圆底，
-    /// 跟旁边四个线条图标明显不是一路的。
+    /// 🔴 2026-11-08：下载中的**环形进度动画取消**，改成和「下载完成」同款底部胶囊提示
+    /// （见 `activeDownloadText` / `toastLayer`）。按钮本身三个状态仍用同一套自绘线条图标，
+    /// 下载中只把图标调暗一点，不再叠 Circle().trim 转圈。
     private var classicDownloadButton: some View {
         let item = store.current.flatMap { downloads.item(for: $0) }
         let state = item?.state
         let isActive = state?.isActive == true
         return Button {
-            if isActive { show("正在下载…") }
-            else if state == .done { show("已经下载好了") }
-            else { download() }
+            // 下载进度已由底部胶囊常驻显示，这里不再重复弹提示
+            if state == .done { show("已经下载好了") }
+            else if !isActive { download() }
         } label: {
-            if isActive {
-                // 下载中：弱化的下载箭头 + 外圈细环进度（线宽与其它图标一致）
-                ZStack {
-                    // 🔴 v2.9.18：统一动作行图标尺寸（原来下载中用 20、其余用 24）
-                    PlayerActionIcon(glyph: .download, size: 24)
-                        .opacity(0.35)
-                    Circle()
-                        .trim(from: 0, to: max(0.02, min(1, item?.progress ?? 0)))
-                        .stroke(Color.white,
-                                style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                        .frame(width: 30, height: 30)
-                }
+            PlayerActionIcon(glyph: state == .done ? .downloaded : .download, size: 24)
+                .opacity(isActive ? 0.55 : 1)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
-            } else if state == .done {
-                PlayerActionIcon(glyph: .downloaded, size: 24)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            } else {
-                PlayerActionIcon(glyph: .download, size: 24)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
         }
         .buttonStyle(.plain)
     }
@@ -1269,7 +1259,9 @@ struct PlayerView: View {
 
     @ViewBuilder
     private var toastLayer: some View {
-        if let message = showToast ?? store.playbackError {
+        // 🔴 2026-11-08：下载中也走这条胶囊提示（原来在按钮上画环形进度）。
+        //    优先级：手动提示 > 播放错误 > 下载进度常驻提示。
+        if let message = showToast ?? store.playbackError ?? activeDownloadText {
             Text(message)
                 .font(.system(size: 12))
                 .padding(.horizontal, 16)
@@ -1283,6 +1275,16 @@ struct PlayerView: View {
                 // 播放/暂停的点击全吃掉。提示条纯展示，必须 allowsHitTesting(false)。
                 .allowsHitTesting(false)
         }
+    }
+
+    /// 🔴 2026-11-08：下载中的进度改成与「下载完成」一样的胶囊文字提示，
+    /// 跟着 `DownloadManager.items`（@Published）刷新；下载结束 / 失败自动消失。
+    private var activeDownloadText: String? {
+        guard let song = store.current,
+              let item = downloads.item(for: song),
+              item.state.isActive else { return nil }
+        let pct = Int((item.progress * 100).rounded())
+        return "正在下载 \(max(0, min(100, pct)))%"
     }
 
     private var dragGesture: some Gesture {

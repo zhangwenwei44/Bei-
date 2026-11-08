@@ -18,11 +18,28 @@ struct KugouLoginSheet: View {
     @State private var pollTask: Task<Void, Never>?
 
     var body: some View {
-        CompatNavigationStack {
-            ZStack {
-                LinearGradient(colors: [.black, .gray.opacity(0.15)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-                    .ignoresSafeArea()
+        // 🔴 2026-11-08(二)：顶栏改成「完全透明 / 与下方同一层背景」。
+        // 之前用深色实底 appearance 刷导航栏，和下面的深灰渐变对不上、有一条明显硬边
+        //（用户反馈「顶栏颜色不好看与下面颜色不一致」）。
+        // 现在不再套导航栈：整张 sheet 只有一层从顶铺到底的渐变，
+        // 「取消」自绘在左上角浮在渐变上 —— 顶栏与下方是同一片背景，零色差。
+        // 顺带避开项目里踩过的「透明导航栏露出 UIKit 容器白底」坑。
+        ZStack {
+            LinearGradient(colors: [.black, .gray.opacity(0.15)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // 自绘顶栏：只有「取消」，没有独立背景色
+                HStack {
+                    Button("取消") { stopPolling(); dismiss() }
+                        .font(.system(size: 16))
+                        .foregroundStyle(.white)
+                    Spacer(minLength: 0)
+                }
+                .frame(height: 44)
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
 
                 VStack(spacing: 24) {
                     // 酷狗品牌登录图标 + 标题
@@ -75,21 +92,9 @@ struct KugouLoginSheet: View {
                 }
                 .padding(24)
             }
-            .navigationBarTitleDisplayMode(.inline)
-            // 🔴 2026-11-08：顶栏改成与下方内容一致的深色（不再刷白），整张弹窗连成一片。
-            //    用实色而不是透明：透明会露出 UIKit 容器自带的白底（项目里踩过的白顶坑）。
-            .kugouNavigationBarBackground(UIColor(red: 0.09, green: 0.09, blue: 0.10, alpha: 1),
-                                         titleColor: .white)
-            // 深色顶栏 → 状态栏文字用白色。
-            .compatToolbarLightContent()
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { stopPolling(); dismiss() }
-                        .foregroundStyle(.white)
-                }
-            }
         }
-        // 兜底：把 sheet 卡片自身的系统背景也压成深色，避免顶部圆角处露白。
+        // 兜底：sheet 卡片自身的系统背景压成深色，避免顶部圆角处露白；
+        // 渐变末端的半透明灰也靠它显出深灰，整片背景连续。
         .background(Color(red: 0.09, green: 0.09, blue: 0.10).ignoresSafeArea())
         .onAppear {
             // 🔴 只在首次呈现时调 startLogin，.task 在 iOS 16 Sheet 里不可靠

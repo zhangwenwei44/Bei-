@@ -67,9 +67,9 @@ struct AuroraMusicApp: App {
         MainThreadWatchdog.shared.start()
     }
 
-    /// 🔴 v2.6.3：启动 splash —— 系统启动图经常 <1 秒就被撤掉，
-    /// 用户要求启动图至少显示 2 秒：进 App 后再铺一层同样的启动图，
-    /// 满 2 秒淡出。放在 ForceUpdateView overlay 之上（后写的 overlay 在上层）。
+    /// 🔴 2026-11-08：启动 splash —— 系统启动图经常 <1 秒就被撤掉，
+    /// 进 App 后再铺一层同样的启动图，满 1 秒淡出（用户要求从 2 秒改成 1 秒）。
+    /// 放在 ForceUpdateView overlay 之上（后写的 overlay 在上层）。
     @State private var splashVisible = true
 
     var body: some Scene {
@@ -88,7 +88,7 @@ struct AuroraMusicApp: App {
                             .transition(.opacity)
                     }
                 }
-                // 🔴 v2.6.3：启动图至少显示 2 秒
+                // 🔴 2026-11-08：启动图显示 1 秒
                 .overlay {
                     if splashVisible {
                         LaunchSplashView()
@@ -96,9 +96,9 @@ struct AuroraMusicApp: App {
                             .zIndex(100)
                     }
                 }
-                // 🔴 v2.8.4：启动图至少显示 5 秒（之前 2 秒）—— 用户要求改回 2 秒
+                // 🔴 2026-11-08：启动图停留 1 秒后淡出（原为 2 秒，用户要求改 1 秒）
                 .task {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
                     withAnimation(.easeOut(duration: 0.35)) { splashVisible = false }
                 }
                 // 🔴 v2.9.0：授权锁屏 —— 等启动图淡出后再盖，避免遮住启动海报；

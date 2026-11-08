@@ -32,6 +32,9 @@ struct ProfileView: View {
     }
 
     @State private var sheet: Sheet?
+    /// 🔴 2026-11-08：运行日志改成隐藏入口（长按「版本」标题 1.5 秒进入），
+    /// 列表里不再显示这一行；用隐藏 NavigationLink 保持原来的 push 行为。
+    @State private var diagnosticsActive = false
     /// QQ 交流群弹层（v2.5.41：启动公告取消后，入口改为设置页这一行）
     @State private var showQQGroup = false
     // 🔴 v2.9.8：云账号输入框
@@ -384,19 +387,18 @@ struct ProfileView: View {
                     }
                     .tint(AppStyle.accent)
                 }
-                // 🔴 v2.9.11：下载歌曲（我的音乐）按字母排序开关
+                // 🔴 2026-11-08：图标换成用户给的「↑ A/Z」；同一个开关在
+                //    「我的音乐 → 下载歌曲」板块顶部也能直接设置。
                 Toggle(isOn: $downloadAlphabeticalSort) {
                     Label {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("下载歌曲按字母排序")
-                            Text("开启后按歌名拼音首字母分组并显示右侧 A–Z 索引；关闭则按下载顺序平铺")
+                            Text("开启后按歌名拼音首字母分组并显示右侧 A–Z 索引；关闭则按下载顺序平铺。我的音乐页也可设置")
                                 .font(.system(size: 11))
                                 .foregroundStyle(AppStyle.tertiaryText)
                         }
                     } icon: {
-                        Image(systemName: "textformat.abc")
-                            .font(.system(size: 18, weight: .regular))
-                            .foregroundStyle(AppStyle.secondaryText)
+                        LucideIcon(icon: .arrowUpAZ, size: 18, color: AppStyle.secondaryText)
                     }
                     .tint(AppStyle.accent)
                 }
@@ -441,32 +443,14 @@ struct ProfileView: View {
                     }
                 }
             } header: {
-                // 🔴 v2.9.1：连点 7 次「版本」进授权码生成器（隐藏入口，进去了还有口令）
+                // 🔴 2026-11-08：隐藏入口全部收在「版本」标题上 ——
+                //    连点 7 次 → 授权码生成器；长按 1.5 秒 → 运行日志（列表里已不再显示）。
                 headerText("版本")
                     .onTapGesture(count: 7) { sheet = .licenseMaker }
+                    .onLongPressGesture(minimumDuration: 1.5) { diagnosticsActive = true }
             }
 
             Section {
-                NavigationLink {
-                    DiagnosticsView()
-                } label: {
-                    HStack {
-                        Label {
-                            Text("运行日志")
-                        } icon: {
-                            LucideIcon(icon: .fileText, size: 18, color: AppStyle.secondaryText)
-                        }
-                        Spacer()
-                        Text("\(LogStore.shared.entries.count)")
-                            .font(.system(size: 12))
-                            .foregroundStyle(AppStyle.tertiaryText)
-                        LucideIcon(icon: .chevronRight, size: 12, color: AppStyle.tertiaryText)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(AppStyle.tertiaryText)
-                    }
-                    .foregroundStyle(AppStyle.primaryText)
-                }
-
                 // 🔴 v2.9.0：授权状态 —— 点一下复制设备码（换授权码时要用）
                 Button {
                     UIPasteboard.general.string = license.deviceID
@@ -557,6 +541,14 @@ struct ProfileView: View {
             case .banner: LabView()                // 🔴 横屏广告更换：打开横幅广告管理（真实功能）
             }
         }
+        // 🔴 2026-11-08：运行日志的隐藏 NavigationLink（列表里不显示任何一行），
+        //    由「版本」标题长按触发；沿用 DiscoverView 已验证的
+        //    .background(NavigationLink(isActive:)) 模式，保持 push 进二级页的行为。
+        .background(
+            NavigationLink(isActive: $diagnosticsActive) {
+                DiagnosticsView()
+            } label: { EmptyView() }
+        )
         .task {
             if case .idle = updater.phase {
                 await updater.check()
