@@ -65,6 +65,8 @@ struct SearchView: View {
         .navigationBarTitleDisplayMode(.inline)
         .kugouNavigationBarTint()
         .toolbar {
+            // 🔴 2026-11-09：「取消」从搜索框右侧挪到导航栏左上角（用户要求）。
+            //    多选时左上角仍是「完成」，两者互斥。
             ToolbarItem(placement: .topBarLeading) {
                 if isSelecting {
                     Button {
@@ -74,6 +76,10 @@ struct SearchView: View {
                         Text("完成")
                             .font(.system(size: 14, weight: .medium))
                     }
+                } else if !submitted.isEmpty || !keyword.isEmpty {
+                    // 输入中（还没按搜索键）也给「取消」，避免用户输入后找不到返回入口。
+                    Button("取消") { resetSearch() }
+                        .font(.system(size: 14))
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -89,26 +95,21 @@ struct SearchView: View {
                             .font(.system(size: 14, weight: .medium))
                     }
                 } else if !submitted.isEmpty, !results.songs.isEmpty {
-                    // 🔴 v2.9.7：多选只对单曲有效（多选状态管的是 results.songs），
-                    // 原来靠 `scope == .songs` 判断，现在 scope 已删除，
-                    // 改成「有单曲结果时才显示」。
+                    // 🔴 v2.9.7：多选只对单曲有效（多选状态管的是 results.songs）。
+                    // 🔴 2026-11-09：图标统一成项目里各歌单页用的「布局列表」多选图标
+                    //    （ImmersiveMultiSelectIcon），不再是蓝色圆圈对勾。
                     Button {
                         isSelecting = true
                         selectedIDs.removeAll()
                     } label: {
-                        Label("多选", systemImage: "checkmark.circle")
+                        ImmersiveMultiSelectIcon(color: AppStyle.accent)
+                            .frame(width: 30, height: 30)
+                            .contentShape(Rectangle())
                     }
-                    .font(.system(size: 13))
+                    .buttonStyle(.plain)
                 } else if !submitted.isEmpty {
-                    Button("清空") {
-                        submitted = ""
-                        keyword = ""
-                        results = SearchResults()
-                        isSelecting = false
-                        selectedIDs.removeAll()
-                        refreshSearchHint()   // 🔴 v2.9.7(二)：换个新的「猜你想搜」
-                    }
-                    .font(.system(size: 13))
+                    Button("清空") { resetSearch() }
+                        .font(.system(size: 13))
                 }
             }
         }
@@ -183,21 +184,21 @@ struct SearchView: View {
             .padding(.horizontal, 12)
             .frame(height: 34)
             .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-            if !submitted.isEmpty {
-                Button("取消") {
-                    submitted = ""
-                    keyword = ""
-                    results = SearchResults()
-                    isFieldFocused = false
-                    refreshSearchHint()   // 🔴 v2.9.7(二)：换个新的「猜你想搜」
-                }
-                .font(.system(size: 13))
-                .foregroundStyle(AppStyle.secondaryText)
-            }
+            // 🔴 2026-11-09：「取消」已移到导航栏左上角，搜索框独占整行、不再挤一个按钮。
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 10)
+    }
+
+    /// 清空本次搜索、回到「最近搜索 / 热门搜索」页（左上角「取消」与「清空」共用）。
+    private func resetSearch() {
+        submitted = ""
+        keyword = ""
+        results = SearchResults()
+        isSelecting = false
+        selectedIDs.removeAll()
+        isFieldFocused = false
+        refreshSearchHint()   // 🔴 v2.9.7(二)：换个新的「猜你想搜」
     }
 
     // MARK: 结果
@@ -223,14 +224,14 @@ struct SearchView: View {
                             }
                             SongRow(song: song,
                                     isCurrent: store.current?.id == song.id,
-                                    isPlaying: store.isPlaying)
-                                    .equatable()
-                                    .songMenu(song)
-                                    .onTapGesture {
+                                    isPlaying: store.isPlaying,
+                                    onPlay: {
                                         if isSelecting {
                                             if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
                                         } else { play(song) }
-                                    }
+                                    })
+                                    .equatable()
+                                    .songMenu(song)
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)

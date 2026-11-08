@@ -42,15 +42,15 @@ struct QueueView: View {
                                 let song = store.queue[offset]
                                 SongRow(song: song,
                                         isCurrent: offset == store.currentIndex,
-                                        isPlaying: store.isPlaying && offset == store.currentIndex)
+                                        isPlaying: store.isPlaying && offset == store.currentIndex,
+                                        onPlay: {
+                                            store.jump(to: offset)
+                                            dismiss()
+                                        })
                                     .equatable()
                                     .songMenu(song)
                                     .listRowBackground(offset == store.currentIndex ? AppStyle.surface : Color.clear)
                                     .listRowSeparatorTint(AppStyle.stroke)
-                                    .onTapGesture {
-                                        store.jump(to: offset)
-                                        dismiss()
-                                    }
                             }
                             .onDelete { store.remove(at: $0) }
                             .onMove { store.move(from: $0, to: $1) }

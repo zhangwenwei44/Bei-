@@ -2,6 +2,25 @@ import SwiftUI
 import AVFoundation
 import UniformTypeIdentifiers
 
+/// 🔴 2026-11-09：酷狗大歌单后台补齐时的「上屏节流器」。
+/// 576 首歌单每反查完一小批（4~6 首）都会回调一次 onBatch，若每批都整体替换
+/// `songs`，主线程会在几分钟内被反复打断 → 滚动掉帧。用时间戳把上屏频率压到
+/// 每 interval 一次；缓存仍每批都写，结果不丢。
+/// NSLock 保护（回调可能来自任意并发上下文），标 @unchecked Sendable。
+private final class BatchThrottle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastFlush: Date = .distantPast
+
+    func shouldFlush(interval: TimeInterval) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let now = Date()
+        guard now.timeIntervalSince(lastFlush) >= interval else { return false }
+        lastFlush = now
+        return true
+    }
+}
+
 /// 曲库页 —— 🔴 v2.7.7：顶栏「我的音乐」板块已按需求移除，只保留酷狗音乐；
 /// 「下载歌曲」入口挪到歌单列表后面。
 struct LibraryView: View {
@@ -165,14 +184,19 @@ private struct DownloadsList: View {
 
     /// 外部传入已分好组的歌曲（由 KugouLibraryPage 计算，便于 A–Z 索引导航）。
     let groups: [SongGroup]
+    /// 🔴 2026-11-09：搜索无结果时不能用「还没有下载」这个文案。
+    var emptyTitle: String = "还没有下载"
+    var emptyMessage: String = "在歌曲菜单里选「下载」"
 
-    init(groups: [SongGroup]) {
+    init(groups: [SongGroup], emptyTitle: String = "还没有下载", emptyMessage: String = "在歌曲菜单里选「下载」") {
         self.groups = groups
+        self.emptyTitle = emptyTitle
+        self.emptyMessage = emptyMessage
     }
 
     var body: some View {
         if groups.isEmpty {
-            EmptyStateView(icon: "arrow.down.circle", title: "还没有下载", message: "在歌曲菜单里选「下载」")
+            EmptyStateView(icon: "arrow.down.circle", title: emptyTitle, message: emptyMessage)
                 .padding(.top, 60)
         } else {
             // 🔴 v2.9.9：按用户要求改成「搜索歌曲列表样式」——每首歌是独立的白色圆角卡片、
@@ -385,12 +409,37 @@ private struct KugouLibraryPage: View {
 
     /// 下载歌曲分组：开关开启时按首字母（拼音首字母）分组 + A–Z 索引；
     /// 关闭时按下载顺序平铺（单组、无索引）。
+    /// 开关只留在「设置」页；「我的音乐」这一行已按用户要求改成搜索框（2026-11-09）。
     @AppStorage("aurora.downloadAlphabeticalSort") private var downloadAlphabeticalSort = true
-    private var downloadGroups: [SongGroup] {
-        if downloadAlphabeticalSort {
-            return DownloadsList.makeGroups(library.downloads)
+    /// 🔴 2026-11-09：只搜索**当前下载列表**的关键词（不触发网络搜索、不影响其它板块）。
+    @State private var downloadQuery = ""
+
+    private var downloadSearchText: String {
+        downloadQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 按歌名 / 歌手 / 专辑过滤本地下载列表。
+    private var filteredDownloads: [Song] {
+        let q = downloadSearchText
+        guard !q.isEmpty else { return library.downloads }
+        return library.downloads.filter { song in
+            song.cleanTitle.localizedCaseInsensitiveContains(q)
+            || song.artist.localizedCaseInsensitiveContains(q)
+            || song.album.localizedCaseInsensitiveContains(q)
         }
-        return [SongGroup(letter: "", songs: library.downloads)]
+    }
+
+    private var downloadGroups: [SongGroup] {
+        let source = filteredDownloads
+        guard !source.isEmpty else { return [] }
+        // 搜索时平铺结果（不再按首字母分组，右侧索引也隐藏）；清空后恢复原排序设置。
+        if !downloadSearchText.isEmpty {
+            return [SongGroup(letter: "", songs: source)]
+        }
+        if downloadAlphabeticalSort {
+            return DownloadsList.makeGroups(source)
+        }
+        return [SongGroup(letter: "", songs: source)]
     }
 
     var body: some View {
@@ -436,9 +485,11 @@ private struct KugouLibraryPage: View {
                             }
                         }
                         .refreshable { await reloadPlaylists() }
-                        // 🔴 下载列表右侧的 A–Z 快速索引（仅「下载歌曲」板块且开启字母排序时显示）
+                        // 🔴 下载列表右侧的 A–Z 快速索引（仅「下载歌曲」板块、开启字母排序、
+                        //    且未在搜索时显示 —— 搜索结果是平铺的单组，没有字母可跳）。
                         .overlay(alignment: .trailing) {
-                            if section == .download && downloadAlphabeticalSort && !downloadGroups.isEmpty {
+                            if section == .download && downloadAlphabeticalSort
+                                && downloadSearchText.isEmpty && !downloadGroups.isEmpty {
                                 DownloadIndex(letters: downloadGroups.map(\.letter), proxy: proxy)
                                     .padding(.trailing, 4)
                             }
@@ -528,23 +579,40 @@ private struct KugouLibraryPage: View {
         }
     }
 
-    /// 🔴 2026-11-08：「我的音乐」页直接就能切换按英文字母排序，
-    /// 与设置页的开关共用 `aurora.downloadAlphabeticalSort`，两边改哪边都同步。
+    /// 🔴 2026-11-09：原来的「按英文字母排序」开关行改成搜索框，
+    /// 只过滤本页「下载歌曲」列表（歌名 / 歌手 / 专辑），不触发全局搜索。
+    /// 排序开关统一收到「设置」页；开关仍决定清空搜索后的分组方式。
     @ViewBuilder
     private var downloadSection: some View {
         HStack(spacing: 8) {
-            LucideIcon(icon: .arrowUpAZ, size: 18, color: AppStyle.secondaryText)
-            Text("按英文字母排序")
-                .font(.system(size: 13))
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14))
+                .foregroundStyle(AppStyle.tertiaryText)
+            TextField("搜索下载的歌曲", text: $downloadQuery)
+                .font(.system(size: 14))
                 .foregroundStyle(AppStyle.primaryText)
-            Spacer(minLength: 0)
-            Toggle("", isOn: $downloadAlphabeticalSort)
-                .labelsHidden()
-                .tint(AppStyle.accent)
+                .submitLabel(.search)
+                .autocorrectionDisabled()
+            if !downloadQuery.isEmpty {
+                Button {
+                    downloadQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+                .buttonStyle(.plain)
+            }
         }
+        .padding(.horizontal, 12)
+        .frame(height: 36)
+        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        DownloadsList(groups: downloadGroups)
+
+        DownloadsList(groups: downloadGroups,
+                      emptyTitle: downloadSearchText.isEmpty ? "还没有下载" : "没有找到相关歌曲",
+                      emptyMessage: downloadSearchText.isEmpty ? "在歌曲菜单里选「下载」" : "换个歌名或歌手试试")
     }
 
     // MARK: 🔴 v2.8.3 三个板块
@@ -986,7 +1054,10 @@ struct KugouPlaylistDetail: View {
         } else if songs.isEmpty {
             EmptyStateView(icon: "music.note.list", title: "歌单是空的").padding(.top, 60)
         } else {
-            VStack(spacing: 0) {
+            // 🔴 2026-11-09：VStack → LazyVStack。576 首的「我喜欢」之前一进页面就把
+            //    576 行全部构建出来（还带 SwipeToDeleteRow / contextMenu），主线程直接卡死。
+            //    Lazy 后只构建可见的十几行；占位 / 分隔线随行一起懒加载。
+            LazyVStack(spacing: 0) {
                 ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
                     let selected = selectedIDs.contains(song.id)
                     // 🔴 v2.6.4：左滑删除 = 把这首歌移出酷狗歌单
@@ -1009,16 +1080,16 @@ struct KugouPlaylistDetail: View {
                                     isCurrent: store.current?.id == song.id,
                                     isPlaying: store.isPlaying,
                                     artistFontSize: 11,
-                                    trailing: nil)
+                                    trailing: nil,
+                                    onPlay: {
+                                        if isSelecting {
+                                            if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
+                                        } else {
+                                            store.queueID = "kugou-list:\(listid)"
+                                            store.play(songs, startAt: index); Haptics.soft()
+                                        }
+                                    })
                                 .equatable().songMenu(song)
-                                .onTapGesture {
-                                    if isSelecting {
-                                        if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
-                                    } else {
-                                        store.queueID = "kugou-list:\(listid)"
-                                        store.play(songs, startAt: index); Haptics.soft()
-                                    }
-                                }
                         }
                         // 不透明底：盖住身后的红色删除按钮（页面背景同色）
                         .background(AppStyle.background)
@@ -1036,9 +1107,9 @@ struct KugouPlaylistDetail: View {
                         Divider().padding(.leading, 16 + 48 + 12 + 44)
                     }
                 }
+                // 🔴 底部留白：让最后一首歌能滚到迷你播放条上方（与其它沉浸式列表一致）。
+                Color.clear.frame(height: ImmersiveStyle.listBottomInset)
             }
-            // 🔴 底部留白：让最后一首歌能滚到迷你播放条上方（与其它沉浸式列表一致）。
-            Color.clear.frame(height: ImmersiveStyle.listBottomInset)
         }
     }
 
@@ -1093,18 +1164,27 @@ struct KugouPlaylistDetail: View {
             songs = ordered
             Self.detailCache[listid] = ordered
             Self.cacheTime[listid] = Date()
-            // 🔴 v2.8.1/v2.8.2：歌手/封面在后台补齐，`onBatch` 每反查完一小批就把
-            // 快照写回 songs —— 逐批随到随填；v2.8.3 起快照同步进缓存。
+            // 🔴 v2.8.1/v2.8.2：歌手/封面在后台补齐，`onBatch` 逐批随到随填。
+            // 🔴 2026-11-09：大歌单（「我喜欢」576 首）每批都整体替换 songs 会让主线程
+            //    在整个补齐期间被反复打断（一次 diff 576 行），滚动明显卡顿。
+            //    这里对**上屏**做 1.2s 节流：缓存每批都写（便宜），UI 最多 1.2s 刷一次，
+            //    补齐结束后再强制刷最后一次，保证结果不丢。
             // ⚠️ 快照必须再过一次 ordered()，否则会把「刚加入的歌置顶」冲掉。
             Task { [merged] in
+                let throttle = BatchThrottle()
                 let final = await KugouClient.shared.enrichPlaylistSongs(merged) { snapshot in
                     let snapped = KugouRecentAdditions.shared.ordered(snapshot, forListID: listid)
-                    songs = snapped
                     Self.detailCache[listid] = snapped
+                    guard throttle.shouldFlush(interval: 1.2) else { return }
+                    songs = snapped
                 }
                 let finalOrdered = KugouRecentAdditions.shared.ordered(final, forListID: listid)
                 Self.detailCache[listid] = finalOrdered
                 Self.cacheTime[listid] = Date()
+                // 强制补最后一次（节流可能吞掉末尾批次）；保留补齐期间用户刚存进来的歌。
+                let finalIDs = Set(finalOrdered.map(\.id))
+                let fresh = songs.filter { !finalIDs.contains($0.id) }
+                songs = fresh + finalOrdered
             }
         } catch {
             // 🔴 v2.8.2：取消类错误不显示成「加载失败：已取消」

@@ -344,15 +344,15 @@ struct DownloadCenterView: View {
                             SongRow(song: song,
                                      isCurrent: store.current?.id == song.id,
                                      isPlaying: store.isPlaying,
-                                     trailing: nil)
+                                     trailing: nil,
+                                     onPlay: {
+                                         if let idx = history.firstIndex(where: { $0.id == song.id }) {
+                                             store.play(history, startAt: idx)
+                                             Haptics.soft()
+                                         }
+                                     })
                                 .equatable()
                                 .songMenu(song)
-                                .onTapGesture {
-                                    if let idx = history.firstIndex(where: { $0.id == song.id }) {
-                                        store.play(history, startAt: idx)
-                                        Haptics.soft()
-                                    }
-                                }
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 3)
                                 .background(

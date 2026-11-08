@@ -15,6 +15,11 @@ struct DiscoverView: View {
     @State private var isLoadingGuess = false
     @State private var dailySongs: [Song] = []
     @State private var hotArtists: [Artist] = []
+    /// 🔴 2026-11-09：新增「歌手」Tab —— 全部歌手（首页热门 + 继续分页补齐），
+    /// 按英文名/拼音首字母分组 A–Z，右侧字母条快速定位。
+    @State private var allArtists: [Artist] = []
+    @State private var isLoadingArtists = false
+    @State private var artistsLoaded = false
     // 🔴 v2.9.17：热门歌手专辑板块数据（歌手 + 他的一张专辑），从 hotArtists 现拉。
     @State private var artistAlbums: [ArtistAlbum] = []
     @State private var playingArtistID: String?
@@ -28,6 +33,9 @@ struct DiscoverView: View {
     // 🔴 v2.9.9：推荐页搜索框下方的横幅广告（两张图自动轮播）
     @State private var adIndex = 0
     private let adTimer = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
+    /// 🔴 2026-11-09：榜单推荐卡片背景 —— 该榜前 3 首歌的专辑图轮流替换显示。
+    @State private var rankCoverIndex = 0
+    private let rankCoverTimer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
     /// 🔴 v2.9.10：横幅广告本地覆盖（管理员可在「实验室」更换），adBanner 优先用它
     @ObservedObject private var bannerConfig = BannerConfig.shared
 
@@ -87,78 +95,101 @@ struct DiscoverView: View {
     ]
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                if let errorMessage, feed.isEmpty {
-                    errorState(errorMessage)
-                } else if isLoading, feed.isEmpty {
-                    LoadingRow()
-                } else {
-                    // 歌单 Tab：搜索框变成「搜索歌单」；其它 Tab 保持全局搜索入口
-                    if selectedTab == .playlists {
-                        playlistSearchBar
+        // 🔴 2026-11-09：外层包 ScrollViewReader —— 新增「歌手」板块的右侧 A–Z
+        //    快速定位要 scrollTo 到分组锚点。与「我的音乐 → 下载歌曲」的
+        //    DownloadIndex 同一套做法（overlay 挂在 ScrollView 上、不随内容滚）。
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if let errorMessage, feed.isEmpty {
+                        errorState(errorMessage)
+                    } else if isLoading, feed.isEmpty {
+                        LoadingRow()
                     } else {
-                        searchEntry
-                        // 🔴 v2.9.9：搜索框下方加两张横幅广告，自动轮播（仅在推荐 Tab）
-                        if selectedTab == .recommend {
-                            adBanner
-                            // 🔴 v2.9.10：横幅广告下方入口栏（下载 / MV / 排行榜 / 歌单广场 / 实验室）
-                            entryBar
+                        // 歌单 Tab：搜索框变成「搜索歌单」；其它 Tab 保持全局搜索入口
+                        if selectedTab == .playlists {
+                            playlistSearchBar
+                        } else {
+                            // 🔴 2026-11-09：推荐 Tab「横幅广告上面的搜索框」移除（用户要求）。
+                            //    底部「搜索」Tab 本来就是独立入口，这里不再重复占位。
+                            if selectedTab != .recommend {
+                                searchEntry
+                            }
+                            // 🔴 v2.9.9：横幅广告自动轮播（仅在推荐 Tab）
+                            if selectedTab == .recommend {
+                                adBanner
+                                // 🔴 v2.9.10：横幅广告下方入口栏（下载 / MV / 排行榜 / 歌单广场 / 实验室）
+                                entryBar
+                            }
                         }
+                        tabContent
                     }
-                    tabContent
+                }
+                .id("tab-top")
+                .padding(.bottom, 24)
+                // 🔴 歌手板块右侧字母索引留出空间，避免挡住歌手行。
+                .padding(.trailing, selectedTab == .artists ? 18 : 0)
+            }
+            // 🔴 2026-11-09：歌手板块右侧 A–Z 快速定位条
+            .overlay(alignment: .trailing) {
+                if selectedTab == .artists {
+                    ArtistLetterIndex(letters: artistGroups.map(\.letter), proxy: proxy)
+                        .padding(.trailing, 3)
                 }
             }
-            .padding(.bottom, 24)
+            .onChange(of: selectedTab) { tab in
+                withAnimation { proxy.scrollTo("tab-top", anchor: .top) }
+                if tab == .artists { Task { await loadAllArtists() } }
+            }
+            // 🔴 v2.9.6(修正)：酷狗风格背景 —— 顶部淡蓝渐变钉在页面顶部，上滑不消失。
+            // 渐变挂在 ScrollView 自身的背景上（相对可视区域固定），而不是滚动内容里。
+            .kugouPinnedTopFade(height: 280)
+            .refreshable { await load(force: true) }
+            .task {
+                if feed.isEmpty { await load() }
+                // 🔴 v2.9.22：横幅拉取必须**独立于本视图的 task**。
+                // `.task` 在视图消失时会被 SwiftUI 取消，连带把正在下载的云端横幅也取消掉
+                // （URLError.cancelled → 日志里「下载出错：已取消」）→
+                // 用户只要从发现页切走，横幅就永远加载不出来，只能显示默认图。
+                // 这里只「发起」不「等待」：非结构化 Task 不会随父 task 被取消。
+                Task { await BannerConfig.shared.pullCloud() }
+            }
+            // 🔴 v2.9.15：酷狗登录态变化（登录/退出）时，每日推荐切换「个性化 / TOP500 回退」
+            .task(id: kugouAuth.isLoggedIn) {
+                await loadDailySongs()
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            // 🔴 v2.9.6：状态栏/导航栏那一段刷成淡蓝，和下面的渐变带连成一片
+            .kugouNavigationBarTint()
+            .safeAreaInset(edge: .top, spacing: 0) {
+                tabBar
+                    // 🔴 v2.9.6(修正)：tab 行刷**实色 pageGradientTop** ——
+                    // 上滑时滚动内容会从 safeAreaInset 区域底下穿过，实色把它挡住；
+                    // 页面渐变带顶部 ~50% 是同色纯色块（见 KugouTopFade），
+                    // 与导航栏（appearance 实色）三方同值，无缝衔接不会出现两种颜色。
+                    .background(AppStyle.pageGradientTop)
+            }
+            // 🔴 底部留白已由 RootView 的 .safeAreaInset(edge:.bottom) 统一处理
+            // （播放条现在是 TabView 的 inset 内容，不是浮层）。
+            // 这里再 inset 一次会变成双重留白。
+            // 监听全局歌手导航通知
+            .onReceive(NotificationCenter.default.publisher(for: .navigateToArtist)) { note in
+                guard let song = note.object as? Song else { return }
+                pendingArtist = Artist(id: "kw:\(song.artist)",
+                                       name: song.artist.trimmingCharacters(in: .whitespaces),
+                                       coverURL: song.artworkURL)
+            }
+            .background(
+                NavigationLink(isActive: Binding(
+                    get: { pendingArtist != nil },
+                    set: { if !$0 { pendingArtist = nil } }
+                )) {
+                    if let artist = pendingArtist {
+                        ArtistDetailView(artist: artist)
+                    }
+                } label: { EmptyView() }
+            )
         }
-        // 🔴 v2.9.6(修正)：酷狗风格背景 —— 顶部淡蓝渐变钉在页面顶部，上滑不消失。
-        // 渐变挂在 ScrollView 自身的背景上（相对可视区域固定），而不是滚动内容里。
-        .kugouPinnedTopFade(height: 280)
-        .refreshable { await load(force: true) }
-        .task {
-            if feed.isEmpty { await load() }
-            // 🔴 v2.9.22：横幅拉取必须**独立于本视图的 task**。
-            // `.task` 在视图消失时会被 SwiftUI 取消，连带把正在下载的云端横幅也取消掉
-            // （URLError.cancelled → 日志里「下载出错：已取消」）→
-            // 用户只要从发现页切走，横幅就永远加载不出来，只能显示默认图。
-            // 这里只「发起」不「等待」：非结构化 Task 不会随父 task 被取消。
-            Task { await BannerConfig.shared.pullCloud() }
-        }
-        // 🔴 v2.9.15：酷狗登录态变化（登录/退出）时，每日推荐切换「个性化 / TOP500 回退」
-        .task(id: kugouAuth.isLoggedIn) {
-            await loadDailySongs()
-        }
-        .navigationBarTitleDisplayMode(.inline)
-        // 🔴 v2.9.6：状态栏/导航栏那一段刷成淡蓝，和下面的渐变带连成一片
-        .kugouNavigationBarTint()
-        .safeAreaInset(edge: .top, spacing: 0) {
-            tabBar
-                // 🔴 v2.9.6(修正)：tab 行刷**实色 pageGradientTop** ——
-                // 上滑时滚动内容会从 safeAreaInset 区域底下穿过，实色把它挡住；
-                // 页面渐变带顶部 ~50% 是同色纯色块（见 KugouTopFade），
-                // 与导航栏（appearance 实色）三方同值，无缝衔接不会出现两种颜色。
-                .background(AppStyle.pageGradientTop)
-        }
-        // 🔴 底部留白已由 RootView 的 .safeAreaInset(edge:.bottom) 统一处理
-        // （播放条现在是 TabView 的 inset 内容，不是浮层）。
-        // 这里再 inset 一次会变成双重留白。
-        // 监听全局歌手导航通知
-        .onReceive(NotificationCenter.default.publisher(for: .navigateToArtist)) { note in
-            guard let song = note.object as? Song else { return }
-            pendingArtist = Artist(id: "kw:\(song.artist)",
-                                   name: song.artist.trimmingCharacters(in: .whitespaces),
-                                   coverURL: song.artworkURL)
-        }
-        .background(
-            NavigationLink(isActive: Binding(
-                get: { pendingArtist != nil },
-                set: { if !$0 { pendingArtist = nil } }
-            )) {
-                if let artist = pendingArtist {
-                    ArtistDetailView(artist: artist)
-                }
-            } label: { EmptyView() }
-        )
     }
 
     // MARK: Tab 栏
@@ -507,7 +538,156 @@ struct DiscoverView: View {
         case .recommend: recommendContent
         case .ranks: ranksContent
         case .playlists: playlistsContent
+        case .artists: artistsContent
         case .audiobook: audiobookContent
+        }
+    }
+
+    // MARK: 🔴 2026-11-09 歌手 Tab（全部歌手按字母排序 + 右侧 A–Z 索引）
+
+    /// 按首字母分组（A–Z；非字母归 #），组内按名字排序。
+    /// `Artist.initialLetter` 已处理中文拼音首字母（周杰伦 → Z）。
+    private struct ArtistGroup: Identifiable {
+        let letter: String
+        let artists: [Artist]
+        var id: String { letter }
+    }
+
+    private var artistGroups: [ArtistGroup] {
+        var map: [String: [Artist]] = [:]
+        for artist in allArtists {
+            map[artist.initialLetter, default: []].append(artist)
+        }
+        let letters = map.keys.sorted { lhs, rhs in
+            if lhs == "#" { return false }
+            if rhs == "#" { return true }
+            return lhs < rhs
+        }
+        return letters.map { letter in
+            let sorted = (map[letter] ?? []).sorted {
+                $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            }
+            return ArtistGroup(letter: letter, artists: sorted)
+        }
+    }
+
+    private var artistsContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(allArtists.isEmpty ? "歌手" : "全部歌手 · \(allArtists.count) 位")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(AppStyle.primaryText)
+                Spacer()
+                if isLoadingArtists {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
+
+            if allArtists.isEmpty {
+                HStack {
+                    ProgressView().controlSize(.small)
+                        .frame(maxWidth: .infinity)
+                }
+                .padding(.vertical, 40)
+            } else {
+                // 嵌套在页面外层 LazyVStack 里，pinnedViews 不会真的吸顶，去掉避免误导。
+                LazyVStack(spacing: 0) {
+                    ForEach(artistGroups) { group in
+                        Section {
+                            ForEach(group.artists) { artist in
+                                NavigationLink {
+                                    ArtistDetailView(artist: artist)
+                                } label: {
+                                    ArtistRow(artist: artist)
+                                }
+                                .buttonStyle(.plain)
+                                if artist.id != group.artists.last?.id {
+                                    Divider().padding(.leading, 68)
+                                }
+                            }
+                        } header: {
+                            HStack {
+                                Text(group.letter)
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundStyle(AppStyle.accent)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 5)
+                            .background(AppStyle.background.opacity(0.94))
+                        }
+                        .id("artist-sec-\(group.letter)")
+                    }
+                }
+                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.horizontal, 12)
+            }
+
+            if artistsLoaded && !allArtists.isEmpty {
+                Text("已经到底啦 ~")
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppStyle.tertiaryText)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+            }
+        }
+    }
+
+    /// 一次性分页拉完热门歌手（首页已加载的先铺上，再往后翻页补齐）。
+    /// 接口每页 20 位，连续两页无新增或达上限即停，避免无限请求。
+    private func loadAllArtists() async {
+        guard !artistsLoaded, !isLoadingArtists else { return }
+        isLoadingArtists = true
+        defer { isLoadingArtists = false }
+
+        var collected = hotArtists
+        var seen = Set(collected.map(\.id))
+        var page = collected.isEmpty ? 1 : (collected.count / 20) + 1
+        var emptyStreak = 0
+        for _ in 0..<25 {
+            let batch = await KugouClient.shared.hotArtistsPage(page: page, perPage: 20)
+            guard !batch.isEmpty else { break }
+            var added = 0
+            for artist in batch where !seen.contains(artist.id) {
+                seen.insert(artist.id)
+                collected.append(artist)
+                added += 1
+            }
+            // 每拉到一批就刷新一次，用户不用等全部跑完。
+            let snapshot = collected
+            await MainActor.run { allArtists = snapshot }
+            page += 1
+            emptyStreak = added == 0 ? emptyStreak + 1 : 0
+            if batch.count < 20 || emptyStreak >= 2 { break }
+        }
+        artistsLoaded = true
+        Log.info("歌手", "歌手 Tab 共 \(allArtists.count) 位")
+    }
+
+    /// 右侧 A–Z 快速定位条（只列出实际有歌手的字母，点击滚到该分组）。
+    private struct ArtistLetterIndex: View {
+        let letters: [String]
+        let proxy: ScrollViewProxy
+
+        var body: some View {
+            VStack(spacing: 1) {
+                ForEach(letters, id: \.self) { letter in
+                    Button {
+                        withAnimation { proxy.scrollTo("artist-sec-\(letter)", anchor: .top) }
+                        Haptics.light()
+                    } label: {
+                        Text(letter)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                            .frame(width: 16, height: 13)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 6)
         }
     }
 
@@ -830,6 +1010,16 @@ struct DiscoverView: View {
         .task(id: lists.map(\.playlist.id)) {
             await loadRankPreviews(for: lists.map(\.playlist))
         }
+        // 🔴 2026-11-09：卡片背景每 3 秒换下一张专辑图（0→1→2→0 循环）。
+        .onReceive(rankCoverTimer) { _ in
+            rankCoverIndex = (rankCoverIndex + 1) % 3
+        }
+    }
+
+    /// 🔴 2026-11-09：卡片背景轮播用的当前歌曲（该榜前 3 首轮流替换）。
+    private func rankBackgroundSong(_ songs: [Song]) -> Song? {
+        guard !songs.isEmpty else { return nil }
+        return songs[rankCoverIndex % min(3, songs.count)]
     }
 
     /// 单张榜单横滑卡片（图 5 样式）：榜名 + 更新信息 + 白色圆形播放键 + 3 首带排名角标的封面 + 爱心。
@@ -838,11 +1028,15 @@ struct DiscoverView: View {
         return VStack(alignment: .leading, spacing: 10) {
             // 顶部：榜名 + 更新信息（左）｜白色圆形播放键（右，播前 3 首）
             HStack(spacing: 10) {
+                // 🔴 2026-11-09：标题图标与下面歌曲封面左边缘对齐。
+                //    歌曲行是「序号(width 22) + spacing 10 + 封面」，所以这里补 32pt 占位，
+                //    标题图标 / 标题文字正好落在封面 / 歌名的同一竖线上。
+                Color.clear.frame(width: 22, height: 1)
                 // 🔴 v2.9.17：榜封面上到卡片头部左侧，丰富视觉
                 CoverImage(url: playlist.coverURL,
                            fallbackKeys: [playlist.id],
-                           seed: displayName, size: 42, corner: 8)
-                    .frame(width: 42, height: 42)
+                           seed: displayName, size: 44, corner: 6)
+                    .frame(width: 44, height: 44)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(displayName)
                         .font(.system(size: 15, weight: .bold))
@@ -925,9 +1119,34 @@ struct DiscoverView: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity)
-        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        // 🔴 2026-11-09：卡片背景 = 该榜前 3 首歌的专辑图轮流替换显示（每 3 秒换一张）。
+        //    大图铺满 + 压暗 + 低透明度，保证标题和歌名仍清晰可读。
+        .background {
+            ZStack {
+                AppStyle.surface
+                if let bg = rankBackgroundSong(songs) {
+                    GeometryReader { geo in
+                        CoverImage(url: bg.artworkURL,
+                                   fallbackKeys: bg.coverFallbackKeys,
+                                   seed: "\(bg.artist)-\(bg.title)",
+                                   size: max(geo.size.width, geo.size.height),
+                                   displayWidth: geo.size.width,
+                                   displayHeight: geo.size.height,
+                                   contentMode: .fill)
+                            .clipped()
+                            .blur(radius: 14)
+                            .opacity(0.16)
+                            .id("rank-bg-\(rankCoverIndex)")
+                            .transition(.opacity)
+                    }
+                    .clipped()
+                }
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(AppStyle.stroke.opacity(0.6), lineWidth: 0.5))
+        .animation(.easeInOut(duration: 0.6), value: rankCoverIndex)
     }
 
     // MARK: 🔴 v2.9.8 经典推荐 / DJ推荐 —— 改成和新歌推荐一致的「单行横滑卡片」
@@ -1814,12 +2033,15 @@ struct DiscoverView: View {
 // MARK: - Tab 枚举
 
 enum DiscoverTab: String, CaseIterable, Hashable {
-    case recommend, playlists, ranks, audiobook
+    /// 🔴 2026-11-09：用户要求「榜单后面加一个歌手板块」—— 顺序按 allCases，
+    ///    所以 artists 必须排在 ranks 之后、audiobook 之前。
+    case recommend, playlists, ranks, artists, audiobook
     var title: String {
         switch self {
         case .recommend: return "推荐"
         case .ranks: return "榜单"
         case .playlists: return "歌单"
+        case .artists: return "歌手"
         case .audiobook: return "听书"
         }
     }

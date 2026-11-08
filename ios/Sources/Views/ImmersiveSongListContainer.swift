@@ -178,6 +178,10 @@ struct ImmersiveSongListContainer<Hero: View, Sticky: View, Content: View>: View
     var body: some View {
         ZStack(alignment: .top) {
             // ① 滚动容器：只有「占位 + 列表」。大图不在这里（会被 UIKit 层盖住）。
+            // 🔴 2026-11-09：外层保持 VStack —— 沉浸式几何（探针 / 占位 / 大图浮层）
+            //    已在真机反复验证，不动它。大歌单的懒加载由 content 自己用 LazyVStack
+            //    完成（见 KugouPlaylistDetail.content），嵌套 Lazy 反而可能让 SwiftUI
+            //    在测量高度时把行全部构建出来。
             ScrollView {
                 VStack(spacing: 0) {
                     ImmersiveScrollTracker { m in

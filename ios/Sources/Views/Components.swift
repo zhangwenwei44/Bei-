@@ -1279,22 +1279,55 @@ struct SongRow: View {
     /// 歌手名字号（歌单页要求 11pt，其它列表默认 13pt）
     var artistFontSize: CGFloat = 13
     var trailing: AnyView?
+    /// 🔴 2026-11-09(二)：播放动作改由 SongRow **内部**绑在「封面+歌名」这一块上。
+    /// 之前调用方普遍在整行挂 `.onTapGesture { play(song) }`，而三点竖是 UIKit
+    /// 的 Menu 交互，不消费 SwiftUI 的 TapGesture —— 点「更多」时父手势照样识别成功，
+    /// 于是「弹菜单 + 立刻播放」同时发生（用户连续两轮反馈误触）。
+    /// 把播放做成左侧独立 Button、行尾按钮当兄弟，两者命中区物理不重叠，
+    /// 才能根治。与 DownloadsList.downloadRow（v2.9.8 实机验证）同一套结构。
+    var onPlay: (() -> Void)? = nil
 
     init(song: Song,
          isCurrent: Bool = false,
          isPlaying: Bool = false,
          showsCover: Bool = true,
          artistFontSize: CGFloat = 13,
-         trailing: AnyView? = nil) {
+         trailing: AnyView? = nil,
+         onPlay: (() -> Void)? = nil) {
         self.song = song
         self.isCurrent = isCurrent
         self.isPlaying = isPlaying
         self.showsCover = showsCover
         self.artistFontSize = artistFontSize
         self.trailing = trailing
+        self.onPlay = onPlay
     }
 
     var body: some View {
+        HStack(spacing: 14) {
+            if let onPlay {
+                // 不加 layoutPriority：保持和改造前完全一样的 HStack 空间分配，
+                // 否则歌名可用宽度会变、长标题提前被截断。
+                Button(action: onPlay) { leadingContent }
+                    .buttonStyle(.plain)
+            } else {
+                leadingContent
+            }
+
+            Spacer(minLength: 0)
+
+            if let trailing {
+                trailing
+            } else {
+                RowTrailingButtons(song: song)
+            }
+        }
+        .padding(.vertical, 10)
+    }
+
+    /// 「封面 + 歌名/歌手」这一块：唯一的播放命中区。
+    @ViewBuilder
+    private var leadingContent: some View {
         HStack(spacing: 14) {
             if showsCover {
                 CoverImage(url: song.artworkURL,
@@ -1340,16 +1373,8 @@ struct SongRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(0)
-
-            Spacer(minLength: 0)
-
-            if let trailing {
-                trailing
-            } else {
-                RowTrailingButtons(song: song)
-            }
         }
-        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
     }
 }
@@ -1557,7 +1582,11 @@ struct AddSelectedToKugouButton<ButtonContent: View>: View {
 /// trailing 是 AnyView 不走等式比较（trailing 频繁变化本身就是信号，说明 Cell 应该重建）。
 extension SongRow: Equatable {
     static func == (lhs: SongRow, rhs: SongRow) -> Bool {
-        lhs.song.id == rhs.song.id
+        // 🔴 传了 onPlay 的行一律不缓存：闭包捕获 index / 多选状态 / 当前列表，
+        //    EquatableView 跳过重建会让闭包过期 → 点第二首却播第一首、多选切换后仍播放。
+        //    大列表走 LazyVStack 只渲染可见行，这里放弃缓存不会造成卡顿。
+        guard lhs.onPlay == nil, rhs.onPlay == nil else { return false }
+        return lhs.song.id == rhs.song.id
         && lhs.isCurrent == rhs.isCurrent
         && lhs.isPlaying == rhs.isPlaying
         && lhs.showsCover == rhs.showsCover

@@ -45,10 +45,10 @@ struct SongListView: View {
                         ForEach(songs) { song in
                             SongRow(song: song,
                                     isCurrent: store.current?.id == song.id,
-                                    isPlaying: store.isPlaying)
+                                    isPlaying: store.isPlaying,
+                                    onPlay: { play(song) })
                                 .equatable()
                                 .songMenu(song)
-                                .onTapGesture { play(song) }
                                 Divider().padding(.leading, 74)
                         }
                     }
@@ -160,15 +160,15 @@ struct PlaylistDetailView: View {
                                 SongRow(song: song,
                                         isCurrent: store.current?.id == song.id,
                                         isPlaying: store.isPlaying,
-                                        artistFontSize: 11)
+                                        artistFontSize: 11,
+                                        onPlay: {
+                                            if isSelecting {
+                                                if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
+                                            } else { play(song) }
+                                        })
                                     .equatable()
                                     .songMenu(song)
                                     .padding(.horizontal, 16)
-                                    .onTapGesture {
-                                        if isSelecting {
-                                            if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
-                                        } else { play(song) }
-                                    }
                                     .contextMenu {
                                         if let localPlaylist {
                                             Button(role: .destructive) {
@@ -470,15 +470,15 @@ struct AlbumDetailView: View {
                                 }
                                 SongRow(song: song,
                                         isCurrent: store.current?.id == song.id,
-                                        isPlaying: store.isPlaying)
+                                        isPlaying: store.isPlaying,
+                                        onPlay: {
+                                            if isSelecting {
+                                                if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
+                                            } else { play(song) }
+                                        })
                                     .equatable()
                                     .songMenu(song)
                                     .padding(.horizontal, 16)
-                                    .onTapGesture {
-                                        if isSelecting {
-                                            if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
-                                        } else { play(song) }
-                                    }
                             }
                         }
                     }
