@@ -183,7 +183,8 @@ struct PlaylistDetailView: View {
                         }
                     }
                 }
-                Color.clear.frame(height: 30)
+                // 🔴 底部留白：让最后一首歌能滚到迷你播放条上方（2026-11-08 用户反馈被遮挡）。
+                Color.clear.frame(height: ImmersiveStyle.listBottomInset)
             }
         )
         .navigationBarTitleDisplayMode(.inline)
@@ -258,17 +259,11 @@ struct PlaylistDetailView: View {
                             .foregroundStyle(headerState.navContentColor)
                     }
                 } else {
-                    HStack(spacing: 4) {
-                        if !displaySongs.isEmpty {
-                            Button { Task { await downloadAllSongs() } } label: {
-                                Image(systemName: "arrow.down.circle.dotted")
-                                    .font(.system(size: 16))
-                                    .foregroundStyle(headerState.navContentColor)
-                                    .frame(width: 36, height: 36)
-                            }
-                        }
+                    // 🔴 2026-11-08：顶栏只留「收藏胶囊 + 三点竖」，与歌手主页一致。
+                    //    原来的下载图标、圆圈勾多选按钮全部移除 —— 多选改到吸顶行右侧，
+                    //    下载全部 / 多选收进三点竖菜单，功能不丢但顶栏更干净。
+                    HStack(spacing: 8) {
                         if localPlaylist == nil {
-                            // 🔴 与歌手页一致：蓝色胶囊收藏按钮，文字随顶栏动态白→黑。
                             Button {
                                 isCollected.toggle()
                                 CollectionState.set(isCollected, for: playlist.id)
@@ -283,13 +278,20 @@ struct PlaylistDetailView: View {
                             }
                             .buttonStyle(.plain)
                         }
-                        if !displaySongs.isEmpty {
-                            Button { isSelecting = true; selectedIDs.removeAll() } label: {
-                                Image(systemName: "checkmark.circle")
-                                    .font(.system(size: 16))
-                                    .foregroundStyle(headerState.navContentColor)
-                                    .frame(width: 36, height: 36)
+                        Menu {
+                            Button { Task { await downloadAllSongs() } } label: {
+                                Label("下载全部", systemImage: "arrow.down.circle")
                             }
+                            Button { isSelecting = true; selectedIDs.removeAll() } label: {
+                                Label("多选下载", systemImage: "checkmark.circle")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 16, weight: .semibold))
+                                .rotationEffect(.degrees(90))
+                                .foregroundStyle(headerState.navContentColor)
+                                .frame(width: 30, height: 30)
+                                .contentShape(Rectangle())
                         }
                     }
                 }
@@ -315,55 +317,31 @@ struct PlaylistDetailView: View {
         }
     }
 
-    /// 🔴 2026-11-07：小方封面 header 已移除 —— 歌单名/创建者/曲目数改由
-    /// `ImmersiveCoverHero` 画在沉浸式大图上，这里只保留吸顶的「播放全部 / 下载全部」行。
+    /// 🔴 2026-11-08 用户指定：吸顶行只保留
+    ///   ① 「蓝色圆钮 ▶ + 播放全部 + 灰色曲目数」；② 最右侧多选按钮（布局列表图标）。
+    ///   「下载全部」文字按钮与原来的选歌播放 Menu 一并移除（下载全部收进顶栏三点竖菜单）。
     private var actionBar: some View {
-        HStack(spacing: 16) {
-            Button {
-                store.play(displaySongs); Haptics.light()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "play.fill").font(.system(size: 16, weight: .bold))
-                    Text("播放全部").font(.system(size: 14, weight: .semibold))
-                }
-                .foregroundStyle(AppStyle.onAccent)
-                .frame(width: 132, height: 42)
-                .background(AppStyle.accent, in: Capsule())
+        HStack(spacing: 12) {
+            ImmersivePlayAllButton(count: displaySongs.count) {
+                store.play(displaySongs)
+                Haptics.light()
             }
-            .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
 
             Button {
-                Task { await downloadAllSongs() }
+                isSelecting = true
+                selectedIDs.removeAll()
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.down.circle.dotted").font(.system(size: 16))
-                    Text("下载全部").font(.system(size: 14))
-                }
-                .foregroundStyle(AppStyle.primaryText)
-                .frame(height: 42)
-                .padding(.horizontal, 16)
-                .background(AppStyle.surface.opacity(0.6), in: Capsule())
+                ImmersiveMultiSelectIcon(color: AppStyle.primaryText)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-
-            Spacer()
-
-            if displaySongs.count > 1 {
-                Menu {
-                    ForEach(displaySongs.indices, id: \.self) { offset in
-                        Button(displaySongs[offset].cleanTitle) { store.play(displaySongs, startAt: offset) }
-                    }
-                } label: {
-                    Image(systemName: "list.number")
-                        .font(.system(size: 18))
-                        .foregroundStyle(AppStyle.primaryText)
-                        .frame(width: 36, height: 36)
-                        .background(AppStyle.surface.opacity(0.6), in: Circle())
-                }
-            }
         }
         .padding(.horizontal, 16)
-        .padding(.bottom, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 14)
     }
 
     private func play(_ song: Song) {
@@ -457,6 +435,9 @@ struct AlbumDetailView: View {
     @State private var songs: [Song] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
+    // 🔴 2026-11-08：与歌单详情页一致，多选入口移到吸顶行右侧。
+    @State private var isSelecting = false
+    @State private var selectedIDs: Set<String> = []
     /// 🔴 2026-11-07：与歌单详情共用沉浸式头部状态。
     @StateObject private var headerState = ImmersiveHeaderState()
 
@@ -490,17 +471,36 @@ struct AlbumDetailView: View {
                 } else {
                     VStack(spacing: 0) {
                         ForEach(songs) { song in
-                            SongRow(song: song,
-                                    isCurrent: store.current?.id == song.id,
-                                    isPlaying: store.isPlaying)
-                                .equatable()
-                                .songMenu(song)
-                                .padding(.horizontal, 16)
-                                .onTapGesture { play(song) }
+                            let selected = selectedIDs.contains(song.id)
+                            HStack(spacing: 0) {
+                                if isSelecting {
+                                    Button {
+                                        if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
+                                    } label: {
+                                        Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                                            .font(.system(size: 24))
+                                            .foregroundStyle(selected ? AppStyle.accent : AppStyle.tertiaryText)
+                                            .frame(width: 44, height: 44)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                SongRow(song: song,
+                                        isCurrent: store.current?.id == song.id,
+                                        isPlaying: store.isPlaying)
+                                    .equatable()
+                                    .songMenu(song)
+                                    .padding(.horizontal, 16)
+                                    .onTapGesture {
+                                        if isSelecting {
+                                            if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
+                                        } else { play(song) }
+                                    }
+                            }
                         }
                     }
                 }
-                Color.clear.frame(height: 30)
+                // 🔴 底部留白：让最后一首歌能滚到迷你播放条上方（2026-11-08 用户反馈被遮挡）。
+                Color.clear.frame(height: ImmersiveStyle.listBottomInset)
             }
         )
         .navigationBarTitleDisplayMode(.inline)
@@ -509,60 +509,134 @@ struct AlbumDetailView: View {
         .kugouNavigationBarBackground(.clear, transparent: true)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                ImmersiveNavTitle(title: album.name,
-                                  color: headerState.navContentColor,
-                                  opacity: headerState.navFrostOpacity)
+                if isSelecting {
+                    Text("已选 \(selectedIDs.count) 首")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(headerState.navContentColor)
+                } else {
+                    ImmersiveNavTitle(title: album.name,
+                                      color: headerState.navContentColor,
+                                      opacity: headerState.navFrostOpacity)
+                }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                // 🔴 与歌手页一致：蓝色胶囊收藏按钮，文字随顶栏动态白→黑。
-                Button {
-                    _ = library.toggleAlbumFavorite(album)
-                    Haptics.light()
-                } label: {
-                    Text(isFavorited ? "已收藏" : "收藏")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(headerState.navContentColor)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Capsule().fill(ImmersiveStyle.collectBlue))
+                if isSelecting {
+                    Button {
+                        if selectedIDs.count == songs.count { selectedIDs.removeAll() }
+                        else { selectedIDs = Set(songs.map(\.id)) }
+                    } label: {
+                        Text(selectedIDs.count == songs.count ? "取消全选" : "全选")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(headerState.navContentColor)
+                    }
+                } else {
+                    // 🔴 2026-11-08：与歌单页/歌手页一致 —— 收藏胶囊 + 三点竖菜单。
+                    HStack(spacing: 8) {
+                        Button {
+                            _ = library.toggleAlbumFavorite(album)
+                            Haptics.light()
+                        } label: {
+                            Text(isFavorited ? "已收藏" : "收藏")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(headerState.navContentColor)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Capsule().fill(ImmersiveStyle.collectBlue))
+                        }
+                        .buttonStyle(.plain)
+                        Menu {
+                            Button { Task { await downloadAllAlbumSongs() } } label: {
+                                Label("下载全部", systemImage: "arrow.down.circle")
+                            }
+                            Button { isSelecting = true; selectedIDs.removeAll() } label: {
+                                Label("多选下载", systemImage: "checkmark.circle")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 16, weight: .semibold))
+                                .rotationEffect(.degrees(90))
+                                .foregroundStyle(headerState.navContentColor)
+                                .frame(width: 30, height: 30)
+                                .contentShape(Rectangle())
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
             }
             ToolbarItem(placement: .topBarLeading) {
-                ImmersiveBackButton(color: headerState.navContentColor)
+                if isSelecting {
+                    Button { isSelecting = false; selectedIDs.removeAll() } label: {
+                        Text("完成")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(headerState.navContentColor)
+                    }
+                } else {
+                    ImmersiveBackButton(color: headerState.navContentColor)
+                }
+            }
+        }
+        .onChange(of: isSelecting) { newValue in
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                store.isAnyMultiSelecting = newValue
+            }
+        }
+        .onDisappear { store.isAnyMultiSelecting = false }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting, !selectedIDs.isEmpty {
+                let selected = songs.filter { selectedIDs.contains($0.id) }
+                HStack(spacing: 0) {
+                    Button {
+                        store.play(selected); Haptics.soft()
+                        isSelecting = false; selectedIDs.removeAll()
+                    } label: {
+                        Label("播放", systemImage: "play.fill")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(AppStyle.primaryText)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    }.buttonStyle(.plain)
+                    Divider().frame(height: 24)
+                    Button {
+                        Task { for song in selected { if song.isRemote { _ = try? await downloads.download(song) } } }
+                        Haptics.soft(); isSelecting = false; selectedIDs.removeAll()
+                    } label: {
+                        Label("下载", systemImage: "arrow.down.circle")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(AppStyle.primaryText)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    }.buttonStyle(.plain)
+                }
+                .background(AppStyle.surface)
+                .overlay(Rectangle().fill(AppStyle.stroke).frame(height: 0.5), alignment: .top)
             }
         }
         .task { await load() }
     }
 
-    /// 🔴 2026-11-07：小方封面 header 已移除 —— 专辑信息改画在沉浸式大图上，
-    /// 这里只保留吸顶的「播放 / 下载全部」行。
+    /// 🔴 2026-11-08：与歌单页统一 —— 「蓝色圆钮 + 播放全部 + 数量」+ 右侧多选按钮，
+    ///    「下载全部」移到顶栏三点竖菜单。
     private var actionBar: some View {
-        HStack(spacing: 22) {
-            Button {
+        HStack(spacing: 12) {
+            ImmersivePlayAllButton(count: songs.count) {
                 store.play(songs)
-            } label: {
-                Image(systemName: "play.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(AppStyle.onAccent)
-                    .frame(width: 52, height: 52)
-                    .background(AppStyle.accent, in: Circle())
+                Haptics.light()
             }
-            .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
 
             Button {
-                Task { await downloadAllAlbumSongs() }
+                isSelecting = true
+                selectedIDs.removeAll()
             } label: {
-                Label("下载全部", systemImage: "arrow.down.circle.dotted")
-                    .font(.system(size: 13))
-                    .foregroundStyle(AppStyle.primaryText)
+                ImmersiveMultiSelectIcon(color: AppStyle.primaryText)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-
-            Spacer()
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 18)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 14)
     }
 
     private func play(_ song: Song) {

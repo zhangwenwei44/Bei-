@@ -29,6 +29,69 @@ enum ImmersiveStyle {
     static let collectBlue = Color(red: 44.0 / 255, green: 162.0 / 255, blue: 249.0 / 255)
     /// 大图兜底深色：图未加载 / 加载失败时顶部（含状态栏）也绝不露白。
     static let heroFallback = Color(red: 0.07, green: 0.07, blue: 0.09)
+    /// 列表底部留白：迷你播放条 + TabBar 的高度，保证最后一首能滚到播放条上方。
+    static let listBottomInset: CGFloat = 96
+}
+
+// MARK: - 吸顶行共用控件（2026-11-08 用户指定样式）
+
+/// 多选按钮图标：用户给的「布局列表」样式 —— 两行，每行左侧一个空心圆角方框、右侧两条短横。
+///
+/// 🔴 自绘而不用 SF Symbol：项目最低 iOS 15，`checklist` 一类符号是 iOS 16+，
+///    写不存在的 systemImage 会静默渲染空白（项目已踩过的红线）。
+struct ImmersiveMultiSelectIcon: View {
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(0..<2, id: \.self) { _ in
+                HStack(alignment: .center, spacing: 4) {
+                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                        .stroke(color, lineWidth: 1.5)
+                        .frame(width: 8, height: 8)
+                    VStack(alignment: .leading, spacing: 2.5) {
+                        Capsule(style: .continuous).fill(color).frame(width: 11, height: 1.5)
+                        Capsule(style: .continuous).fill(color).frame(width: 11, height: 1.5)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 「播放全部」按钮：蓝色渐变圆钮 ▶ + 黑色粗体「播放全部」+ 灰色曲目数。
+/// 用户 2026-11-08 给的样式图，替换原来的蓝色胶囊按钮。
+struct ImmersivePlayAllButton: View {
+    let count: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(LinearGradient(
+                            colors: [Color(red: 0.20, green: 0.68, blue: 0.99),
+                                     Color(red: 0.06, green: 0.45, blue: 0.93)],
+                            startPoint: .top, endPoint: .bottom))
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .offset(x: 1)
+                }
+                .frame(width: 44, height: 44)
+
+                Text("播放全部")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.10, green: 0.11, blue: 0.13))
+                Text("\(count)")
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(Color(red: 0.67, green: 0.69, blue: 0.72))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 // MARK: - 几何状态（容器与 toolbar 共用同一个对象，颜色才能同步刷新）
@@ -476,25 +539,34 @@ private struct ImmersiveScrollTracker: UIViewRepresentable {
             }
         }
 
-        /// 把顶部内边距归一化成 0（幂等）：SwiftUI 会把安全区叠进 adjustedContentInset，
-        /// 内容原点因此掉到导航栏下沿 → 顶部露白。`contentInsetAdjustmentBehavior = .never`
-        /// 后手动补回底部安全区，避免丢掉 home indicator 留白。
-        private func normalizeInsets() {
-            guard let sv = observed else { return }
-            if sv.contentInsetAdjustmentBehavior != .never { sv.contentInsetAdjustmentBehavior = .never }
-            if abs(sv.contentInset.top) > 0.5 { sv.contentInset.top = 0 }
-            let bottom = sv.safeAreaInsets.bottom
-            if abs(sv.contentInset.bottom - bottom) > 0.5 { sv.contentInset.bottom = bottom }
-        }
+        /// 静止时的 contentOffset.y 基准。滚动量按「相对首帧」算，
+        /// 不依赖 adjustedContentInset 的绝对值（不同 iOS 版本 / 安全区会变）。
+        private var restOffsetY: CGFloat?
 
+        /// 🔴 2026-11-08：不再手动改 UIScrollView 的 inset。
+        ///
+        /// 之前为了把「内容原点」压到 y=0，设过 `.never` + `contentInset.top = 0` +
+        /// `contentInset.bottom = safeAreaInsets.bottom`，实测带来两个真机 bug：
+        ///   ① SwiftUI 仍按自己的 safeArea 布局、UIKit 按被改过的 inset 绘制 →
+        ///      绘制位置与命中测试错开约一行（第一首点不到、点第二首却播第一首）；
+        ///   ② 导航栈外层 `safeAreaInset(edge:.bottom)`（迷你播放条）传给 ScrollView 的
+        ///      bottom inset 被手动覆盖成只剩 home indicator → 最后一首被播放条压住。
+        ///
+        /// 大图早已改成 UIKit 浮层（挂在 UINavigationBar 之下），白顶不再依赖「内容原点 = 0」，
+        /// 所以把 inset 交还 UIKit 自动管理；`contentOriginYRest` 用探针实测，
+        /// `listPlaceholder = 大图高 + 吸顶头高 − 实测内容原点` 对任意原点都成立。
         func report() {
             // 🔴 每次都尝试 attach：首帧 superview 链可能还没连上，挂不上就永远测不到数值。
             attachToScrollViewIfNeeded()
             guard let sv = observed else { return }
-            normalizeInsets()
             let offsetY = sv.contentOffset.y
-            let adj = sv.adjustedContentInset.top
-            let scrolled = max(0, offsetY + adj)
+            if let base = restOffsetY {
+                // UIKit 可能因 safeArea 变化把起点调小，同步下调基准，别误判成已滚动。
+                if offsetY < base { restOffsetY = offsetY }
+            } else {
+                restOffsetY = offsetY
+            }
+            let scrolled = max(0, offsetY - (restOffsetY ?? offsetY))
             let trackerY = convert(CGPoint.zero, to: nil).y
             let m = ImmersiveMetrics(scrolled: scrolled, contentOriginYRest: trackerY + scrolled)
             guard m != last else { return }

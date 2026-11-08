@@ -617,7 +617,8 @@ struct ArtistDetailView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 4)
-                .padding(.bottom, 20)
+                // 🔴 迷你播放条 + TabBar 的留白：最后一首别被压住（2026-11-08）。
+                .padding(.bottom, ImmersiveStyle.listBottomInset)
             }
         }
     }
@@ -702,7 +703,8 @@ struct ArtistDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .padding(.horizontal, 16)
         .padding(.top, 6)
-        .padding(.bottom, 20)
+        // 🔴 专辑 tab 也要留出迷你播放条的高度。
+        .padding(.bottom, ImmersiveStyle.listBottomInset)
     }
 
     // MARK: - 多选底部操作条（美化播放/下载）
@@ -1092,42 +1094,40 @@ private struct ScrollViewOffsetTracker: UIViewRepresentable {
             }
         }
 
-        /// 🔴 把滚动容器的顶部内边距**归一化成 0**（幂等，可反复调用）。
-        ///
-        /// `contentInsetAdjustmentBehavior = .never` 让 UIKit 不再把 safeArea 叠进
-        /// `adjustedContentInset`，内容原点就恒等于 ScrollView.frame.y（= topInset）。
-        /// 底部安全区手动补回，避免丢掉 home indicator 的留白。
-        /// 之前用 `contentInset.top -= adjusted` 减一次，SwiftUI 下次布局又会重置 → 时灵时不灵。
-        private func normalizeInsets() {
-            guard let sv = observed else { return }
-            if sv.contentInsetAdjustmentBehavior != .never {
-                sv.contentInsetAdjustmentBehavior = .never
-            }
-            if abs(sv.contentInset.top) > 0.5 { sv.contentInset.top = 0 }
-            let bottom = sv.safeAreaInsets.bottom
-            if abs(sv.contentInset.bottom - bottom) > 0.5 { sv.contentInset.bottom = bottom }
-        }
+        /// 静止时的 contentOffset.y 基准（滚动量按相对首帧计算）。
+        private var restOffsetY: CGFloat?
 
-        /// 实测并上报几何信息。
+        /// 🔴 2026-11-08：不再手动改 UIScrollView 的 inset。
+        ///
+        /// 之前为把「内容原点」压到 y=0 设了 `.never` + `contentInset.top = 0` +
+        /// `contentInset.bottom = safeAreaInsets.bottom`，真机带来两个 bug：
+        ///   ① SwiftUI 仍按自己的 safeArea 布局、UIKit 按被改过的 inset 绘制 →
+        ///      绘制与命中测试错开约一行（第一首点不到、点第二首播第一首）；
+        ///   ② 迷你播放条的 bottom safeAreaInset 被手动覆盖 → 最后一首被遮挡。
+        /// 大图已改走 UIKit 浮层，白顶不再依赖「内容原点=0」；inset 交还 UIKit 自动管理，
+        /// `listPlaceholder = 350 + 吸顶头高 − 实测内容原点` 对任意原点都成立。
         func report() {
             // 🔴 每次都尝试 attach：首帧 superview 链可能还没连到 UIScrollView，
             //    旧版只在 updateUIView / didMoveToWindow 里试一次，失败就永久拿不到任何数值
             //    （真机表现就是所有测量值恒为初始值 0）。
             attachToScrollViewIfNeeded()
             guard let sv = observed else { return }
-            normalizeInsets()
             let offsetY = sv.contentOffset.y
-            let adj = sv.adjustedContentInset.top
-
-            // 已上滑距离（归一化后 adj=0，即 contentOffset.y；下拉回弹为负 → 夹到 0）。
-            let scrolled = max(0, offsetY + adj)
+            if let base = restOffsetY {
+                // UIKit 可能因 safeArea 变化把起点调小，同步下调基准，别误判成已滚动。
+                if offsetY < base { restOffsetY = offsetY }
+            } else {
+                restOffsetY = offsetY
+            }
+            // 已上滑距离 = 相对静止基准的增量（下拉回弹为负 → 夹到 0）。
+            let scrolled = max(0, offsetY - (restOffsetY ?? offsetY))
             // 探针自身在 window 里的 y（**直接测量**，不做坐标系换算）：
             // 探针是滚动内容的第一项 → 它就是「内容原点」的实体。
             // 静止时 = 内容原点的 window y；滚动时它跟着内容上移，所以要加回 scrolled。
             let trackerY = convert(CGPoint.zero, to: nil).y
             let m = ScrollMetrics(scrolled: scrolled,
                                   contentOriginYRest: trackerY + scrolled,
-                                  adjustedTop: adj,
+                                  adjustedTop: sv.adjustedContentInset.top,
                                   contentInsetTop: sv.contentInset.top)
             guard m != last else { return }
             last = m
