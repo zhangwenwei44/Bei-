@@ -2659,6 +2659,10 @@ private struct LandscapeLyricsBlock: View {
 ///       放在清晰封面【之下】，只压明暗、保留模糊纹理，不产生 0.53H 方差断崖。
 ///    ④ 羽化：清晰段 0.62→0.54、羽化段 0.26→0.32，起点上移约 0.08×封面高。
 ///
+/// 🔴 2026-11-10 第八次微调（用户：「专辑图片在下移一点，其他不动」）：
+///    只把 `topShift` 0.048H → 0.065H（约下移 0.017 屏高 ≈ 14pt / 42px@3x），
+///    让清晰封面整体往下一点、顶栏留白氛围稍多；其余参数、层级、状态栏全部原样保留。
+///
 /// 🔴 布局红线（v2.6.8 / 2026-11-09 两次实锤）：背景层必须锁死屏幕尺寸
 ///    + clipped + allowsHitTesting(false)，否则原图像素尺寸会撑大 ZStack，
 ///    把动作行 / 播放控件整块挤出屏幕。
@@ -2677,10 +2681,11 @@ private struct ImmersiveCoverBackdrop: View {
                 let ratio = CGFloat(artwork.size.height) / max(CGFloat(artwork.size.width), 1)
                 let fullH = size.width * ratio
                 let coverH = min(fullH, size.width * 1.12)
-                // 🔴 0.09H → 0.055H → 0.048H：顶栏封面模糊氛围再往上融一点点，
-                //    清晰封面从更上方就开始轻透出来，顶栏不再像单独盖了一块灰蓝雾。
+                // 🔴 0.09H → 0.055H → 0.048H → 0.065H（2026-11-10 第八次微调）：
+                //    用户「专辑图片往下移一点，其他不动」→ 只加大这一处 offset，
+                //    顶栏雾面 / 顶部渐入 / 羽化 / 底部加深 / 状态栏一律不碰。
                 //    `.offset` 只改绘制位置、不参与 ZStack 尺寸计算（历史撑大布局红线）。
-                let topShift = size.height * 0.048
+                let topShift = size.height * 0.065
 
                 // ① 主色调不透明兜底：从封面提取主色，盖住经典主题的深色取色渐变，
                 //    顺便给 ② 的 blur 边缘当底色（模糊边缘半透明时不会露出黑底）。
