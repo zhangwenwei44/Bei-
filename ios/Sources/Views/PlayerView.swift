@@ -1,6 +1,22 @@
 import SwiftUI
 import UIKit
 
+/// 🔴 竖屏播放页主题（T 恤按钮切换，选择会持久化）。
+/// · classic      = 取色渐变背景 + 方形专辑封面（原有版式）
+/// · artistPhoto  = 在取色渐变之上铺当前歌手的写真（歌词页同款多张轮播）；
+///                  取不到写真时整层为空，自动回退成 classic 的取色渐变。
+enum PlayerPageTheme: String, CaseIterable, Identifiable {
+    case classic
+    case artistPhoto
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .classic: return "经典封面"
+        case .artistPhoto: return "歌手写真"
+        }
+    }
+}
+
 struct PlayerView: View {
     @EnvironmentObject private var store: PlayerStore
     /// 🔴 v2.9.3：订阅下载管理器，让动作行的「下载」按钮实时反映
@@ -41,6 +57,9 @@ struct PlayerView: View {
     /// 分享弹层内容（nil = 不弹）
     @State private var shareItems: [Any]?
     @State private var dominantColor: Color = .white
+    /// 🔴 播放页主题：T 恤按钮切换（经典封面 / 歌手写真），选择持久化。
+    @AppStorage("aurora.playerPageTheme") private var playerPageTheme: PlayerPageTheme = .classic
+    @State private var showThemePicker = false
 
     /// 参数顺序必须与属性声明顺序一致：playback / lyricState 在 isExpanded 之前。
     init(playback: PlaybackProgress, lyricState: LyricState, isExpanded: Binding<Bool>) {
@@ -127,10 +146,36 @@ struct PlayerView: View {
                     // 横屏播放器：右上角按钮强制旋转后接管（唱片在左、信息在右）
                     landscapeBody()
                 } else {
-                    // 🔴 v2.5.39：主题精简，只剩「经典封面」——取色渐变背景 + 经典版式。
+                    // 取色渐变始终垫底：写真主题取不到图时自动回退成经典背景。
                     immersiveBackground.ignoresSafeArea()
+                    // 🔴 歌手写真主题：在渐变之上铺当前歌手写真（复用歌词页已验证的
+                    //    多张轮播层，自带上下压暗渐变、不撑大布局、不拦截点击）。
+                    //    版式 / 控件完全不动，只是背景从「封面取色」换成「歌手写真」。
+                    if playerPageTheme == .artistPhoto {
+                        ArtistPhotoBackdrop(artist: store.current?.artist ?? "",
+                                            title: store.current?.title ?? "",
+                                            hash: store.current?.kugouHash ?? "")
+                            // 🔴 不加第二层 .ignoresSafeArea：外层 GeometryReader 已经忽略安全区，
+                            //    这里再叠一层会把 classicBody 的内容整体下推一个安全区（历史白顶坑）。
+                            //    ArtistPhotoBackdrop 自身已用 maxWidth/maxHeight infinity + clipped 铺满。
+                            .transition(.opacity)
+                    }
                     classicBody(in: contentHeight, win: win, screen: screen)
                 }
+            }
+            .animation(.easeInOut(duration: 0.35), value: playerPageTheme)
+            .confirmationDialog("播放页主题", isPresented: $showThemePicker, titleVisibility: .visible) {
+                Button(playerPageTheme == .classic ? "经典封面（当前）" : "经典封面") {
+                    playerPageTheme = .classic
+                    show("已切换到经典封面")
+                }
+                Button(playerPageTheme == .artistPhoto ? "歌手写真（当前）" : "歌手写真") {
+                    playerPageTheme = .artistPhoto
+                    show("已切换到歌手写真主题")
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("歌手写真主题会用当前歌手的写真铺满播放页背景；暂时没有写真时自动显示原来的取色背景。")
             }
             .frame(width: size.width, height: size.height)
             // 🔴 仅竖屏播放页允许「下滑关闭整个播放器」；歌词页 / 横屏播放器改用各自的
@@ -230,9 +275,9 @@ struct PlayerView: View {
 
             Spacer(minLength: 0)
 
-            // 🔴 2026-11-08：横屏按钮前面加「主题更换」。
-            // 🔴 2026-11-09：图标按用户给的图换成 T 恤（Lucide shirt），功能仍只提示「敬请期待」。
-            Button { show("敬请期待") } label: {
+            // 🔴 2026-11-08：横屏按钮前面加「主题更换」（T 恤，Lucide shirt）。
+            // 🔴 现在正式可用：点开在「经典封面 / 歌手写真」之间切换，选择会记住。
+            Button { showThemePicker = true } label: {
                 LucideIcon(icon: .shirt, size: 22, color: .white)
                     .frame(width: 40, height: 40)
                     .contentShape(Rectangle())
