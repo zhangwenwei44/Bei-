@@ -200,7 +200,7 @@ struct PlayerView: View {
                 }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("歌手写真把当前歌手写真铺满播放页；沉浸式封面把完整封面从顶栏雾化区下方铺开，顶栏和底部延续同一张封面的天空蓝与湖水青。两种主题都不再显示中间的方形封面，版式与歌词位置不变，取不到图时自动显示原来的取色背景。")
+                Text("歌手写真把当前歌手写真铺满播放页；沉浸式封面会提取封面主色调，把封面高斯模糊延伸成整屏背景，清晰封面从顶部渐入、下沿渐隐，与背景无缝融合。两种主题都不再显示中间的方形封面，版式与歌词位置不变，取不到图时自动显示原来的取色背景。")
             }
             .frame(width: size.width, height: size.height)
             // 🔴 仅竖屏播放页允许「下滑关闭整个播放器」；歌词页 / 横屏播放器改用各自的
@@ -2622,37 +2622,27 @@ private struct LandscapeLyricsBlock: View {
 ///     动作行/进度/播放控件，中间没有方形封面（版式预览）
 /// 这是「按证据重建」：只用本 App 自己的封面与取色，不复制酷狗的图片资源或代码。
 ///
-/// 🔴 2026-11-09 第二次校正（用户给了酷狗真机截图 IMG_2221 对照）：
-///    第一版把封面 `scaledToFill` 到 0.66 屏高 → 原图被放大横向裁切（「风吹过 / 张玮」右侧被切），
-///    又叠了整屏黑渐变 + 取色暗色 → 顶部天空发灰、底部变成深蓝，与目标完全不符。
+/// 🔴 校正史（都按真机截图逐行量化，勿走回头路）：
+///    · 第 2 轮：`scaledToFill` 把封面放大横向裁切 → 改 `scaledToFit` 完整不裁切。
+///    · 第 3 轮：歌词挪到封面羽化区居中 → 用户要求改回 deck 歌名下方，主题只换背景不改版式。
+///    · 第 4 轮：封面 `.offset(y:0.09H)` 下移对齐书法字；加了不透明顶栏雾色块。
+///    · 第 5 轮：顶栏/底部共用整图平均提亮导致青灰 → 拆天空带 / 整图平均分别取色。
+///    ⚠️ 第 4/5 轮的「不透明纯色 wash 底 + 不透明顶栏雾色块 + 清晰封面 20% 短羽化」
+///       正是第 6 轮要拆掉的分层结构 —— 它必然产生两道硬切边。
 ///
-/// 🔴 2026-11-09 第三次校正（用户又给两张真机截图，明确「顶栏跟底部都有沉浸效果」）：
-///    上一版把下半屏做成了**完全不透明的灰绿纯色** `(108,129,122)`（逐行方差 0），
-///    还压了 0.07 黑 → 顶栏天空 `(131,191,206)` 比目标暗；歌词也被挪到封面羽化区居中，
-///    用户要求「改回原来那个位置」= 歌词回到 deck 里歌名下方。
-///    目标实测：顶栏 `(147,210,224)` 是封面天空、底部 `(90,157,186)→(99,165,191)`
-///    是同一张封面湖水的蓝青延续，且越往下略亮。**整屏必须都是这张封面的色与氛围**，
-///    顶栏不压黑、底部不灰绿。现在 = 不透明封面取色底 + 全屏模糊封面氛围层
-///    + 下半极轻提亮 + 贴顶完整清晰封面（下沿羽化）。
-///
-/// 🔴 2026-11-09 第四次校正（用户：「专辑图片再往下移点，顶栏位置也加入雾化效果」）：
-///    量化 1125×2436 真机截图 —— 我方书法字 bbox 从 0.116H 起、目标约 0.22H 起；
-///    目标顶栏 0~0.18H 是**均匀明亮浅蓝雾面** `(147,210,224)`、逐行方差仅 4~11，
-///    我方却是清晰封面天空带树影云纹、方差 19~40，颜色也偏暗 `(141,206,220)`。
-///    处理：④ 清晰封面用 `.offset(y: 0.09H)` 整体下移（不参与布局、不撑大 ZStack），
-///    空出的顶部由 ⑤ **不透明雾色层**填住，0~0.15H 实色 + 0.15~0.20H 渐隐与封面衔接。
-///    🔴 雾色层必须不透明：只用 blur/半透明会让边缘露出深色 wash 底，顶部发暗。
-///
-/// 🔴 2026-11-10 第五次校正（用户：「上下沉浸颜色再优化一下，照着这张图改」）：
-///    1125×2436 真机截图逐行量化 —— 我方顶栏 `(179,203,203)` 亮度 195、方差 0（死平青灰），
-///    目标 `(135,187,217)` 亮度 180、方差 7~20（明亮饱和天空蓝）；
-///    我方底部 `(120,150,160)` 偏蓝青，目标 `(115,131,122)` 暖灰绿、更暗 15~20。
-///    🔴 根因：顶栏与底部**共用同一个「整图平均提亮」**。这类封面上半是蓝天、下半是草地湖水，
-///    整图平均后 R/G/B 被拉平、再一提亮就成青灰 → 顶部发白；底部又额外提蓝 ×1.07 → 变蓝青。
-///    处理：一次 24×24 采样拆出「天空带」和「整图平均」两份 —— 顶栏只取天空带的蓝
-///    （按蓝差 `(b-r)` 认带，顺带规避 CGContext 直接画 CGImage 时的行序上下颠倒），
-///    底部取整图平均**大幅降饱和 + 压暗**成暖灰绿；去掉下半屏白色提亮层、
-///    全屏氛围层压到 0.12 免得把灰绿拉回蓝青。
+/// 🔴 2026-11-10 第六次校正 / 最终架构（用户：「顶部沉浸区往上移点；参考酷狗沉浸式封面，
+///    从专辑封面提取主色调，封面图像向下高斯模糊延伸作为整屏全屏背景，封面与背景无缝融合，
+///    无生硬分层切割线」）：
+///    1125×2436 截图逐行量化 —— 我方 0~0.15H 是 `(197,176,144)` 纯色、**方差 0~3**；
+///    0.18~0.52H 是清晰封面、方差 57~101；**0.53→0.55H 方差从 100 断崖到 1.6**，
+///    下半屏全是 `(115,114,90)` 均匀纯色 = 用户说的「生硬分层切割线」。
+///    目标全程有朦胧纹理：顶栏 `(155,136,108)` 方差 17~57、下半 `(115,94,50)` 方差 8~49。
+///    🔴 决定性证据：目标顶栏 ≈ 封面上 1/3 平均 `(154,136,110)`，
+///    目标下半 ≈ 封面下 1/3 平均 `(111,93,65)` —— 酷狗整屏就是**同一张封面纵向拉伸后
+///    高斯模糊**，上亮下暗来自封面本身的明暗，不是叠了纯色或渐变。
+///    现在 = ① 主色调不透明兜底 → ② 封面 `scaledToFill` 铺满整屏 + 大半径 blur
+///    → ③ 主色调薄覆盖统一色 → ④ 清晰封面（顶部渐入 + 下沿长羽化）与 ② 无缝融合。
+///    `topShift` 0.09H → 0.055H，顶部沉浸区从更上方开始，书法字仍基本对齐。
 ///
 /// 🔴 布局红线（v2.6.8 / 2026-11-09 两次实锤）：背景层必须锁死屏幕尺寸
 ///    + clipped + allowsHitTesting(false)，否则原图像素尺寸会撑大 ZStack，
@@ -2666,70 +2656,52 @@ private struct ImmersiveCoverBackdrop: View {
             // 🔴 只有拿到封面才画这一层（完全不透明）；取不到封面时整层为空，
             //    外层 immersiveBackground 的经典取色渐变自然透出 = 自动回退。
             if let artwork {
-                let wash = Self.washColor(from: artwork)
-                // 封面完整显示高度：按原图比例铺满屏宽，绝不横向裁切；
+                let tone = Self.mainToneColor(from: artwork)
+                // 清晰封面：按原图比例铺满屏宽，绝不横向裁切；
                 // 极端的长图最多裁掉一点下沿（下沿本来就要羽化），不裁左右。
                 let ratio = CGFloat(artwork.size.height) / max(CGFloat(artwork.size.width), 1)
                 let fullH = size.width * ratio
                 let coverH = min(fullH, size.width * 1.12)
-                // 封面整体下移 + 顶栏雾化区高度（都不参与弹性布局，只用 offset / 固定 frame）
-                let topShift = size.height * 0.09
-                let solidFogH = size.height * 0.15
-                let fadeFogH = size.height * 0.05
+                // 🔴 0.09H → 0.055H：顶部沉浸区往上移，封面模糊氛围从更上方开始。
+                //    `.offset` 只改绘制位置、不参与 ZStack 尺寸计算（历史撑大布局红线）。
+                let topShift = size.height * 0.055
 
-                // ① 整屏「雾化底」：封面整图平均**大幅降饱和 + 压暗**后的暖灰绿
-                //    （不再是提蓝的蓝青），对应 themeImmersiveColorPickerView
-                //    + themeBackgroundGradientLayer。
-                //    🔴 必须完全不透明，才能盖住经典主题的深色取色渐变 ——
-                //    第一版底部发深蓝就是因为它只叠了一层半透明渐变，深色底层透了出来。
-                wash
+                // ① 主色调不透明兜底：从封面提取主色，盖住经典主题的深色取色渐变，
+                //    顺便给 ② 的 blur 边缘当底色（模糊边缘半透明时不会露出黑底）。
+                tone
                     .frame(width: size.width, height: size.height)
 
-                // ② 整屏封面氛围层（对应 themeImmersiveCoverBlurView）：模糊铺满，
-                //    让下半屏留一点封面草叶 / 水面的朦胧纹理，不是一块死板纯色。
-                //    🔴 opacity 压到 0.12：这层是**整图**模糊、平均色偏蓝青，浓度一高
-                //    就会把 ① 精确调好的灰绿底重新拉回蓝青（第五次校正实锤）。
+                // ② 整屏高斯模糊封面延伸（本次核心）：同一张封面 `scaledToFill`
+                //    纵向铺满整屏 + 大半径 blur。屏幕顶部自然对应封面顶部（亮），
+                //    底部对应封面底部（暗），整屏都是这张封面的色与朦胧纹理。
+                //    🔴 锁死屏幕尺寸 + clipped：原图像素尺寸绝不能撑大 ZStack。
                 Image(uiImage: artwork)
                     .resizable()
                     .scaledToFill()
                     .frame(width: size.width, height: size.height)
                     .clipped()
-                    .blur(radius: 64)
-                    .opacity(0.12)
+                    .blur(radius: 60)
                     .frame(width: size.width, height: size.height)
                     .clipped()
 
-                // ④ 清晰封面：完整原图、屏宽、不放大不横向裁切
-                //    （对应 themeImmersiveCoverImgView + themeImmersiveBannerHeight）。
-                //    🔴 整体下移 0.09H：书法字 0.116H→0.206H，与目标 0.22H 对齐；
-                //    顶部空出的一截交给 ⑤ 顶栏雾化，不再让清晰天空顶到状态栏。
-                //    `.offset` 只改绘制位置、不参与 ZStack 尺寸计算（历史撑大布局的红线）。
+                // ③ 主色调薄覆盖：把整屏色相往封面主色收一点，避免局部过花，
+                //    但保留 ② 的纵向明暗与纹理 —— 浓度必须低，高了又变回纯色分层。
+                tone
+                    .opacity(0.18)
+                    .frame(width: size.width, height: size.height)
+
+                // ④ 清晰封面：完整原图、屏宽、不放大不横向裁切。
+                //    mask 同时做「顶部渐入」和「下沿长羽化」：
+                //    顶部渐入让状态栏 / 顶栏沉浸在 ② 的模糊里（不再有纯色雾面块），
+                //    下沿 26% 慢慢化开融进 ②（不再有 0.53H 处的方差断崖）。
                 Image(uiImage: artwork)
                     .resizable()
                     .scaledToFit()
                     .frame(width: size.width, height: fullH, alignment: .top)
                     .frame(width: size.width, height: coverH, alignment: .top)
                     .clipped()
-                    // 下沿羽化（对应 themeImmersiveAlphaViewLayer）：
-                    // iOS 15 不能用带 locations / stops 的渐变，用「黑矩形 + 短渐变」
-                    // 拼出精确位置：上 80% 完全不透明，下 20% 化开融进雾化底。
-                    .mask(Self.featherMask(width: size.width, height: coverH))
+                    .mask(Self.seamlessMask(width: size.width, height: coverH))
                     .offset(y: topShift)
-
-                // ⑤ 顶栏雾化：只取封面**天空带**的明亮饱和蓝（整图平均会变成青灰），
-                //    0~0.15H 实色 + 0.15~0.20H 渐隐，与下移后的清晰封面无缝衔接。
-                //    🔴 不用 `.blur` 当底：模糊边缘半透明会露出深色 wash 底，顶部反而发暗。
-                //    另叠一层极淡明度起伏，避免顶栏成为方差 0 的死平色块（目标方差 7~20）。
-                ZStack(alignment: .top) {
-                    Self.topFogColor(from: artwork)
-                    LinearGradient(colors: [.black.opacity(0.035), .clear,
-                                            .white.opacity(0.025)],
-                                   startPoint: .top, endPoint: .bottom)
-                }
-                .frame(width: size.width, height: solidFogH + fadeFogH)
-                .mask(Self.topFogMask(width: size.width,
-                                      solidH: solidFogH,
-                                      fadeH: fadeFogH))
             }
         }
         .frame(width: size.width, height: size.height)
@@ -2737,31 +2709,23 @@ private struct ImmersiveCoverBackdrop: View {
         .allowsHitTesting(false)
     }
 
-    /// 羽化遮罩：mask 只看 alpha，黑色 = 完全可见、clear = 完全隐藏。
-    private static func featherMask(width: CGFloat, height: CGFloat) -> some View {
+    /// 无缝遮罩：上段渐入（顶栏沉浸）+ 中段完整清晰 + 下段长羽化（融进模糊背景）。
+    /// mask 只看 alpha，黑色 = 可见、clear = 隐藏；用均匀色标避开 iOS 16 的 locations API。
+    /// 🔴 羽化段必须够长（26% ≈ 0.12 屏高）：旧版「上 80% 实色 + 下 20% 短羽化」
+    ///    配纯色底，在 0.53H 处留下方差 100→1.6 的硬切割线，正是本次要修的问题。
+    private static func seamlessMask(width: CGFloat, height: CGFloat) -> some View {
         VStack(spacing: 0) {
-            Color.black
-                .frame(width: width, height: height * 0.80)
-            LinearGradient(colors: [.black, .black.opacity(0.74),
-                                    .black.opacity(0.30), .clear],
+            LinearGradient(colors: [.clear, .black.opacity(0.45), .black],
                            startPoint: .top, endPoint: .bottom)
-                .frame(width: width, height: height * 0.20)
+                .frame(width: width, height: height * 0.12)
+            Color.black
+                .frame(width: width, height: height * 0.62)
+            LinearGradient(colors: [.black, .black.opacity(0.88), .black.opacity(0.68),
+                                    .black.opacity(0.42), .black.opacity(0.18), .clear],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(width: width, height: height * 0.26)
         }
         .frame(width: width, height: height)
-    }
-
-    /// 顶栏雾化遮罩：上段实色（完全盖住封面顶部纹理），下段渐隐融入清晰封面。
-    /// mask 只看 alpha，黑色 = 可见、clear = 隐藏；同样避开 iOS 16 的 locations API。
-    private static func topFogMask(width: CGFloat, solidH: CGFloat, fadeH: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            Color.black
-                .frame(width: width, height: solidH)
-            LinearGradient(colors: [.black, .black.opacity(0.72),
-                                    .black.opacity(0.28), .clear],
-                           startPoint: .top, endPoint: .bottom)
-                .frame(width: width, height: fadeH)
-        }
-        .frame(width: width, height: solidH + fadeH)
     }
 
     private struct RGB {
@@ -2770,13 +2734,11 @@ private struct ImmersiveCoverBackdrop: View {
         let b: Double
     }
 
-    /// 一次采样给出两个色：顶栏用的「天空蓝」+ 下半屏用的「整图平均」。
-    /// 🔴 `CGContext(data:)` 直接画 CGImage 时 buffer 行序可能与图片上下颠倒，
-    ///    所以**不假设「上带一定是天空」**：把上下两条带按蓝差 `(b - r)` 排序，
-    ///    蓝差大的那条就是天空（蓝天 / 水面），完全绕开坐标系翻转的歧义。
-    ///    整图平均另算一份 —— 酷狗的雾化底本质是整张封面大幅模糊后的低饱和暗版，
-    ///    用整图平均比用「下 1/3 带」稳（很多封面下沿是夕阳高光，取它会偏白偏亮）。
-    private static func coverTones(from image: UIImage) -> (sky: RGB, whole: RGB)? {
+    /// 从封面提取主色调：24×24 降采样求整图平均（0~1 的 sRGB 分量）。
+    /// 🔴 取整图平均而非某一条带，避开 `CGContext(data:)` 直接画 CGImage 时
+    ///    buffer 行序上下颠倒的歧义。整屏颜色由「封面纵向拉伸 + 高斯模糊」自然给出，
+    ///    这里的主色只用于不透明兜底和薄覆盖，不再主导整屏色调。
+    private static func dominantRGB(from image: UIImage) -> RGB? {
         let side = 24
         let bytesPerRow = side * 4
         var buffer = [UInt8](repeating: 0, count: bytesPerRow * side)
@@ -2792,67 +2754,36 @@ private struct ImmersiveCoverBackdrop: View {
         }
         ctx.interpolationQuality = .medium
         ctx.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
-
-        func band(_ lo: Int, _ hi: Int) -> RGB? {
-            var r = 0.0, g = 0.0, b = 0.0, n = 0.0
-            for y in lo..<hi {
-                for x in 0..<side {
-                    let o = y * bytesPerRow + x * 4
-                    guard buffer[o + 3] > 8 else { continue }
-                    r += Double(buffer[o]) / 255
-                    g += Double(buffer[o + 1]) / 255
-                    b += Double(buffer[o + 2]) / 255
-                    n += 1
-                }
+        var r = 0.0, g = 0.0, b = 0.0, n = 0.0
+        for y in 0..<side {
+            for x in 0..<side {
+                let o = y * bytesPerRow + x * 4
+                guard buffer[o + 3] > 8 else { continue }
+                r += Double(buffer[o]) / 255
+                g += Double(buffer[o + 1]) / 255
+                b += Double(buffer[o + 2]) / 255
+                n += 1
             }
-            guard n > 0 else { return nil }
-            return RGB(r: r / n, g: g / n, b: b / n)
         }
-        guard let a = band(0, side / 3),
-              let b = band(side * 2 / 3, side),
-              let whole = band(0, side) else { return nil }
-        let skyIsA = (a.b - a.r) >= (b.b - b.r)
-        return (sky: skyIsA ? a : b, whole: whole)
+        guard n > 0 else { return nil }
+        return RGB(r: r / n, g: g / n, b: b / n)
     }
 
-    /// 下半屏「雾化底」= 封面整图平均色**大幅降饱和到 35% + 归一到中暗 0.465**，
-    ///    再轻压红 / 压蓝，留一点绿 → 暖灰绿。
-    ///    目标实测 RGB ≈ (115,131,122) → (108,129,122)，G 最大、B 最小、亮度约 0.49；
-    ///    旧版只归一亮度还提蓝 ×1.07，得到 (120,150,160) 蓝青，方向完全错了。
-    ///    🔴 不能取「下 1/3 带」：本例封面下沿是夕阳高光 ≈(211,211,204)，取它会发白。
-    private static func washColor(from image: UIImage) -> Color {
-        let fallback = Color(.sRGB, red: 0.44, green: 0.50, blue: 0.44, opacity: 1)
-        guard let tones = Self.coverTones(from: image) else { return fallback }
-        let w = tones.whole
+    /// 主色调：**保留封面色相**，只把亮度归一到中暗 0.44。
+    ///    🔴 不再大幅降饱和 / 提蓝：第 5 轮那样做会把棕金封面压成中性灰绿。
+    ///    整屏颜色应由 ② 的封面本身决定，这里只负责统一色调 + 盖住经典主题深色底。
+    ///    本例封面平均 ≈(134,117,92) → 主色 ≈(127,111,87)；
+    ///    目标顶栏 (155,136,108)、下半 (115,94,50) 分别由封面上 / 下 1/3 的模糊延伸给出。
+    private static func mainToneColor(from image: UIImage) -> Color {
+        let fallback = Color(.sRGB, red: 0.50, green: 0.43, blue: 0.34, opacity: 1)
+        guard let w = Self.dominantRGB(from: image) else { return fallback }
         let lum = 0.2126 * w.r + 0.7152 * w.g + 0.0722 * w.b
-        let sat = 0.35
-        let r1 = lum + (w.r - lum) * sat
-        let g1 = lum + (w.g - lum) * sat
-        let b1 = lum + (w.b - lum) * sat
-        let scale = min(1.8, 0.465 / max(lum, 0.16))
+        let scale = min(1.8, 0.44 / max(lum, 0.16))
         func clamped(_ v: Double) -> Double { min(1, max(0, v)) }
         return Color(.sRGB,
-                     red: clamped(r1 * scale * 0.94),
-                     green: clamped(g1 * scale),
-                     blue: clamped(b1 * scale * 0.89),
-                     opacity: 1)
-    }
-
-    /// 顶栏雾色：只取封面**天空带**的蓝，亮度归一到 0.70、保持原色相比例。
-    ///    本例模拟实算 ≈(137,187,217)，目标实测 (135,187,217) —— 几乎逐通道命中。
-    ///    旧版用整图平均归一到 0.78 得到 (179,203,203) 青灰，R 高 44、B 低 14，
-    ///    就是顶栏发白的原因。不透明，才能把封面顶部纹理彻底雾化。
-    private static func topFogColor(from image: UIImage) -> Color {
-        let fallback = Color(.sRGB, red: 0.53, green: 0.73, blue: 0.85, opacity: 1)
-        guard let tones = Self.coverTones(from: image) else { return fallback }
-        let s = tones.sky
-        let lum = 0.2126 * s.r + 0.7152 * s.g + 0.0722 * s.b
-        let scale = min(1.5, 0.70 / max(lum, 0.16))
-        func clamped(_ v: Double) -> Double { min(1, max(0, v)) }
-        return Color(.sRGB,
-                     red: clamped(s.r * scale),
-                     green: clamped(s.g * scale),
-                     blue: clamped(s.b * scale),
+                     red: clamped(w.r * scale),
+                     green: clamped(w.g * scale),
+                     blue: clamped(w.b * scale),
                      opacity: 1)
     }
 }
