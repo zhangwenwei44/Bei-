@@ -22,6 +22,16 @@ enum PlayerPageTheme: String, CaseIterable, Identifiable {
         case .immersiveCover: return "沉浸式封面"
         }
     }
+    /// 🔴 2026-11-10「我的播放器」卡片面板用的短名称（酷狗同款），以及卡片展示顺序。
+    ///    只改卡片文案，不改 rawValue / AppStorage 的持久化值，老用户的选择不会丢。
+    var cardTitle: String {
+        switch self {
+        case .immersiveCover: return "沉浸封面"
+        case .classic: return "方形封面"
+        case .artistPhoto: return "歌手写真"
+        }
+    }
+    static let cardOrder: [PlayerPageTheme] = [.immersiveCover, .classic, .artistPhoto]
 }
 
 struct PlayerView: View {
@@ -185,28 +195,13 @@ struct PlayerView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.35), value: playerPageTheme)
-            .confirmationDialog("播放页主题", isPresented: $showThemePicker, titleVisibility: .visible) {
-                Button(playerPageTheme == .classic ? "经典封面（当前）" : "经典封面") {
-                    playerPageTheme = .classic
-                    show("已切换到经典封面")
-                }
-                Button(playerPageTheme == .artistPhoto ? "歌手写真（当前）" : "歌手写真") {
-                    playerPageTheme = .artistPhoto
-                    show("已切换到歌手写真主题")
-                }
-                Button(playerPageTheme == .immersiveCover ? "沉浸式封面（当前）" : "沉浸式封面") {
-                    playerPageTheme = .immersiveCover
-                    show("已切换到沉浸式封面主题")
-                }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("歌手写真把当前歌手写真铺满播放页；沉浸式封面会提取封面主色调，把封面高斯模糊延伸成整屏背景，清晰封面从顶部渐入、下沿渐隐，与背景无缝融合。两种主题都不再显示中间的方形封面，版式与歌词位置不变，取不到图时自动显示原来的取色背景。")
-            }
             .frame(width: size.width, height: size.height)
             // 🔴 仅竖屏播放页允许「下滑关闭整个播放器」；歌词页 / 横屏播放器改用各自的
             // 左上角返回按钮（用户要求移除下滑关闭）。否则下滑手势会和歌词页按钮 / 横屏
             // 返回键抢手势，且歌词页下滑会把整页播放器一起 dismiss。
-            .gesture((!isLyricsPage && !isLandscape) ? dragGesture : nil)
+            // 🔴 主题卡片面板打开时关掉下滑关闭：否则横滑卡片若带一点纵向位移，
+            //    会和播放页的下滑 dismiss 手势打架（面板关掉、播放器也一起退）。
+            .gesture((!isLyricsPage && !isLandscape && !showThemePicker) ? dragGesture : nil)
             .overlay(alignment: .bottom) { toastLayer }
             // 🔴 进入/退出歌词页时接管方向：
             // 进歌词页 → 临时强制竖屏；退歌词页 → 延迟 0.4s 恢复（避免动画打架）。
@@ -248,6 +243,30 @@ struct PlayerView: View {
                                     set: { presented in if !presented { shareItems = nil } })) {
             ShareSheet(items: shareItems ?? [])
         }
+        // 🔴 2026-11-10：主题选择从系统 confirmationDialog 文字列表改成酷狗同款
+        //    「我的播放器」横向卡片预览面板。用自定义 overlay 而不是 sheet：
+        //    ① iOS 15 链式多个 .sheet(isPresented:) 只有最后一个生效（项目既有红线）；
+        //    ② 半屏白色圆角面板 + 半透明遮罩要能盖住播放页又不切走整页。
+        //    🔴 点卡片只切主题、不关面板 —— 选中卡片当场变蓝框，用户能立刻看到结果。
+        .overlay(alignment: .bottom) {
+            if showThemePicker {
+                PlayerThemePickerPanel(
+                    artwork: store.artwork,
+                    songTitle: store.current?.title ?? "",
+                    artist: store.current?.artist ?? "",
+                    current: playerPageTheme,
+                    onSelect: { picked in
+                        guard picked != playerPageTheme else { return }
+                        playerPageTheme = picked
+                        show("已切换到\(picked.title)")
+                    },
+                    onMore: { show("更多皮肤敬请期待") },
+                    onClose: { showThemePicker = false }
+                )
+                .transition(.move(edge: .bottom))
+            }
+        }
+        .animation(.easeInOut(duration: 0.28), value: showThemePicker)
     }
 
     // MARK: - 经典封面（参考 Beans ReferencePlaybackView · 紧凑版）
@@ -2663,6 +2682,13 @@ private struct LandscapeLyricsBlock: View {
 ///    只把 `topShift` 0.048H → 0.065H（约下移 0.017 屏高 ≈ 14pt / 42px@3x），
 ///    让清晰封面整体往下一点、顶栏留白氛围稍多；其余参数、层级、状态栏全部原样保留。
 ///
+/// 🔴 2026-11-10 第九次微调（用户：「图片再下移一点；底部横向分界线再优化，还是有点明显」）：
+///    ① `topShift` 0.065H → 0.080H（继续下移）。
+///    ② ② 层 blur 60 → 48：模糊底保留一点大色块纹理，清晰封面淡出后不再落进近乎纯色的底。
+///    ③ ③.5 加深层改 smoothstep 无折点曲线：旧 6 段等距色标在 0.40H/0.60H/0.80H
+///       斜率突变，全屏等宽叠一层正是那条「横向分界带」的根因。
+///    ④ `seamlessMask` 清晰段 0.54→0.46、羽化段 0.32→0.40（9 段平滑衰减），淡出更长更缓。
+///
 /// 🔴 布局红线（v2.6.8 / 2026-11-09 两次实锤）：背景层必须锁死屏幕尺寸
 ///    + clipped + allowsHitTesting(false)，否则原图像素尺寸会撑大 ZStack，
 ///    把动作行 / 播放控件整块挤出屏幕。
@@ -2681,11 +2707,10 @@ private struct ImmersiveCoverBackdrop: View {
                 let ratio = CGFloat(artwork.size.height) / max(CGFloat(artwork.size.width), 1)
                 let fullH = size.width * ratio
                 let coverH = min(fullH, size.width * 1.12)
-                // 🔴 0.09H → 0.055H → 0.048H → 0.065H（2026-11-10 第八次微调）：
-                //    用户「专辑图片往下移一点，其他不动」→ 只加大这一处 offset，
-                //    顶栏雾面 / 顶部渐入 / 羽化 / 底部加深 / 状态栏一律不碰。
+                // 🔴 0.09H → 0.055H → 0.048H → 0.065H → 0.080H（第九次微调）：
+                //    用户「图片再下移一点」→ 继续加大这一处 offset。
                 //    `.offset` 只改绘制位置、不参与 ZStack 尺寸计算（历史撑大布局红线）。
-                let topShift = size.height * 0.065
+                let topShift = size.height * 0.080
 
                 // ① 主色调不透明兜底：从封面提取主色，盖住经典主题的深色取色渐变，
                 //    顺便给 ② 的 blur 边缘当底色（模糊边缘半透明时不会露出黑底）。
@@ -2701,7 +2726,9 @@ private struct ImmersiveCoverBackdrop: View {
                     .scaledToFill()
                     .frame(width: size.width, height: size.height)
                     .clipped()
-                    .blur(radius: 60)
+                    // 🔴 60 → 48（第九次微调）：留一点大色块纹理，清晰封面羽化淡出后
+                    //    不会落进「几乎纯色」的底，横向边界感明显减弱。
+                    .blur(radius: 48)
                     .frame(width: size.width, height: size.height)
                     .clipped()
 
@@ -2711,22 +2738,32 @@ private struct ImmersiveCoverBackdrop: View {
                     .opacity(0.18)
                     .frame(width: size.width, height: size.height)
 
-                // ③.5 下半屏加深（2026-11-10 第七次微调）：歌名 / 歌词 / 控件所在的
-                //    「底部清晰区」再压深一点点。用等距色标模拟 iOS16 的 locations，
-                //    0~0.40H 全透明、之后长渐变到 0.21 黑 —— 只压明暗、保留 ② 的
-                //    模糊纹理，绝不叠纯色块（历史「0.53H 方差断崖」硬切割线根因）。
-                //    放在 ④ 清晰封面【之下】，清晰部分亮度不变，只在羽化淡出后透出来。
-                LinearGradient(colors: [Color.clear, Color.clear, Color.clear,
-                                        Color.black.opacity(0.05),
-                                        Color.black.opacity(0.12),
-                                        Color.black.opacity(0.21)],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(width: size.width, height: size.height)
+                // ③.5 下半屏加深（2026-11-10 第九次微调）：歌名 / 歌词 / 控件区域压深。
+                //    🔴 旧版 6 段等距色标在 0.40H / 0.60H / 0.80H 各有一次斜率突变，
+                //       全屏等宽叠一层时就显成一条横向分界带（用户第九轮反馈的「底部横向分界线」）。
+                //       现在 0~0.30H 全透明，0.30H~1.0H 按 smoothstep t²(3-2t) 用 8 段色标
+                //       平滑升到 0.20 黑：首尾斜率都趋近 0，没有任何折点 → 无横带。
+                //       只压明暗、保留 ② 的模糊纹理；放在 ④ 清晰封面【之下】。
+                VStack(spacing: 0) {
+                    Color.clear
+                        .frame(width: size.width, height: size.height * 0.30)
+                    LinearGradient(colors: [Color.clear,
+                                            Color.black.opacity(0.012),
+                                            Color.black.opacity(0.045),
+                                            Color.black.opacity(0.092),
+                                            Color.black.opacity(0.142),
+                                            Color.black.opacity(0.180),
+                                            Color.black.opacity(0.198),
+                                            Color.black.opacity(0.20)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(width: size.width, height: size.height * 0.70)
+                }
+                .frame(width: size.width, height: size.height)
 
                 // ④ 清晰封面：完整原图、屏宽、不放大不横向裁切。
                 //    mask 同时做「顶部渐入」和「下沿长羽化」：
                 //    顶部渐入让状态栏 / 顶栏沉浸在 ② 的模糊里（不再有纯色雾面块），
-                //    下沿 32% 慢慢化开融进 ②（羽化起点比上一版更靠上）。
+                //    下沿 40% 慢慢化开融进 ②（第九次微调后羽化更长、更平滑）。
                 Image(uiImage: artwork)
                     .resizable()
                     .scaledToFit()
@@ -2758,18 +2795,22 @@ private struct ImmersiveCoverBackdrop: View {
     /// 🔴 2026-11-10 第七次微调：顶部渐入 0.12→0.14 且起手更淡（0.45→0.35），
     ///    顶栏的封面模糊氛围再柔一点点；清晰段 0.62→0.54、羽化段 0.26→0.32，
     ///    **羽化起点上移**约 0.08×封面高（≈22pt），清晰区更早开始化开。
+    /// 🔴 2026-11-10 第九次微调：清晰段 0.54→0.46、羽化段 0.32→0.40（9 段平滑衰减），
+    ///    淡出区再拉长 0.08×封面高、末端斜率更缓，配合 ② 降 blur + ③.5 无折点加深，
+    ///    彻底消掉「清晰纹理 → 纯色模糊底」那条横向分界线。
     private static func seamlessMask(width: CGFloat, height: CGFloat) -> some View {
         VStack(spacing: 0) {
             LinearGradient(colors: [.clear, .black.opacity(0.35), .black],
                            startPoint: .top, endPoint: .bottom)
                 .frame(width: width, height: height * 0.14)
             Color.black
-                .frame(width: width, height: height * 0.54)
-            LinearGradient(colors: [.black, .black.opacity(0.90), .black.opacity(0.74),
-                                    .black.opacity(0.54), .black.opacity(0.32),
-                                    .black.opacity(0.14), .clear],
+                .frame(width: width, height: height * 0.46)
+            LinearGradient(colors: [.black, .black.opacity(0.95), .black.opacity(0.86),
+                                    .black.opacity(0.73), .black.opacity(0.57),
+                                    .black.opacity(0.40), .black.opacity(0.24),
+                                    .black.opacity(0.10), .clear],
                            startPoint: .top, endPoint: .bottom)
-                .frame(width: width, height: height * 0.32)
+                .frame(width: width, height: height * 0.40)
         }
         .frame(width: width, height: height)
     }
@@ -2831,5 +2872,319 @@ private struct ImmersiveCoverBackdrop: View {
                      green: clamped(w.g * scale),
                      blue: clamped(w.b * scale),
                      opacity: 1)
+    }
+}
+
+// MARK: - 「我的播放器」主题卡片选择面板（2026-11-10，酷狗同款）
+//
+// 🔴 用自定义 overlay 而非 .sheet：iOS 15 链式多个 .sheet(isPresented:) 只有最后一个生效
+//    （项目既有红线），而这个面板必须能盖住播放页半屏、点外部关闭、点卡片不关面板。
+// 🔴 缩略图是「实时」的：直接用当前歌曲的封面 UIImage 与歌名 / 歌手绘制迷你播放页，
+//    换歌后重新打开面板就是新歌的预览，不是静态素材图。
+// 🔴 所有 Image 都锁死固定尺寸 + clipped：原图像素尺寸绝不能参与 ZStack 布局
+//    （历史「写真原图撑大父布局、控件被挤出屏幕」红线）。
+
+private enum PlayerThemeCardMetrics {
+    static let width: CGFloat = 110
+    static let height: CGFloat = 188
+    static let spacing: CGFloat = 14
+    /// 固定 RGB：不从 AppStyle.accent / UIColor.systemBlue 取 dynamic 色，
+    /// 避免播放页的 toolbarColorScheme 切换把胶囊 / 边框颜色带偏。
+    static let blue = Color(red: 0.0, green: 0.478, blue: 1.0)
+    static let ink = Color(red: 0.13, green: 0.14, blue: 0.16)
+    static let muted = Color(red: 0.56, green: 0.57, blue: 0.60)
+}
+
+/// 只圆上方两角：SwiftUI 没有内置的部分圆角 clipShape，用 Shape 精确控制。
+private struct PlayerThemeTopCorners: Shape {
+    let radius: CGFloat
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: 0, y: radius))
+        p.addQuadCurve(to: CGPoint(x: radius, y: 0), control: CGPoint(x: 0, y: 0))
+        p.addLine(to: CGPoint(x: rect.width - radius, y: 0))
+        p.addQuadCurve(to: CGPoint(x: rect.width, y: radius),
+                       control: CGPoint(x: rect.width, y: 0))
+        p.addLine(to: CGPoint(x: rect.width, y: rect.height))
+        p.addLine(to: CGPoint(x: 0, y: rect.height))
+        p.closeSubpath()
+        return p
+    }
+}
+
+private struct PlayerThemePickerPanel: View {
+    let artwork: UIImage?
+    let songTitle: String
+    let artist: String
+    let current: PlayerPageTheme
+    let onSelect: (PlayerPageTheme) -> Void
+    let onMore: () -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            // 半透明遮罩：点面板之外关闭。
+            Color.black.opacity(0.30)
+                .onTapGesture(perform: onClose)
+            sheetBody
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// 白色圆角半屏面板：标题 + 横向可滚动卡片 + 底部 home indicator 留白。
+    private var sheetBody: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .center) {
+                Text("我的播放器")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(PlayerThemeCardMetrics.ink)
+                Spacer(minLength: 0)
+                Button(action: onClose) {
+                    Text("完成")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(PlayerThemeCardMetrics.blue)
+                        .frame(height: 30)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 22)
+            .padding(.bottom, 18)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: PlayerThemeCardMetrics.spacing) {
+                    ForEach(PlayerPageTheme.cardOrder) { theme in
+                        themeCard(theme)
+                    }
+                    moreCard
+                }
+                .padding(.horizontal, 20)
+            }
+            .frame(height: PlayerThemeCardMetrics.height + 34)
+
+            Spacer(minLength: 26)
+        }
+        .frame(height: 312)
+        .frame(maxWidth: .infinity)
+        .background(Color.white)
+        .clipShape(PlayerThemeTopCorners(radius: 22))
+    }
+
+    /// 皮肤卡：缩略预览 + 选中蓝色高亮边框 + 底部居中名称。
+    private func themeCard(_ theme: PlayerPageTheme) -> some View {
+        let selected = theme == current
+        return Button {
+            onSelect(theme)
+        } label: {
+            VStack(spacing: 9) {
+                PlayerThemeThumbnail(theme: theme, artwork: artwork,
+                                     songTitle: songTitle, artist: artist)
+                    .frame(width: PlayerThemeCardMetrics.width,
+                           height: PlayerThemeCardMetrics.height)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    // 白边 + 蓝框：酷狗是「缩略图外面 2~3pt 白边，再包一圈蓝框」。
+                    .padding(3)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(selected ? PlayerThemeCardMetrics.blue : Color.clear,
+                                    lineWidth: 2.5)
+                    )
+                Text(theme.cardTitle)
+                    .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                    .foregroundColor(selected ? PlayerThemeCardMetrics.blue
+                                              : PlayerThemeCardMetrics.ink)
+                    .lineLimit(1)
+                    .frame(width: PlayerThemeCardMetrics.width + 6, alignment: .center)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 末尾「更多」占位卡：让横向滚动真的有内容可滑，也呼应酷狗的更多皮肤入口。
+    private var moreCard: some View {
+        Button(action: onMore) {
+            VStack(spacing: 9) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color(red: 0.95, green: 0.95, blue: 0.96))
+                    Image(systemName: "plus")
+                        .font(.system(size: 23, weight: .light))
+                        .foregroundColor(PlayerThemeCardMetrics.muted)
+                }
+                .frame(width: PlayerThemeCardMetrics.width + 6,
+                       height: PlayerThemeCardMetrics.height + 6)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                Text("更多")
+                    .font(.system(size: 13))
+                    .foregroundColor(PlayerThemeCardMetrics.muted)
+                    .frame(width: PlayerThemeCardMetrics.width + 6, alignment: .center)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// 缩略预览：按主题画一张迷你播放页（背景 + 顶栏 + 歌名 + 进度 + 控件）。
+/// 用的就是当前歌曲的封面与文字，所以换歌 / 换主题后预览是实时的。
+private struct PlayerThemeThumbnail: View {
+    let theme: PlayerPageTheme
+    let artwork: UIImage?
+    let songTitle: String
+    let artist: String
+
+    var body: some View {
+        GeometryReader { geo in
+            let size = geo.size
+            ZStack(alignment: .top) {
+                backdrop(size: size)
+
+                VStack(spacing: 0) {
+                    HStack {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 9, weight: .medium))
+                        Spacer(minLength: 0)
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 9, weight: .medium))
+                    }
+                    .foregroundColor(.white.opacity(0.9))
+                    .padding(.horizontal, 9)
+                    .padding(.top, 10)
+
+                    Spacer(minLength: 0)
+                    footer
+                }
+                .frame(width: size.width, height: size.height)
+            }
+            .frame(width: size.width, height: size.height)
+            .clipped()
+        }
+    }
+
+    /// 三种主题各自的迷你背景，全部锁死尺寸，绝不撑大父布局。
+    @ViewBuilder
+    private func backdrop(size: CGSize) -> some View {
+        switch theme {
+        case .immersiveCover:
+            ZStack(alignment: .top) {
+                if let art = artwork {
+                    Image(uiImage: art)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: size.width, height: size.height)
+                        .clipped()
+                        .blur(radius: 7)
+                        .frame(width: size.width, height: size.height)
+                        .clipped()
+                    Image(uiImage: art)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: size.width, height: size.height, alignment: .top)
+                        .mask(PlayerThemeThumbnailFade(width: size.width, height: size.height))
+                } else {
+                    placeholder(size: size)
+                }
+            }
+            .frame(width: size.width, height: size.height)
+            .clipped()
+
+        case .classic:
+            ZStack(alignment: .center) {
+                LinearGradient(colors: [Color(red: 0.18, green: 0.20, blue: 0.24),
+                                        Color(red: 0.07, green: 0.08, blue: 0.11)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(width: size.width, height: size.height)
+                if let art = artwork {
+                    Image(uiImage: art)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: size.width * 0.58, height: size.width * 0.58)
+                        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                } else {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Color.white.opacity(0.18))
+                        .frame(width: size.width * 0.58, height: size.width * 0.58)
+                }
+            }
+            .frame(width: size.width, height: size.height)
+            .clipped()
+
+        case .artistPhoto:
+            ZStack {
+                if let art = artwork {
+                    Image(uiImage: art)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: size.width, height: size.height)
+                        .clipped()
+                } else {
+                    placeholder(size: size)
+                }
+            }
+            .frame(width: size.width, height: size.height)
+            .clipped()
+        }
+    }
+
+    private func placeholder(size: CGSize) -> some View {
+        LinearGradient(colors: [Color(red: 0.36, green: 0.43, blue: 0.48),
+                                Color(red: 0.15, green: 0.18, blue: 0.21)],
+                       startPoint: .top, endPoint: .bottom)
+            .frame(width: size.width, height: size.height)
+    }
+
+    /// 迷你底部信息区：歌名 / 歌手 / 进度条 / 三个控件，全部用真实歌曲文字。
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(songTitle.isEmpty ? "歌曲名" : songTitle)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(.white)
+                .lineLimit(1)
+            Text(artist.isEmpty ? "歌手" : artist)
+                .font(.system(size: 6.5))
+                .foregroundColor(.white.opacity(0.78))
+                .lineLimit(1)
+            HStack(spacing: 3) {
+                Capsule().fill(Color.white.opacity(0.9)).frame(width: 22, height: 2)
+                Capsule().fill(Color.white.opacity(0.35)).frame(height: 2)
+            }
+            .padding(.top, 2)
+            HStack {
+                Image(systemName: "backward.fill").font(.system(size: 8))
+                Spacer(minLength: 0)
+                Image(systemName: "play.fill").font(.system(size: 10))
+                Spacer(minLength: 0)
+                Image(systemName: "forward.fill").font(.system(size: 8))
+            }
+            .foregroundColor(.white.opacity(0.92))
+            .padding(.horizontal, 14)
+            .padding(.top, 4)
+        }
+        .padding(.horizontal, 8)
+        .padding(.bottom, 10)
+        .background(
+            LinearGradient(colors: [Color.clear, Color.black.opacity(0.48)],
+                           startPoint: .top, endPoint: .bottom)
+        )
+    }
+}
+
+/// 缩略图里清晰封面的「顶部渐入 + 下沿长羽化」，与真机 ImmersiveCoverBackdrop 同构。
+private struct PlayerThemeThumbnailFade: View {
+    let width: CGFloat
+    let height: CGFloat
+    var body: some View {
+        VStack(spacing: 0) {
+            LinearGradient(colors: [.clear, .black],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(width: width, height: height * 0.10)
+            Color.black
+                .frame(width: width, height: height * 0.52)
+            LinearGradient(colors: [.black, .black.opacity(0.55), .clear],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(width: width, height: height * 0.38)
+        }
+        .frame(width: width, height: height)
     }
 }
