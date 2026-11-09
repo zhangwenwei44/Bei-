@@ -2,17 +2,23 @@ import SwiftUI
 import UIKit
 
 /// 🔴 竖屏播放页主题（T 恤按钮切换，选择会持久化）。
-/// · classic      = 取色渐变背景 + 方形专辑封面（原有版式）
-/// · artistPhoto  = 在取色渐变之上铺当前歌手的写真（歌词页同款多张轮播）；
-///                  取不到写真时整层为空，自动回退成 classic 的取色渐变。
+/// · classic        = 取色渐变背景 + 方形专辑封面（原有版式）
+/// · artistPhoto    = 在取色渐变之上铺当前歌手的写真（歌词页同款多张轮播）；
+///                    取不到写真时整层为空，自动回退成 classic 的取色渐变。
+/// · immersiveCover = 2026-11-09 从酷狗 20.8.4 的「沉浸式封面」样式移植：
+///                    清晰封面从顶部铺满成 banner → 下沿羽化渐隐 → 融入同一张封面的
+///                    模糊取色背景；文字与控件白色浮在渐变之上，不再显示中间方形封面。
+///                    取不到封面时整层只剩氛围渐变，自动回退成 classic 的取色背景。
 enum PlayerPageTheme: String, CaseIterable, Identifiable {
     case classic
     case artistPhoto
+    case immersiveCover
     var id: String { rawValue }
     var title: String {
         switch self {
         case .classic: return "经典封面"
         case .artistPhoto: return "歌手写真"
+        case .immersiveCover: return "沉浸式封面"
         }
     }
 }
@@ -57,7 +63,7 @@ struct PlayerView: View {
     /// 分享弹层内容（nil = 不弹）
     @State private var shareItems: [Any]?
     @State private var dominantColor: Color = .white
-    /// 🔴 播放页主题：T 恤按钮切换（经典封面 / 歌手写真），选择持久化。
+    /// 🔴 播放页主题：T 恤按钮切换（经典封面 / 歌手写真 / 沉浸式封面），选择持久化。
     @AppStorage("aurora.playerPageTheme") private var playerPageTheme: PlayerPageTheme = .classic
     @State private var showThemePicker = false
 
@@ -167,6 +173,13 @@ struct PlayerView: View {
                             .clipped()
                             .allowsHitTesting(false)
                             .transition(.opacity)
+                    } else if playerPageTheme == .immersiveCover {
+                        // 🔴 与写真层同一套红线：背景层锁死屏幕尺寸 + clipped + 不吃点击，
+                        //    否则 scaledToFill 的原图像素尺寸会撑大 ZStack，把动作行/播放控件挤没。
+                        ImmersiveCoverBackdrop(artwork: store.artwork,
+                                               size: size,
+                                               palette: store.currentPalette)
+                            .transition(.opacity)
                     }
                     classicBody(in: contentHeight, win: win, screen: screen)
                 }
@@ -181,9 +194,13 @@ struct PlayerView: View {
                     playerPageTheme = .artistPhoto
                     show("已切换到歌手写真主题")
                 }
+                Button(playerPageTheme == .immersiveCover ? "沉浸式封面（当前）" : "沉浸式封面") {
+                    playerPageTheme = .immersiveCover
+                    show("已切换到沉浸式封面主题")
+                }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("歌手写真主题会把当前歌手的写真铺满播放页，不再显示中间的专辑封面；暂时没有写真时自动显示原来的取色背景。")
+                Text("歌手写真把当前歌手写真铺满播放页；沉浸式封面把当前歌曲封面从顶部铺开、下沿渐隐融入取色背景。两种主题都不再显示中间的方形封面，取不到图时自动显示原来的取色背景。")
             }
             .frame(width: size.width, height: size.height)
             // 🔴 仅竖屏播放页允许「下滑关闭整个播放器」；歌词页 / 横屏播放器改用各自的
@@ -284,7 +301,7 @@ struct PlayerView: View {
             Spacer(minLength: 0)
 
             // 🔴 2026-11-08：横屏按钮前面加「主题更换」（T 恤，Lucide shirt）。
-            // 🔴 现在正式可用：点开在「经典封面 / 歌手写真」之间切换，选择会记住。
+            // 🔴 现在正式可用：点开在「经典封面 / 歌手写真 / 沉浸式封面」之间切换，选择会记住。
             Button { showThemePicker = true } label: {
                 LucideIcon(icon: .shirt, size: 22, color: .white)
                     .frame(width: 40, height: 40)
@@ -410,17 +427,18 @@ struct PlayerView: View {
         .onChange(of: store.artwork) { _ in extractDominantColor() }
     }
 
-    /// 封面区视觉主体：经典主题画方形专辑封面；歌手写真主题不画封面（写真已是主视觉）。
-    /// 🔴 写真主题用同尺寸透明占位而不是直接把整个封面区删掉，避免 VStack 弹性高度
+    /// 封面区视觉主体：只有经典主题画方形专辑封面；写真 / 沉浸式封面主题不画
+    /// （铺满的背景层本身就是主视觉）。
+    /// 🔴 非经典主题用同尺寸透明占位而不是直接把整个封面区删掉，避免 VStack 弹性高度
     ///    重新分配后 deck 上移、以及左右滑切歌手势丢失。
     @ViewBuilder
     private func classicCoverVisual(side: CGFloat) -> some View {
-        if playerPageTheme == .artistPhoto {
+        if playerPageTheme == .classic {
+            classicCoverArt(side: side)
+        } else {
             Color.clear
                 .frame(width: side, height: side)
                 .contentShape(Rectangle())
-        } else {
-            classicCoverArt(side: side)
         }
     }
 
@@ -2587,5 +2605,65 @@ private struct LandscapeLyricsBlock: View {
               store.lyrics.indices.contains(index + 2) else { return nil }
         let text = store.lyrics[index + 2].text
         return text.isEmpty ? nil : text
+    }
+}
+
+// MARK: - 沉浸式封面主题背景（按酷狗 20.8.4 静态证据重建）
+
+/// 🔴 2026-11-09：从酷狗音乐 20.8.4（CFBundleVersion 20.8.4.19）播放页「沉浸式封面」样式移植。
+/// 逆向依据（IPA 主可执行文件 `Payload/kugou.app/kugou` 的实例变量 / 选择器，以及包内资源）：
+///   · `themeImmersiveCoverImgView`  (UIImageView)          → 清晰封面
+///   · `themeImmersiveCoverBlurView`(UIVisualEffectView)    → 同一张封面的模糊层
+///   · `themeImmersiveAlphaView` / `themeImmersiveAlphaViewLayer` → 封面下沿羽化渐隐
+///   · `themeImmersiveBannerHeight` / `themeImmersiveBgView` / `themeBackgroundGradientLayer`
+///   · `themeImmersiveColorPickerView`                      → 从封面取主色
+///   · `k20_playview_change_mode_localskin@3x.png`          → 全屏渐变 + 白色歌词/歌名/
+///     动作行/进度/播放控件，中间没有方形封面（版式预览）
+/// 这是「按证据重建」：只用本 App 自己的封面与取色，不复制酷狗的图片资源或代码。
+///
+/// 🔴 布局红线（v2.6.8 / 2026-11-09 两次实锤）：`scaledToFill` 的背景层必须锁死屏幕尺寸
+///    + clipped + allowsHitTesting(false)，否则原图像素尺寸会撑大 ZStack，
+///    把动作行 / 播放控件整块挤出屏幕。
+private struct ImmersiveCoverBackdrop: View {
+    let artwork: UIImage?
+    let size: CGSize
+    let palette: ArtworkPalette
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            // ① 清晰封面 banner：从屏幕顶部铺满宽度，下沿羽化渐隐融入背景。
+            //    对应 themeImmersiveCoverImgView + themeImmersiveBannerHeight
+            //    + themeImmersiveAlphaViewLayer。
+            if let artwork {
+                Image(uiImage: artwork)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size.width, height: size.height * 0.66, alignment: .top)
+                    .clipped()
+                    // 🔴 iOS 15 不能用带 locations / stops 的 LinearGradient（iOS 16+ API），
+                    //    用均匀色标近似：上半段完整，下 1/3 逐步化开。
+                    .mask(
+                        LinearGradient(colors: [.black, .black, .black,
+                                                .black.opacity(0.92),
+                                                .black.opacity(0.48),
+                                                .clear],
+                                       startPoint: .top, endPoint: .bottom)
+                    )
+            }
+
+            // ② 全屏氛围渐变（对应 themeBackgroundGradientLayer + ColorPicker）：
+            //    顶部轻压暗保证状态栏 / 顶栏白字可读，下半叠封面主色，
+            //    与 immersiveBackground 的模糊封面 + 取色渐变自然衔接。
+            //    封面取不到时只剩这一层 → 视觉自动回退成经典主题的取色背景。
+            LinearGradient(colors: [.black.opacity(0.32),
+                                    .black.opacity(0.10),
+                                    .clear,
+                                    palette.dark.opacity(0.10),
+                                    palette.dark.opacity(0.30)],
+                           startPoint: .top, endPoint: .bottom)
+        }
+        .frame(width: size.width, height: size.height)
+        .clipped()
+        .allowsHitTesting(false)
     }
 }
