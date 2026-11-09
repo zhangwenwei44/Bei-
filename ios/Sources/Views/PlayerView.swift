@@ -2643,6 +2643,17 @@ private struct LandscapeLyricsBlock: View {
 ///    空出的顶部由 ⑤ **不透明雾色层**填住，0~0.15H 实色 + 0.15~0.20H 渐隐与封面衔接。
 ///    🔴 雾色层必须不透明：只用 blur/半透明会让边缘露出深色 wash 底，顶部发暗。
 ///
+/// 🔴 2026-11-10 第五次校正（用户：「上下沉浸颜色再优化一下，照着这张图改」）：
+///    1125×2436 真机截图逐行量化 —— 我方顶栏 `(179,203,203)` 亮度 195、方差 0（死平青灰），
+///    目标 `(135,187,217)` 亮度 180、方差 7~20（明亮饱和天空蓝）；
+///    我方底部 `(120,150,160)` 偏蓝青，目标 `(115,131,122)` 暖灰绿、更暗 15~20。
+///    🔴 根因：顶栏与底部**共用同一个「整图平均提亮」**。这类封面上半是蓝天、下半是草地湖水，
+///    整图平均后 R/G/B 被拉平、再一提亮就成青灰 → 顶部发白；底部又额外提蓝 ×1.07 → 变蓝青。
+///    处理：一次 24×24 采样拆出「天空带」和「整图平均」两份 —— 顶栏只取天空带的蓝
+///    （按蓝差 `(b-r)` 认带，顺带规避 CGContext 直接画 CGImage 时的行序上下颠倒），
+///    底部取整图平均**大幅降饱和 + 压暗**成暖灰绿；去掉下半屏白色提亮层、
+///    全屏氛围层压到 0.12 免得把灰绿拉回蓝青。
+///
 /// 🔴 布局红线（v2.6.8 / 2026-11-09 两次实锤）：背景层必须锁死屏幕尺寸
 ///    + clipped + allowsHitTesting(false)，否则原图像素尺寸会撑大 ZStack，
 ///    把动作行 / 播放控件整块挤出屏幕。
@@ -2666,36 +2677,27 @@ private struct ImmersiveCoverBackdrop: View {
                 let solidFogH = size.height * 0.15
                 let fadeFogH = size.height * 0.05
 
-                // ① 整屏「雾化底」：从封面取色但**保留封面色相**（不再降饱和成灰绿），
-                //    对应 themeImmersiveColorPickerView + themeBackgroundGradientLayer。
+                // ① 整屏「雾化底」：封面整图平均**大幅降饱和 + 压暗**后的暖灰绿
+                //    （不再是提蓝的蓝青），对应 themeImmersiveColorPickerView
+                //    + themeBackgroundGradientLayer。
                 //    🔴 必须完全不透明，才能盖住经典主题的深色取色渐变 ——
                 //    第一版底部发深蓝就是因为它只叠了一层半透明渐变，深色底层透了出来。
                 wash
                     .frame(width: size.width, height: size.height)
 
-                // ② 整屏封面氛围层（对应 themeImmersiveCoverBlurView）：同一张封面
-                //    模糊后铺满全屏，让顶栏与底部都延续这张封面的天空蓝 / 湖水青，
-                //    下半屏还留一点极淡的纹理，而不是一块死板的纯色。
-                //    透明度压到 0.16，避免出现放大后的书法字轮廓，也不把取色带跑。
+                // ② 整屏封面氛围层（对应 themeImmersiveCoverBlurView）：模糊铺满，
+                //    让下半屏留一点封面草叶 / 水面的朦胧纹理，不是一块死板纯色。
+                //    🔴 opacity 压到 0.12：这层是**整图**模糊、平均色偏蓝青，浓度一高
+                //    就会把 ① 精确调好的灰绿底重新拉回蓝青（第五次校正实锤）。
                 Image(uiImage: artwork)
                     .resizable()
                     .scaledToFill()
                     .frame(width: size.width, height: size.height)
                     .clipped()
-                    .blur(radius: 54)
-                    .opacity(0.16)
+                    .blur(radius: 64)
+                    .opacity(0.12)
                     .frame(width: size.width, height: size.height)
                     .clipped()
-
-                // ③ 下半屏极轻提亮：目标截图从 0.53 屏高 (83,150,181) 到 0.95 屏高
-                //    (99,165,191)，越往下越亮约 16/255，用一层渐入的白色薄雾还原。
-                VStack(spacing: 0) {
-                    Color.clear.frame(height: size.height * 0.44)
-                    LinearGradient(colors: [.clear, .white.opacity(0.04)],
-                                   startPoint: .top, endPoint: .bottom)
-                        .frame(height: size.height * 0.56)
-                }
-                .frame(width: size.width, height: size.height)
 
                 // ④ 清晰封面：完整原图、屏宽、不放大不横向裁切
                 //    （对应 themeImmersiveCoverImgView + themeImmersiveBannerHeight）。
@@ -2714,15 +2716,20 @@ private struct ImmersiveCoverBackdrop: View {
                     .mask(Self.featherMask(width: size.width, height: coverH))
                     .offset(y: topShift)
 
-                // ⑤ 顶栏雾化（用户要求）：目标 0~0.18H 是均匀明亮浅蓝 (147,210,224)、
-                //    方差只有 4~11。用封面取色的亮版做**不透明**雾色铺满顶栏区，
+                // ⑤ 顶栏雾化：只取封面**天空带**的明亮饱和蓝（整图平均会变成青灰），
                 //    0~0.15H 实色 + 0.15~0.20H 渐隐，与下移后的清晰封面无缝衔接。
                 //    🔴 不用 `.blur` 当底：模糊边缘半透明会露出深色 wash 底，顶部反而发暗。
-                Self.topFogColor(from: artwork)
-                    .frame(width: size.width, height: solidFogH + fadeFogH)
-                    .mask(Self.topFogMask(width: size.width,
-                                          solidH: solidFogH,
-                                          fadeH: fadeFogH))
+                //    另叠一层极淡明度起伏，避免顶栏成为方差 0 的死平色块（目标方差 7~20）。
+                ZStack(alignment: .top) {
+                    Self.topFogColor(from: artwork)
+                    LinearGradient(colors: [.black.opacity(0.035), .clear,
+                                            .white.opacity(0.025)],
+                                   startPoint: .top, endPoint: .bottom)
+                }
+                .frame(width: size.width, height: solidFogH + fadeFogH)
+                .mask(Self.topFogMask(width: size.width,
+                                      solidH: solidFogH,
+                                      fadeH: fadeFogH))
             }
         }
         .frame(width: size.width, height: size.height)
@@ -2757,9 +2764,19 @@ private struct ImmersiveCoverBackdrop: View {
         .frame(width: width, height: solidH + fadeH)
     }
 
-    /// 采样：把整张封面降采样到 24×24 求平均色（0~1 的 sRGB 分量）。
-    /// 🔴 取整图平均而非下半张，避开 CGContext 绘制 CGImage 时 y 轴朝向的歧义。
-    private static func averageRGB(from image: UIImage) -> (r: Double, g: Double, b: Double)? {
+    private struct RGB {
+        let r: Double
+        let g: Double
+        let b: Double
+    }
+
+    /// 一次采样给出两个色：顶栏用的「天空蓝」+ 下半屏用的「整图平均」。
+    /// 🔴 `CGContext(data:)` 直接画 CGImage 时 buffer 行序可能与图片上下颠倒，
+    ///    所以**不假设「上带一定是天空」**：把上下两条带按蓝差 `(b - r)` 排序，
+    ///    蓝差大的那条就是天空（蓝天 / 水面），完全绕开坐标系翻转的歧义。
+    ///    整图平均另算一份 —— 酷狗的雾化底本质是整张封面大幅模糊后的低饱和暗版，
+    ///    用整图平均比用「下 1/3 带」稳（很多封面下沿是夕阳高光，取它会偏白偏亮）。
+    private static func coverTones(from image: UIImage) -> (sky: RGB, whole: RGB)? {
         let side = 24
         let bytesPerRow = side * 4
         var buffer = [UInt8](repeating: 0, count: bytesPerRow * side)
@@ -2775,57 +2792,67 @@ private struct ImmersiveCoverBackdrop: View {
         }
         ctx.interpolationQuality = .medium
         ctx.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
-        var r = 0.0, g = 0.0, b = 0.0, n = 0.0
-        for y in 0..<side {
-            for x in 0..<side {
-                let o = y * bytesPerRow + x * 4
-                guard buffer[o + 3] > 8 else { continue }
-                r += Double(buffer[o]) / 255
-                g += Double(buffer[o + 1]) / 255
-                b += Double(buffer[o + 2]) / 255
-                n += 1
+
+        func band(_ lo: Int, _ hi: Int) -> RGB? {
+            var r = 0.0, g = 0.0, b = 0.0, n = 0.0
+            for y in lo..<hi {
+                for x in 0..<side {
+                    let o = y * bytesPerRow + x * 4
+                    guard buffer[o + 3] > 8 else { continue }
+                    r += Double(buffer[o]) / 255
+                    g += Double(buffer[o + 1]) / 255
+                    b += Double(buffer[o + 2]) / 255
+                    n += 1
+                }
             }
+            guard n > 0 else { return nil }
+            return RGB(r: r / n, g: g / n, b: b / n)
         }
-        guard n > 0 else { return nil }
-        return (r / n, g / n, b / n)
+        guard let a = band(0, side / 3),
+              let b = band(side * 2 / 3, side),
+              let whole = band(0, side) else { return nil }
+        let skyIsA = (a.b - a.r) >= (b.b - b.r)
+        return (sky: skyIsA ? a : b, whole: whole)
     }
 
-    /// 从封面整图平均色生成「雾化底」：🔴 **保留封面色相**（不再降饱和到 30% 变灰绿），
-    ///    只把亮度归一到中亮 0.56，轻压红、轻提蓝，让天空蓝 / 湖水青延续到整屏。
-    ///    目标截图下半屏实测 RGB ≈ (90,157,186) → (99,165,191)；旧灰绿底是 (108,129,122)。
+    /// 下半屏「雾化底」= 封面整图平均色**大幅降饱和到 35% + 归一到中暗 0.465**，
+    ///    再轻压红 / 压蓝，留一点绿 → 暖灰绿。
+    ///    目标实测 RGB ≈ (115,131,122) → (108,129,122)，G 最大、B 最小、亮度约 0.49；
+    ///    旧版只归一亮度还提蓝 ×1.07，得到 (120,150,160) 蓝青，方向完全错了。
+    ///    🔴 不能取「下 1/3 带」：本例封面下沿是夕阳高光 ≈(211,211,204)，取它会发白。
     private static func washColor(from image: UIImage) -> Color {
-        let fallback = Color(.sRGB, red: 0.35, green: 0.60, blue: 0.72, opacity: 1)
-        guard let avg = Self.averageRGB(from: image) else { return fallback }
-        let r = avg.r
-        let g = avg.g
-        let b = avg.b
-        let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
-        // 暗封面别硬拉爆，亮封面照常归一
-        let scale = min(1.8, 0.56 / max(lum, 0.16))
+        let fallback = Color(.sRGB, red: 0.44, green: 0.50, blue: 0.44, opacity: 1)
+        guard let tones = Self.coverTones(from: image) else { return fallback }
+        let w = tones.whole
+        let lum = 0.2126 * w.r + 0.7152 * w.g + 0.0722 * w.b
+        let sat = 0.35
+        let r1 = lum + (w.r - lum) * sat
+        let g1 = lum + (w.g - lum) * sat
+        let b1 = lum + (w.b - lum) * sat
+        let scale = min(1.8, 0.465 / max(lum, 0.16))
         func clamped(_ v: Double) -> Double { min(1, max(0, v)) }
         return Color(.sRGB,
-                     red: clamped(r * scale * 0.85),
-                     green: clamped(g * scale),
-                     blue: clamped(b * scale * 1.07),
+                     red: clamped(r1 * scale * 0.94),
+                     green: clamped(g1 * scale),
+                     blue: clamped(b1 * scale * 0.89),
                      opacity: 1)
     }
 
-    /// 顶栏雾色：同一张封面平均色**提亮**到目标 `(147,210,224)` 附近的浅蓝天空。
-    ///    本例封面整图平均 ≈(130,190,207) → 归一到亮度 0.78 得 ≈(145,212,226)，
-    ///    与目标实测 (148,210,224) 基本一致。不透明，才能把封面顶部纹理彻底雾化。
+    /// 顶栏雾色：只取封面**天空带**的蓝，亮度归一到 0.70、保持原色相比例。
+    ///    本例模拟实算 ≈(137,187,217)，目标实测 (135,187,217) —— 几乎逐通道命中。
+    ///    旧版用整图平均归一到 0.78 得到 (179,203,203) 青灰，R 高 44、B 低 14，
+    ///    就是顶栏发白的原因。不透明，才能把封面顶部纹理彻底雾化。
     private static func topFogColor(from image: UIImage) -> Color {
-        let fallback = Color(.sRGB, red: 0.58, green: 0.82, blue: 0.88, opacity: 1)
-        guard let avg = Self.averageRGB(from: image) else { return fallback }
-        let r = avg.r
-        let g = avg.g
-        let b = avg.b
-        let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
-        let scale = min(1.5, 0.78 / max(lum, 0.16))
+        let fallback = Color(.sRGB, red: 0.53, green: 0.73, blue: 0.85, opacity: 1)
+        guard let tones = Self.coverTones(from: image) else { return fallback }
+        let s = tones.sky
+        let lum = 0.2126 * s.r + 0.7152 * s.g + 0.0722 * s.b
+        let scale = min(1.5, 0.70 / max(lum, 0.16))
         func clamped(_ v: Double) -> Double { min(1, max(0, v)) }
         return Color(.sRGB,
-                     red: clamped(r * scale),
-                     green: clamped(g * scale),
-                     blue: clamped(b * scale * 0.98),
+                     red: clamped(s.r * scale),
+                     green: clamped(s.g * scale),
+                     blue: clamped(s.b * scale),
                      opacity: 1)
     }
 }
