@@ -6,9 +6,10 @@ import UIKit
 /// · artistPhoto    = 在取色渐变之上铺当前歌手的写真（歌词页同款多张轮播）；
 ///                    取不到写真时整层为空，自动回退成 classic 的取色渐变。
 /// · immersiveCover = 2026-11-09 从酷狗 20.8.4 的「沉浸式封面」样式移植（按真机截图校正）：
-///                    完整封面贴顶铺满屏宽、不裁切 → 下沿羽化 → 融入封面取色的明亮
-///                    低饱和浅灰绿雾化底；歌词居中叠在羽化处，文字/控件白色浮在上面，
-///                    不再显示中间方形封面。取不到封面时整层为空，自动回退取色背景。
+///                    完整封面贴顶铺满屏宽、不裁切 → 下沿羽化 → 顶栏的天空蓝与底部的
+///                    湖水青都延续同一张封面的取色，整屏一体沉浸（不再是灰绿纯色）。
+///                    🔴 主题只换背景、不改版式：歌词仍在 deck 里歌名下方，
+///                    只去掉中间方形封面。取不到封面时整层为空，自动回退取色背景。
 enum PlayerPageTheme: String, CaseIterable, Identifiable {
     case classic
     case artistPhoto
@@ -176,11 +177,8 @@ struct PlayerView: View {
                     } else if playerPageTheme == .immersiveCover {
                         // 🔴 与写真层同一套红线：背景层锁死屏幕尺寸 + clipped + 不吃点击，
                         //    否则原图像素尺寸会撑大 ZStack，把动作行/播放控件挤没。
+                        // 🔴 主题只换背景：歌词仍由 classicDeck 放在歌名下方，不额外做浮层。
                         ImmersiveCoverBackdrop(artwork: store.artwork, size: size)
-                            .transition(.opacity)
-                        // 🔴 酷狗同款：两行歌词居中叠在封面下沿羽化处；
-                        //    deck 里不再重复放歌词（见 classicDeck），歌名/控件随之下移。
-                        immersiveCoverLyrics(size: size)
                             .transition(.opacity)
                     }
                     classicBody(in: contentHeight, win: win, screen: screen)
@@ -202,7 +200,7 @@ struct PlayerView: View {
                 }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("歌手写真把当前歌手写真铺满播放页；沉浸式封面把完整封面贴顶铺开、下沿渐隐融入明亮雾化底色，歌词居中显示。两种主题都不再显示中间的方形封面，取不到图时自动显示原来的取色背景。")
+                Text("歌手写真把当前歌手写真铺满播放页；沉浸式封面把完整封面贴顶铺开，顶栏和底部延续同一张封面的天空蓝与湖水青。两种主题都不再显示中间的方形封面，版式与歌词位置不变，取不到图时自动显示原来的取色背景。")
             }
             .frame(width: size.width, height: size.height)
             // 🔴 仅竖屏播放页允许「下滑关闭整个播放器」；歌词页 / 横屏播放器改用各自的
@@ -630,12 +628,9 @@ struct PlayerView: View {
                 .padding(.bottom, 10)
 
             // 歌词两行：当前句（卡拉OK逐字）+ 下一句（暗）
-            // 🔴 沉浸式封面主题把歌词移到封面羽化区居中显示（见 immersiveCoverLyrics），
-            //    这里不再重复放一份；deck 变矮 → 歌名/动作行整体略微下移，与目标截图一致。
-            if playerPageTheme != .immersiveCover {
-                lyricPill()
-                    .padding(.bottom, 8)
-            }
+            // 🔴 主题只换背景、不改版式：三个主题的歌词都留在 deck 里歌名下方。
+            lyricPill()
+                .padding(.bottom, 8)
 
             // 动作行：喜欢 / 下载 / 音质 / 歌词 / ⋯（纯图标均分）
             // 🔴 v2.5.47：动作行左右间距再收窄 10pt（比封面更宽一档）
@@ -658,21 +653,6 @@ struct PlayerView: View {
         // 🔴 classicBody 已在内容高度里扣除底部安全区（deck 底部正好落在 home 指示条上方），
         // 这里只留少量呼吸，不再重复加 safeBottom（否则内容会被 fixed height 裁掉 → 歌词被"移除"）。
         .padding(.bottom, 8)
-    }
-
-    /// 沉浸式封面专用：两行歌词居中叠在封面下沿（酷狗同款）。
-    /// 🔴 用绝对屏幕比例定位，不参与 classicBody 的弹性布局 ——
-    ///    不碰 header/cover/deck 的几何，也不加第二层 ignoresSafeArea。
-    private func immersiveCoverLyrics(size: CGSize) -> some View {
-        VStack(spacing: 0) {
-            LyricPill(alignment: .center, onOpen: { openLyricsPage() })
-                .frame(width: size.width - 48)
-            Spacer(minLength: 0)
-        }
-        .padding(.top, size.height * 0.455)
-        .frame(width: size.width, height: size.height)
-        // 只展示、不吃点击：封面区左右滑切歌手势仍由 classicCoverVisual 接管。
-        .allowsHitTesting(false)
     }
 
     /// 流光进度条 —— 已拆到独立子视图 ClassicProgressBlock（见其注释）：
@@ -2475,35 +2455,32 @@ private struct LyricPill: View {
     @EnvironmentObject private var store: PlayerStore
     /// 独立订阅歌词高亮（与注入的是同一单例实例，见 LyricsPageView 同款写法）
     @ObservedObject private var lyricState = PlayerStore.shared.lyricState
-    /// 默认左对齐（经典封面 / 歌手写真）；沉浸式封面用 .center 居中叠在封面下沿。
-    var alignment: HorizontalAlignment = .leading
     var onOpen: () -> Void
 
     private var dim: Color { .white.opacity(0.4) }
-    private var frameAlign: Alignment { Alignment(horizontal: alignment, vertical: .center) }
 
     var body: some View {
         Button {
             onOpen()
         } label: {
-            VStack(alignment: alignment, spacing: 4) {
+            VStack(alignment: .leading, spacing: 4) {
                 // 第一行：当前歌词 —— 整行高亮（白、加粗），无逐字填充
                 Text(currentLyricText)
                     .font(.system(size: 17, weight: .semibold, design: .rounded))
                     .foregroundStyle(currentLineActive ? .white : dim)
                     .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: frameAlign)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 // 第二行：下一句歌词 —— 暗、小
                 if let next = nextLyricText {
                     Text(next)
                         .font(.system(size: 14))
                         .foregroundStyle(dim)
                         .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: frameAlign)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: frameAlign)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.25), value: currentLyricText)
@@ -2648,9 +2625,15 @@ private struct LandscapeLyricsBlock: View {
 /// 🔴 2026-11-09 第二次校正（用户给了酷狗真机截图 IMG_2221 对照）：
 ///    第一版把封面 `scaledToFill` 到 0.66 屏高 → 原图被放大横向裁切（「风吹过 / 张玮」右侧被切），
 ///    又叠了整屏黑渐变 + 取色暗色 → 顶部天空发灰、底部变成深蓝，与目标完全不符。
-///    真机目标 = **完整封面贴顶铺满屏宽（不裁切）→ 下沿约 20% 羽化 → 融入明亮、
-///    低饱和、近乎纯色的浅灰绿底**；顶栏/歌词/动作行/进度/控件全是白字浮在上面。
-///    实测目标底部 RGB ≈ (120,128,120)，旧版是 (44,82,101)。
+///
+/// 🔴 2026-11-09 第三次校正（用户又给两张真机截图，明确「顶栏跟底部都有沉浸效果」）：
+///    上一版把下半屏做成了**完全不透明的灰绿纯色** `(108,129,122)`（逐行方差 0），
+///    还压了 0.07 黑 → 顶栏天空 `(131,191,206)` 比目标暗；歌词也被挪到封面羽化区居中，
+///    用户要求「改回原来那个位置」= 歌词回到 deck 里歌名下方。
+///    目标实测：顶栏 `(147,210,224)` 是封面天空、底部 `(90,157,186)→(99,165,191)`
+///    是同一张封面湖水的蓝青延续，且越往下略亮。**整屏必须都是这张封面的色与氛围**，
+///    顶栏不压黑、底部不灰绿。现在 = 不透明封面取色底 + 全屏模糊封面氛围层
+///    + 下半极轻提亮 + 贴顶完整清晰封面（下沿羽化）。
 ///
 /// 🔴 布局红线（v2.6.8 / 2026-11-09 两次实锤）：背景层必须锁死屏幕尺寸
 ///    + clipped + allowsHitTesting(false)，否则原图像素尺寸会撑大 ZStack，
@@ -2671,30 +2654,50 @@ private struct ImmersiveCoverBackdrop: View {
                 let fullH = size.width * ratio
                 let coverH = min(fullH, size.width * 1.12)
 
-                // ① 下半屏「雾化底」：封面平均色 → 降饱和 → 归一到中灰。
+                // ① 整屏「雾化底」：从封面取色但**保留封面色相**（不再降饱和成灰绿），
                 //    对应 themeImmersiveColorPickerView + themeBackgroundGradientLayer。
                 //    🔴 必须完全不透明，才能盖住经典主题的深色取色渐变 ——
-                //    旧版底部发深蓝就是因为它只叠了一层半透明渐变，深色底层透了出来。
+                //    第一版底部发深蓝就是因为它只叠了一层半透明渐变，深色底层透了出来。
                 wash
                     .frame(width: size.width, height: size.height)
 
-                // ② 清晰封面：完整原图、屏宽、贴顶、不放大不横向裁切
+                // ② 整屏封面氛围层（对应 themeImmersiveCoverBlurView）：同一张封面
+                //    模糊后铺满全屏，让顶栏与底部都延续这张封面的天空蓝 / 湖水青，
+                //    下半屏还留一点极淡的纹理，而不是一块死板的纯色。
+                //    透明度压到 0.16，避免出现放大后的书法字轮廓，也不把取色带跑。
+                Image(uiImage: artwork)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size.width, height: size.height)
+                    .clipped()
+                    .blur(radius: 54)
+                    .opacity(0.16)
+                    .frame(width: size.width, height: size.height)
+                    .clipped()
+
+                // ③ 下半屏极轻提亮：目标截图从 0.53 屏高 (83,150,181) 到 0.95 屏高
+                //    (99,165,191)，越往下越亮约 16/255，用一层渐入的白色薄雾还原。
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: size.height * 0.44)
+                    LinearGradient(colors: [.clear, .white.opacity(0.04)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: size.height * 0.56)
+                }
+                .frame(width: size.width, height: size.height)
+
+                // ④ 清晰封面：完整原图、屏宽、贴顶、不放大不横向裁切
                 //    （对应 themeImmersiveCoverImgView + themeImmersiveBannerHeight）。
+                //    🔴 顶部不再压黑：状态栏 / 顶栏直接是封面天空 = 顶栏沉浸。
                 Image(uiImage: artwork)
                     .resizable()
                     .scaledToFit()
                     .frame(width: size.width, height: fullH, alignment: .top)
                     .frame(width: size.width, height: coverH, alignment: .top)
                     .clipped()
-                    // ③ 下沿羽化（对应 themeImmersiveAlphaViewLayer）：
-                    //    iOS 15 不能用带 locations / stops 的渐变，用「黑矩形 + 短渐变」
-                    //    拼出精确位置：上 80% 完全不透明，下 20% 化开融进雾化底。
+                    // 下沿羽化（对应 themeImmersiveAlphaViewLayer）：
+                    // iOS 15 不能用带 locations / stops 的渐变，用「黑矩形 + 短渐变」
+                    // 拼出精确位置：上 80% 完全不透明，下 20% 化开融进雾化底。
                     .mask(Self.featherMask(width: size.width, height: coverH))
-
-                // ④ 顶部极轻压暗：只照顾状态栏白字，不再像旧版整屏压黑 → 天空恢复明亮。
-                LinearGradient(colors: [.black.opacity(0.07), .clear],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(width: size.width, height: size.height * 0.13)
             }
         }
         .frame(width: size.width, height: size.height)
@@ -2715,14 +2718,15 @@ private struct ImmersiveCoverBackdrop: View {
         .frame(width: width, height: height)
     }
 
-    /// 从封面整图平均色生成「雾化底」：降饱和到 30% → 亮度归一到中灰 0.47
-    /// （目标截图底部实测 RGB ≈ 120/128/120），再加极轻的绿偏移。
-    /// 🔴 取整图平均而非下半张，避开 CGContext 绘制 CGImage 时 y 轴朝向的歧义。
+    /// 从封面整图平均色生成「雾化底」：🔴 **保留封面色相**（不再降饱和到 30% 变灰绿），
+    ///    只把亮度归一到中亮 0.56，轻压红、轻提蓝，让天空蓝 / 湖水青延续到整屏。
+    ///    目标截图下半屏实测 RGB ≈ (90,157,186) → (99,165,191)；旧灰绿底是 (108,129,122)。
+    ///    🔴 取整图平均而非下半张，避开 CGContext 绘制 CGImage 时 y 轴朝向的歧义。
     private static func washColor(from image: UIImage) -> Color {
         let side = 24
         let bytesPerRow = side * 4
         var buffer = [UInt8](repeating: 0, count: bytesPerRow * side)
-        let fallback = Color(.sRGB, red: 0.46, green: 0.50, blue: 0.47, opacity: 1)
+        let fallback = Color(.sRGB, red: 0.35, green: 0.60, blue: 0.72, opacity: 1)
         guard let cg = image.cgImage,
               let ctx = CGContext(data: &buffer,
                                   width: side,
@@ -2749,16 +2753,14 @@ private struct ImmersiveCoverBackdrop: View {
         }
         guard n > 0 else { return fallback }
         r /= n; g /= n; b /= n
-        let lum = 0.299 * r + 0.587 * g + 0.114 * b
-        let r1 = lum + (r - lum) * 0.30
-        let g1 = lum + (g - lum) * 0.30
-        let b1 = lum + (b - lum) * 0.30
-        let scale = 0.47 / max(lum, 0.08)
+        let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        // 暗封面别硬拉爆，亮封面照常归一
+        let scale = min(1.8, 0.56 / max(lum, 0.16))
         func clamped(_ v: Double) -> Double { min(1, max(0, v)) }
         return Color(.sRGB,
-                     red: clamped(r1 * scale * 0.98),
-                     green: clamped(g1 * scale * 1.05),
-                     blue: clamped(b1 * scale * 0.96),
+                     red: clamped(r * scale * 0.85),
+                     green: clamped(g * scale),
+                     blue: clamped(b * scale * 1.07),
                      opacity: 1)
     }
 }
