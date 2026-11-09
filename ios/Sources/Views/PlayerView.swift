@@ -175,7 +175,7 @@ struct PlayerView: View {
                 }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("歌手写真主题会用当前歌手的写真铺满播放页背景；暂时没有写真时自动显示原来的取色背景。")
+                Text("歌手写真主题会把当前歌手的写真铺满播放页，不再显示中间的专辑封面；暂时没有写真时自动显示原来的取色背景。")
             }
             .frame(width: size.width, height: size.height)
             // 🔴 仅竖屏播放页允许「下滑关闭整个播放器」；歌词页 / 横屏播放器改用各自的
@@ -363,7 +363,11 @@ struct PlayerView: View {
             let side = max(150, min(h * 0.90, w * 0.86))
 
             VStack(spacing: 0) {
-                classicCoverArt(side: side)
+                // 🔴 2026-11-09：歌手写真主题下移除中间的方形专辑封面 —— 写真本身就是主视觉。
+                //    保留「同尺寸透明占位」：header / deck 的弹性几何、deck 左右内缩、
+                //    左右滑切歌的手势命中区全部原样不动（不重算布局 = 不碰安全区红线）。
+                //    经典封面主题仍显示原封面；歌词页入口由动作行的「歌词」按钮提供。
+                classicCoverVisual(side: side)
                     .offset(x: classicSwipeOffset)
                     .opacity(CGFloat(1) - min(abs(classicSwipeOffset) / 260, 0.35))
                     .animation(.spring(response: 0.34, dampingFraction: 0.86), value: classicSwipeOffset)
@@ -396,6 +400,20 @@ struct PlayerView: View {
         .onChange(of: store.currentIndex) { _ in classicUpdateCoverSpin(); extractDominantColor() }
         .onAppear { classicUpdateCoverSpin(); extractDominantColor() }
         .onChange(of: store.artwork) { _ in extractDominantColor() }
+    }
+
+    /// 封面区视觉主体：经典主题画方形专辑封面；歌手写真主题不画封面（写真已是主视觉）。
+    /// 🔴 写真主题用同尺寸透明占位而不是直接把整个封面区删掉，避免 VStack 弹性高度
+    ///    重新分配后 deck 上移、以及左右滑切歌手势丢失。
+    @ViewBuilder
+    private func classicCoverVisual(side: CGFloat) -> some View {
+        if playerPageTheme == .artistPhoto {
+            Color.clear
+                .frame(width: side, height: side)
+                .contentShape(Rectangle())
+        } else {
+            classicCoverArt(side: side)
+        }
     }
 
     /// 专辑封面方图（圆角 + 描边 + 投影）：点一下进歌词页。
