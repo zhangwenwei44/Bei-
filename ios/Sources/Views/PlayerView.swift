@@ -2644,6 +2644,21 @@ private struct LandscapeLyricsBlock: View {
 ///    → ③ 主色调薄覆盖统一色 → ④ 清晰封面（顶部渐入 + 下沿长羽化）与 ② 无缝融合。
 ///    `topShift` 0.09H → 0.055H，顶部沉浸区从更上方开始，书法字仍基本对齐。
 ///
+/// 🔴 2026-11-10 第七次微调（用户：「顶栏封面模糊氛围再调一点点；顶部时间信号栏
+///    改跟顶栏按钮同色；底部清晰区再加深点；羽化起点再往上一点」）：
+///    1125×2436 截图逐行量化 —— 顶栏 0~0.06H 是 `(127,146,152)` 低方差雾面，
+///    0.15H 起清晰封面方差 40~86，0.50H 以后均匀 `(70,85,82)`，
+///    底部回升到 `(107,112,93)` 偏亮，白字歌名/控件对比不够。
+///    ① 顶栏：`topShift` 0.055H → 0.048H + 顶部渐入 0.12→0.14 且起手更淡，
+///       雾面再薄一点点、清晰封面更早透出来；再叠 0~0.18H 的 0.15→0
+///       黑色长渐变（不是不透明雾色块，无硬边），亮天空稍收，白字更清楚。
+///    ② 状态栏：播放页 `PlayerHostingController.preferredStatusBarStyle = .lightContent`
+///       + `modalPresentationCapturesStatusBarAppearance = true`，时间/信号/电量与
+///       顶栏按钮同为白色；不用 `preferredColorScheme(.dark)` 以免整页 dynamic 色跳变。
+///    ③ 底部清晰区：③ 与 ④ 之间加 0~0.40H 全透明、之后长渐变到 0.21 黑的加深层，
+///       放在清晰封面【之下】，只压明暗、保留模糊纹理，不产生 0.53H 方差断崖。
+///    ④ 羽化：清晰段 0.62→0.54、羽化段 0.26→0.32，起点上移约 0.08×封面高。
+///
 /// 🔴 布局红线（v2.6.8 / 2026-11-09 两次实锤）：背景层必须锁死屏幕尺寸
 ///    + clipped + allowsHitTesting(false)，否则原图像素尺寸会撑大 ZStack，
 ///    把动作行 / 播放控件整块挤出屏幕。
@@ -2662,9 +2677,10 @@ private struct ImmersiveCoverBackdrop: View {
                 let ratio = CGFloat(artwork.size.height) / max(CGFloat(artwork.size.width), 1)
                 let fullH = size.width * ratio
                 let coverH = min(fullH, size.width * 1.12)
-                // 🔴 0.09H → 0.055H：顶部沉浸区往上移，封面模糊氛围从更上方开始。
+                // 🔴 0.09H → 0.055H → 0.048H：顶栏封面模糊氛围再往上融一点点，
+                //    清晰封面从更上方就开始轻透出来，顶栏不再像单独盖了一块灰蓝雾。
                 //    `.offset` 只改绘制位置、不参与 ZStack 尺寸计算（历史撑大布局红线）。
-                let topShift = size.height * 0.055
+                let topShift = size.height * 0.048
 
                 // ① 主色调不透明兜底：从封面提取主色，盖住经典主题的深色取色渐变，
                 //    顺便给 ② 的 blur 边缘当底色（模糊边缘半透明时不会露出黑底）。
@@ -2690,10 +2706,22 @@ private struct ImmersiveCoverBackdrop: View {
                     .opacity(0.18)
                     .frame(width: size.width, height: size.height)
 
+                // ③.5 下半屏加深（2026-11-10 第七次微调）：歌名 / 歌词 / 控件所在的
+                //    「底部清晰区」再压深一点点。用等距色标模拟 iOS16 的 locations，
+                //    0~0.40H 全透明、之后长渐变到 0.21 黑 —— 只压明暗、保留 ② 的
+                //    模糊纹理，绝不叠纯色块（历史「0.53H 方差断崖」硬切割线根因）。
+                //    放在 ④ 清晰封面【之下】，清晰部分亮度不变，只在羽化淡出后透出来。
+                LinearGradient(colors: [Color.clear, Color.clear, Color.clear,
+                                        Color.black.opacity(0.05),
+                                        Color.black.opacity(0.12),
+                                        Color.black.opacity(0.21)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(width: size.width, height: size.height)
+
                 // ④ 清晰封面：完整原图、屏宽、不放大不横向裁切。
                 //    mask 同时做「顶部渐入」和「下沿长羽化」：
                 //    顶部渐入让状态栏 / 顶栏沉浸在 ② 的模糊里（不再有纯色雾面块），
-                //    下沿 26% 慢慢化开融进 ②（不再有 0.53H 处的方差断崖）。
+                //    下沿 32% 慢慢化开融进 ②（羽化起点比上一版更靠上）。
                 Image(uiImage: artwork)
                     .resizable()
                     .scaledToFit()
@@ -2702,6 +2730,15 @@ private struct ImmersiveCoverBackdrop: View {
                     .clipped()
                     .mask(Self.seamlessMask(width: size.width, height: coverH))
                     .offset(y: topShift)
+
+                // ④.5 顶栏氛围：极淡的黑色长渐变（0~0.18H，0.15→0.08→0），
+                //    把封面的亮天空稍微收一点点，白色状态栏 / 顶栏按钮更清楚；
+                //    全程渐变、没有不透明雾色块，不会产生硬切边。
+                LinearGradient(colors: [Color.black.opacity(0.15),
+                                        Color.black.opacity(0.08),
+                                        Color.clear, Color.clear, Color.clear],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(width: size.width, height: size.height * 0.18)
             }
         }
         .frame(width: size.width, height: size.height)
@@ -2711,19 +2748,23 @@ private struct ImmersiveCoverBackdrop: View {
 
     /// 无缝遮罩：上段渐入（顶栏沉浸）+ 中段完整清晰 + 下段长羽化（融进模糊背景）。
     /// mask 只看 alpha，黑色 = 可见、clear = 隐藏；用均匀色标避开 iOS 16 的 locations API。
-    /// 🔴 羽化段必须够长（26% ≈ 0.12 屏高）：旧版「上 80% 实色 + 下 20% 短羽化」
-    ///    配纯色底，在 0.53H 处留下方差 100→1.6 的硬切割线，正是本次要修的问题。
+    /// 🔴 羽化段必须够长：旧版「上 80% 实色 + 下 20% 短羽化」配纯色底，
+    ///    在 0.53H 处留下方差 100→1.6 的硬切割线，正是本系列要修的问题。
+    /// 🔴 2026-11-10 第七次微调：顶部渐入 0.12→0.14 且起手更淡（0.45→0.35），
+    ///    顶栏的封面模糊氛围再柔一点点；清晰段 0.62→0.54、羽化段 0.26→0.32，
+    ///    **羽化起点上移**约 0.08×封面高（≈22pt），清晰区更早开始化开。
     private static func seamlessMask(width: CGFloat, height: CGFloat) -> some View {
         VStack(spacing: 0) {
-            LinearGradient(colors: [.clear, .black.opacity(0.45), .black],
+            LinearGradient(colors: [.clear, .black.opacity(0.35), .black],
                            startPoint: .top, endPoint: .bottom)
-                .frame(width: width, height: height * 0.12)
+                .frame(width: width, height: height * 0.14)
             Color.black
-                .frame(width: width, height: height * 0.62)
-            LinearGradient(colors: [.black, .black.opacity(0.88), .black.opacity(0.68),
-                                    .black.opacity(0.42), .black.opacity(0.18), .clear],
+                .frame(width: width, height: height * 0.54)
+            LinearGradient(colors: [.black, .black.opacity(0.90), .black.opacity(0.74),
+                                    .black.opacity(0.54), .black.opacity(0.32),
+                                    .black.opacity(0.14), .clear],
                            startPoint: .top, endPoint: .bottom)
-                .frame(width: width, height: height * 0.26)
+                .frame(width: width, height: height * 0.32)
         }
         .frame(width: width, height: height)
     }

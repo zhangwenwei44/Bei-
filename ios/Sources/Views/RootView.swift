@@ -98,6 +98,11 @@ final class PlayerPresenter {
         let vc = PlayerHostingController(rootView: rootView)
         vc.modalPresentationStyle = .fullScreen
         vc.modalTransitionStyle = .coverVertical
+        // 🔴 2026-11-10：播放页顶栏按钮恒为白色，状态栏时间/信号/电量也要白色。
+        //    fullScreen 呈现默认仍由 presenting VC 管状态栏，显式接管才生效。
+        //    ⚠️ 不走 .preferredColorScheme(.dark)：那会把整页 dynamic 色、
+        //    confirmationDialog / 分享 sheet 一起切成深色，改动面太大。
+        vc.modalPresentationCapturesStatusBarAppearance = true
         currentVC = vc
         root.present(vc, animated: true, completion: nil)
     }
@@ -117,6 +122,20 @@ final class PlayerPresenter {
 final class PlayerHostingController<Content: View>: UIHostingController<Content> {
     override var prefersHomeIndicatorAutoHidden: Bool {
         OrientationLock.shared.isLandscapePlayer
+    }
+
+    /// 🔴 2026-11-10：沉浸式封面主题的顶栏是亮色封面（返回 / 主题 / 切页按钮全白），
+    ///    系统状态栏默认黑字几乎看不见 —— 统一改成 `.lightContent`（白字白图标），
+    ///    与顶栏按钮同色。只作用于这个 present 出来的播放页 VC，dismiss 后
+    ///    主界面状态栏自动回到系统默认，不影响任何其它页面。
+    ///    ⚠️ 不能用 SwiftUI 的 `preferredColorScheme(.dark)`：那会连带把
+    ///    AppStyle 的 dynamic 色、confirmationDialog、分享 sheet 全切成深色。
+    override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // 呈现动画结束后再刷一次，避免 SwiftUI 首帧把状态栏样式盖回 .default。
+        setNeedsStatusBarAppearanceUpdate()
     }
 }
 
