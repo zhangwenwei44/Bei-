@@ -148,16 +148,24 @@ struct PlayerView: View {
                 } else {
                     // 取色渐变始终垫底：写真主题取不到图时自动回退成经典背景。
                     immersiveBackground.ignoresSafeArea()
-                    // 🔴 歌手写真主题：在渐变之上铺当前歌手写真（复用歌词页已验证的
-                    //    多张轮播层，自带上下压暗渐变、不撑大布局、不拦截点击）。
-                    //    版式 / 控件完全不动，只是背景从「封面取色」换成「歌手写真」。
+                    // 🔴 2026-11-09 修复「写真主题下动作行/播放按钮被挤没」：
+                    //    ArtistPhotoBackdrop 内部的 Image.resizable().scaledToFill() 没有精确
+                    //    frame，会以写真原图像素尺寸（约 1442pt 高）参与 ZStack 布局；
+                    //    ZStack 以最大子视图为对齐基准 → classicBody 被垂直居中下推
+                    //    ≈(1442-812)/2 = 315pt（与截图实测一致），底部歌词/动作行/
+                    //    进度/控件整块被裁出屏幕。
+                    //    🔴 照抄歌词页 v2.6.8 已验证的修法（见 LyricsPage 背景层注释）：
+                    //    **背景层锁死为屏幕尺寸 + clipped**，写真只在框内绘制、不再撑大 ZStack。
+                    //    层级 / 动画 / 主题切换全部保持原样，不改视图结构。
+                    //    🔴 不加第二层 .ignoresSafeArea：外层 GeometryReader 已经忽略安全区，
+                    //    再叠一层会把内容下推一个安全区（历史白顶坑）。
                     if playerPageTheme == .artistPhoto {
                         ArtistPhotoBackdrop(artist: store.current?.artist ?? "",
                                             title: store.current?.title ?? "",
                                             hash: store.current?.kugouHash ?? "")
-                            // 🔴 不加第二层 .ignoresSafeArea：外层 GeometryReader 已经忽略安全区，
-                            //    这里再叠一层会把 classicBody 的内容整体下推一个安全区（历史白顶坑）。
-                            //    ArtistPhotoBackdrop 自身已用 maxWidth/maxHeight infinity + clipped 铺满。
+                            .frame(width: size.width, height: size.height)
+                            .clipped()
+                            .allowsHitTesting(false)
                             .transition(.opacity)
                     }
                     classicBody(in: contentHeight, win: win, screen: screen)
