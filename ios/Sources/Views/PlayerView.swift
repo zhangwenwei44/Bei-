@@ -2723,7 +2723,8 @@ private struct LandscapeLyricsBlock: View {
 ///    ① ④.5 顶栏黑渐变 0.15/0.08 → 0.08/0.04，③ 顶部 tone 0.18 → 0.15。
 ///    ② ②.5 `lowerBlendMask` 末端 1.0 → 0.80，留 20% 中性 ② 基底 → 降饱和 + 提亮。
 ///    ③ ③ 后半 brightTone 浓度 0.32~0.38 → 0.26~0.30，③.5 加深 0.05 → 0.02。
-///    ④ 新增 ③.7 均匀 3% 白雾，放在 ④ 清晰封面【之下】：整体淡一点、封面本身不变。
+///    ④ 新增 ③.7 平滑衰减白雾（上 0.035 → 下 0），放在 ④ 清晰封面【之下】：
+///       顶部变淡、下半几乎不提亮（下半只暗 3，主要差在蓝色太浓），封面本身不变。
 ///    🔴 全部是均匀层或平滑渐变，不引入色标折点 → 不会重新长出横向分界带。
 ///
 /// 🔴 布局红线（v2.6.8 / 2026-11-09 两次实锤）：背景层必须锁死屏幕尺寸
@@ -2859,11 +2860,22 @@ private struct ImmersiveCoverBackdrop: View {
                 }
                 .frame(width: size.width, height: size.height)
 
-                // ③.7 整体淡雾（2026-11-10 第十三次微调）：均匀 3% 白，全屏无分段、无折点。
-                //    🔴 放在 ④ 清晰封面【之下】：只把模糊背景整体提亮一点、降一点饱和，
+                // ③.7 整体淡雾（2026-11-10 第十三次微调）：上强下弱的平滑衰减白层。
+                //    🔴 放在 ④ 清晰封面【之下】：只把模糊背景提亮一点、降一点饱和，
                 //       清晰封面的色彩完全不受影响；顶部渐入区透出来的雾也会一起变淡。
-                //    这是「酷狗沉浸色淡一些」最直接的一层，且不会产生任何横向分界带。
-                Color.white.opacity(0.03)
+                //    🔴 不能整屏均匀 0.03 白：逐行量化下半我方只比酷狗暗约 3，
+                //       真正差的是蓝色太浓（B−R +34 vs +23）；均匀白雾会把下半提亮约 10
+                //       反而发白。8 段平滑衰减到 0，顶部拿到提亮、下半几乎不加亮，
+                //       且首尾斜率趋近 0、没有色标折点，不会重新长出横向分界带。
+                LinearGradient(colors: [Color.white.opacity(0.035),
+                                        Color.white.opacity(0.034),
+                                        Color.white.opacity(0.028),
+                                        Color.white.opacity(0.018),
+                                        Color.white.opacity(0.009),
+                                        Color.white.opacity(0.003),
+                                        Color.white.opacity(0.001),
+                                        Color.white.opacity(0)],
+                               startPoint: .top, endPoint: .bottom)
                     .frame(width: size.width, height: size.height)
 
                 // ④ 清晰封面：完整原图、屏宽、不放大不横向裁切。
