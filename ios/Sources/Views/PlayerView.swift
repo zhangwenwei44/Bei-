@@ -2659,8 +2659,8 @@ private struct LandscapeLyricsBlock: View {
 ///    🔴 决定性证据：目标顶栏 ≈ 封面上 1/3 平均 `(154,136,110)`，
 ///    目标下半 ≈ 封面下 1/3 平均 `(111,93,65)` —— 酷狗整屏就是**同一张封面纵向拉伸后
 ///    高斯模糊**，上亮下暗来自封面本身的明暗，不是叠了纯色或渐变。
-///    现在 = ① 主色调不透明兜底 → ② 封面 `scaledToFill` 铺满整屏 + 大半径 blur
-///    → ③ 主色调薄覆盖统一色 → ④ 清晰封面（顶部渐入 + 下沿长羽化）与 ② 无缝融合。
+///    现在 = ① 主色调不透明兜底 → ② 封面整屏 blur → ②.5 底部条带拉伸向下延伸（下半基底）
+///    → ③ 主色薄覆盖 → ③.5 下半加深 → ④ 清晰封面（顶部渐入 + 下沿长羽化）。
 ///    `topShift` 0.09H → 0.055H，顶部沉浸区从更上方开始，书法字仍基本对齐。
 ///
 /// 🔴 2026-11-10 第七次微调（用户：「顶栏封面模糊氛围再调一点点；顶部时间信号栏
@@ -2696,6 +2696,17 @@ private struct LandscapeLyricsBlock: View {
 ///    【封面下半部主色】`lowerToneColor`（深蓝衣服 → 冷蓝，亮度归一 0.30 更暗）。
 ///    🔴 自适应是关键：换暖色封面时下半主色也暖，绝不硬编码蓝色（历史「压成灰绿」被否的坑）。
 ///
+/// 🔴 2026-11-10 第十一次微调（用户：「还是一样，继续优化」）：
+///    第十轮**没有生效**：新旧包逐区量化只差 5~9，左下 `(94,83,87)` 仍是暖灰，
+///    酷狗 `(63,68,95)` 是 B−R=+32 的冷蓝，我方 B−R=−7。
+///    根因 = ③ 层在用户关注的 0.44~0.56H 处浓度只有 0.20 且前两段仍是整图暖色，
+///    而 ② 的整屏模糊基底本身已被混成中性灰 —— **薄覆盖改不动基底色相**。
+///    改法：新增 ②.5 —— 用 `bottomStrip(from:)` 裁封面底部 38%，`resizable()` 默认
+///    stretch 拉伸铺满整屏 + blur(56)，配 `lowerBlendMask` 在 0~0.26H 完全不出现、
+///    0.26~0.60H 长渐变渐入、0.60H 后完全接管基底。下半屏从此是【封面底部的模糊延伸】，
+///    冷蓝相与纹理都来自封面本身；③ 层下半浓度 0.20~0.32 → 0.22~0.38 再锁一次色相，
+///    ③.5 加深 0.20 → 0.15 避免把蓝压成黑灰。顶栏 0~0.26H 与版式全部不动。
+///
 /// 🔴 布局红线（v2.6.8 / 2026-11-09 两次实锤）：背景层必须锁死屏幕尺寸
 ///    + clipped + allowsHitTesting(false)，否则原图像素尺寸会撑大 ZStack，
 ///    把动作行 / 播放控件整块挤出屏幕。
@@ -2709,9 +2720,13 @@ private struct ImmersiveCoverBackdrop: View {
             //    外层 immersiveBackground 的经典取色渐变自然透出 = 自动回退。
             if let artwork {
                 let tone = Self.mainToneColor(from: artwork)
-                // 🔴 2026-11-10 第十次微调：封面【下半部】主色。整图平均偏棕黄，
-                //    用整图主色整屏覆盖会把左下染黄；下半是深蓝衣服 → 冷蓝紫。
-                let lowerTone = Self.lowerToneColor(from: artwork)
+                // 🔴 2026-11-10 第十一次微调：第十轮只把「下半主色」当 0.20~0.32 的薄覆盖，
+                //    实测新旧包左下只差 6、仍是暖灰(94,83,87)，酷狗是冷蓝(63,68,95)。
+                //    薄覆盖改不动色相。现在直接取封面【底部条带】做下半屏的模糊基底(②.5)，
+                //    并用同一条带算下半主色：底部是深蓝衣服 → 下半自然冷蓝且有纹理。
+                //    暖色封面底部仍暖，不会硬把每张封面染蓝（第 5 轮被否的坑）。
+                let strip = Self.bottomStrip(from: artwork) ?? artwork
+                let lowerTone = Self.mainToneColor(from: strip, targetLum: 0.34)
                 // 清晰封面：按原图比例铺满屏宽，绝不横向裁切；
                 // 极端的长图最多裁掉一点下沿（下沿本来就要羽化），不裁左右。
                 let ratio = CGFloat(artwork.size.height) / max(CGFloat(artwork.size.width), 1)
@@ -2727,7 +2742,7 @@ private struct ImmersiveCoverBackdrop: View {
                 tone
                     .frame(width: size.width, height: size.height)
 
-                // ② 整屏高斯模糊封面延伸（本次核心）：同一张封面 `scaledToFill`
+                // ② 整屏高斯模糊封面延伸（上半基底）：同一张封面 `scaledToFill`
                 //    纵向铺满整屏 + 大半径 blur。屏幕顶部自然对应封面顶部（亮），
                 //    底部对应封面底部（暗），整屏都是这张封面的色与朦胧纹理。
                 //    🔴 锁死屏幕尺寸 + clipped：原图像素尺寸绝不能撑大 ZStack。
@@ -2742,6 +2757,25 @@ private struct ImmersiveCoverBackdrop: View {
                     .frame(width: size.width, height: size.height)
                     .clipped()
 
+                // ②.5 封面底部条带向下延伸（2026-11-10 第十一次微调，本次核心）：
+                //    🔴 这才是「封面图像向下高斯模糊延伸为整屏背景」的正确实现。
+                //       ② 的 scaledToFill 整屏拉伸会把封面上下混成中性灰，靠 ③ 薄染救不回来。
+                //       这里把封面【底部 38%】单独裁出，`resizable()` 默认 stretch 直接拉伸铺满
+                //       整屏（横轴保留封面全部信息、纵轴是底部条带的延伸）+ 大半径 blur，
+                //       再用 lowerBlendMask 让它在 0~0.26H 完全不出现（顶栏氛围一点不动）、
+                //       0.26~0.60H 长渐变渐入、0.60H 之后完全替换基底。
+                //       于是清晰封面羽化淡出时，融进的是【同色系的封面底部】而不是中性灰，
+                //       既带出冷蓝相，也顺带消掉「清晰纹理→纯色底」的那条横向分界线。
+                //    🔴 同样锁死屏幕尺寸 + clipped，原图像素绝不参与 ZStack 布局。
+                Image(uiImage: strip)
+                    .resizable()
+                    .frame(width: size.width, height: size.height)
+                    .clipped()
+                    .blur(radius: 56)
+                    .frame(width: size.width, height: size.height)
+                    .clipped()
+                    .mask(Self.lowerBlendMask(width: size.width, height: size.height))
+
                 // ③ 主色调薄覆盖（2026-11-10 第十次微调）：
                 //    🔴 旧版整屏都用「整图平均主色」0.18 覆盖，这张「情罪」封面整图平均偏棕黄
                 //       → 左下被染成暖黄 (100,88,91)，酷狗同款左下是冷蓝紫 (63,68,95)。
@@ -2749,18 +2783,21 @@ private struct ImmersiveCoverBackdrop: View {
                 //    平滑过渡到【封面下半部主色】—— 下半是深蓝衣服 → 冷蓝；
                 //    换暖色封面时下半主色也是暖的，不会硬把每张封面都染蓝（历史被否的坑）。
                 //    8 段色标首尾浓度持平，斜率无突变，不会再生成横向分界带。
+                //    🔴 第十一次微调：②.5 已把下半基底换成冷蓝，这里把 lowerTone 的浓度
+                //       0.20~0.32 → 0.22~0.38 并更早进入（第 2 段起），叠在同色系基底上
+                //       进一步锁住冷蓝相；0~0.30H 的 tone 段完全不动，顶栏保持原样。
                 VStack(spacing: 0) {
                     tone.opacity(0.18)
                         .frame(width: size.width, height: size.height * 0.30)
                     LinearGradient(colors: [
                         tone.opacity(0.18),
-                        tone.opacity(0.19),
-                        lowerTone.opacity(0.20),
-                        lowerTone.opacity(0.23),
+                        tone.opacity(0.18),
+                        lowerTone.opacity(0.22),
                         lowerTone.opacity(0.27),
-                        lowerTone.opacity(0.30),
                         lowerTone.opacity(0.32),
-                        lowerTone.opacity(0.32)
+                        lowerTone.opacity(0.36),
+                        lowerTone.opacity(0.38),
+                        lowerTone.opacity(0.38)
                     ], startPoint: .top, endPoint: .bottom)
                         .frame(width: size.width, height: size.height * 0.70)
                 }
@@ -2770,19 +2807,21 @@ private struct ImmersiveCoverBackdrop: View {
                 //    🔴 旧版 6 段等距色标在 0.40H / 0.60H / 0.80H 各有一次斜率突变，
                 //       全屏等宽叠一层时就显成一条横向分界带（用户第九轮反馈的「底部横向分界线」）。
                 //       现在 0~0.30H 全透明，0.30H~1.0H 按 smoothstep t²(3-2t) 用 8 段色标
-                //       平滑升到 0.20 黑：首尾斜率都趋近 0，没有任何折点 → 无横带。
-                //       只压明暗、保留 ② 的模糊纹理；放在 ④ 清晰封面【之下】。
+                //       平滑升到 0.15 黑：首尾斜率都趋近 0，没有任何折点 → 无横带。
+                //       只压明暗、保留模糊纹理；放在 ④ 清晰封面【之下】。
+                //    🔴 第十一次微调：0.20 → 0.15。②.5 的冷蓝基底本身已够暗，
+                //       再压 0.20 会把蓝相压成黑灰（酷狗底部是 (86,91,109) 的亮冷蓝）。
                 VStack(spacing: 0) {
                     Color.clear
                         .frame(width: size.width, height: size.height * 0.30)
                     LinearGradient(colors: [Color.clear,
-                                            Color.black.opacity(0.012),
+                                            Color.black.opacity(0.005),
+                                            Color.black.opacity(0.020),
                                             Color.black.opacity(0.045),
-                                            Color.black.opacity(0.092),
-                                            Color.black.opacity(0.142),
-                                            Color.black.opacity(0.180),
-                                            Color.black.opacity(0.198),
-                                            Color.black.opacity(0.20)],
+                                            Color.black.opacity(0.083),
+                                            Color.black.opacity(0.119),
+                                            Color.black.opacity(0.145),
+                                            Color.black.opacity(0.15)],
                                    startPoint: .top, endPoint: .bottom)
                         .frame(width: size.width, height: size.height * 0.70)
                 }
@@ -2838,6 +2877,31 @@ private struct ImmersiveCoverBackdrop: View {
                                     .black.opacity(0.40), .black.opacity(0.24),
                                     .black.opacity(0.10), .clear],
                            startPoint: .top, endPoint: .bottom)
+                .frame(width: width, height: height * 0.40)
+        }
+        .frame(width: width, height: height)
+    }
+
+    /// ②.5 的下半屏基底融合遮罩（2026-11-10 第十一次微调）：
+    /// 0~0.26H 完全不出现（顶栏氛围 / 清晰封面上段一点不动），0.26~0.60H 用 8 段
+    /// 长渐变逐渐接管，0.60H 之后完全替换成「封面底部条带的模糊延伸」。
+    /// mask 只看 alpha：black = 可见、clear = 隐藏；均匀色标避开 iOS16 的 locations API。
+    /// 🔴 渐入段必须够长且与 ④ 的羽化区重叠，否则会在 0.26H 处造出一条新的横向硬边。
+    private static func lowerBlendMask(width: CGFloat, height: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(width: width, height: height * 0.26)
+            LinearGradient(colors: [.clear,
+                                    .black.opacity(0.04),
+                                    .black.opacity(0.12),
+                                    .black.opacity(0.26),
+                                    .black.opacity(0.45),
+                                    .black.opacity(0.66),
+                                    .black.opacity(0.86),
+                                    .black],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(width: width, height: height * 0.34)
+            Color.black
                 .frame(width: width, height: height * 0.40)
         }
         .frame(width: width, height: height)
@@ -2902,22 +2966,22 @@ private struct ImmersiveCoverBackdrop: View {
                      opacity: 1)
     }
 
-    /// 封面【下半部】主色（2026-11-10 第十次微调）：用 UIGraphicsImageRenderer
-    /// 取下半张图再走 mainToneColor，避开 `CGImage.cropping(to:)` 的 y 轴方向歧义；
-    /// `UIImage.draw(in:)` 会正确处理 imageOrientation。
-    /// 亮度归一到 0.30（比整图主色 0.44 更暗）：下半覆盖既能带出封面的冷色相，
-    /// 又不会把「底部清晰区」提亮，白字对比度不受影响。
-    private static func lowerToneColor(from image: UIImage) -> Color {
-        let halfH = image.size.height / 2
-        guard halfH > 0, image.size.width > 0 else {
-            return mainToneColor(from: image, targetLum: 0.30)
+    /// 封面【底部 38%】条带（2026-11-10 第十一次微调）：
+    /// 用 UIGraphicsImageRenderer 把原图整体上移后画进一条矮画布，避开
+    /// `CGImage.cropping(to:)` 的 y 轴方向歧义；`UIImage.draw(in:)` 会正确处理 imageOrientation。
+    /// 原图 y 范围 `[-(h-stripH), stripH]`、画布 `[0, stripH]` → 取到的正是原图底部 38%。
+    /// 这一条带同时用于 ① ②.5 下半屏模糊延伸的基底；② ③ 层 lowerTone 的取样源。
+    /// 只取底部而非整张下半：底部色相最纯，拉伸后不会把人物面部的灰调混进下半屏。
+    private static func bottomStrip(from image: UIImage) -> UIImage? {
+        let w = image.size.width
+        let h = image.size.height
+        let stripH = h * 0.38
+        guard w > 0, stripH > 0 else { return nil }
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: w, height: stripH))
+        return renderer.image { _ in
+            image.draw(in: CGRect(x: 0, y: -(h - stripH),
+                                  width: w, height: h))
         }
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: image.size.width, height: halfH))
-        let half = renderer.image { _ in
-            image.draw(in: CGRect(x: 0, y: -halfH,
-                                  width: image.size.width, height: image.size.height))
-        }
-        return mainToneColor(from: half, targetLum: 0.30)
     }
 }
 
@@ -3010,8 +3074,11 @@ private struct PlayerThemePickerPanel: View {
                     moreCard
                 }
                 .padding(.horizontal, 20)
+                // 🔴 顶部再留 3pt：即使描边不外扩，也不让卡片圆角贴着 ScrollView 上沿。
+                .padding(.top, 3)
             }
-            .frame(height: PlayerThemeCardMetrics.height + 34)
+            // 与上面的 3pt 顶部留白同步 +3，底部可用高度不变。
+            .frame(height: PlayerThemeCardMetrics.height + 37)
 
             Spacer(minLength: 34)
         }
@@ -3040,10 +3107,15 @@ private struct PlayerThemePickerPanel: View {
                     .padding(3)
                     .background(Color.white)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    // 🔴 2026-11-10 修复「选中蓝框顶部像被裁了」：用 strokeBorder，不能用 stroke。
+                    //    stroke(lineWidth:2.5) 有 1.25pt 画在视图边界【外面】；卡片顶部紧贴
+                    //    ScrollView 上沿，唯独顶部那半条边被 clip 掉（左右有 20pt padding、
+                    //    底部有 34pt 富余所以没事）→ 视觉上只有上边框变细 / 圆角被削平。
+                    //    strokeBorder 把描边完全画在边界内，四边等宽，绝不会被父级裁切。
                     .overlay(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(selected ? PlayerThemeCardMetrics.blue : Color.clear,
-                                    lineWidth: 2.5)
+                            .strokeBorder(selected ? PlayerThemeCardMetrics.blue : Color.clear,
+                                          lineWidth: 2.5)
                     )
                 Text(theme.cardTitle)
                     .font(.system(size: 13, weight: selected ? .semibold : .regular))
