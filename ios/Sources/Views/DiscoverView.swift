@@ -1073,6 +1073,9 @@ struct DiscoverView: View {
     /// 单张榜单横滑卡片（图 5 样式）：榜名 + 更新信息 + 白色圆形播放键 + 3 首带排名角标的封面 + 爱心。
     private func rankSlideCard(playlist: Playlist, displayName: String) -> some View {
         let songs = rankPreviewSongs[playlist.kugouRankID ?? ""] ?? []
+        // 🔴 2026-11-10：榜单接口常回传 trackCount=0，UI 上会出现「· 0 首」；
+        //    有预览歌曲时优先用实际拿到的首数。
+        let trackCount = playlist.trackCount > 0 ? playlist.trackCount : songs.count
         return VStack(alignment: .leading, spacing: 10) {
             // 顶部：榜名 + 更新信息（左）｜白色圆形播放键（右，播前 3 首）
             HStack(spacing: 10) {
@@ -1080,9 +1083,11 @@ struct DiscoverView: View {
                 //    歌曲行是「序号(width 22) + spacing 10 + 封面」，所以这里补 32pt 占位，
                 //    标题图标 / 标题文字正好落在封面 / 歌名的同一竖线上。
                 Color.clear.frame(width: 22, height: 1)
-                // 🔴 v2.9.17：榜封面上到卡片头部左侧，丰富视觉
-                CoverImage(url: playlist.coverURL,
-                           fallbackKeys: [playlist.id],
+                // 🔴 2026-11-10：榜单自带封面是纯色文字块（「会员热歌榜」紫底白字），
+                //    用户观感就是「图片没显示出来」。改用该榜第 1 首歌的真实专辑图，
+                //    榜单封面/CoverResolver 仍作兜底，取不到图时才回退。
+                CoverImage(url: songs.first?.artworkURL ?? playlist.coverURL,
+                           fallbackKeys: (songs.first?.coverFallbackKeys ?? []) + [playlist.id],
                            seed: displayName, size: 44, corner: 6)
                     .frame(width: 44, height: 44)
                 VStack(alignment: .leading, spacing: 3) {
@@ -1090,7 +1095,9 @@ struct DiscoverView: View {
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(AppStyle.primaryText)
                         .lineLimit(1)
-                    Text("\(rankFrequencyText(playlist.updateFrequency)) · \(playlist.trackCount) 首")
+                    Text(trackCount > 0
+                         ? "\(rankFrequencyText(playlist.updateFrequency)) · \(trackCount) 首"
+                         : rankFrequencyText(playlist.updateFrequency))
                         .font(.system(size: 11))
                         .foregroundStyle(AppStyle.tertiaryText)
                 }
@@ -1177,13 +1184,17 @@ struct DiscoverView: View {
                         CoverImage(url: bg.artworkURL,
                                    fallbackKeys: bg.coverFallbackKeys,
                                    seed: "\(bg.artist)-\(bg.title)",
-                                   size: max(geo.size.width, geo.size.height),
+                                   // 🔴 2026-11-10：旧版按卡片宽高取 size（≈350pt），
+                                   //    会去下/解码 1000px+ 的大图，弱网下常常失败 → 只剩灰色底。
+                                   //    背景本来就要模糊，固定 240pt 足够，加载快、缓存 key 也稳定。
+                                   size: 240,
                                    displayWidth: geo.size.width,
                                    displayHeight: geo.size.height,
                                    contentMode: .fill)
                             .clipped()
-                            .blur(radius: 14)
-                            .opacity(0.16)
+                            .blur(radius: 18)
+                            // 🔴 0.16 → 0.30：旧版淡到几乎看不见，观感上就是「图片没显示」。
+                            .opacity(0.30)
                             .id("rank-bg-\(rankCoverIndex)")
                             .transition(.opacity)
                     }

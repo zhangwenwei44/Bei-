@@ -128,31 +128,57 @@ final class DownloadManager: NSObject, ObservableObject {
 
     // MARK: - 目录与索引
 
+    /// 🔴 2026-11-10：下载目录改回 `Documents/Aurora Downloads`。
+    ///    Info.plist 已开 `UIFileSharingEnabled` + `LSSupportsOpeningDocumentsInPlace`，
+    ///    所以用户能在「文件」App → 我的 iPhone → Aurora Music 里直接看到/复制/分享
+    ///    这些「歌名-歌手.mp3」文件（v2.9.11 特意挪到 Application Support 是反需求）。
+    ///    只放音频；索引 json / 封面 / 歌词 / 写真这些杂项放 `metadataDirectory()`，
+    ///    免得文件 App 里混进一堆看不懂的 .json / .png。
     static func directory() -> URL {
-        // 🔴 v2.9.11：改存 Application Support（App 私有、持久、不会被系统按「可清除」自动清理，
-        // 也不会出现在用户「文件」App 里），更适合「下载歌曲长期保存」的诉求。
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let folder = appSupport.appendingPathComponent("Aurora Downloads", isDirectory: true)
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let folder = docs.appendingPathComponent("Aurora Downloads", isDirectory: true)
         if !FileManager.default.fileExists(atPath: folder.path) {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
         return folder
     }
 
-    /// 🔴 v2.9.11：旧版本把下载放在 Documents，升级后一次性迁移到 Application Support。
-    private func migrateIfNeeded() {
-        let oldDocs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Aurora Downloads", isDirectory: true)
-        let newFolder = DownloadManager.directory()
-        guard FileManager.default.fileExists(atPath: oldDocs.path),
-              oldDocs.path != newFolder.path,
-              let names = try? FileManager.default.contentsOfDirectory(atPath: oldDocs.path) else { return }
-        for name in names where !name.hasPrefix(".") {
-            let from = oldDocs.appendingPathComponent(name)
-            let to = newFolder.appendingPathComponent(name)
-            try? FileManager.default.moveItem(at: from, to: to)
+    /// 私有元数据目录：索引与侧车文件，不暴露给「文件」App。
+    static func metadataDirectory() -> URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let folder = appSupport.appendingPathComponent("Aurora Metadata", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: folder.path) {
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
-        try? FileManager.default.removeItem(at: oldDocs)
+        return folder
+    }
+
+    /// 可导入 / 可播放的音频扩展名（含无损与常见容器）。
+    static let audioExtensions: Set<String> = [
+        "mp3", "m4a", "aac", "flac", "wav", "aiff", "aif", "caf",
+        "ogg", "opus", "ape", "wma", "alac",
+    ]
+
+    /// 🔴 2026-11-10：把 v2.9.11~3.0.0 存在 Application Support 的旧下载搬回 Documents。
+    ///    音频 → 共享下载目录；索引 / 侧车 → 私有元数据目录。同名不覆盖，搬完才删空壳。
+    private func migrateIfNeeded() {
+        let fm = FileManager.default
+        let legacy = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Aurora Downloads", isDirectory: true)
+        let audioDir = DownloadManager.directory()
+        let metaDir = DownloadManager.metadataDirectory()
+        guard fm.fileExists(atPath: legacy.path), legacy.path != audioDir.path,
+              let names = try? fm.contentsOfDirectory(atPath: legacy.path) else { return }
+        for name in names where !name.hasPrefix(".") {
+            let from = legacy.appendingPathComponent(name)
+            let isAudio = DownloadManager.audioExtensions.contains((name as NSString).pathExtension.lowercased())
+            let to = (isAudio ? audioDir : metaDir).appendingPathComponent(name)
+            guard !fm.fileExists(atPath: to.path) else { continue }
+            try? fm.moveItem(at: from, to: to)
+        }
+        if let left = try? fm.contentsOfDirectory(atPath: legacy.path), left.isEmpty {
+            try? fm.removeItem(at: legacy)
+        }
     }
 
     private static func indexName(for songID: String) -> String {
@@ -162,7 +188,7 @@ final class DownloadManager: NSObject, ObservableObject {
     /// 扫描目录，重建「歌曲 ID → 文件名」索引。
     private func loadIndex() {
         var result: [String: String] = [:]
-        let folder = DownloadManager.directory()
+        let folder = DownloadManager.metadataDirectory()
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
         for name in names where name.hasSuffix(".json") {
             guard let data = try? Data(contentsOf: folder.appendingPathComponent(name)),
@@ -181,7 +207,7 @@ final class DownloadManager: NSObject, ObservableObject {
         let object: [String: Any] = ["id": song.id, "title": song.title, "artist": song.artist,
                                      "file": file, "hash": song.kugouHash, "albumID": song.kugouAlbumID]
         guard let data = try? JSONSerialization.data(withJSONObject: object) else { return }
-        try? data.write(to: DownloadManager.directory()
+        try? data.write(to: DownloadManager.metadataDirectory()
             .appendingPathComponent(DownloadManager.indexName(for: song.id)), options: .atomic)
     }
 
@@ -191,7 +217,7 @@ final class DownloadManager: NSObject, ObservableObject {
     /// 命名规则：`<songID>.art.png` / `<songID>.lrc` / `<songID>.photo.png`。
     /// 全部尽力而为，失败静默跳过（不影响音频本身）。
     private func saveSidecars(for song: Song) async {
-        let folder = DownloadManager.directory()
+        let folder = DownloadManager.metadataDirectory()
         let base = DownloadManager.sanitize(song.id)
 
         // ① 封面：歌曲本身带 artworkURL 时直接下载存盘（榜单类无地址的跳过，靠兜底）。
@@ -222,7 +248,7 @@ final class DownloadManager: NSObject, ObservableObject {
 
     /// 侧车文件地址（存在才返回），供 PlayerStore 离线加载用。
     private func sidecarURL(_ ext: String, for songID: String) -> URL? {
-        let url = DownloadManager.directory().appendingPathComponent("\(DownloadManager.sanitize(songID)).\(ext)")
+        let url = DownloadManager.metadataDirectory().appendingPathComponent("\(DownloadManager.sanitize(songID)).\(ext)")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
@@ -244,7 +270,8 @@ final class DownloadManager: NSObject, ObservableObject {
         // 从磁盘索引文件直接重建 Song（兜底方案）
         let fromDisk = fileIndex.compactMap { songID, fileName -> Song? in
             let folder = DownloadManager.directory()
-            let indexFile = folder.appendingPathComponent(DownloadManager.indexName(for: songID))
+            let indexFile = DownloadManager.metadataDirectory()
+                .appendingPathComponent(DownloadManager.indexName(for: songID))
             guard let data = try? Data(contentsOf: indexFile),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let title = object["title"] as? String,
@@ -348,7 +375,7 @@ final class DownloadManager: NSObject, ObservableObject {
         cancelTask(for: song.id)
         if let name = fileName(for: song.id) {
             try? FileManager.default.removeItem(at: DownloadManager.directory().appendingPathComponent(name))
-            try? FileManager.default.removeItem(at: DownloadManager.directory()
+            try? FileManager.default.removeItem(at: DownloadManager.metadataDirectory()
                 .appendingPathComponent(DownloadManager.indexName(for: song.id)))
         }
         dropFile(for: song.id)
@@ -360,6 +387,58 @@ final class DownloadManager: NSObject, ObservableObject {
         // 遍历的是快照：delete() 会同步改动 LibraryStore.downloads
         for song in Array(LibraryStore.shared.downloads) { delete(song) }
         removeIDs(Set(items.map(\.id)))
+    }
+
+    // MARK: - 🔴 2026-11-10 从「文件」App 导入
+
+    /// 把用户在「文件」App 里选中的音频复制进共享下载目录，并登记成已下载歌曲。
+    /// 返回 nil = 不是支持的音频格式或复制失败。
+    /// 🔴 fileImporter 给的是安全作用域 URL，必须 start/stopAccessingSecurityScopedResource。
+    /// 🔴 写一份索引 json，这样重启后 `bootstrap()` 能从磁盘重建，导入的歌不会丢。
+    @discardableResult
+    func importFile(_ source: URL) -> Song? {
+        let fm = FileManager.default
+        let secured = source.startAccessingSecurityScopedResource()
+        defer { if secured { source.stopAccessingSecurityScopedResource() } }
+
+        let ext = source.pathExtension.lowercased()
+        guard DownloadManager.audioExtensions.contains(ext) else { return nil }
+
+        let raw = source.deletingPathExtension().lastPathComponent
+        let base = DownloadManager.sanitize(raw.isEmpty ? "导入歌曲" : raw)
+        var name = "\(base).\(ext)"
+        var suffix = 2
+        while fm.fileExists(atPath: DownloadManager.directory().appendingPathComponent(name).path) {
+            name = "\(base)-\(suffix).\(ext)"
+            suffix += 1
+        }
+        let destination = DownloadManager.directory().appendingPathComponent(name)
+        do {
+            try fm.copyItem(at: source, to: destination)
+        } catch {
+            return nil
+        }
+
+        // 「歌手 - 歌名」这类文件名尽量拆开；拆不了就整串当歌名。
+        var title = base
+        var artist = "本地文件"
+        for sep in [" - ", " – ", " — ", "_-_"] {
+            guard let range = base.range(of: sep) else { continue }
+            let a = String(base[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
+            let t = String(base[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+            if !a.isEmpty && !t.isEmpty { artist = a; title = t }
+            break
+        }
+
+        let song = Song(id: "local:import:\(name)",
+                        title: title, artist: artist,
+                        url: destination, isLocal: true, source: .local)
+        writeIndex(song: song, file: name)
+        putFile(name, for: song.id)
+        apply(DownloadItem(song: song, progress: 1, state: .done, fileName: name))
+        let register = { LibraryStore.shared.registerDownload(song) }
+        if Thread.isMainThread { register() } else { DispatchQueue.main.async(execute: register) }
+        return song
     }
 
     // MARK: - 内部

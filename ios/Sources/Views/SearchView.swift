@@ -115,12 +115,17 @@ struct SearchView: View {
         }
         .onAppear {
             history = Self.loadHistory()
-            // 🔴 v2.9.7(二)：进页面换一个「猜你想搜」提示词
-            refreshSearchHint()
+            // 🔴 2026-11-10：进页面随机起一个轮显起点，避免每次都从同一首歌开始
+            hotSongIndex = Int.random(in: 0..<Self.hotSongNames.count)
             if !initialKeyword.isEmpty, submitted.isEmpty {
                 keyword = initialKeyword
                 runSearch(initialKeyword)
             }
+        }
+        // 🔴 每 3 秒切下一首热门歌名；搜索中 / 输入中 / 已聚焦时暂停，不打扰用户。
+        .onReceive(hotSongTimer) { _ in
+            guard submitted.isEmpty, keyword.isEmpty, !isFieldFocused else { return }
+            hotSongIndex = (hotSongIndex + 1) % Self.hotSongNames.count
         }
     }
 
@@ -154,14 +159,32 @@ struct SearchView: View {
             }
             .fixedSize()
 
-                // 🔴 v2.9.17：框内放大镜已移除（见右侧搜索按钮）；空闲时占位符显示一个随机热词
-                TextField(searchHint.isEmpty ? "歌曲、歌手、歌单" : "猜你想搜：\(searchHint)", text: $keyword)
+                // 🔴 2026-11-10：「猜你想搜」静态文案移除，改成热门歌曲名轮显 + 点击即搜。
+                //    聚焦后让位给普通输入框；轮显文字只占自身宽度，右侧空白仍可点进输入。
+                TextField(isFieldFocused ? "歌曲、歌手、歌单" : "", text: $keyword)
                     .font(.system(size: 14))
                     .foregroundStyle(AppStyle.primaryText)
                     .focused($isFieldFocused)
                     .submitLabel(.search)
                     .onSubmit { runSearch(keyword) }
                     .autocorrectionDisabled()
+                    .overlay(alignment: .leading) {
+                        if keyword.isEmpty && !isFieldFocused {
+                            ZStack(alignment: .leading) {
+                                Text(currentHotSong)
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(AppStyle.tertiaryText)
+                                    .lineLimit(1)
+                                    .id("hot-\(hotSongIndex)")
+                                    .transition(.asymmetric(
+                                        insertion: .move(edge: .bottom).combined(with: .opacity),
+                                        removal: .move(edge: .top).combined(with: .opacity)))
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture { runSearch(currentHotSong) }
+                            .animation(.easeInOut(duration: 0.32), value: hotSongIndex)
+                        }
+                    }
                 if !keyword.isEmpty {
                     Button {
                         keyword = ""
@@ -198,7 +221,7 @@ struct SearchView: View {
         isSelecting = false
         selectedIDs.removeAll()
         isFieldFocused = false
-        refreshSearchHint()   // 🔴 v2.9.7(二)：换个新的「猜你想搜」
+        // 回到空闲页后轮显继续（下一拍自己会切到下一首）。
     }
 
     // MARK: 结果
@@ -490,12 +513,20 @@ struct SearchView: View {
         "90后回忆", "KTV必点", "民谣", "说唱", "影视金曲", "深夜循环",
     ]
 
-    /// 🔴 v2.9.7(二)：「猜你想搜」—— 搜索框的随机提示词（从热门词里随机挑一个）。
-    /// 每次进入搜索页 / 清空搜索时换一个。
-    @State private var searchHint: String = ""
+    /// 🔴 2026-11-10：搜索框轮显用的真实热门歌曲名（替代「猜你想搜：标签词」）。
+    ///    点一下直接以该歌名发起搜索；用稳定内置列表，不依赖需要签名的热搜接口。
+    static let hotSongNames: [String] = [
+        "晴天", "起风了", "孤勇者", "稻香", "夜空中最亮的星",
+        "演员", "泡沫", "光年之外", "平凡之路", "海阔天空",
+        "后来", "十年", "青花瓷", "告白气球", "消愁", "成都",
+        "情罪", "可能", "罗刹海市", "奢香夫人",
+    ]
 
-    private func refreshSearchHint() {
-        searchHint = Self.hotKeywords.randomElement() ?? ""
+    @State private var hotSongIndex = 0
+    private let hotSongTimer = Timer.publish(every: 3.0, on: .main, in: .common).autoconnect()
+
+    private var currentHotSong: String {
+        Self.hotSongNames[hotSongIndex % Self.hotSongNames.count]
     }
 
     // MARK: 行为

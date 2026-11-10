@@ -721,6 +721,15 @@ struct CoverImage: View {
         }
         if let loaded = await CoverLoader.download(target, maxPixelSize: size * 3) {
             image = loaded
+        } else if !Task.isCancelled {
+            // 🔴 2026-11-10：弱网 / 偶发 403 时列表卡片会长期停在灰色占位块
+            //    （用户反馈「榜单推荐的图片显示不出来」）。隔 0.6s 补一次重试；
+            //    CoverLoader 内部有候选 URL 与内存缓存，重试命中即返回，代价很小。
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            guard !Task.isCancelled else { return }
+            if let retry = await CoverLoader.download(target, maxPixelSize: size * 3) {
+                image = retry
+            }
         }
     }
 

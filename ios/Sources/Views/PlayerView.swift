@@ -2716,6 +2716,16 @@ private struct LandscapeLyricsBlock: View {
 ///    ② ③.5 加深 0.15 → 0.05：②.5 基底 + ③ 覆盖已足够，「底部加深」历史任务退场。
 ///    预期 0.75H 从 `(62,69,92)` → 约 `(79,80,107)`，酷狗 `(91,95,113)`。
 ///
+/// 🔴 2026-11-10 第十三次微调（用户：「酷狗的沉浸色淡一些，你的顶部跟下面都深一点」）：
+///    两张截图逐行量化（我方 `4b20b1bb` / 酷狗 `7012ab93`）：
+///      顶部 0.05H 我方 lum 112 / 酷狗 126（暗 14）；0.10~0.25H 暗 5~8。
+///      下半 0.75~0.95H 我方 B−R +32~+36 / 酷狗 +23~+25（蓝太浓），亮度暗 5~8。
+///    ① ④.5 顶栏黑渐变 0.15/0.08 → 0.08/0.04，③ 顶部 tone 0.18 → 0.15。
+///    ② ②.5 `lowerBlendMask` 末端 1.0 → 0.80，留 20% 中性 ② 基底 → 降饱和 + 提亮。
+///    ③ ③ 后半 brightTone 浓度 0.32~0.38 → 0.26~0.30，③.5 加深 0.05 → 0.02。
+///    ④ 新增 ③.7 均匀 3% 白雾，放在 ④ 清晰封面【之下】：整体淡一点、封面本身不变。
+///    🔴 全部是均匀层或平滑渐变，不引入色标折点 → 不会重新长出横向分界带。
+///
 /// 🔴 布局红线（v2.6.8 / 2026-11-09 两次实锤）：背景层必须锁死屏幕尺寸
 ///    + clipped + allowsHitTesting(false)，否则原图像素尺寸会撑大 ZStack，
 ///    把动作行 / 播放控件整块挤出屏幕。
@@ -2804,18 +2814,21 @@ private struct ImmersiveCoverBackdrop: View {
                 //    🔴 第十二次微调：渐变【后半 4 段】从 lowerTone 换成 brightTone
                 //       （同一条带、同一色相，只把亮度归一 0.34 → 0.50），
                 //       让 0.55H 之后逐渐提亮到酷狗的亮冷蓝；前 4 段保持不动。
+                //    🔴 第十三次微调：顶部 tone 0.18→0.15（整图暖棕主色少盖一点），
+                //       后半 brightTone 0.32~0.38 → 0.26~0.30 —— 我方下半 B−R +35
+                //       比酷狗 +23 浓太多，减少染色浓度让冷蓝「淡一点」。
                 VStack(spacing: 0) {
-                    tone.opacity(0.18)
+                    tone.opacity(0.15)
                         .frame(width: size.width, height: size.height * 0.30)
                     LinearGradient(colors: [
-                        tone.opacity(0.18),
-                        tone.opacity(0.18),
-                        lowerTone.opacity(0.22),
-                        lowerTone.opacity(0.27),
-                        brightTone.opacity(0.32),
-                        brightTone.opacity(0.36),
-                        brightTone.opacity(0.38),
-                        brightTone.opacity(0.38)
+                        tone.opacity(0.15),
+                        tone.opacity(0.15),
+                        lowerTone.opacity(0.20),
+                        lowerTone.opacity(0.24),
+                        brightTone.opacity(0.26),
+                        brightTone.opacity(0.28),
+                        brightTone.opacity(0.30),
+                        brightTone.opacity(0.30)
                     ], startPoint: .top, endPoint: .bottom)
                         .frame(width: size.width, height: size.height * 0.70)
                 }
@@ -2827,24 +2840,31 @@ private struct ImmersiveCoverBackdrop: View {
                 //       现在 0~0.30H 全透明，0.30H~1.0H 按 smoothstep t²(3-2t) 用 8 段色标
                 //       平滑升到 0.05 黑：首尾斜率都趋近 0，没有任何折点 → 无横带。
                 //       只压明暗、保留模糊纹理；放在 ④ 清晰封面【之下】。
-                //    🔴 第十一次微调 0.20 → 0.15、第十二次微调 0.15 → 0.05：
-                //       ②.5 的冷蓝基底 + ③ 的覆盖已经把下半压得比酷狗暗约 20，
-                //       这一层「底部加深」的历史任务已完成，基本退场只留 0.05 保持层次。
+                //    🔴 第十一次 0.20 → 0.15、第十二次 0.15 → 0.05、第十三次 0.05 → 0.02：
+                //       ②.5 的冷蓝基底 + ③ 的覆盖已把下半压得比酷狗暗，这层历史
+                //       「底部加深」基本退场，只留 0.02 保住一点点层次。
                 VStack(spacing: 0) {
                     Color.clear
                         .frame(width: size.width, height: size.height * 0.30)
                     LinearGradient(colors: [Color.clear,
-                                            Color.black.opacity(0.002),
-                                            Color.black.opacity(0.007),
-                                            Color.black.opacity(0.015),
-                                            Color.black.opacity(0.028),
-                                            Color.black.opacity(0.040),
-                                            Color.black.opacity(0.048),
-                                            Color.black.opacity(0.05)],
+                                            Color.black.opacity(0.001),
+                                            Color.black.opacity(0.003),
+                                            Color.black.opacity(0.006),
+                                            Color.black.opacity(0.011),
+                                            Color.black.opacity(0.016),
+                                            Color.black.opacity(0.019),
+                                            Color.black.opacity(0.02)],
                                    startPoint: .top, endPoint: .bottom)
                         .frame(width: size.width, height: size.height * 0.70)
                 }
                 .frame(width: size.width, height: size.height)
+
+                // ③.7 整体淡雾（2026-11-10 第十三次微调）：均匀 3% 白，全屏无分段、无折点。
+                //    🔴 放在 ④ 清晰封面【之下】：只把模糊背景整体提亮一点、降一点饱和，
+                //       清晰封面的色彩完全不受影响；顶部渐入区透出来的雾也会一起变淡。
+                //    这是「酷狗沉浸色淡一些」最直接的一层，且不会产生任何横向分界带。
+                Color.white.opacity(0.03)
+                    .frame(width: size.width, height: size.height)
 
                 // ④ 清晰封面：完整原图、屏宽、不放大不横向裁切。
                 //    mask 同时做「顶部渐入」和「下沿长羽化」：
@@ -2859,11 +2879,12 @@ private struct ImmersiveCoverBackdrop: View {
                     .mask(Self.seamlessMask(width: size.width, height: coverH))
                     .offset(y: topShift)
 
-                // ④.5 顶栏氛围：极淡的黑色长渐变（0~0.18H，0.15→0.08→0），
-                //    把封面的亮天空稍微收一点点，白色状态栏 / 顶栏按钮更清楚；
+                // ④.5 顶栏氛围：极淡的黑色长渐变（0~0.18H，0.08→0.04→0）。
+                //    🔴 第十三次微调：0.15→0.08 / 0.08→0.04 —— 逐行量化我方顶栏
+                //       (113,112,115) 比酷狗 (127,126,126) 暗约 14，主要就是这层压的。
                 //    全程渐变、没有不透明雾色块，不会产生硬切边。
-                LinearGradient(colors: [Color.black.opacity(0.15),
-                                        Color.black.opacity(0.08),
+                LinearGradient(colors: [Color.black.opacity(0.08),
+                                        Color.black.opacity(0.04),
                                         Color.clear, Color.clear, Color.clear],
                                startPoint: .top, endPoint: .bottom)
                     .frame(width: size.width, height: size.height * 0.18)
@@ -2910,17 +2931,20 @@ private struct ImmersiveCoverBackdrop: View {
         VStack(spacing: 0) {
             Color.clear
                 .frame(width: width, height: height * 0.26)
+            // 🔴 第十三次微调：末端不再 100% 替换基底，只到 0.80 —— 留 20% 的 ②
+            //    中性模糊层混回来，既降蓝色饱和（B−R +35 → 约 +26）又略提亮，
+            //    正对应用户「酷狗的沉浸色淡一些」。色标仍平滑无折点，不会出新横带。
             LinearGradient(colors: [.clear,
                                     .black.opacity(0.04),
-                                    .black.opacity(0.12),
-                                    .black.opacity(0.26),
-                                    .black.opacity(0.45),
-                                    .black.opacity(0.66),
-                                    .black.opacity(0.86),
-                                    .black],
+                                    .black.opacity(0.11),
+                                    .black.opacity(0.23),
+                                    .black.opacity(0.40),
+                                    .black.opacity(0.58),
+                                    .black.opacity(0.74),
+                                    .black.opacity(0.80)],
                            startPoint: .top, endPoint: .bottom)
                 .frame(width: width, height: height * 0.34)
-            Color.black
+            Color.black.opacity(0.80)
                 .frame(width: width, height: height * 0.40)
         }
         .frame(width: width, height: height)
