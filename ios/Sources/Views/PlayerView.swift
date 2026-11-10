@@ -154,8 +154,8 @@ struct PlayerView: View {
                 // 于是 isLandscape 仍为 true → 横屏播放器和竖屏歌词页同时渲染、左右错乱拼接（实测截图）。
                 // 改成 else-if 链：isLyricsPage 一开，横屏播放器整棵移出视图树，从根上消除拼接。
                 if isLyricsPage {
-                    // 🔴 2026-11-10：沉浸式封面主题走酷狗同款歌词页（顶栏 ∨ + 分页点、
-                    //    歌名居中带标签、细线动作行、进度条时间在下、自绘控件行）；
+                    // 🔴 2026-11-10：沉浸式封面主题走酷狗同款歌词页（顶栏 ∨、歌名居中带标签、
+                    //    竖屏播放器同款动作行、进度条时间在下、缩小后的控件行）；
                     //    经典封面 / 歌手写真主题仍用原 LyricsPageView，一个像素都不动。
                     if playerPageTheme == .immersiveCover {
                         KugouLyricsPage(isShown: $isLyricsPage,
@@ -670,12 +670,13 @@ struct PlayerView: View {
                 .frame(height: 34)
 
             // 🔴 v2.5.47：播放控制行左右间距与动作行一致（收窄 10pt）
-            // 🔴 2026-11-10：沉浸式封面主题换成酷狗自绘控件行（双箭头模式键、
-            //    实心三角上一首/下一首、半透明白圆盘播放键、三横线队列键）。
+            // 🔴 2026-11-10：沉浸式封面主题换成酷狗自绘控件行（实心三角上一首/下一首、
+            //    半透明白圆盘播放键）；顺序/随机/循环与列表沿用经典主题的 SF Symbol。
+            //    🔴 控件整体缩小（行高 68→54），与用户「播放控件改小点」的要求一致。
             //    经典封面 / 歌手写真主题保持原来的 classicDeckControls 不变。
             if playerPageTheme == .immersiveCover {
                 KugouControlsRow()
-                    .frame(height: 68)
+                    .frame(height: 54)
                     .padding(.horizontal, -10)
             } else {
                 classicDeckControls
@@ -3102,8 +3103,11 @@ private struct PlayerThemePickerPanel: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // 半透明遮罩：点面板之外关闭。
-            Color.black.opacity(0.30)
+            // 🔴 2026-11-10 修复「上面还有一层黑色的」：酷狗参考图里打开「我的播放器」
+            //    时上方播放页保持原亮度，并不压一层黑。这里改成完全透明、只保留命中区，
+            //    用 contentShape 保证点面板外仍能关闭（Color.clear 本身不参与命中测试）。
+            Color.clear
+                .contentShape(Rectangle())
                 .onTapGesture(perform: onClose)
             sheetBody
         }
@@ -3220,9 +3224,10 @@ private struct PlayerThemePickerPanel: View {
     }
 }
 
-/// 🔴 2026-11-10：主题卡片换成用户指定的三张真机页面截图，不再用代码拼迷你播放页。
-/// 原截图已预先去掉状态栏 / home 指示条，卡片里 scaledToFit 完整显示
-/// （顶栏、封面、歌名、控件都不裁）；两侧约 7pt 空档用同图高斯模糊延伸填满。
+/// 🔴 2026-11-10 修复「主题选择图片两边有空白、上面还有一层黑色的」：
+/// 三张真机截图已在打包前按卡片精确比例 110:188（素材 500×854）裁好并去掉状态栏，
+/// 这里只做 scaledToFill 单图铺满 —— 不再叠高斯模糊补边层（那层 opacity 0.55
+/// 在浅色封面两侧就是两条发白的空档），也不会在顶部留下状态栏深色带。
 private struct PlayerThemeThumbnail: View {
     let theme: PlayerPageTheme
 
@@ -3236,21 +3241,11 @@ private struct PlayerThemeThumbnail: View {
 
     var body: some View {
         GeometryReader { geo in
-            ZStack {
-                Image(assetName)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped()
-                    .blur(radius: 10)
-                    .opacity(0.55)
-                Image(assetName)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: geo.size.width, height: geo.size.height)
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .clipped()
+            Image(assetName)
+                .resizable()
+                .scaledToFill()
+                .frame(width: geo.size.width, height: geo.size.height)
+                .clipped()
         }
     }
 }
@@ -3259,13 +3254,13 @@ private struct PlayerThemeThumbnail: View {
 // MARK: - 🔴 2026-11-10 沉浸式封面主题专用：酷狗同款歌词页
 //
 // 版式照酷狗 20.8.4 歌词页真机截图：
-//   顶栏 ∨ / 四个分页点 / 放大镜·切换背景·分享 → 歌名与歌手居中带描边胶囊 →
-//   居中大字歌词 → 收起箭头 → 细线动作行 → 进度条（时间在条下方）→ 自绘控件行。
+//   顶栏 ∨ / 切换背景·分享 → 歌名与歌手居中带描边胶囊 →
+//   居中大字歌词 → 收起箭头 → 竖屏播放器同款动作行 → 进度条（时间在条下方）→ 控件行。
 // 只有 .immersiveCover 主题会走到这里；经典封面 / 歌手写真仍用 LyricsPageView。
 // 全部图标用确定存在的 SF Symbol 或自绘 Shape，不赌不存在的符号名（项目红线）。
 
 private enum KugouLyricsSheet: String, Identifiable {
-    case share, search
+    case share
     var id: String { rawValue }
 }
 
@@ -3284,6 +3279,8 @@ struct KugouLyricsPage: View {
     @State private var activeSheet: KugouLyricsSheet?
     @State private var shareItems: [Any] = []
     @State private var showMore = false
+    /// 音效面板（与竖屏播放器动作行一致，点音效图标全屏打开）
+    @State private var showSoundEffectPanel = false
     @State private var notice: String?
     @State private var isScrubbing = false
     @State private var scrubValue: Double = 0
@@ -3291,6 +3288,9 @@ struct KugouLyricsPage: View {
     private var safeTop: CGFloat { max(44, PlayerView.safeAreaInsets.top + 6) }
     private var safeBottom: CGFloat { max(8, PlayerView.safeAreaInsets.bottom) }
     private var displayTime: Double { isScrubbing ? scrubValue : playback.currentTime }
+    private var downloadDone: Bool {
+        store.current.map { DownloadManager.shared.isDownloaded($0) } ?? false
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -3321,10 +3321,16 @@ struct KugouLyricsPage: View {
                             .padding(.bottom, 16)
                         progressBlock
                             .padding(.horizontal, 24)
-                        KugouControlsRow(showsQueueBadge: true)
+                        KugouControlsRow()
                             .padding(.horizontal, 24)
                             .padding(.top, 6)
                     }
+
+                    // 🔴 2026-11-10 用户要求「动作行、进度条、播放控件行往上移点」：
+                    //    底部固定留 46pt 呼吸，三行整体上移，不再贴着 home 指示条。
+                    //    用固定高度占位而不是改外层 padding：VStack 高度锁死、歌词区用
+                    //    maxHeight:.infinity 吸收余量，占位只会压缩歌词区，不影响顶栏。
+                    Color.clear.frame(height: 46)
                 }
                 .frame(width: sz.width, height: sz.height, alignment: .top)
                 .padding(.bottom, safeBottom + 6)
@@ -3352,15 +3358,8 @@ struct KugouLyricsPage: View {
         .animation(.easeInOut(duration: 0.22), value: chromeHidden)
         .animation(.easeInOut(duration: 0.22), value: notice)
         .modifier(LyricsStatusBarHider(hidden: chromeHidden))
-        .sheet(item: $activeSheet) { item in
-            switch item {
-            case .share:
-                ShareSheet(items: shareItems)
-            case .search:
-                KugouLyricsSearchSheet(lyrics: store.lyrics) { time in
-                    store.seek(to: time)
-                }
-            }
+        .sheet(item: $activeSheet) { _ in
+            ShareSheet(items: shareItems)
         }
         .confirmationDialog("更多", isPresented: $showMore, titleVisibility: .visible) {
             Button("横屏播放器") { onEnterLandscape?() }
@@ -3422,7 +3421,9 @@ struct KugouLyricsPage: View {
         .allowsHitTesting(false)
     }
 
-    // MARK: 顶栏：∨ / 分页点 / 放大镜·切换背景·分享
+    // MARK: 顶栏：∨ / 切换背景 · 分享
+    // 🔴 2026-11-10 用户要求移除「顶部 4 个点」和「搜索」：分页点与放大镜全部删掉，
+    //    左侧收起、右侧只留切换背景 + 分享两个按钮。
     private var topBar: some View {
         HStack(spacing: 0) {
             Button {
@@ -3438,23 +3439,7 @@ struct KugouLyricsPage: View {
 
             Spacer(minLength: 0)
 
-            HStack(spacing: 5) {
-                Circle().fill(.white.opacity(0.42)).frame(width: 5, height: 5)
-                Capsule().fill(.white.opacity(0.95)).frame(width: 14, height: 5)
-                Circle().fill(.white.opacity(0.42)).frame(width: 5, height: 5)
-                Circle().fill(.white.opacity(0.42)).frame(width: 5, height: 5)
-            }
-
-            Spacer(minLength: 0)
-
             HStack(spacing: 14) {
-                Button { activeSheet = .search } label: {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 19, weight: .light))
-                        .frame(width: 34, height: 40)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
                 Button { showPhoto.toggle(); flash(showPhoto ? "已开启歌手写真背景" : "已切回封面氛围背景") } label: {
                     Image(systemName: "square.on.square")
                         .font(.system(size: 18, weight: .light))
@@ -3524,101 +3509,90 @@ struct KugouLyricsPage: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: 细线动作行：词 / 写真 / 伴·音效 / 喜欢 / 复制歌词 / 更多
+    // MARK: 动作行：与竖屏播放器完全一致（喜欢 / 下载 / 音效 / 歌词 / 更多）
+    // 🔴 2026-11-10 用户要求「歌词页动作行改和竖屏播放器的一样」：
+    //    换成 classicActionRow 同一套 PlayerActionIcon（24pt 自绘图标、44×44 命中区、
+    //    整行均分），不再用歌词页原来那套酷狗细线小图标（词/星框/伴/心/气泡/三点）。
     private var actionRow: some View {
-        HStack(spacing: 0) {
-            actionButton {
-                ZStack {
-                    KugouHexagon().stroke(.white.opacity(store.showTranslation ? 0.95 : 0.65), lineWidth: 1.2)
-                    Text("词").font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.9))
-                }
-                .frame(width: 25, height: 25)
-            } action: {
-                store.showTranslation.toggle()
-                flash(store.showTranslation ? "已开启歌词翻译" : "已关闭歌词翻译")
-            }
-
-            Spacer(minLength: 0)
-            actionButton {
-                ZStack(alignment: .topTrailing) {
-                    RoundedRectangle(cornerRadius: 3)
-                        .stroke(.white.opacity(0.65), lineWidth: 1.2)
-                        .frame(width: 20, height: 20)
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 8))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .offset(x: 4, y: -5)
-                }
-                .frame(width: 25, height: 25)
-            } action: {
-                showPhoto.toggle()
-                flash(showPhoto ? "已开启歌手写真背景" : "已切回封面氛围背景")
-            }
-
-            Spacer(minLength: 0)
-            actionButton {
-                ZStack(alignment: .topTrailing) {
-                    RoundedRectangle(cornerRadius: 3)
-                        .stroke(.white.opacity(0.65), lineWidth: 1.2)
-                        .frame(width: 20, height: 20)
-                    Text("伴").font(.system(size: 10))
-                        .foregroundStyle(.white.opacity(0.85))
-                    Text(soundEffect.current == .off ? "OFF" : "ON")
-                        .font(.system(size: 6, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.8))
-                        .offset(x: 8, y: -6)
-                }
-                .frame(width: 25, height: 25)
-            } action: {
-                soundEffect.current = soundEffect.current == .off ? .vocal : .off
-                flash(soundEffect.current == .off ? "音效已关闭" : "已开启清澈人声音效")
-            }
-
-            Spacer(minLength: 0)
-            actionButton {
-                Image(systemName: store.isLiked ? "heart.fill" : "heart")
-                    .font(.system(size: 20, weight: .light))
-                    .foregroundStyle(store.isLiked ? Color(red: 1.0, green: 0.36, blue: 0.42) : .white.opacity(0.8))
-                    .frame(width: 25, height: 25)
-            } action: {
+        // 保持订阅：切预设 / 总开关后 OFF·ON 角标立即刷新
+        _ = soundEffect.current
+        return HStack(spacing: 0) {
+            Button {
                 store.toggleFavorite()
                 Haptics.light()
+            } label: {
+                PlayerActionIcon(glyph: .favorite,
+                                 active: store.isLiked,
+                                 tint: store.isLiked ? AppStyle.like : .white,
+                                 size: 24)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+                    .offset(y: -2)
             }
+            .buttonStyle(.plain)
 
             Spacer(minLength: 0)
-            actionButton {
-                Image(systemName: "message")
-                    .font(.system(size: 19, weight: .light))
-                    .foregroundStyle(.white.opacity(0.8))
-                    .frame(width: 25, height: 25)
-            } action: {
-                copyCurrentLyric()
+
+            Button { downloadCurrent() } label: {
+                PlayerActionIcon(glyph: downloadDone ? .downloaded : .download, size: 24)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
             Spacer(minLength: 0)
-            actionButton {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.8))
-                    .rotationEffect(.degrees(90))
-                    .frame(width: 25, height: 25)
-            } action: {
-                showMore = true
+
+            Button { showSoundEffectPanel = true; Haptics.light() } label: {
+                PlayerActionIcon(glyph: .soundEffect, size: 24,
+                                 soundEffectOn: soundEffect.current != .off)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
+
+            // 歌词页里「歌词」图标改为切换翻译（竖屏播放器里它是打开歌词页）
+            Button {
+                store.showTranslation.toggle()
+                flash(store.showTranslation ? "已开启歌词翻译" : "已关闭歌词翻译")
+            } label: {
+                PlayerActionIcon(glyph: .lyric, size: 24)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
+
+            Button { showMore = true; Haptics.light() } label: {
+                PlayerActionIcon(glyph: .more, size: 24)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
-        .foregroundStyle(.white)
-        .frame(maxWidth: .infinity, minHeight: 34)
+        .frame(maxWidth: .infinity)
+        .fullScreenCover(isPresented: $showSoundEffectPanel) {
+            SoundEffectPanel()
+        }
     }
 
-    private func actionButton<Label: View>(@ViewBuilder label: () -> Label,
-                                           action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            label()
-                .frame(width: 44, height: 36)
-                .contentShape(Rectangle())
+    /// 下载当前歌曲（与竖屏播放器 download() 同逻辑，提示走歌词页自己的 toast）。
+    private func downloadCurrent() {
+        guard let song = store.current, song.isRemote else { return flash("本地音频不用下载") }
+        if DownloadManager.shared.isDownloaded(song) {
+            flash("已经在下载列表里了")
+            return
         }
-        .buttonStyle(.plain)
+        Task {
+            do {
+                _ = try await DownloadManager.shared.download(song)
+                await MainActor.run { flash("下载完成") }
+            } catch {
+                await MainActor.run { flash(error.localizedDescription) }
+            }
+        }
     }
 
     // MARK: 进度条：细白线 + 常显定位点，时间文字在条【下方】两端
@@ -3681,84 +3655,8 @@ struct KugouLyricsPage: View {
         shareItems = items
     }
 
-    private func copyCurrentLyric() {
-        guard let idx = lyricState.currentIndex, store.lyrics.indices.contains(idx) else {
-            flash("暂无可复制的歌词")
-            return
-        }
-        UIPasteboard.general.string = store.lyrics[idx].text
-        flash("已复制当前歌词")
-    }
-
     private func flash(_ text: String) {
         notice = text
         Haptics.light()
-    }
-}
-
-/// 六边形「词」图标（酷狗歌词页左下角同款）。
-private struct KugouHexagon: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        let w = rect.width, h = rect.height
-        p.move(to: CGPoint(x: w * 0.25, y: h * 0.04))
-        p.addLine(to: CGPoint(x: w * 0.75, y: h * 0.04))
-        p.addLine(to: CGPoint(x: w * 0.98, y: h * 0.5))
-        p.addLine(to: CGPoint(x: w * 0.75, y: h * 0.96))
-        p.addLine(to: CGPoint(x: w * 0.25, y: h * 0.96))
-        p.addLine(to: CGPoint(x: w * 0.02, y: h * 0.5))
-        p.closeSubpath()
-        return p
-    }
-}
-
-/// 歌词搜索：放大镜入口，点匹配行直接跳到那一句。
-private struct KugouLyricsSearchSheet: View {
-    let lyrics: [LyricLine]
-    let onSeek: (Double) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var query = ""
-
-    private var results: [LyricLine] {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return [] }
-        return lyrics.filter { $0.text.localizedCaseInsensitiveContains(q) }
-    }
-
-    var body: some View {
-        CompatNavigationStack {
-            List {
-                if results.isEmpty {
-                    Text(query.isEmpty ? "输入歌词片段查找" : "没有匹配的歌词")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(results) { line in
-                        Button {
-                            onSeek(line.time)
-                            dismiss()
-                        } label: {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(line.text)
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(.primary)
-                                Text(line.time.clockString)
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-            }
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: "搜索歌词")
-            .navigationTitle("搜索歌词")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { dismiss() }
-                }
-            }
-        }
     }
 }

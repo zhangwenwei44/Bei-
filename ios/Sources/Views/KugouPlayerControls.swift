@@ -5,12 +5,11 @@ import SwiftUI
 // 只给「沉浸式封面」主题用：主播放页控制行 + 该主题的歌词页控制行。
 // 经典封面 / 歌手写真主题仍走 PlayerView 原来的 SF Symbol 控件行，一行不动。
 //
-// 为什么要自绘：酷狗这五个图标都不是系统符号 ——
-//   ① 顺序播放 = 两条平行右箭头（细线，不是 SF 的 repeat 闭环）
-//   ② 上一首/下一首 = 粗实心三角 + 独立竖条，中间留缝
-//   ③ 播放暂停 = 半透明白色圆盘 + 实心三角 / 双竖条
-//   ④ 播放列表 = 顶部一条「小三角 + 横线」+ 两条横线（歌词页带蓝色数量角标）
-// 系统里找不到同名符号，硬套 `repeat` / `list.bullet` 就是用户说的「不是酷狗样式」。
+// 🔴 2026-11-10 用户回退：顺序播放 / 列表改回经典主题的 SF Symbol
+//    （repeat / shuffle / repeat.1 与 list.bullet），并去掉队列蓝色数量角标。
+//    自绘只保留中间三个：上一首/下一首（实心三角+竖条）、播放暂停（半透明白圆盘）。
+//    整行尺寸同时缩小一档（圆盘 66→52、行高 68→54）。
+//    KugouDoubleArrow 作为历史字形保留，已不再参与渲染。
 
 /// 实心三角（pointsRight = 尖朝右）。
 private struct KugouTriangle: Shape {
@@ -53,49 +52,46 @@ private struct KugouDoubleArrow: Shape {
 }
 
 /// 播放模式：顺序 / 随机 / 单曲循环，点一下由 store.cycleMode() 切换。
+/// 🔴 2026-11-10 用户要求「顺序播放按钮改回以前的」：不再用酷狗双箭头自绘，
+///    与经典封面主题完全一致 —— repeat / shuffle / repeat.1 三个 SF Symbol。
 struct KugouModeGlyph: View {
     let mode: PlaybackMode
-    var body: some View {
-        Group {
-            switch mode {
-            case .order:
-                KugouDoubleArrow()
-                    .stroke(Color.white.opacity(0.92),
-                            style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                    .frame(width: 28, height: 24)
-            case .shuffle:
-                Image(systemName: "shuffle")
-                    .font(.system(size: 21, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.92))
-            case .single:
-                Image(systemName: "repeat.1")
-                    .font(.system(size: 20, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.92))
-            }
+    private var icon: String {
+        switch mode {
+        case .order:   return "repeat"
+        case .shuffle: return "shuffle"
+        case .single:  return "repeat.1"
         }
-        .frame(width: 34, height: 30)
+    }
+    var body: some View {
+        Image(systemName: icon)
+            .font(.system(size: 18, weight: .medium))
+            .foregroundStyle(.white.opacity(0.85))
+            .frame(width: 34, height: 30)
+            .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
     }
 }
 
-/// 上一首 / 下一首：竖条 + 实心三角，中间留 3pt 缝（酷狗实测）。
+/// 上一首 / 下一首：竖条 + 实心三角，中间留缝（酷狗实测）。
+/// 🔴 2026-11-10 用户要求「播放控件改小点」：三角 22×27→18×22、竖条 4.5×29→3.5×24。
 struct KugouStepGlyph: View {
     let forward: Bool
     var body: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 2.5) {
             if forward {
                 KugouTriangle(pointsRight: true)
                     .fill(.white)
-                    .frame(width: 22, height: 27)
-                RoundedRectangle(cornerRadius: 1.5)
+                    .frame(width: 18, height: 22)
+                RoundedRectangle(cornerRadius: 1.2)
                     .fill(.white)
-                    .frame(width: 4.5, height: 29)
+                    .frame(width: 3.5, height: 24)
             } else {
-                RoundedRectangle(cornerRadius: 1.5)
+                RoundedRectangle(cornerRadius: 1.2)
                     .fill(.white)
-                    .frame(width: 4.5, height: 29)
+                    .frame(width: 3.5, height: 24)
                 KugouTriangle(pointsRight: false)
                     .fill(.white)
-                    .frame(width: 22, height: 27)
+                    .frame(width: 18, height: 22)
             }
         }
         .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
@@ -103,6 +99,7 @@ struct KugouStepGlyph: View {
 }
 
 /// 播放 / 暂停：半透明白色圆盘 + 白色实心三角 / 双竖条。
+/// 🔴 2026-11-10 用户要求「播放控件改小点」：圆盘 66→52，内部字形同比收小。
 struct KugouPlayGlyph: View {
     let isPlaying: Bool
     let isLoading: Bool
@@ -112,48 +109,31 @@ struct KugouPlayGlyph: View {
             if isLoading {
                 ProgressView().tint(.white)
             } else if isPlaying {
-                HStack(spacing: 6) {
-                    RoundedRectangle(cornerRadius: 1.5).fill(.white).frame(width: 6, height: 26)
-                    RoundedRectangle(cornerRadius: 1.5).fill(.white).frame(width: 6, height: 26)
+                HStack(spacing: 5) {
+                    RoundedRectangle(cornerRadius: 1.2).fill(.white).frame(width: 5, height: 20)
+                    RoundedRectangle(cornerRadius: 1.2).fill(.white).frame(width: 5, height: 20)
                 }
             } else {
                 KugouTriangle(pointsRight: true)
                     .fill(.white)
-                    .frame(width: 25, height: 29)
+                    .frame(width: 20, height: 23)
                     .offset(x: 2)
             }
         }
-        .frame(width: 66, height: 66)
+        .frame(width: 52, height: 52)
     }
 }
 
-/// 播放列表：三条横线，第一条左端带一个小播放三角。
-/// 歌词页版右上角再挂一个蓝色圆形数量角标（酷狗同款）。
+/// 播放列表。
+/// 🔴 2026-11-10 用户要求「列表也改回以前的」：与经典封面主题一致用 list.bullet，
+///    不再用酷狗三横线自绘，也不再挂蓝色数量角标。
 struct KugouQueueGlyph: View {
-    let badge: Int?
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 4) {
-                    KugouTriangle(pointsRight: true)
-                        .fill(.white.opacity(0.92))
-                        .frame(width: 7, height: 8)
-                    Capsule().fill(.white.opacity(0.92)).frame(width: 14, height: 2)
-                }
-                Capsule().fill(.white.opacity(0.92)).frame(width: 23, height: 2)
-                Capsule().fill(.white.opacity(0.92)).frame(width: 23, height: 2)
-            }
-            .frame(width: 26, height: 24)
-            if let badge, badge > 0 {
-                Text(badge > 99 ? "99+" : "\(badge)")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(minWidth: 17, minHeight: 17)
-                    .background(Circle().fill(Color(red: 0.20, green: 0.68, blue: 0.98)))
-                    .offset(x: 12, y: -10)
-            }
-        }
-        .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+        Image(systemName: "list.bullet")
+            .font(.system(size: 18, weight: .medium))
+            .foregroundStyle(.white.opacity(0.85))
+            .frame(width: 34, height: 30)
+            .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
     }
 }
 
@@ -161,14 +141,12 @@ struct KugouQueueGlyph: View {
 /// 与主播放页 classicDeckControls 完全等价的功能，只换外观。
 struct KugouControlsRow: View {
     @EnvironmentObject private var store: PlayerStore
-    /// 歌词页显示队列数量角标，主播放页不显示（与酷狗一致）。
-    var showsQueueBadge: Bool = false
 
     var body: some View {
         HStack(spacing: 0) {
             Button { store.cycleMode(); Haptics.light() } label: {
                 KugouModeGlyph(mode: store.mode)
-                    .frame(width: 44, height: 56)
+                    .frame(width: 44, height: 48)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -177,7 +155,7 @@ struct KugouControlsRow: View {
 
             Button { store.step(-1); Haptics.light() } label: {
                 KugouStepGlyph(forward: false)
-                    .frame(width: 52, height: 56)
+                    .frame(width: 46, height: 48)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -187,7 +165,7 @@ struct KugouControlsRow: View {
             Button { store.toggle(); Haptics.soft() } label: {
                 KugouPlayGlyph(isPlaying: store.isPlaying,
                                isLoading: store.isLoading || (store.isBuffering && store.isPlaying))
-                    .frame(width: 66, height: 66)
+                    .frame(width: 52, height: 52)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -196,7 +174,7 @@ struct KugouControlsRow: View {
 
             Button { store.step(1); Haptics.light() } label: {
                 KugouStepGlyph(forward: true)
-                    .frame(width: 52, height: 56)
+                    .frame(width: 46, height: 48)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -204,12 +182,12 @@ struct KugouControlsRow: View {
             Spacer(minLength: 0)
 
             Button { store.isQueuePresented = true; Haptics.light() } label: {
-                KugouQueueGlyph(badge: showsQueueBadge ? store.queue.count : nil)
-                    .frame(width: 44, height: 56)
+                KugouQueueGlyph()
+                    .frame(width: 44, height: 48)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
-        .frame(maxWidth: .infinity, minHeight: 68)
+        .frame(maxWidth: .infinity, minHeight: 54)
     }
 }
