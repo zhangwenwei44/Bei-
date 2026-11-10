@@ -666,8 +666,13 @@ struct PlayerView: View {
                 .padding(.bottom, 10)
 
             // 进度行：已播时间 —— 细白进度条 —— 总时长
+            // 🔴 2026-11-11 用户要求「沉浸封面主题：歌名 / 歌手 / 歌词 / 动作行 / 进度条往上移点」：
+            //    只在进度条与控件行之间加 32pt 留白（仅该主题）。deck 变高 → 弹性封面区缩小
+            //    → deck 顶部（歌名起）整体上移 32pt；控件行仍在 deck 底部，位置不变。
+            //    其它两个主题一行不动。
             classicProgressBlock
                 .frame(height: 34)
+                .padding(.bottom, playerPageTheme == .immersiveCover ? 32 : 0)
 
             // 🔴 v2.5.47：播放控制行左右间距与动作行一致（收窄 10pt）
             // 🔴 2026-11-10：沉浸式封面主题换成酷狗自绘控件行（实心三角上一首/下一首、

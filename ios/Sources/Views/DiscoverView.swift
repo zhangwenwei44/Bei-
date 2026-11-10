@@ -35,9 +35,11 @@ struct DiscoverView: View {
     // 🔴 v2.9.9：推荐页搜索框下方的横幅广告（两张图自动轮播）
     @State private var adIndex = 0
     private let adTimer = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
-    /// 🔴 2026-11-09：榜单推荐卡片背景 —— 该榜前 3 首歌的专辑图轮流替换显示。
-    @State private var rankCoverIndex = 0
-    private let rankCoverTimer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
+    // 🔴 2026-11-11：榜单卡片背景的 3 秒轮播已删除 —— 每轮换 url 都强制重建
+    //    CoverImage（.id 变化 → @State 清空 → .task 重新联网），弱网下新图根本来不及
+    //    加载就又换下一张，用户看到的永远是一片灰底 + 模糊，也就是「图片显示不出来 /
+    //    被毛玻璃盖住」。现在固定用该榜第 1 首歌的封面，与标题图标、第 1 行小封面
+    //    同源，缓存必命中，打开即显示。
     /// 🔴 v2.9.10：横幅广告本地覆盖（管理员可在「实验室」更换），adBanner 优先用它
     @ObservedObject private var bannerConfig = BannerConfig.shared
 
@@ -60,6 +62,8 @@ struct DiscoverView: View {
     /// 🔴 v2.9.7(二)：「DJ推荐」板块数据池（经典推荐下面新加的板块）
     @State private var djSongs: [Song] = []
     @State private var newSongs: [Song] = []
+    /// 🔴 2026-11-11：新歌推荐独立加载，防重入（下拉刷新与首屏 task 可能同时发起）。
+    @State private var isLoadingNewSongs = false
     /// 🔴 v2.9.6：「至臻音质」主题歌单的歌曲（供「歌单推荐」大卡使用）
     @State private var hallSongs: [Song] = []
 
@@ -151,6 +155,12 @@ struct DiscoverView: View {
             .kugouPinnedTopFade(height: 280)
             .refreshable { await load(force: true) }
             .task {
+                // 🔴 2026-11-11：新歌推荐是 Feed 第一屏第一块，必须和 load() **并发**发起。
+                //    原来它在 load() 串行链末尾：要等 topLists / 每日推荐 / 热门歌手 /
+                //    歌单 / KTV / 经典+DJ 各 4 页搜索 / 曲目数统计等十几个请求跑完，
+                //    自己再串行翻 2 页「新歌榜」搜索 → 骨架屏一直挂着，用户觉得「加载巨慢」。
+                //    用非结构化 Task 只发起不等待（.task 随视图消失会被取消，这里不会）。
+                Task { await loadNewSongs() }
                 if feed.isEmpty { await load() }
                 // 🔴 v2.9.22：横幅拉取必须**独立于本视图的 task**。
                 // `.task` 在视图消失时会被 SwiftUI 取消，连带把正在下载的云端横幅也取消掉
@@ -1058,16 +1068,11 @@ struct DiscoverView: View {
         .task(id: lists.map(\.playlist.id)) {
             await loadRankPreviews(for: lists.map(\.playlist))
         }
-        // 🔴 2026-11-09：卡片背景每 3 秒换下一张专辑图（0→1→2→0 循环）。
-        .onReceive(rankCoverTimer) { _ in
-            rankCoverIndex = (rankCoverIndex + 1) % 3
-        }
     }
 
-    /// 🔴 2026-11-09：卡片背景轮播用的当前歌曲（该榜前 3 首轮流替换）。
+    /// 🔴 2026-11-11：卡片背景固定用该榜第 1 首歌（与标题图标 / 第 1 行小封面同源）。
     private func rankBackgroundSong(_ songs: [Song]) -> Song? {
-        guard !songs.isEmpty else { return nil }
-        return songs[rankCoverIndex % min(3, songs.count)]
+        songs.first
     }
 
     /// 单张榜单横滑卡片（图 5 样式）：榜名 + 更新信息 + 白色圆形播放键 + 3 首带排名角标的封面 + 爱心。
@@ -1083,12 +1088,16 @@ struct DiscoverView: View {
                 //    歌曲行是「序号(width 22) + spacing 10 + 封面」，所以这里补 32pt 占位，
                 //    标题图标 / 标题文字正好落在封面 / 歌名的同一竖线上。
                 Color.clear.frame(width: 22, height: 1)
-                // 🔴 2026-11-10：榜单自带封面是纯色文字块（「会员热歌榜」紫底白字），
-                //    用户观感就是「图片没显示出来」。改用该榜第 1 首歌的真实专辑图，
-                //    榜单封面/CoverResolver 仍作兜底，取不到图时才回退。
-                CoverImage(url: songs.first?.artworkURL ?? playlist.coverURL,
-                           fallbackKeys: (songs.first?.coverFallbackKeys ?? []) + [playlist.id],
-                           seed: displayName, size: 44, corner: 6)
+                // 🔴 2026-11-11 修复「榜单标题图标还是一块紫底白字」：
+                //    原来 `songs.first?.artworkURL ?? playlist.coverURL` 在首曲封面为空时
+                //    回退到榜单自带的纯色文字块，fallbackKeys 里还塞了 playlist.id，
+                //    CoverResolver 又把它解析成同一张文字块 → 永远显示不出真封面。
+                //    现在与第 1 行小封面**完全同参数**（url + fallbackKeys + seed），
+                //    由 CoverResolver 反查真实专辑图；预览未到时只短暂显示占位音符。
+                CoverImage(url: songs.first?.artworkURL,
+                           fallbackKeys: songs.first?.coverFallbackKeys ?? [],
+                           seed: songs.first.map { "\($0.artist)-\($0.title)" } ?? displayName,
+                           size: 44, corner: 6)
                     .frame(width: 44, height: 44)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(displayName)
@@ -1174,8 +1183,10 @@ struct DiscoverView: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity)
-        // 🔴 2026-11-09：卡片背景 = 该榜前 3 首歌的专辑图轮流替换显示（每 3 秒换一张）。
-        //    大图铺满 + 压暗 + 低透明度，保证标题和歌名仍清晰可读。
+        // 🔴 2026-11-11：卡片背景固定用该榜第 1 首歌的真实封面。
+        //    旧版 blur(18) + opacity(0.30) 就是用户说的「好像被毛玻璃盖住」；
+        //    再叠加每 3 秒 .id 重建 CoverImage → 图还没下完就被换掉，只剩灰底。
+        //    现在 blur 6 / opacity 0.55 且不重建，封面轮廓清晰可辨。
         .background {
             ZStack {
                 AppStyle.surface
@@ -1184,28 +1195,27 @@ struct DiscoverView: View {
                         CoverImage(url: bg.artworkURL,
                                    fallbackKeys: bg.coverFallbackKeys,
                                    seed: "\(bg.artist)-\(bg.title)",
-                                   // 🔴 2026-11-10：旧版按卡片宽高取 size（≈350pt），
-                                   //    会去下/解码 1000px+ 的大图，弱网下常常失败 → 只剩灰色底。
-                                   //    背景本来就要模糊，固定 240pt 足够，加载快、缓存 key 也稳定。
+                                   // 固定 240pt：不去下/解码 1000px+ 大图，加载快、缓存 key 稳定。
                                    size: 240,
                                    displayWidth: geo.size.width,
                                    displayHeight: geo.size.height,
                                    contentMode: .fill)
                             .clipped()
-                            .blur(radius: 18)
-                            // 🔴 0.16 → 0.30：旧版淡到几乎看不见，观感上就是「图片没显示」。
-                            .opacity(0.30)
-                            .id("rank-bg-\(rankCoverIndex)")
-                            .transition(.opacity)
+                            .blur(radius: 6)
+                            .opacity(0.55)
                     }
                     .clipped()
+                    // 左强右弱白纱：左侧榜单名 / 歌名是深色字，压一层白保证可读；
+                    // 右侧几乎不加，图片保持清晰。
+                    LinearGradient(colors: [Color.white.opacity(0.42),
+                                            Color.white.opacity(0.08)],
+                                   startPoint: .leading, endPoint: .trailing)
                 }
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(AppStyle.stroke.opacity(0.6), lineWidth: 0.5))
-        .animation(.easeInOut(duration: 0.6), value: rankCoverIndex)
     }
 
     // MARK: 🔴 v2.9.8 经典推荐 / DJ推荐 —— 改成和新歌推荐一致的「单行横滑卡片」
@@ -1841,6 +1851,35 @@ struct DiscoverView: View {
 
     // MARK: 加载
 
+    /// 🔴 2026-11-11：新歌推荐独立、单次请求加载（首屏与下拉刷新都走这里）。
+    /// 不再用 `shuffledSearchSongs`：它为了凑 28 首会把 target 抬到 40，
+    /// 从而**串行翻 2 页**搜索接口；再加上原来排在 load() 串行链末尾，
+    /// 首屏要等十几个请求才轮到它 —— 这才是「加载那么慢」的根因。
+    /// 现在直接取「新歌榜」第 1 页（30 首）→ 过滤老歌 → 随机 → 裁成 4 的倍数，
+    /// 一次网络请求就能把骨架换成真卡片，且与 load() 并发发起。
+    private func loadNewSongs(force: Bool = false) async {
+        if isLoadingNewSongs { return }
+        if !force, !newSongs.isEmpty { return }
+        isLoadingNewSongs = true
+        defer { isLoadingNewSongs = false }
+        let excluded = ["擦肩而过", "丢了幸福的猪", "看透爱情", "看透你"]
+        var batch = (try? await KugouClient.shared.searchSongs(keyword: "新歌榜", page: 1)) ?? []
+        if batch.isEmpty {
+            // 弱网偶发失败：隔 0.6s 补一次，避免骨架一直挂着。
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            batch = (try? await KugouClient.shared.searchSongs(keyword: "新歌榜", page: 1)) ?? []
+        }
+        var picked = batch.filter { song in
+            !excluded.contains { song.title.contains($0) }
+        }
+        picked.shuffle()
+        // 裁成 4 的倍数：横滑卡片每屏整整齐齐，不出现半行。
+        let trimmed = Array(picked.prefix(picked.count / 4 * 4))
+        guard !trimmed.isEmpty else { return }
+        newSongs = trimmed
+        Log.info("发现页", "新歌推荐 \(trimmed.count) 首（单次请求）")
+    }
+
     private func load(force: Bool = false) async {
         guard !isLoading else { return }
         if !force,
@@ -1852,6 +1891,8 @@ struct DiscoverView: View {
         isLoading = true
         defer { isLoading = false }
         errorMessage = nil
+        // 下拉刷新时也顺手刷新新歌推荐，同样独立并发、不拖慢主链。
+        if force { Task { await loadNewSongs(force: true) } }
         if feed.topLists.isEmpty {
             feed.topLists = await KugouClient.shared.topLists()
         }
@@ -1883,19 +1924,8 @@ struct DiscoverView: View {
         let (loadedClassic, loadedDJ) = await (classicTask, djTask)
         if classicSongs.isEmpty { classicSongs = loadedClassic }
         if djSongs.isEmpty { djSongs = loadedDJ }
-        if newSongs.isEmpty {
-            // 🔴 v2.9.8：新歌推荐 —— 去掉几首老歌 + 随机顺序（不要老是同样的歌在前面）。
-            // 过滤用子串匹配：《看透爱情》和《看透爱情看透你》都能命中「看透爱情」，
-            // 「看透你」也一起带上，两种写法都覆盖得到。
-            let fetched = await shuffledSearchSongs(
-                keyword: "新歌榜",
-                count: 28,
-                excluding: ["擦肩而过", "丢了幸福的猪", "看透爱情", "看透你"]
-            )
-            // 🔴 v2.5.50：接口偶尔多回 2 首，尾页只剩 2 行很难看 —— 裁成 4 的倍数，
-            // 保证每页都是整整齐齐 4 首（28 首 = 7 页）。
-            newSongs = Array(fetched.prefix(fetched.count / 4 * 4))
-        }
+        // 🔴 2026-11-11：新歌推荐已拆到 `loadNewSongs()`，由视图 .task 与 load() **并发**发起，
+        //    不再压在这条串行链末尾（详见该方法注释）。这里保持原样，别再搬回来。
         // 🔴 v2.9.6：「至臻音质」主题歌单（供「歌单推荐」大卡用）
         if hallSongs.isEmpty {
             hallSongs = (try? await KugouClient.shared.searchSongs(keyword: "至臻音质 臻品母带", limit: 20)) ?? []
