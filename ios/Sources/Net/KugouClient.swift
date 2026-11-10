@@ -1794,10 +1794,18 @@ final class KugouClient {
     }
 
     /// 🔴 v2.9.15：酷狗个性化「每日推荐」（需登录酷狗账号）。
-    /// gateway POST `/everyday_song_recommend`，x-router: `everydayrec.service.kugou.com`，Android 签名。
-    /// 返回个性化推荐歌曲；未登录 / 调用失败 / 空 → 返回 nil（调用方回退 TOP500）。
+    /// 未登录 / 调用失败 / 空 → 返回 nil（调用方回退 TOP500）。
     func dailyRecommendSongs(limit: Int = 30) async -> [Song]? {
         guard KugouAuth.shared.isLoggedIn else { return nil }
+        return await everydayRecommendSongs(limit: limit)
+    }
+
+    /// 🔴 2026-11-11：酷狗真实推荐歌曲（gateway POST `/everyday_song_recommend`，
+    /// x-router: `everydayrec.service.kugou.com`，Android 签名）。
+    /// 实测**未登录也能返回** `data.song_list` 30 首（song_list_size = 30），
+    /// 字段 hash / songname / author_name / sizable_cover / album_id / album_audio_id。
+    /// 「猜你喜欢」用它拿到酷狗真实歌曲，数量与酷狗一致（30 首）。
+    func everydayRecommendSongs(limit: Int = 30) async -> [Song]? {
         let auth = KugouAuth.shared
         let clienttime = "\(Int(Date().timeIntervalSince1970))"
         var params: [String: String] = [
@@ -1853,10 +1861,26 @@ final class KugouClient {
         }
     }
 
-    /// 🔴 v2.9.16：酷狗「猜你喜欢」（私人 FM），接入酷狗个性化推荐。
-    /// gateway POST `/personal_recommend`，x-router: `persnfm.service.kugou.com`，Android 签名。
-    /// 登录态（Cookie）注入后个性化更强；未登录 / 调用失败 / 空 → 返回 nil（调用方回退关键词随机搜歌）。
-    func guessYouLike(limit: Int = 20) async -> [Song]? {
+    /// 🔴 2026-11-11：「猜你喜欢」接入酷狗真实数据，数量与酷狗一致（30 首）。
+    /// 登录态优先私人 FM 个性化推荐（personal_recommend）；
+    /// 未登录 / 风控拒绝（200101）/ 空 → 用酷狗真实推荐接口 everyday_song_recommend。
+    /// ⚠️ 不再回退「本地关键词随机搜歌」——那不是酷狗数据，也不是 30 首。
+    func guessYouLike(limit: Int = 30) async -> [Song]? {
+        if KugouAuth.shared.isLoggedIn {
+            if let personalized = await personalFMSongs(limit: limit), !personalized.isEmpty {
+                Log.info("酷狗", "猜你喜欢(私人FM个性化) \(personalized.count) 首")
+                return personalized
+            }
+        }
+        let real = await everydayRecommendSongs(limit: limit)
+        if let real { Log.info("酷狗", "猜你喜欢(酷狗真实推荐) \(real.count) 首") }
+        return real
+    }
+
+    /// 私人 FM 个性化推荐：gateway POST `/personal_recommend`，
+    /// x-router: `persnfm.service.kugou.com`，Android 签名。
+    /// ⚠️ 实测未登录 / 设备未注册时恒返 `error_code 200101`，调用方必须再兜一层真实接口。
+    private func personalFMSongs(limit: Int) async -> [Song]? {
         let auth = KugouAuth.shared
         let clienttime = "\(Int(Date().timeIntervalSince1970))"
         var params: [String: String] = [

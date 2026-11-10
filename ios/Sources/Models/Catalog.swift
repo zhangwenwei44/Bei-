@@ -173,7 +173,11 @@ extension Song {
                     "album_pic", "pic_url", "pic_medium", "pic_small", "pic_big",
                     "pic_slarge", "pic_xlarge", "pic_xxlarge", "AlbumImg", "song_img",
                     "albumImg", "cover_url", "Cover", "coverImg",
-                    "album_sizable_cover", "album_sizable_cover_1"]
+                    "album_sizable_cover", "album_sizable_cover_1",
+                    // 🔴 2026-11-11：酷狗真实推荐接口（everyday_song_recommend）
+                    // 的封面字段是 sizable_cover（形如 .../stdmusic/{size}/xxx.jpg），
+                    // 不在旧列表里 → 30 首歌全部没封面、卡片掉成灰块。
+                    "sizable_cover"]
         for key in coverKeys {
             if let raw = KugouClient.string(json[key]), !raw.isEmpty {
                 let fixed = raw.replacingOccurrences(of: "{si}", with: "480")
@@ -225,7 +229,9 @@ extension Song {
         }
 
         var duration: Double = 0
-        if let seconds = KugouClient.intValue(json["Duration"]) ?? KugouClient.intValue(json["timeLen"]) {
+        if let seconds = KugouClient.intValue(json["Duration"])
+            ?? KugouClient.intValue(json["timeLen"])
+            ?? KugouClient.intValue(json["time_length"]) {
             duration = Double(seconds)
         }
         // 新搜索接口的 duration 是秒（如254），老接口可能是毫秒（如254000）

@@ -94,12 +94,6 @@ struct DiscoverView: View {
 
     /// 🔴 v2.5.50：热门歌手横向翻页的当前页码（每页 5 行）
 
-    /// 猜你喜欢的抽词池。
-    static let guessPool: [String] = [
-        "抖音热歌", "华语经典", "粤语金曲", "伤感情歌", "欧美流行",
-        "网络热歌", "轻音乐", "90后回忆", "KTV必点", "影视金曲",
-    ]
-
     var body: some View {
         // 🔴 2026-11-09：外层包 ScrollViewReader —— 新增「歌手」板块的右侧 A–Z
         //    快速定位要 scrollTo 到分组锚点。与「我的音乐 → 下载歌曲」的
@@ -161,6 +155,9 @@ struct DiscoverView: View {
                 //    自己再串行翻 2 页「新歌榜」搜索 → 骨架屏一直挂着，用户觉得「加载巨慢」。
                 //    用非结构化 Task 只发起不等待（.task 随视图消失会被取消，这里不会）。
                 Task { await loadNewSongs() }
+                // 🔴 2026-11-11：「猜你喜欢」换成酷狗真实推荐后也只有一次请求，
+                //    同样并发发起，别排在 load() 串行链里等前面的榜单 / 歌手请求。
+                Task { await loadGuess() }
                 if feed.isEmpty { await load() }
                 // 🔴 v2.9.22：横幅拉取必须**独立于本视图的 task**。
                 // `.task` 在视图消失时会被 SwiftUI 取消，连带把正在下载的云端横幅也取消掉
@@ -1183,10 +1180,11 @@ struct DiscoverView: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity)
-        // 🔴 2026-11-11：卡片背景固定用该榜第 1 首歌的真实封面。
-        //    旧版 blur(18) + opacity(0.30) 就是用户说的「好像被毛玻璃盖住」；
-        //    再叠加每 3 秒 .id 重建 CoverImage → 图还没下完就被换掉，只剩灰底。
-        //    现在 blur 6 / opacity 0.55 且不重建，封面轮廓清晰可辨。
+        // 🔴 2026-11-11 第二轮：用户反馈「榜单推荐的图片还是显示不出来」——
+        //    实测图片其实已经下载成功，但 blur(6) 在 3x 屏上等效 18px 模糊，
+        //    再叠一层白纱，整张卡看起来就是「灰色毛玻璃」，用户自然认为图没出来。
+        //    现在彻底去掉 blur，封面清晰铺满；白纱只压左侧文字区（0.80 → 0.28），
+        //    右侧封面一眼可辨，深色歌名仍可读。
         .background {
             ZStack {
                 AppStyle.surface
@@ -1195,20 +1193,19 @@ struct DiscoverView: View {
                         CoverImage(url: bg.artworkURL,
                                    fallbackKeys: bg.coverFallbackKeys,
                                    seed: "\(bg.artist)-\(bg.title)",
-                                   // 固定 240pt：不去下/解码 1000px+ 大图，加载快、缓存 key 稳定。
-                                   size: 240,
+                                   // 铺满整卡，解码 960px 足够清晰；与小封面同源，缓存必命中。
+                                   size: 320,
                                    displayWidth: geo.size.width,
                                    displayHeight: geo.size.height,
                                    contentMode: .fill)
                             .clipped()
-                            .blur(radius: 6)
-                            .opacity(0.55)
+                            .opacity(0.95)
                     }
                     .clipped()
-                    // 左强右弱白纱：左侧榜单名 / 歌名是深色字，压一层白保证可读；
-                    // 右侧几乎不加，图片保持清晰。
-                    LinearGradient(colors: [Color.white.opacity(0.42),
-                                            Color.white.opacity(0.08)],
+                    // 只给左侧文字留白底：左 0.80 保证深色榜名/歌名可读，
+                    // 右侧 0.28 让封面细节完整透出来。
+                    LinearGradient(colors: [Color.white.opacity(0.80),
+                                            Color.white.opacity(0.28)],
                                    startPoint: .leading, endPoint: .trailing)
                 }
             }
@@ -1299,8 +1296,9 @@ struct DiscoverView: View {
     }
 
     private var personalizedHint: String {
-        let picks = Self.guessPool.prefix(2)
-        return picks.joined(separator: "、")
+        // 🔴 2026-11-11：旧版显示「抖音热歌、华语经典」两个本地抽词，属于假数据；
+        //    现在「猜你喜欢」全部来自酷狗真实推荐接口（30 首）。
+        "酷狗推荐 · 每日更新"
     }
 
     // MARK: 心情问候
@@ -1891,8 +1889,12 @@ struct DiscoverView: View {
         isLoading = true
         defer { isLoading = false }
         errorMessage = nil
-        // 下拉刷新时也顺手刷新新歌推荐，同样独立并发、不拖慢主链。
-        if force { Task { await loadNewSongs(force: true) } }
+        // 下拉刷新时也顺手刷新「新歌推荐」和「猜你喜欢」，同样独立并发、不拖慢主链。
+        // 猜你喜欢每次刷新都会重新拉酷狗真实推荐（相当于「换一批」）。
+        if force {
+            Task { await loadNewSongs(force: true) }
+            Task { await loadGuess() }
+        }
         if feed.topLists.isEmpty {
             feed.topLists = await KugouClient.shared.topLists()
         }
@@ -1991,64 +1993,55 @@ struct DiscoverView: View {
         Log.info("发现页", "每日推荐(回退TOP500) \(enriched.count) 首，第一首：\(enriched[0].title) - \(enriched[0].artist)")
     }
 
+    /// 🔴 2026-11-11：「猜你喜欢」全部换成酷狗真实数据，数量与酷狗一致（30 首）。
+    /// 主数据源 KugouClient.guessYouLike(30)：
+    ///   登录 → 私人 FM 个性化推荐；未登录 / 风控 200101 → 酷狗真实推荐接口
+    ///   `/everyday_song_recommend`（实测未登录也返回 song_list_size = 30 首真歌）。
+    /// 兜底：酷狗 TOP500 前 30 首（同样是真实数据）。
+    /// ⚠️ 旧版「本地关键词随机搜歌拼 10 首」是假数据，已彻底删除。
     private func loadGuess() async {
         guard !isLoadingGuess else { return }
         isLoadingGuess = true
         defer { isLoadingGuess = false }
-        // 🔴 v2.9.16：优先拉酷狗「猜你喜欢」个性化推荐（私人 FM）；
-        // 未登录 / 调用失败 / 空 → 回退原「关键词随机搜歌」。
-        if let recs = await KugouClient.shared.guessYouLike(limit: 20), !recs.isEmpty {
-            var songs = recs
-            // 部分推荐歌可能没封面 → 按 albumID 异步补封面（最多并发，避免灰占位）
-            let needCover = songs.filter { $0.artworkURL == nil && !$0.kugouAlbumID.isEmpty }
-            if !needCover.isEmpty {
-                await withTaskGroup(of: (String, URL?).self) { group in
-                    for s in needCover {
-                        group.addTask { await (s.kugouAlbumID, KugouClient.shared.albumCover(albumID: s.kugouAlbumID)) }
-                    }
-                    for await (aid, cover) in group {
-                        if let cover {
-                            for i in songs.indices where songs[i].kugouAlbumID == aid { songs[i].artworkURL = cover }
+
+        let recommended = await KugouClient.shared.guessYouLike(limit: 30)
+        var songs: [Song] = recommended ?? []
+        if songs.isEmpty {
+            songs = (try? await KugouClient.shared.rankSongs(rankID: "8888", limit: 30)) ?? []
+            if !songs.isEmpty {
+                Log.info("发现页", "猜你喜欢(兜底TOP500) \(songs.count) 首")
+            }
+        }
+        guard !songs.isEmpty else {
+            Log.warn("发现页", "猜你喜欢 0 首")
+            return
+        }
+
+        // 真实推荐接口已带 sizable_cover；这里只给个别缺图的歌按 albumID 补一次封面。
+        let needCover = songs.filter { $0.artworkURL == nil && !$0.kugouAlbumID.isEmpty }
+        if !needCover.isEmpty {
+            await withTaskGroup(of: (String, URL?).self) { group in
+                for song in needCover {
+                    group.addTask { await (song.kugouAlbumID, KugouClient.shared.albumCover(albumID: song.kugouAlbumID)) }
+                }
+                for await (aid, cover) in group {
+                    if let cover {
+                        for i in songs.indices where songs[i].kugouAlbumID == aid {
+                            songs[i].artworkURL = cover
                         }
                     }
                 }
             }
-            guessSongs = songs
-            var guess = songs.randomElement()
-            if let g = guess, g.artworkURL == nil,
-               let withCover = songs.first(where: { $0.artworkURL != nil }) {
-                guess = withCover
-            }
-            guessPick = guess
-            Log.info("发现页", "猜你喜欢(个性化) \(songs.count) 首")
-            return
         }
-        // 回退：关键词随机搜歌（原逻辑）
-        let picks = Self.guessPool.shuffled().prefix(2)
-        var songs: [Song] = []
-        var seen = Set<String>()
-        for keyword in picks {
-            guard let got = try? await KugouClient.shared.searchSongs(keyword: keyword, limit: 8) else { continue }
-            for song in got where !seen.contains(song.id) {
-                seen.insert(song.id)
-                songs.append(song)
-                if songs.count >= 10 { break }
-            }
-            if songs.count >= 10 { break }
-        }
+
         guessSongs = songs
-        // 🔴 v2.9.8：猜你喜欢卡片同样优先挑「有封面」的歌，避免灰渐变占位
-        var guess = songs.randomElement()
-        if let g = guess, g.artworkURL == nil,
+        var pick = songs.randomElement()
+        if let g = pick, g.artworkURL == nil,
            let withCover = songs.first(where: { $0.artworkURL != nil }) {
-            guess = withCover
+            pick = withCover
         }
-        guessPick = guess
-        if let first = songs.first {
-            Log.info("发现页", "猜你喜欢(回退关键词) \(songs.count) 首，第一首封面: \(first.artworkURL?.absoluteString.prefix(60) ?? "nil")")
-        } else {
-            Log.info("发现页", "猜你喜欢 0 首")
-        }
+        guessPick = pick
+        Log.info("发现页", "猜你喜欢(酷狗真实数据) \(songs.count) 首，第一首：\(songs[0].title) - \(songs[0].artist)")
     }
 
     /// 歌单广场滚动加载下一页（共 20 页 600 个）

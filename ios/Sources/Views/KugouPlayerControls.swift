@@ -74,24 +74,26 @@ struct KugouModeGlyph: View {
 
 /// 上一首 / 下一首：竖条 + 实心三角，中间留缝（酷狗实测）。
 /// 🔴 2026-11-10 用户要求「播放控件改小点」：三角 22×27→18×22、竖条 4.5×29→3.5×24。
+/// 🔴 2026-11-11 用户再要求「上一首下一首按钮改小点」：三角 18×22→15×18.5、
+///    竖条 3.5×24→3×20。只缩字形，按钮 .frame(46×48) 命中区保持不变（不然点不到）。
 struct KugouStepGlyph: View {
     let forward: Bool
     var body: some View {
-        HStack(spacing: 2.5) {
+        HStack(spacing: 2) {
             if forward {
                 KugouTriangle(pointsRight: true)
                     .fill(.white)
-                    .frame(width: 18, height: 22)
+                    .frame(width: 15, height: 18.5)
                 RoundedRectangle(cornerRadius: 1.2)
                     .fill(.white)
-                    .frame(width: 3.5, height: 24)
+                    .frame(width: 3, height: 20)
             } else {
                 RoundedRectangle(cornerRadius: 1.2)
                     .fill(.white)
-                    .frame(width: 3.5, height: 24)
+                    .frame(width: 3, height: 20)
                 KugouTriangle(pointsRight: false)
                     .fill(.white)
-                    .frame(width: 18, height: 22)
+                    .frame(width: 15, height: 18.5)
             }
         }
         .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
