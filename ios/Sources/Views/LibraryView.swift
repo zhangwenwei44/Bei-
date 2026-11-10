@@ -554,7 +554,8 @@ private struct KugouLibraryPage: View {
     @ViewBuilder
     private var kugouContent: some View {
         if isLoading {
-            VStack { ProgressView().padding(.top, 60) }
+            // 🔴 2026-11-10：加载菊花 → 列表骨架 + 匀速扫光。
+            ListRowsSkeleton(rows: 6).padding(.top, 20)
         } else if let err = errorMsg {
             EmptyStateView(icon: "exclamationmark.triangle", title: "加载失败", message: err).padding(.top, 60)
         } else {
@@ -1043,7 +1044,7 @@ struct KugouPlaylistDetail: View {
     @ViewBuilder
     private var content: some View {
         if isLoading {
-            VStack { ProgressView().padding(.top, 80) }
+            ListRowsSkeleton(rows: 6).padding(.top, 20)
         } else if let err = errorMsg {
             EmptyStateView(icon: "exclamationmark.triangle", title: "加载失败", message: err).padding(.top, 60)
         } else if songs.isEmpty {

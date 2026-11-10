@@ -1821,14 +1821,13 @@ struct EmptyStateView: View {
 
 struct LoadingRow: View {
     var body: some View {
-        HStack(spacing: 10) {
-            ProgressView().tint(AppStyle.accent)
-            Text("加载中…")
-                .font(.system(size: 13))
-                .foregroundStyle(AppStyle.secondaryText)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
+        // 🔴 2026-11-10：加载态从「转圈菊花 + 加载中…」换成骨架屏
+        //    （灰色占位块 + 一条贯穿的匀速扫光，见 SkeletonViews.swift）。
+        //    这里用通用列表骨架，歌单详情 / 搜索页复用同一版式；
+        //    推荐 Tab 首屏单独用 FeedSkeleton（按 banner + 入口 + 卡片摆位）。
+        ListRowsSkeleton(rows: 5)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
     }
 }
 

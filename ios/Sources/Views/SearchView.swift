@@ -252,8 +252,7 @@ struct SearchView: View {
                     HStack {
                         Spacer()
                         if isLoadingMore {
-                            ProgressView().controlSize(.small)
-                            Text("加载中...").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
+                            SkeletonInlineRow()
                         } else if !hasMoreSongs {
                             Text("— 到底了 —").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
                         }

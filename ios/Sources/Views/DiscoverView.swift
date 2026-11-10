@@ -106,7 +106,8 @@ struct DiscoverView: View {
                     if let errorMessage, feed.isEmpty {
                         errorState(errorMessage)
                     } else if isLoading, feed.isEmpty {
-                        LoadingRow()
+                        // 🔴 2026-11-10：首屏加载不再用菊花，按推荐 Tab 真内容摆骨架 + 匀速扫光。
+                        FeedSkeleton()
                     } else {
                         // 歌单 Tab：搜索框变成「搜索歌单」；其它 Tab 保持全局搜索入口
                         if selectedTab == .playlists {
@@ -640,11 +641,8 @@ struct DiscoverView: View {
             .padding(.bottom, 6)
 
             if allArtists.isEmpty {
-                HStack {
-                    ProgressView().controlSize(.small)
-                        .frame(maxWidth: .infinity)
-                }
-                .padding(.vertical, 40)
+                ListRowsSkeleton(rows: 7)
+                    .padding(.vertical, 20)
             } else if filteredArtistGroups.isEmpty {
                 EmptyStateView(icon: "magnifyingglass",
                                title: "没有找到相关歌手",
@@ -813,10 +811,8 @@ struct DiscoverView: View {
             }
 
             if newSongs.isEmpty {
-                HStack {
-                    ProgressView().controlSize(.small)
-                        .frame(maxWidth: .infinity).padding(.vertical, 20)
-                }.padding(.horizontal, 16)
+                // 🔴 2026-11-10：加载菊花 → 按真实卡片版式摆灰色占位块 + 匀速扫光。
+                SlideCardsSkeleton()
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 12) {
@@ -878,10 +874,8 @@ struct DiscoverView: View {
             }
 
             if recommendedPlaylists.isEmpty {
-                HStack {
-                    ProgressView().controlSize(.small)
-                        .frame(maxWidth: .infinity).padding(.vertical, 20)
-                }.padding(.horizontal, 16)
+                // 🔴 2026-11-10：加载菊花 → 按真实卡片版式摆灰色占位块 + 匀速扫光。
+                SlideCardsSkeleton()
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 12) {
@@ -983,10 +977,8 @@ struct DiscoverView: View {
             sectionHeader("热门歌手专辑") { EmptyView() }
 
             if pairs.isEmpty {
-                HStack {
-                    ProgressView().controlSize(.small)
-                        .frame(maxWidth: .infinity).padding(.vertical, 20)
-                }.padding(.horizontal, 16)
+                // 🔴 2026-11-10：加载菊花 → 按真实卡片版式摆灰色占位块 + 匀速扫光。
+                SlideCardsSkeleton()
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 12) {
@@ -1050,10 +1042,8 @@ struct DiscoverView: View {
             sectionHeader("榜单推荐") { EmptyView() }
 
             if lists.isEmpty {
-                HStack {
-                    ProgressView().controlSize(.small)
-                        .frame(maxWidth: .infinity).padding(.vertical, 20)
-                }.padding(.horizontal, 16)
+                // 🔴 2026-11-10：加载菊花 → 按真实卡片版式摆灰色占位块 + 匀速扫光。
+                SlideCardsSkeleton()
             } else {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(lists, id: \.playlist.id) { item in
@@ -1231,10 +1221,8 @@ struct DiscoverView: View {
             }
 
             if songs.isEmpty {
-                HStack {
-                    ProgressView().controlSize(.small)
-                        .frame(maxWidth: .infinity).padding(.vertical, 20)
-                }.padding(.horizontal, 16)
+                // 🔴 2026-11-10：加载菊花 → 按真实卡片版式摆灰色占位块 + 匀速扫光。
+                SlideCardsSkeleton()
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 12) {
@@ -1405,8 +1393,8 @@ struct DiscoverView: View {
     private var ranksContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             if filteredLists.isEmpty {
-                ProgressView()
-                    .frame(maxWidth: .infinity, minHeight: 200)
+                SlideCardsSkeleton(count: 3)
+                    .frame(maxWidth: .infinity, minHeight: 200, alignment: .top)
             } else {
                 rankCardPager
                 rankPreviewList
@@ -1672,7 +1660,9 @@ struct DiscoverView: View {
             let lists = searching ? playlistSearchResults : recommendedPlaylists
             if searching ? (playlistSearchResults.isEmpty && isSearchingPlaylists)
                          : recommendedPlaylists.isEmpty {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                SlideCardsSkeleton(count: 4)
+                    .frame(maxWidth: .infinity, alignment: .top)
+                    .padding(.top, 16)
             } else if lists.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "music.note.list")
@@ -1702,22 +1692,14 @@ struct DiscoverView: View {
                     if searching {
                         if !playlistSearchExhausted,
                            playlistSearchResults.count < playlistSearchTotal {
-                            HStack {
-                                Spacer()
-                                ProgressView()
-                                Spacer()
-                            }
-                            .padding(.vertical, 10)
-                            .onAppear { Task { await searchPlaylists(reset: false) } }
+                            SkeletonInlineRow()
+                                .padding(.vertical, 10)
+                                .onAppear { Task { await searchPlaylists(reset: false) } }
                         }
                     } else if recommendedPlaylists.count < squareTotal {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                            Spacer()
-                        }
-                        .padding(.vertical, 10)
-                        .onAppear { Task { await loadMorePlaylists() } }
+                        SkeletonInlineRow()
+                            .padding(.vertical, 10)
+                            .onAppear { Task { await loadMorePlaylists() } }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -2336,8 +2318,9 @@ struct MoreArtistsView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 if artists.isEmpty {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ListRowsSkeleton(rows: 8)
+                        .frame(maxWidth: .infinity, alignment: .top)
+                        .padding(.top, 16)
                 } else {
                     // 用 LazyVStack：只有滚到视口的行才构建，配合底部 onAppear 触发器
                     // 实现无限滚动（前面 VStack 全量渲染 50+ 行会越滚越卡）。
@@ -2351,15 +2334,8 @@ struct MoreArtistsView: View {
                         }
 
                         if hasMore {
-                            HStack(spacing: 8) {
-                                Spacer()
-                                ProgressView()
-                                Text("加载更多")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(AppStyle.tertiaryText)
-                                Spacer()
-                            }
-                            .padding(.vertical, 16)
+                            SkeletonInlineRow()
+                                .padding(.vertical, 16)
                             // 🔴 滚到底部自动加载下一页；isLoadingMore / hasMore 双保险防重复触发
                             .onAppear { Task { await loadMore() } }
                         } else {

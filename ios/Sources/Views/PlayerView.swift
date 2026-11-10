@@ -2707,6 +2707,15 @@ private struct LandscapeLyricsBlock: View {
 ///    冷蓝相与纹理都来自封面本身；③ 层下半浓度 0.20~0.32 → 0.22~0.38 再锁一次色相，
 ///    ③.5 加深 0.20 → 0.15 避免把蓝压成黑灰。顶栏 0~0.26H 与版式全部不动。
 ///
+/// 🔴 2026-11-10 第十二次微调（用户：「再优化一下，参考酷狗」）：
+///    第十一轮生效了：色相已对齐（我方 B−R +14~+31，酷狗 +23~+33），
+///    但逐行量化发现 **0.60H 之后整体暗约 20**：我方 `(65~79,72~89,94~110)`，
+///    酷狗 `(87~100,92~106,110~124)`；左下 std 11.7 vs 39.9 是文字/控件差异，不是背景问题。
+///    ① ③ 渐变后半 4 段改用 `brightTone`（同条带同色相，targetLum 0.34 → 0.50），
+///       只提亮、不换色；前 4 段不变，0~0.30H 顶栏完全不动。
+///    ② ③.5 加深 0.15 → 0.05：②.5 基底 + ③ 覆盖已足够，「底部加深」历史任务退场。
+///    预期 0.75H 从 `(62,69,92)` → 约 `(79,80,107)`，酷狗 `(91,95,113)`。
+///
 /// 🔴 布局红线（v2.6.8 / 2026-11-09 两次实锤）：背景层必须锁死屏幕尺寸
 ///    + clipped + allowsHitTesting(false)，否则原图像素尺寸会撑大 ZStack，
 ///    把动作行 / 播放控件整块挤出屏幕。
@@ -2727,6 +2736,12 @@ private struct ImmersiveCoverBackdrop: View {
                 //    暖色封面底部仍暖，不会硬把每张封面染蓝（第 5 轮被否的坑）。
                 let strip = Self.bottomStrip(from: artwork) ?? artwork
                 let lowerTone = Self.mainToneColor(from: strip, targetLum: 0.34)
+                // 🔴 2026-11-10 第十二次微调：第十一轮把色相修对了
+                //    （我方 B−R +14~+31，酷狗 +23~+33），但 0.60H 之后整体仍暗约 20：
+                //    我方 (65~79,72~89,94~110) vs 酷狗 (87~100,92~106,110~124)。
+                //    渐变后半段换成同一色相但更亮的主色，只提亮不换色；
+                //    前半段仍用较暗的 lowerTone，避免中段 / 清晰封面羽化区发白。
+                let brightTone = Self.mainToneColor(from: strip, targetLum: 0.50)
                 // 清晰封面：按原图比例铺满屏宽，绝不横向裁切；
                 // 极端的长图最多裁掉一点下沿（下沿本来就要羽化），不裁左右。
                 let ratio = CGFloat(artwork.size.height) / max(CGFloat(artwork.size.width), 1)
@@ -2786,6 +2801,9 @@ private struct ImmersiveCoverBackdrop: View {
                 //    🔴 第十一次微调：②.5 已把下半基底换成冷蓝，这里把 lowerTone 的浓度
                 //       0.20~0.32 → 0.22~0.38 并更早进入（第 2 段起），叠在同色系基底上
                 //       进一步锁住冷蓝相；0~0.30H 的 tone 段完全不动，顶栏保持原样。
+                //    🔴 第十二次微调：渐变【后半 4 段】从 lowerTone 换成 brightTone
+                //       （同一条带、同一色相，只把亮度归一 0.34 → 0.50），
+                //       让 0.55H 之后逐渐提亮到酷狗的亮冷蓝；前 4 段保持不动。
                 VStack(spacing: 0) {
                     tone.opacity(0.18)
                         .frame(width: size.width, height: size.height * 0.30)
@@ -2794,10 +2812,10 @@ private struct ImmersiveCoverBackdrop: View {
                         tone.opacity(0.18),
                         lowerTone.opacity(0.22),
                         lowerTone.opacity(0.27),
-                        lowerTone.opacity(0.32),
-                        lowerTone.opacity(0.36),
-                        lowerTone.opacity(0.38),
-                        lowerTone.opacity(0.38)
+                        brightTone.opacity(0.32),
+                        brightTone.opacity(0.36),
+                        brightTone.opacity(0.38),
+                        brightTone.opacity(0.38)
                     ], startPoint: .top, endPoint: .bottom)
                         .frame(width: size.width, height: size.height * 0.70)
                 }
@@ -2807,21 +2825,22 @@ private struct ImmersiveCoverBackdrop: View {
                 //    🔴 旧版 6 段等距色标在 0.40H / 0.60H / 0.80H 各有一次斜率突变，
                 //       全屏等宽叠一层时就显成一条横向分界带（用户第九轮反馈的「底部横向分界线」）。
                 //       现在 0~0.30H 全透明，0.30H~1.0H 按 smoothstep t²(3-2t) 用 8 段色标
-                //       平滑升到 0.15 黑：首尾斜率都趋近 0，没有任何折点 → 无横带。
+                //       平滑升到 0.05 黑：首尾斜率都趋近 0，没有任何折点 → 无横带。
                 //       只压明暗、保留模糊纹理；放在 ④ 清晰封面【之下】。
-                //    🔴 第十一次微调：0.20 → 0.15。②.5 的冷蓝基底本身已够暗，
-                //       再压 0.20 会把蓝相压成黑灰（酷狗底部是 (86,91,109) 的亮冷蓝）。
+                //    🔴 第十一次微调 0.20 → 0.15、第十二次微调 0.15 → 0.05：
+                //       ②.5 的冷蓝基底 + ③ 的覆盖已经把下半压得比酷狗暗约 20，
+                //       这一层「底部加深」的历史任务已完成，基本退场只留 0.05 保持层次。
                 VStack(spacing: 0) {
                     Color.clear
                         .frame(width: size.width, height: size.height * 0.30)
                     LinearGradient(colors: [Color.clear,
-                                            Color.black.opacity(0.005),
-                                            Color.black.opacity(0.020),
-                                            Color.black.opacity(0.045),
-                                            Color.black.opacity(0.083),
-                                            Color.black.opacity(0.119),
-                                            Color.black.opacity(0.145),
-                                            Color.black.opacity(0.15)],
+                                            Color.black.opacity(0.002),
+                                            Color.black.opacity(0.007),
+                                            Color.black.opacity(0.015),
+                                            Color.black.opacity(0.028),
+                                            Color.black.opacity(0.040),
+                                            Color.black.opacity(0.048),
+                                            Color.black.opacity(0.05)],
                                    startPoint: .top, endPoint: .bottom)
                         .frame(width: size.width, height: size.height * 0.70)
                 }

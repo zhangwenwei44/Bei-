@@ -599,7 +599,7 @@ struct ArtistDetailView: View {
     private var songListBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             if isLoading {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: 60)
+                ListRowsSkeleton(rows: 5)
                     .padding(.horizontal, 16)
             } else if let errorMessage {
                 Text(errorMessage)
@@ -640,8 +640,7 @@ struct ArtistDetailView: View {
                     HStack {
                         Spacer()
                         if isLoadingMore {
-                            ProgressView().controlSize(.small)
-                            Text("加载中...").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
+                            SkeletonInlineRow()
                         } else if !hasMoreSongs && songs.count > 0 {
                             Text("— 到底了 —").font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
                         }
