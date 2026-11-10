@@ -154,11 +154,22 @@ struct PlayerView: View {
                 // 于是 isLandscape 仍为 true → 横屏播放器和竖屏歌词页同时渲染、左右错乱拼接（实测截图）。
                 // 改成 else-if 链：isLyricsPage 一开，横屏播放器整棵移出视图树，从根上消除拼接。
                 if isLyricsPage {
-                    LyricsPageView(isShown: $isLyricsPage,
-                                   onEnterLandscape: enterLandscapeFromLyrics)
-                        .environmentObject(store)
-                        .transition(.opacity)
-                        .zIndex(10)
+                    // 🔴 2026-11-10：沉浸式封面主题走酷狗同款歌词页（顶栏 ∨ + 分页点、
+                    //    歌名居中带标签、细线动作行、进度条时间在下、自绘控件行）；
+                    //    经典封面 / 歌手写真主题仍用原 LyricsPageView，一个像素都不动。
+                    if playerPageTheme == .immersiveCover {
+                        KugouLyricsPage(isShown: $isLyricsPage,
+                                        onEnterLandscape: enterLandscapeFromLyrics)
+                            .environmentObject(store)
+                            .transition(.opacity)
+                            .zIndex(10)
+                    } else {
+                        LyricsPageView(isShown: $isLyricsPage,
+                                       onEnterLandscape: enterLandscapeFromLyrics)
+                            .environmentObject(store)
+                            .transition(.opacity)
+                            .zIndex(10)
+                    }
                 } else if isLandscape {
                     // 横屏播放器：右上角按钮强制旋转后接管（唱片在左、信息在右）
                     landscapeBody()
@@ -251,9 +262,6 @@ struct PlayerView: View {
         .overlay(alignment: .bottom) {
             if showThemePicker {
                 PlayerThemePickerPanel(
-                    artwork: store.artwork,
-                    songTitle: store.current?.title ?? "",
-                    artist: store.current?.artist ?? "",
                     current: playerPageTheme,
                     onSelect: { picked in
                         guard picked != playerPageTheme else { return }
@@ -662,9 +670,18 @@ struct PlayerView: View {
                 .frame(height: 34)
 
             // 🔴 v2.5.47：播放控制行左右间距与动作行一致（收窄 10pt）
-            classicDeckControls
-                .frame(height: 54)
-                .padding(.horizontal, -10)
+            // 🔴 2026-11-10：沉浸式封面主题换成酷狗自绘控件行（双箭头模式键、
+            //    实心三角上一首/下一首、半透明白圆盘播放键、三横线队列键）。
+            //    经典封面 / 歌手写真主题保持原来的 classicDeckControls 不变。
+            if playerPageTheme == .immersiveCover {
+                KugouControlsRow()
+                    .frame(height: 68)
+                    .padding(.horizontal, -10)
+            } else {
+                classicDeckControls
+                    .frame(height: 54)
+                    .padding(.horizontal, -10)
+            }
         }
         // 🔴 v2.5.45：左右间距与专辑封面齐平（之前固定 15，导致信息区比专辑更宽）
         .padding(.horizontal, classicSideInset)
@@ -3078,9 +3095,6 @@ private struct PlayerThemeTopCorners: Shape {
 }
 
 private struct PlayerThemePickerPanel: View {
-    let artwork: UIImage?
-    let songTitle: String
-    let artist: String
     let current: PlayerPageTheme
     let onSelect: (PlayerPageTheme) -> Void
     let onMore: () -> Void
@@ -3153,8 +3167,7 @@ private struct PlayerThemePickerPanel: View {
             onSelect(theme)
         } label: {
             VStack(spacing: 9) {
-                PlayerThemeThumbnail(theme: theme, artwork: artwork,
-                                     songTitle: songTitle, artist: artist)
+                PlayerThemeThumbnail(theme: theme)
                     .frame(width: PlayerThemeCardMetrics.width,
                            height: PlayerThemeCardMetrics.height)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -3207,165 +3220,545 @@ private struct PlayerThemePickerPanel: View {
     }
 }
 
-/// 缩略预览：按主题画一张迷你播放页（背景 + 顶栏 + 歌名 + 进度 + 控件）。
-/// 用的就是当前歌曲的封面与文字，所以换歌 / 换主题后预览是实时的。
+/// 🔴 2026-11-10：主题卡片换成用户指定的三张真机页面截图，不再用代码拼迷你播放页。
+/// 原截图已预先去掉状态栏 / home 指示条，卡片里 scaledToFit 完整显示
+/// （顶栏、封面、歌名、控件都不裁）；两侧约 7pt 空档用同图高斯模糊延伸填满。
 private struct PlayerThemeThumbnail: View {
     let theme: PlayerPageTheme
-    let artwork: UIImage?
-    let songTitle: String
-    let artist: String
+
+    private var assetName: String {
+        switch theme {
+        case .immersiveCover: return "ThemePreviewImmersive"
+        case .classic: return "ThemePreviewSquare"
+        case .artistPhoto: return "ThemePreviewArtist"
+        }
+    }
 
     var body: some View {
         GeometryReader { geo in
-            let size = geo.size
-            ZStack(alignment: .top) {
-                backdrop(size: size)
-
-                VStack(spacing: 0) {
-                    HStack {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 9, weight: .medium))
-                        Spacer(minLength: 0)
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 9, weight: .medium))
-                    }
-                    .foregroundColor(.white.opacity(0.9))
-                    .padding(.horizontal, 9)
-                    .padding(.top, 10)
-
-                    Spacer(minLength: 0)
-                    footer
-                }
-                .frame(width: size.width, height: size.height)
-            }
-            .frame(width: size.width, height: size.height)
-            .clipped()
-        }
-    }
-
-    /// 三种主题各自的迷你背景，全部锁死尺寸，绝不撑大父布局。
-    @ViewBuilder
-    private func backdrop(size: CGSize) -> some View {
-        switch theme {
-        case .immersiveCover:
-            ZStack(alignment: .top) {
-                if let art = artwork {
-                    Image(uiImage: art)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: size.width, height: size.height)
-                        .clipped()
-                        .blur(radius: 7)
-                        .frame(width: size.width, height: size.height)
-                        .clipped()
-                    Image(uiImage: art)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: size.width, height: size.height, alignment: .top)
-                        .mask(PlayerThemeThumbnailFade(width: size.width, height: size.height))
-                } else {
-                    placeholder(size: size)
-                }
-            }
-            .frame(width: size.width, height: size.height)
-            .clipped()
-
-        case .classic:
-            ZStack(alignment: .center) {
-                LinearGradient(colors: [Color(red: 0.18, green: 0.20, blue: 0.24),
-                                        Color(red: 0.07, green: 0.08, blue: 0.11)],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(width: size.width, height: size.height)
-                if let art = artwork {
-                    Image(uiImage: art)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: size.width * 0.58, height: size.width * 0.58)
-                        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                } else {
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(Color.white.opacity(0.18))
-                        .frame(width: size.width * 0.58, height: size.width * 0.58)
-                }
-            }
-            .frame(width: size.width, height: size.height)
-            .clipped()
-
-        case .artistPhoto:
             ZStack {
-                if let art = artwork {
-                    Image(uiImage: art)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: size.width, height: size.height)
-                        .clipped()
-                } else {
-                    placeholder(size: size)
-                }
+                Image(assetName)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
+                    .blur(radius: 10)
+                    .opacity(0.55)
+                Image(assetName)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: geo.size.width, height: geo.size.height)
             }
-            .frame(width: size.width, height: size.height)
+            .frame(width: geo.size.width, height: geo.size.height)
             .clipped()
         }
-    }
-
-    private func placeholder(size: CGSize) -> some View {
-        LinearGradient(colors: [Color(red: 0.36, green: 0.43, blue: 0.48),
-                                Color(red: 0.15, green: 0.18, blue: 0.21)],
-                       startPoint: .top, endPoint: .bottom)
-            .frame(width: size.width, height: size.height)
-    }
-
-    /// 迷你底部信息区：歌名 / 歌手 / 进度条 / 三个控件，全部用真实歌曲文字。
-    private var footer: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(songTitle.isEmpty ? "歌曲名" : songTitle)
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(.white)
-                .lineLimit(1)
-            Text(artist.isEmpty ? "歌手" : artist)
-                .font(.system(size: 6.5))
-                .foregroundColor(.white.opacity(0.78))
-                .lineLimit(1)
-            HStack(spacing: 3) {
-                Capsule().fill(Color.white.opacity(0.9)).frame(width: 22, height: 2)
-                Capsule().fill(Color.white.opacity(0.35)).frame(height: 2)
-            }
-            .padding(.top, 2)
-            HStack {
-                Image(systemName: "backward.fill").font(.system(size: 8))
-                Spacer(minLength: 0)
-                Image(systemName: "play.fill").font(.system(size: 10))
-                Spacer(minLength: 0)
-                Image(systemName: "forward.fill").font(.system(size: 8))
-            }
-            .foregroundColor(.white.opacity(0.92))
-            .padding(.horizontal, 14)
-            .padding(.top, 4)
-        }
-        .padding(.horizontal, 8)
-        .padding(.bottom, 10)
-        .background(
-            LinearGradient(colors: [Color.clear, Color.black.opacity(0.48)],
-                           startPoint: .top, endPoint: .bottom)
-        )
     }
 }
 
-/// 缩略图里清晰封面的「顶部渐入 + 下沿长羽化」，与真机 ImmersiveCoverBackdrop 同构。
-private struct PlayerThemeThumbnailFade: View {
-    let width: CGFloat
-    let height: CGFloat
+
+// MARK: - 🔴 2026-11-10 沉浸式封面主题专用：酷狗同款歌词页
+//
+// 版式照酷狗 20.8.4 歌词页真机截图：
+//   顶栏 ∨ / 四个分页点 / 放大镜·切换背景·分享 → 歌名与歌手居中带描边胶囊 →
+//   居中大字歌词 → 收起箭头 → 细线动作行 → 进度条（时间在条下方）→ 自绘控件行。
+// 只有 .immersiveCover 主题会走到这里；经典封面 / 歌手写真仍用 LyricsPageView。
+// 全部图标用确定存在的 SF Symbol 或自绘 Shape，不赌不存在的符号名（项目红线）。
+
+private enum KugouLyricsSheet: String, Identifiable {
+    case share, search
+    var id: String { rawValue }
+}
+
+struct KugouLyricsPage: View {
+    @EnvironmentObject private var store: PlayerStore
+    @ObservedObject private var lyricState = PlayerStore.shared.lyricState
+    @ObservedObject private var playback = PlayerStore.shared.playback
+    @ObservedObject private var soundEffect = SoundEffectSetting.shared
+    @Binding var isShown: Bool
+    var onEnterLandscape: (() -> Void)? = nil
+
+    /// 沉浸模式：收起动作行 / 进度条 / 控件行，只留歌词与展开箭头。
+    @State private var chromeHidden = false
+    /// 歌词页是否叠歌手写真（默认关 = 酷狗的模糊纯色背景）；只在本页生效，不影响其它主题。
+    @State private var showPhoto = false
+    @State private var activeSheet: KugouLyricsSheet?
+    @State private var shareItems: [Any] = []
+    @State private var showMore = false
+    @State private var notice: String?
+    @State private var isScrubbing = false
+    @State private var scrubValue: Double = 0
+
+    private var safeTop: CGFloat { max(44, PlayerView.safeAreaInsets.top + 6) }
+    private var safeBottom: CGFloat { max(8, PlayerView.safeAreaInsets.bottom) }
+    private var displayTime: Double { isScrubbing ? scrubValue : playback.currentTime }
+
     var body: some View {
-        VStack(spacing: 0) {
-            LinearGradient(colors: [.clear, .black],
-                           startPoint: .top, endPoint: .bottom)
-                .frame(width: width, height: height * 0.10)
-            Color.black
-                .frame(width: width, height: height * 0.52)
-            LinearGradient(colors: [.black, .black.opacity(0.55), .clear],
-                           startPoint: .top, endPoint: .bottom)
-                .frame(width: width, height: height * 0.38)
+        GeometryReader { geo in
+            let sz = geo.size
+            ZStack {
+                backdrop(size: sz)
+                VStack(spacing: 0) {
+                    topBar
+                    songHeader
+                        .padding(.top, 18)
+                    BigLyricsView(lyrics: store.lyrics,
+                                  currentIndex: lyricState.currentIndex,
+                                  showsTranslation: store.showTranslation,
+                                  playback: PlayerStore.shared.playback,
+                                  isPlaying: store.isPlaying,
+                                  liveTime: { store.lyricDisplayTime })
+                        .frame(width: sz.width - 52)
+                        .frame(maxHeight: .infinity)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 8)
+
+                    collapseButton
+                        .padding(.bottom, 2)
+
+                    if !chromeHidden {
+                        actionRow
+                            .padding(.horizontal, 22)
+                            .padding(.bottom, 16)
+                        progressBlock
+                            .padding(.horizontal, 24)
+                        KugouControlsRow(showsQueueBadge: true)
+                            .padding(.horizontal, 24)
+                            .padding(.top, 6)
+                    }
+                }
+                .frame(width: sz.width, height: sz.height, alignment: .top)
+                .padding(.bottom, safeBottom + 6)
+
+                if let notice {
+                    VStack {
+                        Spacer()
+                        Text(notice)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Capsule().fill(Color.black.opacity(0.42)))
+                            .padding(.bottom, 170)
+                    }
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+                }
+            }
+            .frame(width: sz.width, height: sz.height)
         }
-        .frame(width: width, height: height)
+        .ignoresSafeArea()
+        .clipped()
+        .foregroundStyle(.white)
+        .animation(.easeInOut(duration: 0.22), value: chromeHidden)
+        .animation(.easeInOut(duration: 0.22), value: notice)
+        .modifier(LyricsStatusBarHider(hidden: chromeHidden))
+        .sheet(item: $activeSheet) { item in
+            switch item {
+            case .share:
+                ShareSheet(items: shareItems)
+            case .search:
+                KugouLyricsSearchSheet(lyrics: store.lyrics) { time in
+                    store.seek(to: time)
+                }
+            }
+        }
+        .confirmationDialog("更多", isPresented: $showMore, titleVisibility: .visible) {
+            Button("横屏播放器") { onEnterLandscape?() }
+            Button("分享歌曲") { prepareShare(); activeSheet = .share }
+            Button(store.showTranslation ? "关闭歌词翻译" : "开启歌词翻译") {
+                store.showTranslation.toggle()
+            }
+            Button("歌词延后 0.5 秒") { store.adjustLyricOffset(by: 0.5) }
+            Button("歌词提前 0.5 秒") { store.adjustLyricOffset(by: -0.5) }
+            Button("歌词对齐重置") { store.resetLyricOffset() }
+            Button("取消", role: .cancel) {}
+        }
+        .onChange(of: notice) { text in
+            guard text != nil else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { notice = nil }
+        }
+        .onChange(of: chromeHidden) { hidden in
+            IdleTimerKeeper.shared.set("kugou-lyrics-immersive", hidden)
+        }
+        .onDisappear {
+            IdleTimerKeeper.shared.set("kugou-lyrics-immersive", false)
+        }
+    }
+
+    // MARK: 背景：封面全屏高斯模糊 + 冷蓝灰渐层（酷狗歌词页观感）
+    private func backdrop(size: CGSize) -> some View {
+        ZStack {
+            if let art = store.artwork {
+                Image(uiImage: art)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size.width, height: size.height)
+                    .clipped()
+                    .blur(radius: 44)
+                    .opacity(0.72)
+            } else {
+                Image("LyricsFallback")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size.width, height: size.height)
+                    .clipped()
+            }
+            if showPhoto {
+                ArtistPhotoBackdrop(artist: store.current?.artist ?? "",
+                                    title: store.current?.title ?? "",
+                                    hash: store.current?.kugouHash ?? "")
+                    .frame(width: size.width, height: size.height)
+                    .clipped()
+                    .opacity(0.85)
+            }
+            LinearGradient(colors: [Color(red: 0.42, green: 0.44, blue: 0.50).opacity(0.42),
+                                    Color(red: 0.27, green: 0.31, blue: 0.42).opacity(0.56),
+                                    Color(red: 0.12, green: 0.16, blue: 0.29).opacity(0.82),
+                                    Color(red: 0.07, green: 0.10, blue: 0.20).opacity(0.94)],
+                           startPoint: .top, endPoint: .bottom)
+        }
+        .frame(width: size.width, height: size.height)
+        .clipped()
+        .allowsHitTesting(false)
+    }
+
+    // MARK: 顶栏：∨ / 分页点 / 放大镜·切换背景·分享
+    private var topBar: some View {
+        HStack(spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.3)) { isShown = false }
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 21, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .frame(width: 40, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 5) {
+                Circle().fill(.white.opacity(0.42)).frame(width: 5, height: 5)
+                Capsule().fill(.white.opacity(0.95)).frame(width: 14, height: 5)
+                Circle().fill(.white.opacity(0.42)).frame(width: 5, height: 5)
+                Circle().fill(.white.opacity(0.42)).frame(width: 5, height: 5)
+            }
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 14) {
+                Button { activeSheet = .search } label: {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 19, weight: .light))
+                        .frame(width: 34, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Button { showPhoto.toggle(); flash(showPhoto ? "已开启歌手写真背景" : "已切回封面氛围背景") } label: {
+                    Image(systemName: "square.on.square")
+                        .font(.system(size: 18, weight: .light))
+                        .frame(width: 34, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Button { prepareShare(); activeSheet = .share } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 19, weight: .light))
+                        .frame(width: 34, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .foregroundStyle(.white.opacity(0.9))
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, safeTop)
+    }
+
+    // MARK: 歌名 + 歌手 + 描边胶囊（居中，酷狗同款）
+    private var songHeader: some View {
+        VStack(spacing: 9) {
+            Text(store.current?.title ?? "未在播放")
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+            HStack(spacing: 6) {
+                Text(store.current?.artist ?? "未知歌手")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .lineLimit(1)
+                tag("VIP")
+                tag(SourceStore.shared.quality.title)
+                if let current = store.current,
+                   current.source == .local || DownloadManager.shared.item(for: current)?.isDone == true {
+                    tag("本地")
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func tag(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10))
+            .foregroundStyle(.white.opacity(0.72))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 3)
+                .stroke(.white.opacity(0.32), lineWidth: 0.8))
+    }
+
+    // MARK: 收起 / 展开控件
+    private var collapseButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.22)) { chromeHidden.toggle() }
+            Haptics.light()
+        } label: {
+            Image(systemName: chromeHidden ? "chevron.up" : "chevron.down")
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(.white.opacity(0.6))
+                .frame(width: 44, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: 细线动作行：词 / 写真 / 伴·音效 / 喜欢 / 复制歌词 / 更多
+    private var actionRow: some View {
+        HStack(spacing: 0) {
+            actionButton {
+                ZStack {
+                    KugouHexagon().stroke(.white.opacity(store.showTranslation ? 0.95 : 0.65), lineWidth: 1.2)
+                    Text("词").font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+                .frame(width: 25, height: 25)
+            } action: {
+                store.showTranslation.toggle()
+                flash(store.showTranslation ? "已开启歌词翻译" : "已关闭歌词翻译")
+            }
+
+            Spacer(minLength: 0)
+            actionButton {
+                ZStack(alignment: .topTrailing) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .stroke(.white.opacity(0.65), lineWidth: 1.2)
+                        .frame(width: 20, height: 20)
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .offset(x: 4, y: -5)
+                }
+                .frame(width: 25, height: 25)
+            } action: {
+                showPhoto.toggle()
+                flash(showPhoto ? "已开启歌手写真背景" : "已切回封面氛围背景")
+            }
+
+            Spacer(minLength: 0)
+            actionButton {
+                ZStack(alignment: .topTrailing) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .stroke(.white.opacity(0.65), lineWidth: 1.2)
+                        .frame(width: 20, height: 20)
+                    Text("伴").font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.85))
+                    Text(soundEffect.current == .off ? "OFF" : "ON")
+                        .font(.system(size: 6, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .offset(x: 8, y: -6)
+                }
+                .frame(width: 25, height: 25)
+            } action: {
+                soundEffect.current = soundEffect.current == .off ? .vocal : .off
+                flash(soundEffect.current == .off ? "音效已关闭" : "已开启清澈人声音效")
+            }
+
+            Spacer(minLength: 0)
+            actionButton {
+                Image(systemName: store.isLiked ? "heart.fill" : "heart")
+                    .font(.system(size: 20, weight: .light))
+                    .foregroundStyle(store.isLiked ? Color(red: 1.0, green: 0.36, blue: 0.42) : .white.opacity(0.8))
+                    .frame(width: 25, height: 25)
+            } action: {
+                store.toggleFavorite()
+                Haptics.light()
+            }
+
+            Spacer(minLength: 0)
+            actionButton {
+                Image(systemName: "message")
+                    .font(.system(size: 19, weight: .light))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .frame(width: 25, height: 25)
+            } action: {
+                copyCurrentLyric()
+            }
+
+            Spacer(minLength: 0)
+            actionButton {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .rotationEffect(.degrees(90))
+                    .frame(width: 25, height: 25)
+            } action: {
+                showMore = true
+            }
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity, minHeight: 34)
+    }
+
+    private func actionButton<Label: View>(@ViewBuilder label: () -> Label,
+                                           action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            label()
+                .frame(width: 44, height: 36)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: 进度条：细白线 + 常显定位点，时间文字在条【下方】两端
+    private var progressBlock: some View {
+        VStack(spacing: 4) {
+            GeometryReader { geo in
+                let w = geo.size.width
+                let pf = max(0, min(1, playback.progress))
+                let bf = max(0, min(1, playback.bufferedFraction))
+                let px = pf * w
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.30)).frame(height: 2.5)
+                    Capsule().fill(.white.opacity(0.42)).frame(width: bf * w, height: 2.5)
+                    Capsule().fill(.white.opacity(0.95)).frame(width: px, height: 2.5)
+                    Circle().fill(.white)
+                        .frame(width: isScrubbing ? 13 : 9, height: isScrubbing ? 13 : 9)
+                        .offset(x: px - (isScrubbing ? 6.5 : 4.5))
+                        .shadow(color: .black.opacity(0.35), radius: 2)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0)
+                    .onChanged { v in
+                        guard playback.duration > 0, w > 0 else { return }
+                        if !isScrubbing {
+                            isScrubbing = true
+                            scrubValue = playback.currentTime
+                        }
+                        scrubValue = min(1, max(0, v.location.x / w)) * playback.duration
+                    }
+                    .onEnded { _ in
+                        store.seek(to: scrubValue)
+                        isScrubbing = false
+                    })
+            }
+            .frame(height: 24)
+
+            HStack {
+                Text(displayTime.clockString)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.55))
+                Spacer(minLength: 0)
+                Text(playback.duration.clockString)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.55))
+            }
+        }
+    }
+
+    private func prepareShare() {
+        guard let song = store.current else { return }
+        var items: [Any] = []
+        if !song.kugouHash.isEmpty,
+           let url = URL(string: "https://www.kugou.com/song/#\(song.kugouHash)") {
+            items.append(url)
+        } else {
+            items.append("\(song.title) - \(song.artist)")
+        }
+        if let art = store.artwork { items.append(art) }
+        shareItems = items
+    }
+
+    private func copyCurrentLyric() {
+        guard let idx = lyricState.currentIndex, store.lyrics.indices.contains(idx) else {
+            flash("暂无可复制的歌词")
+            return
+        }
+        UIPasteboard.general.string = store.lyrics[idx].text
+        flash("已复制当前歌词")
+    }
+
+    private func flash(_ text: String) {
+        notice = text
+        Haptics.light()
+    }
+}
+
+/// 六边形「词」图标（酷狗歌词页左下角同款）。
+private struct KugouHexagon: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let w = rect.width, h = rect.height
+        p.move(to: CGPoint(x: w * 0.25, y: h * 0.04))
+        p.addLine(to: CGPoint(x: w * 0.75, y: h * 0.04))
+        p.addLine(to: CGPoint(x: w * 0.98, y: h * 0.5))
+        p.addLine(to: CGPoint(x: w * 0.75, y: h * 0.96))
+        p.addLine(to: CGPoint(x: w * 0.25, y: h * 0.96))
+        p.addLine(to: CGPoint(x: w * 0.02, y: h * 0.5))
+        p.closeSubpath()
+        return p
+    }
+}
+
+/// 歌词搜索：放大镜入口，点匹配行直接跳到那一句。
+private struct KugouLyricsSearchSheet: View {
+    let lyrics: [LyricLine]
+    let onSeek: (Double) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    private var results: [LyricLine] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return [] }
+        return lyrics.filter { $0.text.localizedCaseInsensitiveContains(q) }
+    }
+
+    var body: some View {
+        CompatNavigationStack {
+            List {
+                if results.isEmpty {
+                    Text(query.isEmpty ? "输入歌词片段查找" : "没有匹配的歌词")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(results) { line in
+                        Button {
+                            onSeek(line.time)
+                            dismiss()
+                        } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(line.text)
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.primary)
+                                Text(line.time.clockString)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: "搜索歌词")
+            .navigationTitle("搜索歌词")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
     }
 }

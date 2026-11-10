@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 我的：音源、播放偏好、版本与授权。
 struct ProfileView: View {
@@ -37,6 +38,18 @@ struct ProfileView: View {
     @State private var diagnosticsActive = false
     /// QQ 交流群弹层（v2.5.41：启动公告取消后，入口改为设置页这一行）
     @State private var showQQGroup = false
+    // MARK: 🔴 2026-11-10 本地歌曲导入（入口从「我的音乐 → 下载歌曲」搬到设置页）
+    @State private var showFileImporter = false
+    @State private var importNotice: String?
+
+    /// `.audio` 覆盖系统已注册的格式，再按扩展名补上 flac / ape 等系统不一定认的类型。
+    private static let importContentTypes: [UTType] = {
+        var types: [UTType] = [.audio]
+        for ext in ["mp3", "m4a", "aac", "flac", "wav", "aiff", "aif", "caf", "ogg", "opus", "ape", "wma"] {
+            if let t = UTType(filenameExtension: ext) { types.append(t) }
+        }
+        return types
+    }()
     // 🔴 v2.9.8：云账号输入框
     @State private var cloudEmail = ""
     @State private var cloudPassword = ""
@@ -300,6 +313,51 @@ struct ProfileView: View {
                     .foregroundStyle(AppStyle.tertiaryText)
             }
 
+            // MARK: 🔴 2026-11-10 本地歌曲导入（原「我的音乐 → 下载歌曲」页的入口搬到这里）
+            Section {
+                Button {
+                    showFileImporter = true
+                } label: {
+                    HStack {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("导入本地歌曲")
+                                Text("从「文件」App 挑选音频，导入后在「我的音乐 → 下载歌曲」播放")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(AppStyle.tertiaryText)
+                            }
+                        } icon: {
+                            LucideIcon(icon: .filePlus, size: 18, color: AppStyle.secondaryText)
+                        }
+                        Spacer()
+                        LucideIcon(icon: .chevronRight, size: 12, color: AppStyle.tertiaryText)
+                    }
+                    .foregroundStyle(AppStyle.primaryText)
+                }
+                // 🔴 fileImporter 挂在这一行（而不是 List 外层），避开 iOS 15 链式
+                //    sheet / alert 只认最后一个的老坑；与下载歌曲页原实现一致。
+                .fileImporter(isPresented: $showFileImporter,
+                              allowedContentTypes: Self.importContentTypes,
+                              allowsMultipleSelection: true) { result in
+                    switch result {
+                    case .success(let urls):
+                        let songs = urls.compactMap { DownloadManager.shared.importFile($0) }
+                        importNotice = songs.isEmpty
+                            ? "没有导入可播放的音频文件"
+                            : "已导入 \(songs.count) 首歌曲，可在「我的音乐 → 下载歌曲」查看"
+                    case .failure(let error):
+                        importNotice = "导入失败：\(error.localizedDescription)"
+                    }
+                    Haptics.soft()
+                }
+            } header: {
+                headerText("本地歌曲")
+            } footer: {
+                Text("也可以直接在「文件」App → Aurora Music → Aurora Downloads 里放入音频；已下载的歌曲同样会出现在「我的音乐 → 下载歌曲」。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.tertiaryText)
+            }
+
             Section {
                 // 🔴 v2.7.4：改成一整页（酷狗风格的音质页），
                 // 原来的系统 Picker 只有一行、看不到各档位差别。
@@ -549,6 +607,15 @@ struct ProfileView: View {
                 DiagnosticsView()
             } label: { EmptyView() }
         )
+        // 导入结果用 alert 反馈（与页面里其它 sheet 不同通道，不会互相吞掉）
+        .alert("导入本地歌曲", isPresented: Binding(
+            get: { importNotice != nil },
+            set: { presented in if !presented { importNotice = nil } }
+        )) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(importNotice ?? "")
+        }
         .task {
             if case .idle = updater.phase {
                 await updater.check()

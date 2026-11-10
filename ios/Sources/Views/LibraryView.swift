@@ -1,6 +1,5 @@
 import SwiftUI
 import AVFoundation
-import UniformTypeIdentifiers
 
 /// 🔴 2026-11-09：酷狗大歌单后台补齐时的「上屏节流器」。
 /// 576 首歌单每反查完一小批（4~6 首）都会回调一次 onBatch，若每批都整体替换
@@ -409,18 +408,8 @@ private struct KugouLibraryPage: View {
     /// 🔴 2026-11-09：只搜索**当前下载列表**的关键词（不触发网络搜索、不影响其它板块）。
     @State private var downloadQuery = ""
 
-    // MARK: 🔴 2026-11-10 文件共享 / 从「文件」App 导入
-    @State private var showFileImporter = false
-    @State private var importNotice: String?
-
-    /// `.audio` 覆盖系统已注册的格式，再按扩展名补上 flac / ape 等系统不一定认的类型。
-    private static let importContentTypes: [UTType] = {
-        var types: [UTType] = [.audio]
-        for ext in ["mp3", "m4a", "aac", "flac", "wav", "aiff", "aif", "caf", "ogg", "opus", "ape", "wma"] {
-            if let t = UTType(filenameExtension: ext) { types.append(t) }
-        }
-        return types
-    }()
+    // 🔴 2026-11-10：本地歌曲导入入口已移到「设置」页（用户要求），
+    //    下载歌曲板块只保留搜索框 + 列表，不再放文件选择器。
 
     private var downloadSearchText: String {
         downloadQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -618,50 +607,6 @@ private struct KugouLibraryPage: View {
         .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-
-        // 🔴 2026-11-10：下载目录已改到 Documents，文件 App 能直接看到已下载的歌；
-        //    这里给一个「从文件夹导入」入口，把本地音频登记进下载列表。
-        //    fileImporter 挂在这一行（而不是外层 Group），避开 iOS 15 链式
-        //    sheet/alert 只认最后一个的老坑。
-        HStack(spacing: 8) {
-            Button { showFileImporter = true } label: {
-                Label("导入本地歌曲", systemImage: "square.and.arrow.down")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(AppStyle.accent)
-            }
-            .buttonStyle(.plain)
-            Spacer(minLength: 0)
-            Text("文件 App → Aurora Music → Aurora Downloads")
-                .font(.system(size: 10))
-                .foregroundStyle(AppStyle.tertiaryText)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
-        .fileImporter(isPresented: $showFileImporter,
-                      allowedContentTypes: Self.importContentTypes,
-                      allowsMultipleSelection: true) { result in
-            switch result {
-            case .success(let urls):
-                let songs = urls.compactMap { DownloadManager.shared.importFile($0) }
-                importNotice = songs.isEmpty
-                    ? "没有导入可播放的音频文件"
-                    : "已导入 \(songs.count) 首歌曲，可在下载列表查看"
-            case .failure(let error):
-                importNotice = "导入失败：\(error.localizedDescription)"
-            }
-            Haptics.soft()
-        }
-
-        if let importNotice {
-            Text(importNotice)
-                .font(.system(size: 12))
-                .foregroundStyle(AppStyle.accent)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
-                .onTapGesture { self.importNotice = nil }
-        }
 
         DownloadsList(groups: downloadGroups,
                       emptyTitle: downloadSearchText.isEmpty ? "还没有下载" : "没有找到相关歌曲",
