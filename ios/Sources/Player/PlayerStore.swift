@@ -9,15 +9,36 @@ final class PlayerStore: ObservableObject {
     // MARK: 队列
 
     @Published private(set) var queue: [Song] = [] {
-        didSet { mini.song = current }
+        didSet {
+            mini.song = current
+            scheduleSessionSave()
+        }
     }
     // 🔴 currentIndex 变化即代表「换歌」，同步给迷你播放条。
     // 覆盖所有场景：play / step / 上一首下一首 / 随机播放 / 队列去重。
     @Published private(set) var currentIndex: Int = -1 {
-        didSet { if currentIndex != oldValue { mini.song = current } }
+        didSet {
+            if currentIndex != oldValue { mini.song = current }
+            scheduleSessionSave()
+        }
     }
-    @Published var queueID: String? = nil
-    @Published var mode: PlaybackMode = .order
+    @Published var queueID: String? = nil { didSet { scheduleSessionSave() } }
+    @Published var mode: PlaybackMode = .order { didSet { scheduleSessionSave() } }
+
+    // MARK: - 播放会话记忆（2026-11-10：退出 App 再进来继续上次的播放列表）
+    private enum SessionKey {
+        static let queue = "aurora.session.queue"
+        static let index = "aurora.session.index"
+        static let mode = "aurora.session.mode"
+        static let queueID = "aurora.session.queueID"
+        static let position = "aurora.session.position"
+    }
+    /// 队列 / 索引 / 模式变化很密集（append、insertNext、拖动排序…），
+    /// 用 0.6s 去抖，避免每次 didSet 都把整份 JSON 写进 UserDefaults。
+    private var sessionSaveWork: DispatchWorkItem?
+    /// 恢复后首次播放要跳回的进度；只对恢复时那首歌生效，切歌不会误跳。
+    private var pendingResumeTime: Double = 0
+    private var pendingResumeSongID: String?
 
     // MARK: 播放状态
     //
@@ -322,6 +343,70 @@ final class PlayerStore: ObservableObject {
     /// App 启动时调用。
     func bootstrap() {
         DownloadManager.shared.bootstrap()
+        restoreSession()
+    }
+
+    // MARK: - 播放会话记忆
+
+    private func scheduleSessionSave() {
+        sessionSaveWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.saveSession() }
+        sessionSaveWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
+    }
+
+    /// 把队列 / 当前曲目 / 播放模式 / 队列来源落盘。
+    /// 🔴 每首歌的 `url` 清空：那是带签名的一次性 CDN 地址，重启后已过期，
+    ///    留着会让 prepare 以为「已有地址」直接挂上去播失败；恢复后统一重新解析。
+    private func saveSession() {
+        let defaults = UserDefaults.standard
+        guard !queue.isEmpty else {
+            defaults.removeObject(forKey: SessionKey.queue)
+            defaults.removeObject(forKey: SessionKey.position)
+            return
+        }
+        do {
+            var clean = queue
+            for i in clean.indices { clean[i].url = nil }
+            defaults.set(try JSONEncoder().encode(clean), forKey: SessionKey.queue)
+            defaults.set(currentIndex, forKey: SessionKey.index)
+            defaults.set(mode.rawValue, forKey: SessionKey.mode)
+            if let queueID { defaults.set(queueID, forKey: SessionKey.queueID) }
+            else { defaults.removeObject(forKey: SessionKey.queueID) }
+        } catch {
+            Log.error("播放", "保存播放队列失败：\(error.localizedDescription)")
+        }
+    }
+
+    /// App 退到后台时调用：记下当时的播放头，下次点播放从这里继续。
+    func savePlaybackPosition() {
+        guard !queue.isEmpty else { return }
+        let t = player.currentTime().seconds
+        if t.isFinite, t > 0 {
+            UserDefaults.standard.set(t, forKey: SessionKey.position)
+        }
+        saveSession()
+    }
+
+    /// 冷启动恢复：只还原队列与当前曲目，**不自动播放、不预解析 URL**。
+    /// 用户点播放时 `play()` 发现没有 currentItem，会自己走 prepare(autoplay:true)。
+    private func restoreSession() {
+        let defaults = UserDefaults.standard
+        guard let data = defaults.data(forKey: SessionKey.queue),
+              let songs = try? JSONDecoder().decode([Song].self, from: data),
+              !songs.isEmpty else { return }
+        queue = songs
+        currentIndex = min(max(0, defaults.integer(forKey: SessionKey.index)), songs.count - 1)
+        if let raw = defaults.object(forKey: SessionKey.mode) as? Int,
+           let saved = PlaybackMode(rawValue: raw) { mode = saved }
+        queueID = defaults.string(forKey: SessionKey.queueID)
+        pendingResumeTime = max(0, defaults.double(forKey: SessionKey.position))
+        pendingResumeSongID = current?.id
+        if let song = current {
+            isLiked = LibraryStore.shared.isFavorite(song)
+            refreshArtwork(for: song)
+        }
+        Log.info("播放", "恢复上次播放队列：\(songs.count) 首，当前 \(current?.title ?? "-")，进度 \(pendingResumeTime)s")
     }
 
     // MARK: - 队列操作
@@ -651,6 +736,25 @@ final class PlayerStore: ObservableObject {
         player.replaceCurrentItem(with: item)
         itemThirdParty = thirdParty
         failedHosts = []
+
+        // 🔴 会话恢复后的首次播放：把播放头跳回退出前的位置。
+        //    只对恢复时那首歌生效；切歌 / 换源自动重试不会误跳。
+        if pendingResumeTime > 0 {
+            let matches = pendingResumeSongID == nil || pendingResumeSongID == current?.id
+            let target = pendingResumeTime
+            pendingResumeTime = 0
+            pendingResumeSongID = nil
+            UserDefaults.standard.removeObject(forKey: SessionKey.position)
+            if matches {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                    guard let self, self.player.currentItem === item else { return }
+                    let total = item.duration.seconds
+                    let t = (total.isFinite && total > 1) ? min(target, total - 1) : max(0, target)
+                    self.player.seek(to: CMTime(seconds: max(0, t), preferredTimescale: 600))
+                    Log.info("播放", "恢复播放进度 -> \(t)s")
+                }
+            }
+        }
 
         // KVO: 缓冲状态 — Swift 6 strict concurrency：KVO 闭包非隔离，[weak self] 捕获后不能在 Task 内直接用 self，
         // 必须先在闭包内 guard 解包再传给 Task。

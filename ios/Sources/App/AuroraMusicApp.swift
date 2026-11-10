@@ -114,6 +114,10 @@ struct AuroraMusicApp: App {
                 .onChange(of: scenePhase) { phase in
                     if phase == .active {
                         Task { await updater.checkOnForeground() }
+                    } else if phase == .background {
+                        // 🔴 2026-11-10：退出 / 切后台时把播放头与队列落盘，
+                        //    下次冷启动 restoreSession() 恢复列表，点播放从这里继续。
+                        store.savePlaybackPosition()
                     }
                 }
         }

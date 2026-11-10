@@ -2689,6 +2689,13 @@ private struct LandscapeLyricsBlock: View {
 ///       斜率突变，全屏等宽叠一层正是那条「横向分界带」的根因。
 ///    ④ `seamlessMask` 清晰段 0.54→0.46、羽化段 0.32→0.40（9 段平滑衰减），淡出更长更缓。
 ///
+/// 🔴 2026-11-10 第十次微调（用户：「左下怎么是黄色的，看看酷狗的」）：
+///    「情罪」封面量化：我方左下 `(100,88,91)` 暖黄，酷狗同位置 `(63,68,95)` 冷蓝紫。
+///    根因 = ③ 整屏都用「整图平均主色」0.18 覆盖，而这张封面整图平均偏棕黄。
+///    改成 0~0.30H 保持整图主色（顶栏一点不动）+ 0.30H~1.0H 8 段渐变到
+///    【封面下半部主色】`lowerToneColor`（深蓝衣服 → 冷蓝，亮度归一 0.30 更暗）。
+///    🔴 自适应是关键：换暖色封面时下半主色也暖，绝不硬编码蓝色（历史「压成灰绿」被否的坑）。
+///
 /// 🔴 布局红线（v2.6.8 / 2026-11-09 两次实锤）：背景层必须锁死屏幕尺寸
 ///    + clipped + allowsHitTesting(false)，否则原图像素尺寸会撑大 ZStack，
 ///    把动作行 / 播放控件整块挤出屏幕。
@@ -2702,6 +2709,9 @@ private struct ImmersiveCoverBackdrop: View {
             //    外层 immersiveBackground 的经典取色渐变自然透出 = 自动回退。
             if let artwork {
                 let tone = Self.mainToneColor(from: artwork)
+                // 🔴 2026-11-10 第十次微调：封面【下半部】主色。整图平均偏棕黄，
+                //    用整图主色整屏覆盖会把左下染黄；下半是深蓝衣服 → 冷蓝紫。
+                let lowerTone = Self.lowerToneColor(from: artwork)
                 // 清晰封面：按原图比例铺满屏宽，绝不横向裁切；
                 // 极端的长图最多裁掉一点下沿（下沿本来就要羽化），不裁左右。
                 let ratio = CGFloat(artwork.size.height) / max(CGFloat(artwork.size.width), 1)
@@ -2732,11 +2742,29 @@ private struct ImmersiveCoverBackdrop: View {
                     .frame(width: size.width, height: size.height)
                     .clipped()
 
-                // ③ 主色调薄覆盖：把整屏色相往封面主色收一点，避免局部过花，
-                //    但保留 ② 的纵向明暗与纹理 —— 浓度必须低，高了又变回纯色分层。
-                tone
-                    .opacity(0.18)
-                    .frame(width: size.width, height: size.height)
+                // ③ 主色调薄覆盖（2026-11-10 第十次微调）：
+                //    🔴 旧版整屏都用「整图平均主色」0.18 覆盖，这张「情罪」封面整图平均偏棕黄
+                //       → 左下被染成暖黄 (100,88,91)，酷狗同款左下是冷蓝紫 (63,68,95)。
+                //    现在分段：0~0.30H 仍用整图主色（顶栏氛围一点不动），0.30H~1.0H
+                //    平滑过渡到【封面下半部主色】—— 下半是深蓝衣服 → 冷蓝；
+                //    换暖色封面时下半主色也是暖的，不会硬把每张封面都染蓝（历史被否的坑）。
+                //    8 段色标首尾浓度持平，斜率无突变，不会再生成横向分界带。
+                VStack(spacing: 0) {
+                    tone.opacity(0.18)
+                        .frame(width: size.width, height: size.height * 0.30)
+                    LinearGradient(colors: [
+                        tone.opacity(0.18),
+                        tone.opacity(0.19),
+                        lowerTone.opacity(0.20),
+                        lowerTone.opacity(0.23),
+                        lowerTone.opacity(0.27),
+                        lowerTone.opacity(0.30),
+                        lowerTone.opacity(0.32),
+                        lowerTone.opacity(0.32)
+                    ], startPoint: .top, endPoint: .bottom)
+                        .frame(width: size.width, height: size.height * 0.70)
+                }
+                .frame(width: size.width, height: size.height)
 
                 // ③.5 下半屏加深（2026-11-10 第九次微调）：歌名 / 歌词 / 控件区域压深。
                 //    🔴 旧版 6 段等距色标在 0.40H / 0.60H / 0.80H 各有一次斜率突变，
@@ -2861,17 +2889,35 @@ private struct ImmersiveCoverBackdrop: View {
     ///    整屏颜色应由 ② 的封面本身决定，这里只负责统一色调 + 盖住经典主题深色底。
     ///    本例封面平均 ≈(134,117,92) → 主色 ≈(127,111,87)；
     ///    目标顶栏 (155,136,108)、下半 (115,94,50) 分别由封面上 / 下 1/3 的模糊延伸给出。
-    private static func mainToneColor(from image: UIImage) -> Color {
+    private static func mainToneColor(from image: UIImage, targetLum: Double = 0.44) -> Color {
         let fallback = Color(.sRGB, red: 0.50, green: 0.43, blue: 0.34, opacity: 1)
         guard let w = Self.dominantRGB(from: image) else { return fallback }
         let lum = 0.2126 * w.r + 0.7152 * w.g + 0.0722 * w.b
-        let scale = min(1.8, 0.44 / max(lum, 0.16))
+        let scale = min(1.8, targetLum / max(lum, 0.16))
         func clamped(_ v: Double) -> Double { min(1, max(0, v)) }
         return Color(.sRGB,
                      red: clamped(w.r * scale),
                      green: clamped(w.g * scale),
                      blue: clamped(w.b * scale),
                      opacity: 1)
+    }
+
+    /// 封面【下半部】主色（2026-11-10 第十次微调）：用 UIGraphicsImageRenderer
+    /// 取下半张图再走 mainToneColor，避开 `CGImage.cropping(to:)` 的 y 轴方向歧义；
+    /// `UIImage.draw(in:)` 会正确处理 imageOrientation。
+    /// 亮度归一到 0.30（比整图主色 0.44 更暗）：下半覆盖既能带出封面的冷色相，
+    /// 又不会把「底部清晰区」提亮，白字对比度不受影响。
+    private static func lowerToneColor(from image: UIImage) -> Color {
+        let halfH = image.size.height / 2
+        guard halfH > 0, image.size.width > 0 else {
+            return mainToneColor(from: image, targetLum: 0.30)
+        }
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: image.size.width, height: halfH))
+        let half = renderer.image { _ in
+            image.draw(in: CGRect(x: 0, y: -halfH,
+                                  width: image.size.width, height: image.size.height))
+        }
+        return mainToneColor(from: half, targetLum: 0.30)
     }
 }
 
@@ -2929,6 +2975,11 @@ private struct PlayerThemePickerPanel: View {
             sheetBody
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // 🔴 2026-11-10：overlay 默认把 bottom 对齐点放在【安全区上沿】，
+        //    于是白色面板底部与屏幕底之间露出 34pt 播放页深色背景 = 用户说的「下面黑色」。
+        //    只加 .bottom（不动 .top、不动 ScrollView 内容），独立 overlay 层不会触发
+        //    项目里「每层 ignoresSafeArea 下推一个安全区」的白顶红线。
+        .ignoresSafeArea(edges: .bottom)
     }
 
     /// 白色圆角半屏面板：标题 + 横向可滚动卡片 + 底部 home indicator 留白。
@@ -2962,10 +3013,13 @@ private struct PlayerThemePickerPanel: View {
             }
             .frame(height: PlayerThemeCardMetrics.height + 34)
 
-            Spacer(minLength: 26)
+            Spacer(minLength: 34)
         }
         .frame(height: 312)
         .frame(maxWidth: .infinity)
+        // 白色再向下多铺 34pt：即使系统仍把对齐点留在安全区上沿，
+        // home indicator 那一条也已经是白色，不会再露出播放页深色底。
+        .padding(.bottom, 34)
         .background(Color.white)
         .clipShape(PlayerThemeTopCorners(radius: 22))
     }
