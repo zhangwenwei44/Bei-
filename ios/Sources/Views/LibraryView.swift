@@ -1116,7 +1116,8 @@ struct KugouPlaylistDetail: View {
     @ViewBuilder
     private var content: some View {
         // 🔴 只算一次：ForEach 里逐行再算会让 576 首歌单的排序缓存比较被执行几百遍。
-        let index = letterIndexInfo
+        //    变量名不能叫 index —— ForEach(enumerated) 的索引参数会把它遮蔽成 Int。
+        let letterInfo = letterIndexInfo
         if isLoading {
             ListRowsSkeleton(rows: 6).padding(.top, 20)
         } else if let err = errorMsg {
@@ -1133,7 +1134,7 @@ struct KugouPlaylistDetail: View {
                     // 🔴 2026-11-12：每组首字母第一首歌放一个 0 高度锚点，
                     //    供右侧字母条 scrollTo 定位（不改任何列表布局）。
                     if PlaylistLetterIndex.isActive(sortMode),
-                       let letter = index.anchors[song.id] {
+                       let letter = letterInfo.anchors[song.id] {
                         Color.clear.frame(height: 0)
                             .id(PlaylistLetterIndex.anchorID(letter))
                     }

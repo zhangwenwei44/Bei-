@@ -150,7 +150,7 @@ struct PlaylistDetailView: View {
             sticky: { actionBar },
             content: {
                 // 🔴 只算一次：ForEach 里逐行再算会让大歌单的排序缓存比较被执行几百遍。
-                let index = letterIndexInfo
+                let letterInfo = letterIndexInfo
                 if isLoading, displaySongs.isEmpty {
                     LoadingRow()
                 } else if let errorMessage, displaySongs.isEmpty {
@@ -164,7 +164,7 @@ struct PlaylistDetailView: View {
                         ForEach(displaySongs) { song in
                             let selected = selectedIDs.contains(song.id)
                             if PlaylistLetterIndex.isActive(sortMode),
-                               let letter = index.anchors[song.id] {
+                               let letter = letterInfo.anchors[song.id] {
                                 Color.clear.frame(height: 0)
                                     .id(PlaylistLetterIndex.anchorID(letter))
                             }
@@ -542,7 +542,7 @@ struct AlbumDetailView: View {
             sticky: { actionBar },
             content: {
                 // 🔴 只算一次：ForEach 里逐行再算会让排序缓存比较被执行几百遍。
-                let index = letterIndexInfo
+                let letterInfo = letterIndexInfo
                 if isLoading, displaySongs.isEmpty {
                     LoadingRow()
                 } else if let errorMessage, displaySongs.isEmpty {
@@ -554,7 +554,7 @@ struct AlbumDetailView: View {
                         ForEach(displaySongs) { song in
                             let selected = selectedIDs.contains(song.id)
                             if PlaylistLetterIndex.isActive(sortMode),
-                               let letter = index.anchors[song.id] {
+                               let letter = letterInfo.anchors[song.id] {
                                 Color.clear.frame(height: 0)
                                     .id(PlaylistLetterIndex.anchorID(letter))
                             }
