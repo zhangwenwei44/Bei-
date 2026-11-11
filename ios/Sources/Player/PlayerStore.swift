@@ -18,7 +18,13 @@ final class PlayerStore: ObservableObject {
     // 覆盖所有场景：play / step / 上一首下一首 / 随机播放 / 队列去重。
     @Published private(set) var currentIndex: Int = -1 {
         didSet {
-            if currentIndex != oldValue { mini.song = current }
+            if currentIndex != oldValue {
+                mini.song = current
+                // 🔴 2026-11-11：歌单「按播放量高–低 / 低–高排序」的本地播放次数。
+                //    切歌即记一次；PlayCountTracker 内部只做内存自增 + 1s 去抖写盘，
+                //    绝不在 didSet 里同步写 UserDefaults（主线程卡顿红线）。
+                if let song = current { PlayCountTracker.shared.record(song.id) }
+            }
             scheduleSessionSave()
         }
     }

@@ -104,9 +104,20 @@ struct PlaylistDetailView: View {
     /// 🔴 2026-11-07：沉浸式头部状态（容器与 toolbar 共用，顶栏配色才能随滚动同步）。
     @StateObject private var headerState = ImmersiveHeaderState()
 
+    // 🔴 2026-11-11：歌单排序（酷狗同款 7 种方式）。
+    @State private var showSortSheet = false
+    @AppStorage("aurora.playlist.sortMode") private var sortModeRaw = PlaylistSortMode.custom.rawValue
+    private var sortMode: PlaylistSortMode { PlaylistSortMode(rawValue: sortModeRaw) ?? .custom }
+    private var sortListKey: String {
+        if let localPlaylist { return "local:\(localPlaylist.id)" }
+        return "pl:\(playlist.id)"
+    }
+
+    /// 🔴 2026-11-11：所有展示 / 播放 / 多选 / 下载一律走这份排序后的数组，一处排序处处生效。
     private var displaySongs: [Song] {
-        if let localPlaylist { return library.songs(in: localPlaylist) }
-        return songs
+        let base: [Song] = localPlaylist.map { library.songs(in: $0) } ?? songs
+        return PlaylistSortMemo.shared.result(songs: base, mode: sortMode,
+                                              listKey: sortListKey, originalIsNewestFirst: false)
     }
 
     /// 🔴 5 个推荐板块没有自己的封面 → 用第一首歌的封面放大当大图；
@@ -304,6 +315,24 @@ struct PlaylistDetailView: View {
                 }
             }
         }
+        // 🔴 2026-11-11：排序弹窗走自定义 overlay（iOS 15 链式 .sheet 只有最后一个生效）。
+        .overlay(alignment: .bottom) {
+            if showSortSheet {
+                PlaylistSortSheet(
+                    current: sortMode,
+                    songs: displaySongs,
+                    listKey: sortListKey,
+                    onSelect: { picked in
+                        sortModeRaw = picked.rawValue
+                        showSortSheet = false
+                        Haptics.light()
+                    },
+                    onClose: { showSortSheet = false }
+                )
+                .transition(.move(edge: .bottom))
+            }
+        }
+        .animation(.easeInOut(duration: 0.26), value: showSortSheet)
         .task {
             if !didLoadCollection {
                 didLoadCollection = true
@@ -313,9 +342,8 @@ struct PlaylistDetailView: View {
         }
     }
 
-    /// 🔴 2026-11-08 用户指定：吸顶行只保留
-    ///   ① 「蓝色圆钮 ▶ + 播放全部 + 灰色曲目数」；② 最右侧多选按钮（布局列表图标）。
-    ///   「下载全部」文字按钮与原来的选歌播放 Menu 一并移除（下载全部收进顶栏三点竖菜单）。
+    /// 🔴 吸顶行：蓝色圆钮 ▶ + 播放全部 + 曲目数 + 排序按钮 + 多选按钮。
+    ///    「下载全部」收在顶栏三点竖菜单里。2026-11-11 排序按钮按用户要求放在多选按钮前面。
     private var actionBar: some View {
         HStack(spacing: 12) {
             ImmersivePlayAllButton(count: displaySongs.count) {
@@ -324,6 +352,15 @@ struct PlaylistDetailView: View {
             }
 
             Spacer(minLength: 0)
+
+            Button {
+                showSortSheet = true
+            } label: {
+                ImmersiveSortIcon(color: AppStyle.primaryText)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
 
             Button {
                 isSelecting = true
@@ -437,6 +474,16 @@ struct AlbumDetailView: View {
     /// 🔴 2026-11-07：与歌单详情共用沉浸式头部状态。
     @StateObject private var headerState = ImmersiveHeaderState()
 
+    // 🔴 2026-11-11：歌单排序（酷狗同款 7 种方式）。
+    @State private var showSortSheet = false
+    @AppStorage("aurora.playlist.sortMode") private var sortModeRaw = PlaylistSortMode.custom.rawValue
+    private var sortMode: PlaylistSortMode { PlaylistSortMode(rawValue: sortModeRaw) ?? .custom }
+    private var sortListKey: String { "al:\(album.albumID.isEmpty ? album.name : album.albumID)" }
+    private var displaySongs: [Song] {
+        PlaylistSortMemo.shared.result(songs: songs, mode: sortMode,
+                                       listKey: sortListKey, originalIsNewestFirst: false)
+    }
+
     private var isFavorited: Bool { library.isAlbumFavorite(album) }
 
     private var heroURL: URL? { album.coverURL ?? songs.first?.artworkURL }
@@ -458,15 +505,15 @@ struct AlbumDetailView: View {
             },
             sticky: { actionBar },
             content: {
-                if isLoading, songs.isEmpty {
+                if isLoading, displaySongs.isEmpty {
                     LoadingRow()
-                } else if let errorMessage, songs.isEmpty {
+                } else if let errorMessage, displaySongs.isEmpty {
                     EmptyStateView(icon: "exclamationmark.triangle", title: "加载失败", message: errorMessage)
-                } else if songs.isEmpty {
+                } else if displaySongs.isEmpty {
                     EmptyStateView(icon: "music.note.list", title: "专辑里没找到歌曲", message: "可能这个专辑在酷狗上的信息较少")
                 } else {
                     VStack(spacing: 0) {
-                        ForEach(songs) { song in
+                        ForEach(displaySongs) { song in
                             let selected = selectedIDs.contains(song.id)
                             HStack(spacing: 0) {
                                 if isSelecting {
@@ -515,10 +562,10 @@ struct AlbumDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 if isSelecting {
                     Button {
-                        if selectedIDs.count == songs.count { selectedIDs.removeAll() }
-                        else { selectedIDs = Set(songs.map(\.id)) }
+                        if selectedIDs.count == displaySongs.count { selectedIDs.removeAll() }
+                        else { selectedIDs = Set(displaySongs.map(\.id)) }
                     } label: {
-                        Text(selectedIDs.count == songs.count ? "取消全选" : "全选")
+                        Text(selectedIDs.count == displaySongs.count ? "取消全选" : "全选")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(headerState.navContentColor)
                     }
@@ -568,7 +615,7 @@ struct AlbumDetailView: View {
         .onDisappear { store.isAnyMultiSelecting = false }
         .safeAreaInset(edge: .bottom) {
             if isSelecting, !selectedIDs.isEmpty {
-                let selected = songs.filter { selectedIDs.contains($0.id) }
+                let selected = displaySongs.filter { selectedIDs.contains($0.id) }
                 HStack(spacing: 0) {
                     Button {
                         store.play(selected); Haptics.soft()
@@ -596,19 +643,46 @@ struct AlbumDetailView: View {
                 .overlay(Rectangle().fill(AppStyle.stroke).frame(height: 0.5), alignment: .top)
             }
         }
+        // 🔴 2026-11-11：排序弹窗走自定义 overlay（iOS 15 链式 .sheet 只有最后一个生效）。
+        .overlay(alignment: .bottom) {
+            if showSortSheet {
+                PlaylistSortSheet(
+                    current: sortMode,
+                    songs: displaySongs,
+                    listKey: sortListKey,
+                    onSelect: { picked in
+                        sortModeRaw = picked.rawValue
+                        showSortSheet = false
+                        Haptics.light()
+                    },
+                    onClose: { showSortSheet = false }
+                )
+                .transition(.move(edge: .bottom))
+            }
+        }
+        .animation(.easeInOut(duration: 0.26), value: showSortSheet)
         .task { await load() }
     }
 
-    /// 🔴 2026-11-08：与歌单页统一 —— 「蓝色圆钮 + 播放全部 + 数量」+ 右侧多选按钮，
+    /// 🔴 吸顶行：蓝色圆钮 + 播放全部 + 数量 + 排序按钮 + 多选按钮。
     ///    「下载全部」移到顶栏三点竖菜单。
     private var actionBar: some View {
         HStack(spacing: 12) {
-            ImmersivePlayAllButton(count: songs.count) {
-                store.play(songs)
+            ImmersivePlayAllButton(count: displaySongs.count) {
+                store.play(displaySongs)
                 Haptics.light()
             }
 
             Spacer(minLength: 0)
+
+            Button {
+                showSortSheet = true
+            } label: {
+                ImmersiveSortIcon(color: AppStyle.primaryText)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
 
             Button {
                 isSelecting = true
@@ -626,13 +700,13 @@ struct AlbumDetailView: View {
     }
 
     private func play(_ song: Song) {
-        guard let index = songs.firstIndex(where: { $0.id == song.id }) else { return }
-        store.play(songs, startAt: index)
+        guard let index = displaySongs.firstIndex(where: { $0.id == song.id }) else { return }
+        store.play(displaySongs, startAt: index)
         Haptics.soft()
     }
 
     private func downloadAllAlbumSongs() async {
-        let remote = songs.filter { $0.isRemote }
+        let remote = displaySongs.filter { $0.isRemote }
         Log.info("下载", "专辑下载全部：\(remote.count) 首")
         for s in remote { _ = try? await downloads.download(s) }
         Haptics.soft()

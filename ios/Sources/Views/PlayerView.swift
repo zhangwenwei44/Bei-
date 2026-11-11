@@ -2751,6 +2751,19 @@ private struct LandscapeLyricsBlock: View {
 ///       顶部变淡、下半几乎不提亮（下半只暗 3，主要差在蓝色太浓），封面本身不变。
 ///    🔴 全部是均匀层或平滑渐变，不引入色标折点 → 不会重新长出横向分界带。
 ///
+/// 🔴 2026-11-11 第十四次微调（用户：「酷狗的下面沉浸色黑色没有那么明显，我们的下面好大一块黑色」）：
+///    四张真机截图逐带量化（右 72%~96% 纯背景区 / 0.52~0.98H 暗像素占比）：
+///      深色封面《谁明浪子心》：酷狗下半 lum 76、暗像素 65%；我方 lum 93、暗像素 31%（我方过亮偏橙）。
+///      浅色封面《盛夏的果实》：酷狗下半 lum 132、暗像素 0%； 我方 lum 110、暗像素 14%（我方过暗偏黑灰）。
+///    根因 = ②.5 用【封面底部 38% 条带】拉伸铺满整屏，下半明度被封面最底部那一小块决定：
+///      深色封面底部是浅色西装 → 我方下半过亮；浅色封面底部是黑色高领毛衣 → 我方下半一大块深灰。
+///      酷狗则是跟着【封面整体】明度走：深封面暗、浅封面亮。两者刚好反了。
+///    改法（只新增一层，既有 ①②③④ 参数一个不动，随时可回退）：
+///      ③.8「下半明度归一」层，强度与 `封面整体亮度 − 底部条带亮度` 成正比，放在 ④ 清晰封面之下：
+///        gap>0（浅封面）→ 叠暖白提亮；gap<0（深封面）→ 叠黑压暗；
+///        0~0.26H 不出现（顶栏一点不动）、0.26~0.58H smoothstep 渐入、之后保持，无折点不出横带。
+///    🔴 全程自适应取色，不硬编码任何颜色；暖白只为贴酷狗的浅暖灰，浓度上限 0.20 不会发白。
+///
 /// 🔴 布局红线（v2.6.8 / 2026-11-09 两次实锤）：背景层必须锁死屏幕尺寸
 ///    + clipped + allowsHitTesting(false)，否则原图像素尺寸会撑大 ZStack，
 ///    把动作行 / 播放控件整块挤出屏幕。
@@ -2777,6 +2790,22 @@ private struct ImmersiveCoverBackdrop: View {
                 //    渐变后半段换成同一色相但更亮的主色，只提亮不换色；
                 //    前半段仍用较暗的 lowerTone，避免中段 / 清晰封面羽化区发白。
                 let brightTone = Self.mainToneColor(from: strip, targetLum: 0.50)
+
+                // 🔴 2026-11-11 第十四次微调：③.8 下半明度归一的自适应参数。
+                //    只比较【整图平均亮度】与【底部条带平均亮度】的差，不写死任何颜色：
+                //      gap > 0 = 封面整体亮、底部条带暗（浅色封面黑毛衣）→ 下半需要提亮；
+                //      gap < 0 = 封面整体暗、底部条带亮（深色封面浅西装）→ 下半需要压暗。
+                //    系数按两张真机截图反推：浅封面 whiteA≈0.15 可把 lum 110 → 132；
+                //    深封面 blackA≈0.27 可把 lum 93 → 约 80。两端都设上限防止极端封面翻车。
+                let coverLum = Self.luminance(Self.dominantRGB(from: artwork))
+                let stripLum = Self.luminance(Self.dominantRGB(from: strip))
+                let lumGap = coverLum - stripLum
+                // 🔴 略暖的白：酷狗浅封面下半是 (130,118,116) 暖浅灰，纯白会偏冷。
+                let liftBase: Color = lumGap >= 0
+                    ? Color(.sRGB, red: 1.0, green: 0.96, blue: 0.93, opacity: 1)
+                    : Color.black
+                let liftPeak: Double = min(0.28, max(0, lumGap >= 0 ? lumGap * 0.70 : -lumGap * 1.10))
+
                 // 清晰封面：按原图比例铺满屏宽，绝不横向裁切；
                 // 极端的长图最多裁掉一点下沿（下沿本来就要羽化），不裁左右。
                 let ratio = CGFloat(artwork.size.height) / max(CGFloat(artwork.size.width), 1)
@@ -2902,6 +2931,30 @@ private struct ImmersiveCoverBackdrop: View {
                                startPoint: .top, endPoint: .bottom)
                     .frame(width: size.width, height: size.height)
 
+                // ③.8 下半明度归一（2026-11-11 第十四次微调，本次核心）：
+                //    🔴 放在 ④ 清晰封面【之下】：只校正模糊背景，清晰封面本身一点不动；
+                //       0~0.26H 完全透明（顶栏氛围 / 清晰封面上段一点不动），
+                //       0.26~0.58H 按 smoothstep 长渐变渐入，之后保持恒定。
+                //    🔴 8 段色标首尾斜率趋近 0、末端与恒定段平齐 → 不引入任何横向分界带。
+                //    🔴 liftPeak=0 时整层完全透明（封面整体与底部条带同亮度）→ 对多数封面零影响。
+                VStack(spacing: 0) {
+                    Color.clear
+                        .frame(width: size.width, height: size.height * 0.26)
+                    LinearGradient(colors: [liftBase.opacity(0),
+                                            liftBase.opacity(liftPeak * 0.02),
+                                            liftBase.opacity(liftPeak * 0.10),
+                                            liftBase.opacity(liftPeak * 0.28),
+                                            liftBase.opacity(liftPeak * 0.52),
+                                            liftBase.opacity(liftPeak * 0.76),
+                                            liftBase.opacity(liftPeak * 0.93),
+                                            liftBase.opacity(liftPeak)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(width: size.width, height: size.height * 0.32)
+                    liftBase.opacity(liftPeak)
+                        .frame(width: size.width, height: size.height * 0.42)
+                }
+                .frame(width: size.width, height: size.height)
+
                 // ④ 清晰封面：完整原图、屏宽、不放大不横向裁切。
                 //    mask 同时做「顶部渐入」和「下沿长羽化」：
                 //    顶部渐入让状态栏 / 顶栏沉浸在 ② 的模糊里（不再有纯色雾面块），
@@ -2990,6 +3043,13 @@ private struct ImmersiveCoverBackdrop: View {
         let r: Double
         let g: Double
         let b: Double
+    }
+
+    /// 相对亮度（0~1），第十四次微调「下半明度归一」用。取不到主色时给 0.4 中性值，
+    /// 让 liftPeak 落在中段而不是走极端。
+    private static func luminance(_ rgb: RGB?) -> Double {
+        guard let c = rgb else { return 0.4 }
+        return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
     }
 
     /// 从封面提取主色调：24×24 降采样求整图平均（0~1 的 sRGB 分量）。

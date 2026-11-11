@@ -447,7 +447,12 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
                 guard let self, self.window != nil else { return }
                 if let view = self.heroView {
-                    view.isHidden = self.scrolled >= self.hideThreshold || !self.isHostOnTop
+                    // 🔴 2026-11-11：排序弹窗打开期间临时隐藏大图浮层。
+                    //    浮层挂在 nav.view 上、层级高于 SwiftUI 内容层，不隐藏会盖住
+                    //    从底部升起的弹窗标题区。轮询 0.2s 自动恢复，只影响弹窗期间。
+                    view.isHidden = self.scrolled >= self.hideThreshold
+                        || !self.isHostOnTop
+                        || PlaylistSortOverlayState.shared.isPresented
                 }
                 self.monitoring = false
                 self.startVisibilityMonitoring()

@@ -825,6 +825,19 @@ struct KugouPlaylistDetail: View {
     @State private var isSelecting = false
     @State private var selectedIDs: Set<String> = []
 
+    // 🔴 2026-11-11：歌单排序（酷狗同款 7 种方式）。偏好全局记住，
+    //    自定义顺序按歌单 id 单独存，互不影响。
+    @State private var showSortSheet = false
+    @AppStorage("aurora.playlist.sortMode") private var sortModeRaw = PlaylistSortMode.custom.rawValue
+    private var sortMode: PlaylistSortMode { PlaylistSortMode(rawValue: sortModeRaw) ?? .custom }
+    private var sortListKey: String { "kg:\(listid)" }
+    /// 🔴 列表、播放全部、点歌播放、多选全选、下载全部一律用这份排序后的数组，
+    ///    一处排序处处生效（KugouPlaylistDetail 加载时已把服务端顺序反转成「新歌在前」）。
+    private var displaySongs: [Song] {
+        PlaylistSortMemo.shared.result(songs: songs, mode: sortMode,
+                                       listKey: sortListKey, originalIsNewestFirst: true)
+    }
+
     /// 歌单自己的封面；没有就用第一首歌的封面放大（歌曲是异步加载的，靠 heroKey 刷新浮层）。
     private var heroURL: URL? {
         if let coverURL, let url = URL(string: coverURL) { return url }
@@ -858,6 +871,25 @@ struct KugouPlaylistDetail: View {
         .sheet(isPresented: $showKugouPicker) {
             KugouPlaylistPicker(songs: songs, title: "加入我的酷狗歌单")
         }
+        // 🔴 2026-11-11：排序弹窗走自定义 overlay，不用第二个 .sheet
+        //    （iOS 15 链式多个 .sheet(isPresented:) 只有最后一个生效，项目既有红线）。
+        .overlay(alignment: .bottom) {
+            if showSortSheet {
+                PlaylistSortSheet(
+                    current: sortMode,
+                    songs: songs,
+                    listKey: sortListKey,
+                    onSelect: { picked in
+                        sortModeRaw = picked.rawValue
+                        showSortSheet = false
+                        Haptics.light()
+                    },
+                    onClose: { showSortSheet = false }
+                )
+                .transition(.move(edge: .bottom))
+            }
+        }
+        .animation(.easeInOut(duration: 0.26), value: showSortSheet)
         .safeAreaInset(edge: .bottom) {
             if isSelecting, !selectedIDs.isEmpty {
                 selectedActionBar
@@ -916,10 +948,10 @@ struct KugouPlaylistDetail: View {
             ToolbarItem(placement: .topBarTrailing) {
                 if isSelecting {
                     Button {
-                        if selectedIDs.count == songs.count { selectedIDs.removeAll() }
-                        else { selectedIDs = Set(songs.map(\.id)) }
+                        if selectedIDs.count == displaySongs.count { selectedIDs.removeAll() }
+                        else { selectedIDs = Set(displaySongs.map(\.id)) }
                     } label: {
-                        Text(selectedIDs.count == songs.count ? "取消全选" : "全选")
+                        Text(selectedIDs.count == displaySongs.count ? "取消全选" : "全选")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(headerState.navContentColor)
                     }
@@ -947,16 +979,25 @@ struct KugouPlaylistDetail: View {
         }
     }
 
-    /// 🔴 吸顶行：与「新歌推荐」一致 —— 蓝色圆钮 ▶ + 播放全部 + 数量 + 右侧多选按钮。
+    /// 🔴 吸顶行：蓝色圆钮 ▶ + 播放全部 + 数量 + 排序按钮 + 多选按钮。
+    ///    2026-11-11：排序按钮按用户要求放在多选按钮【前面】。
     private var actionBar: some View {
         HStack(spacing: 12) {
-            ImmersivePlayAllButton(count: songs.count) {
-                guard !songs.isEmpty else { return }
+            ImmersivePlayAllButton(count: displaySongs.count) {
+                guard !displaySongs.isEmpty else { return }
                 Haptics.soft()
                 store.queueID = "kugou-list:\(listid)"
-                store.play(songs, startAt: 0)
+                store.play(displaySongs, startAt: 0)
             }
             Spacer(minLength: 0)
+            Button {
+                showSortSheet = true
+            } label: {
+                ImmersiveSortIcon(color: AppStyle.primaryText)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
             Button {
                 isSelecting = true
                 selectedIDs.removeAll()
@@ -981,7 +1022,7 @@ struct KugouPlaylistDetail: View {
 
     /// 多选底部条：播放 / 下载 / 加歌单（统一走酷狗账号歌单）。
     private var selectedActionBar: some View {
-        let selected = songs.filter { selectedIDs.contains($0.id) }
+        let selected = displaySongs.filter { selectedIDs.contains($0.id) }
         return HStack(spacing: 0) {
             Button {
                 store.queueID = "kugou-list:\(listid)"
@@ -1049,14 +1090,14 @@ struct KugouPlaylistDetail: View {
             ListRowsSkeleton(rows: 6).padding(.top, 20)
         } else if let err = errorMsg {
             EmptyStateView(icon: "exclamationmark.triangle", title: "加载失败", message: err).padding(.top, 60)
-        } else if songs.isEmpty {
+        } else if displaySongs.isEmpty {
             EmptyStateView(icon: "music.note.list", title: "歌单是空的").padding(.top, 60)
         } else {
             // 🔴 2026-11-09：VStack → LazyVStack。576 首的「我喜欢」之前一进页面就把
             //    576 行全部构建出来（还带 SwipeToDeleteRow / contextMenu），主线程直接卡死。
             //    Lazy 后只构建可见的十几行；占位 / 分隔线随行一起懒加载。
             LazyVStack(spacing: 0) {
-                ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
+                ForEach(Array(displaySongs.enumerated()), id: \.element.id) { index, song in
                     let selected = selectedIDs.contains(song.id)
                     // 🔴 v2.6.4：左滑删除 = 把这首歌移出酷狗歌单
                     SwipeToDeleteRow(onDelete: {
@@ -1081,7 +1122,7 @@ struct KugouPlaylistDetail: View {
                                             if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
                                         } else {
                                             store.queueID = "kugou-list:\(listid)"
-                                            store.play(songs, startAt: index); Haptics.soft()
+                                            store.play(displaySongs, startAt: index); Haptics.soft()
                                         }
                                     })
                                 .equatable().songMenu(song)
@@ -1098,7 +1139,7 @@ struct KugouPlaylistDetail: View {
                             Label("移出歌单", systemImage: "trash")
                         }
                     }
-                    if index < songs.count - 1 {
+                    if index < displaySongs.count - 1 {
                         Divider().padding(.leading, 16 + 48 + 12 + 44)
                     }
                 }
