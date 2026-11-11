@@ -366,7 +366,8 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
 
         func rebuildRoot() { hosting?.rootView = root() }
 
-        private func installIfNeeded() {
+        /// 🔴 不能标 private：`UIViewRepresentable.updateUIView`（外层作用域）也要调它。
+        func installIfNeeded() {
             guard barView == nil else { return }
             // 首帧响应链可能还没连上导航控制器，重试几次；绝不 fallback 到 rootView。
             guard let (bar, pageHost) = resolveNavContext(), let parent = bar.superview else {
