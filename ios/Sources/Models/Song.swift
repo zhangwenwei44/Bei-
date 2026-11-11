@@ -172,6 +172,8 @@ enum PlaybackMode: Int, CaseIterable {
         }
     }
 
+    /// ⚠️ 2026-11-11 起三个模式的图标统一用 `PlayerModeIcon`（1:1 描摹矢量）渲染，
+    ///    这些 SF Symbol 名只作历史兼容保留，不要再用于新界面。
     var icon: String {
         switch self {
         case .order: return "repeat"

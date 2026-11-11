@@ -5,10 +5,11 @@ import SwiftUI
 // 只给「沉浸式封面」主题用：主播放页控制行 + 该主题的歌词页控制行。
 // 经典封面 / 歌手写真主题仍走 PlayerView 原来的 SF Symbol 控件行，一行不动。
 //
-// 🔴 2026-11-10 用户回退：顺序播放 / 列表改回经典主题的 SF Symbol
-//    （repeat / shuffle / repeat.1 与 list.bullet），并去掉队列蓝色数量角标。
-//    自绘只保留中间三个：上一首/下一首（实心三角+竖条）、播放暂停（半透明白圆盘）。
-//    整行尺寸同时缩小一档（圆盘 66→52、行高 68→54）。
+// 🔴 2026-11-10：列表按钮仍是经典主题的 list.bullet，无蓝色数量角标；
+//    中间三个自绘（上一首/下一首实心三角+竖条、播放暂停半透明白圆盘）。
+// 🔴 2026-11-11：三个播放模式图标改为酷狗真机截图 1:1 描摹矢量 PlayerModeIcon
+//    （顺序 / 随机 / 单曲循环），全 App 统一，不再用 repeat / shuffle / repeat.1。
+//    整行尺寸沿用缩小后的一档（圆盘 52、行高 54）。
 //    KugouDoubleArrow 作为历史字形保留，已不再参与渲染。
 
 /// 实心三角（pointsRight = 尖朝右）。
@@ -52,20 +53,13 @@ private struct KugouDoubleArrow: Shape {
 }
 
 /// 播放模式：顺序 / 随机 / 单曲循环，点一下由 store.cycleMode() 切换。
-/// 🔴 2026-11-10 用户要求「顺序播放按钮改回以前的」：不再用酷狗双箭头自绘，
-///    与经典封面主题完全一致 —— repeat / shuffle / repeat.1 三个 SF Symbol。
+/// 🔴 2026-11-11 用户指定：三个图标统一换成酷狗真机截图 1:1 描摹矢量
+///    （`PlayerModeIcon`，见 PlayerModeTraceIcons.swift），不再用 SF Symbol。
+///    颜色仍由外部 foregroundStyle 决定，尺寸沿用原来的 18pt 档（描摹框 19pt）。
 struct KugouModeGlyph: View {
     let mode: PlaybackMode
-    private var icon: String {
-        switch mode {
-        case .order:   return "repeat"
-        case .shuffle: return "shuffle"
-        case .single:  return "repeat.1"
-        }
-    }
     var body: some View {
-        Image(systemName: icon)
-            .font(.system(size: 18, weight: .medium))
+        PlayerModeIcon(mode: mode, size: 19)
             .foregroundStyle(.white.opacity(0.85))
             .frame(width: 34, height: 30)
             .shadow(color: .black.opacity(0.3), radius: 2, y: 1)

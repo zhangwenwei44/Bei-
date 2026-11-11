@@ -728,17 +728,12 @@ struct PlayerView: View {
     }
 
     /// 模式按钮（裸图标；激活时用主色高亮）
+    /// 🔴 2026-11-11：图标换成酷狗真机截图 1:1 描摹矢量（PlayerModeIcon），
+    ///    三个模式共用同一套自绘轮廓，高亮逻辑与原来完全一致。
     private var classicModeButton: some View {
-        let icon: String
-        let active: Bool
-        switch store.mode {
-        case .shuffle: icon = "shuffle"; active = true
-        case .single:  icon = "repeat.1"; active = true
-        case .order:   icon = "repeat";   active = false
-        }
+        let active = store.mode != .order
         return Button { store.cycleMode(); Haptics.light() } label: {
-            Image(systemName: icon)
-                .font(.system(size: 19, weight: .medium))
+            PlayerModeIcon(mode: store.mode, size: 20)
                 .foregroundStyle(active ? dominantColor : .white.opacity(0.85))
                 .frame(width: 44, height: 48)
                 .contentShape(Rectangle())
@@ -1260,8 +1255,7 @@ struct PlayerView: View {
         HStack(spacing: 0) {
             // ① 播放模式（顺序播放 / 单曲循环 / 随机播放）
             Button { store.cycleMode(); Haptics.light() } label: {
-                Image(systemName: store.mode.icon)
-                    .font(.system(size: 21, weight: .medium))
+                PlayerModeIcon(mode: store.mode, size: 22)
                     .foregroundStyle(store.mode == .order ? .white : dominantColor)
                     // 🔴 v2.7.3：边距继续改小 36→32（与竖屏一致，用户要求再收一点）
                     .frame(width: 32, height: 50)
@@ -1682,8 +1676,7 @@ private struct LandscapeQueuePanel: View {
                 .foregroundStyle(.white.opacity(0.6))
             Button { store.cycleMode(); Haptics.light() } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: store.mode.icon)
-                        .font(.system(size: 12, weight: .semibold))
+                    PlayerModeIcon(mode: store.mode, size: 13)
                     Text(store.mode.title)
                         .font(.system(size: 11, weight: .medium))
                 }
@@ -2147,8 +2140,7 @@ private struct LyricsBottomBar: View {
                     store.cycleMode()
                     Haptics.light()
                 } label: {
-                    Image(systemName: modeIcon)
-                        .font(.system(size: 17, weight: .medium))
+                    PlayerModeIcon(mode: store.mode, size: 18)
                         .foregroundStyle(modeActive ? Color.white.opacity(0.95) : .white.opacity(0.7))
                         // 🔴 v2.7.3：边距继续改小 28→24（用户要求再收一点）
                         .frame(width: 24, height: 42)
@@ -2194,15 +2186,6 @@ private struct LyricsBottomBar: View {
             }   // 🔴 v2.7.1：if !chromeHidden 结束（收起时整块不占位）
         }
         .foregroundStyle(.white)
-    }
-
-    /// 顺序模式图标（与播放页 classicModeButton 同款）
-    private var modeIcon: String {
-        switch store.mode {
-        case .shuffle: return "shuffle"
-        case .single: return "repeat.1"
-        case .order: return "repeat"
-        }
     }
 
     /// 非「列表循环」时高亮（单曲循环 / 随机）
