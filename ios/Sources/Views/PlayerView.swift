@@ -2791,20 +2791,36 @@ private struct ImmersiveCoverBackdrop: View {
                 //    前半段仍用较暗的 lowerTone，避免中段 / 清晰封面羽化区发白。
                 let brightTone = Self.mainToneColor(from: strip, targetLum: 0.50)
 
-                // 🔴 2026-11-11 第十四次微调：③.8 下半明度归一的自适应参数。
-                //    只比较【整图平均亮度】与【底部条带平均亮度】的差，不写死任何颜色：
-                //      gap > 0 = 封面整体亮、底部条带暗（浅色封面黑毛衣）→ 下半需要提亮；
-                //      gap < 0 = 封面整体暗、底部条带亮（深色封面浅西装）→ 下半需要压暗。
-                //    系数按两张真机截图反推：浅封面 whiteA≈0.15 可把 lum 110 → 132；
-                //    深封面 blackA≈0.27 可把 lum 93 → 约 80。两端都设上限防止极端封面翻车。
+                // 🔴 2026-11-11 第十五次微调：③.8 从「薄暖白 / 薄黑」升级为
+                //    「自适应中性浅雾」覆盖层，同时修【明度】和【横向明暗差】。
+                //    六张真机截图逐带量化（0.55~0.95H 全宽平均）：
+                //      浅封面 coverLum 163 → 酷狗下半 133，我方 117（暗 16）；
+                //      深封面 coverLum  35 → 酷狗下半  75，我方  80（上一轮已对齐，不动）。
+                //    🔴 更关键的是横向差：酷狗左 152 → 右 118（差 34），
+                //      我方左 168 → 右 101（差 67）。②.5 直接把封面底部条带拉伸铺满，
+                //      「左侧白背景 / 右侧黑毛衣」的原图对比被整块搬进下半屏，
+                //      看起来就是一大块深色棕褐 —— 这正是用户说的「颜色比酷狗深」。
+                //    逆向 20.8.4 IPA 佐证：`kgswitch_mask_shallowtheme` 是均匀
+                //      alpha≈0.14(36/255) 的浅色蒙版、`glass_bg_540.jpg` 是
+                //      229→254 由上到下越来越亮的浅色玻璃渐变 —— 酷狗靠大面积
+                //      浅色蒙版把封面暗部整体抹平去饱和，而不是保留原图对比。
+                //    所以浅封面改用 alpha 0.45 的中性浅灰雾覆盖：
+                //      · 横向差 67 → 67×0.55 ≈ 37，贴近酷狗的 34；
+                //      · 覆盖色是「封面主色去饱和 + 亮度归一」（见 lowerNeutralColor），
+                //        只带封面色相、与封面绝对暗度无关，不写死任何颜色；
+                //      深封面仍走原来的黑压暗分支（上一轮校准结果保留）。
                 let coverLum = Self.luminance(Self.dominantRGB(from: artwork))
                 let stripLum = Self.luminance(Self.dominantRGB(from: strip))
                 let lumGap = coverLum - stripLum
-                // 🔴 略暖的白：酷狗浅封面下半是 (130,118,116) 暖浅灰，纯白会偏冷。
-                let liftBase: Color = lumGap >= 0
-                    ? Color(.sRGB, red: 1.0, green: 0.96, blue: 0.93, opacity: 1)
+                // 🔴 只看「封面整体比底部条带亮」的封面走浅雾；整体很暗的封面
+                //    即使 gap 偶尔为正也交回黑压暗分支，避免被中性浅雾整片提亮。
+                let needsLightFog = lumGap >= 0 && coverLum >= 0.25
+                let liftBase: Color = needsLightFog
+                    ? Self.lowerNeutralColor(from: artwork, gap: lumGap)
                     : Color.black
-                let liftPeak: Double = min(0.28, max(0, lumGap >= 0 ? lumGap * 0.70 : -lumGap * 1.10))
+                let liftPeak: Double = needsLightFog
+                    ? 0.45
+                    : min(0.28, max(0, -lumGap * 1.10))
 
                 // 清晰封面：按原图比例铺满屏宽，绝不横向裁切；
                 // 极端的长图最多裁掉一点下沿（下沿本来就要羽化），不裁左右。
@@ -2931,12 +2947,13 @@ private struct ImmersiveCoverBackdrop: View {
                                startPoint: .top, endPoint: .bottom)
                     .frame(width: size.width, height: size.height)
 
-                // ③.8 下半明度归一（2026-11-11 第十四次微调，本次核心）：
+                // ③.8 下半中性浅雾 / 明度归一（2026-11-11 第十五次微调，本次核心）：
                 //    🔴 放在 ④ 清晰封面【之下】：只校正模糊背景，清晰封面本身一点不动；
                 //       0~0.26H 完全透明（顶栏氛围 / 清晰封面上段一点不动），
                 //       0.26~0.58H 按 smoothstep 长渐变渐入，之后保持恒定。
                 //    🔴 8 段色标首尾斜率趋近 0、末端与恒定段平齐 → 不引入任何横向分界带。
-                //    🔴 liftPeak=0 时整层完全透明（封面整体与底部条带同亮度）→ 对多数封面零影响。
+                //    🔴 覆盖色是「封面主色低饱和 + 亮度归一」的中性色，alpha 0.45：
+                //       既把左右明暗差压掉一半，又不把下半洗成一块没有纹理的纯色。
                 VStack(spacing: 0) {
                     Color.clear
                         .frame(width: size.width, height: size.height * 0.26)
@@ -3050,6 +3067,34 @@ private struct ImmersiveCoverBackdrop: View {
     private static func luminance(_ rgb: RGB?) -> Double {
         guard let c = rgb else { return 0.4 }
         return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+    }
+
+    /// ③.8 下半「中性浅雾」覆盖色（2026-11-11 第十五次微调）。
+    ///   🔴 不按封面平均亮度拟合目标色：`dominantRGB` 是【整图】24×24 平均，
+    ///      会把封面下部的黑毛衣一起算进来，与真机截图里可见的封面区亮度差很多；
+    ///      用绝对值拟合会把浅封面重新压回暗色。这里改用「亮度归一 + 去饱和」
+    ///      （与 `mainToneColor` 同一手法）：把封面主色整体缩放到目标亮度，
+    ///      结果只带封面色相、与封面本身的绝对暗度无关。
+    ///   由真机截图反推，覆盖层 alpha = 0.45 时：
+    ///     浅封面 cur(130,114,110) + C(≈158,149,145) → (142,130,126)
+    ///     ≈ 酷狗 (145,131,128)；深封面走黑压暗分支，不使用本颜色。
+    ///   `gap` 只做温和自适应：封面整体比底部条带亮得越多，浅雾目标亮度略高。
+    ///   色相只保留 35% 饱和度：既不会把每张封面染成同一个灰，也不会像 ②.5
+    ///   那样把黑毛衣的强对比整块搬进下半屏。
+    private static func lowerNeutralColor(from image: UIImage, gap: Double) -> Color {
+        let fallback = Color(.sRGB, red: 0.62, green: 0.58, blue: 0.56, opacity: 1)
+        guard let d = Self.dominantRGB(from: image) else { return fallback }
+        let base = max(0.2126 * d.r + 0.7152 * d.g + 0.0722 * d.b, 0.08)
+        let target = min(0.66, max(0.42, 0.58 + 0.18 * gap))
+        let scale = target / base
+        let sat = 0.35
+        func clamped(_ v: Double) -> Double { min(1, max(0, v)) }
+        func desaturated(_ v: Double) -> Double { base + (v - base) * sat }
+        return Color(.sRGB,
+                     red: clamped(desaturated(d.r) * scale),
+                     green: clamped(desaturated(d.g) * scale),
+                     blue: clamped(desaturated(d.b) * scale),
+                     opacity: 1)
     }
 
     /// 从封面提取主色调：24×24 降采样求整图平均（0~1 的 sRGB 分量）。
