@@ -19,6 +19,21 @@ import SwiftUI
 private struct ModeTraceSpec {
     let box: CGSize
     let contours: [[CGPoint]]
+
+    /// 所有轮廓点的实际包围盒（不是 viewBox）。三个图标的 viewBox 各不相同，
+    /// 只有把「墨迹盒」对齐，视觉大小才真的一致。
+    var ink: CGRect {
+        guard let first = contours.first?.first else { return .zero }
+        var minX = first.x, maxX = first.x, minY = first.y, maxY = first.y
+        for contour in contours {
+            for p in contour {
+                minX = min(minX, p.x); maxX = max(maxX, p.x)
+                minY = min(minY, p.y); maxY = max(maxY, p.y)
+            }
+        }
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
 }
 
 private enum ModeTrace {
@@ -101,18 +116,61 @@ private enum ModeTrace {
     }
 }
 
-/// 把描摹轮廓按自身 viewBox 等比缩放居中到给定矩形，形状严格 1:1。
+/// 🔴 2026-11-12：三个图标统一到「顺序播放」的视觉尺寸与线宽。
+///
+/// 之前按各自 viewBox 等比缩放，实测 size=20 时：
+///   order  墨迹 18.68×18.64  等效线宽 1.18pt
+///   shuffle 墨迹 18.71×16.20  等效线宽 1.10pt（明显矮一截）
+///   single  墨迹 17.84×18.73  等效线宽 1.10pt（略窄）
+/// 现在把每个图标的「墨迹包围盒」映射到同一个目标框（= order 原来的墨迹框），
+/// order 自身的变换逐点等价、画面一点不变；另外两个只在 x/y 上做 ≤12% 的补偿，
+/// 三个图标从此一样大、一样粗。形状仍是原始描摹路径，没有改成手绘描边版。
 private struct PlayerModeTraceShape: Shape {
     let mode: PlaybackMode
 
+    private struct Transform {
+        let sx: CGFloat, sy: CGFloat, ox: CGFloat, oy: CGFloat
+    }
+
+    private func transform(in rect: CGRect) -> Transform? {
+        let spec = ModeTrace.spec(for: mode)
+        let reference = ModeTrace.orderSpec
+        let ink = spec.ink
+        guard rect.width > 0, rect.height > 0,
+              ink.width > 0, ink.height > 0,
+              reference.ink.width > 0, reference.ink.height > 0 else { return nil }
+        // 顺序播放的基准缩放（与改动前完全一致：按它自己的 viewBox 等比缩放）。
+        let base = min(rect.width / reference.box.width, rect.height / reference.box.height)
+        let sx = reference.ink.width * base / ink.width
+        let sy = reference.ink.height * base / ink.height
+        return Transform(sx: sx, sy: sy,
+                         ox: rect.midX - ink.midX * sx,
+                         oy: rect.midY - ink.midY * sy)
+    }
+
+    /// 归一后的等效线宽（pt）：面积按 sx·sy 缩放、周长按均方根缩放。
+    /// 用它而不是「路径原始单位的线宽差」来算补偿，才不会过冲。
+    func normalizedStroke(in rect: CGRect) -> CGFloat {
+        guard let t = transform(in: rect) else { return 0 }
+        let spec = ModeTrace.spec(for: mode)
+        var a: CGFloat = 0, p: CGFloat = 0
+        for contour in spec.contours where contour.count >= 3 {
+            var twice: CGFloat = 0
+            for i in contour.indices {
+                let u = contour[i], v = contour[(i + 1) % contour.count]
+                twice += u.x * v.y - v.x * u.y
+                p += hypot((v.x - u.x) * t.sx, (v.y - u.y) * t.sy)
+            }
+            a += abs(twice) / 2 * t.sx * t.sy
+        }
+        return p > 0 ? 2 * a / p : 0
+    }
+
     func path(in rect: CGRect) -> Path {
         let spec = ModeTrace.spec(for: mode)
-        guard rect.width > 0, rect.height > 0 else { return Path() }
-        let scale = min(rect.width / spec.box.width, rect.height / spec.box.height)
-        let ox = rect.midX - spec.box.width * scale / 2
-        let oy = rect.midY - spec.box.height * scale / 2
+        guard let t = transform(in: rect) else { return Path() }
         func p(_ point: CGPoint) -> CGPoint {
-            CGPoint(x: ox + point.x * scale, y: oy + point.y * scale)
+            CGPoint(x: t.ox + point.x * t.sx, y: t.oy + point.y * t.sy)
         }
         var path = Path()
         for contour in spec.contours {
@@ -132,9 +190,24 @@ struct PlayerModeIcon: View {
     let mode: PlaybackMode
     var size: CGFloat = 20
 
+    /// 归一后 single 的等效线宽仍比 order 细约 0.06pt，
+    /// 叠一层等色极细描边补回来（只加粗轮廓，不改形状、不改整体尺寸）。
+    private var strokeBoost: CGFloat {
+        let rect = CGRect(x: 0, y: 0, width: size, height: size)
+        let ref = PlayerModeTraceShape(mode: .order).normalizedStroke(in: rect)
+        let cur = PlayerModeTraceShape(mode: mode).normalizedStroke(in: rect)
+        return max(0, ref - cur)
+    }
+
     var body: some View {
-        PlayerModeTraceShape(mode: mode)
-            .fill(ForegroundStyle(), style: FillStyle(eoFill: true))
-            .frame(width: size, height: size)
+        ZStack {
+            PlayerModeTraceShape(mode: mode)
+                .fill(ForegroundStyle(), style: FillStyle(eoFill: true))
+            if strokeBoost > 0.001 {
+                PlayerModeTraceShape(mode: mode)
+                    .stroke(ForegroundStyle(), lineWidth: strokeBoost)
+            }
+        }
+        .frame(width: size, height: size)
     }
 }

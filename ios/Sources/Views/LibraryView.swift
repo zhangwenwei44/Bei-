@@ -549,6 +549,11 @@ private struct KugouLibraryPage: View {
             hasLoaded = false
             Task { await reloadPlaylists() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .auroraKugouPlaylistChanged)) { _ in
+            // 从歌单详情页新建了云歌单 → 回曲库页要能看到
+            hasLoaded = false
+            Task { await reloadPlaylists() }
+        }
     }
 
     // MARK: 歌单列表
@@ -838,6 +843,11 @@ struct KugouPlaylistDetail: View {
                                        listKey: sortListKey, originalIsNewestFirst: true)
     }
 
+    /// 🔴 2026-11-12：A–Z 排序时的右侧字母索引 + 每组第一首歌的滚动锚点（跟着排序结果缓存）。
+    private var letterIndexInfo: (letters: [String], anchors: [String: String]) {
+        PlaylistSortMemo.shared.index(songs: displaySongs, mode: sortMode, listKey: sortListKey)
+    }
+
     /// 歌单自己的封面；没有就用第一首歌的封面放大（歌曲是异步加载的，靠 heroKey 刷新浮层）。
     private var heroURL: URL? {
         if let coverURL, let url = URL(string: coverURL) { return url }
@@ -890,6 +900,24 @@ struct KugouPlaylistDetail: View {
             }
         }
         .animation(.easeInOut(duration: 0.26), value: showSortSheet)
+        // 🔴 2026-11-12：按歌曲名/歌手名 A–Z 排序时，右侧显示 A–Z 快速索引。
+        //    弹窗打开 / 多选时不显示，避免挡住面板和勾选框。
+        .overlay(alignment: .bottomTrailing) {
+            if PlaylistLetterIndex.isActive(sortMode), !showSortSheet, !isSelecting {
+                let info = letterIndexInfo
+                if !info.letters.isEmpty {
+                    PlaylistLetterIndexBar(letters: info.letters) { letter in
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            headerState.scrollProxy?.scrollTo(
+                                PlaylistLetterIndex.anchorID(letter),
+                                anchor: PlaylistLetterIndex.scrollAnchor)
+                        }
+                    }
+                    .padding(.trailing, 2)
+                    .padding(.bottom, 110)
+                }
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             if isSelecting, !selectedIDs.isEmpty {
                 selectedActionBar
@@ -979,8 +1007,8 @@ struct KugouPlaylistDetail: View {
         }
     }
 
-    /// 🔴 吸顶行：蓝色圆钮 ▶ + 播放全部 + 数量 + 排序按钮 + 多选按钮。
-    ///    2026-11-11：排序按钮按用户要求放在多选按钮【前面】。
+    /// 🔴 吸顶行：蓝色圆钮 ▶ + 播放全部 + 数量 + 新建歌单 + 排序 + 多选。
+    ///    2026-11-12：新建歌单按钮按用户要求放在排序按钮【前面】，图标为圆角方框加号。
     private var actionBar: some View {
         HStack(spacing: 12) {
             ImmersivePlayAllButton(count: displaySongs.count) {
@@ -990,6 +1018,7 @@ struct KugouPlaylistDetail: View {
                 store.play(displaySongs, startAt: 0)
             }
             Spacer(minLength: 0)
+            PlaylistCreateButton(color: AppStyle.primaryText)
             Button {
                 showSortSheet = true
             } label: {
@@ -1086,6 +1115,8 @@ struct KugouPlaylistDetail: View {
 
     @ViewBuilder
     private var content: some View {
+        // 🔴 只算一次：ForEach 里逐行再算会让 576 首歌单的排序缓存比较被执行几百遍。
+        let index = letterIndexInfo
         if isLoading {
             ListRowsSkeleton(rows: 6).padding(.top, 20)
         } else if let err = errorMsg {
@@ -1099,6 +1130,13 @@ struct KugouPlaylistDetail: View {
             LazyVStack(spacing: 0) {
                 ForEach(Array(displaySongs.enumerated()), id: \.element.id) { index, song in
                     let selected = selectedIDs.contains(song.id)
+                    // 🔴 2026-11-12：每组首字母第一首歌放一个 0 高度锚点，
+                    //    供右侧字母条 scrollTo 定位（不改任何列表布局）。
+                    if PlaylistLetterIndex.isActive(sortMode),
+                       let letter = index.anchors[song.id] {
+                        Color.clear.frame(height: 0)
+                            .id(PlaylistLetterIndex.anchorID(letter))
+                    }
                     // 🔴 v2.6.4：左滑删除 = 把这首歌移出酷狗歌单
                     SwipeToDeleteRow(onDelete: {
                         Task { await removeSong(song) }
@@ -1398,4 +1436,7 @@ extension Notification.Name {
     static let auroraKugouTokenRejected = Notification.Name("aurora.kugouTokenRejected")
     /// 🔴 v2.9.5：有歌曲被存进某个酷狗歌单，userInfo = ["listID": String, "songs": [Song]]
     static let auroraKugouSongsAdded = Notification.Name("aurora.kugouSongsAdded")
+    /// 🔴 2026-11-12：在歌单详情页用吸顶行的「新建歌单」按钮创建了云歌单，
+    ///    曲库页收到后强制重拉，回到列表就能立刻看到新歌单。
+    static let auroraKugouPlaylistChanged = Notification.Name("aurora.kugouPlaylistChanged")
 }

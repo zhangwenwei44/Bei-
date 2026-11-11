@@ -33,31 +33,9 @@ enum ImmersiveStyle {
 
 // MARK: - 吸顶行共用控件（2026-11-08 用户指定样式）
 
-/// 多选按钮图标：用户给的「布局列表」样式 —— 两行，每行左侧一个空心圆角方框、右侧两条短横。
-///
-/// 🔴 自绘而不用 SF Symbol：项目最低 iOS 15，`checklist` 一类符号是 iOS 16+，
-///    写不存在的 systemImage 会静默渲染空白（项目已踩过的红线）。
-struct ImmersiveMultiSelectIcon: View {
-    let color: Color
-
-    /// 🔴 2026-11-09：整体缩小（原来 23×20 → 19×17），配合「播放全部」按钮一起改小。
-    ///    外层调用点的 30/36pt frame 保持不变 —— 那是点击区，只缩视觉、不损可点性。
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            ForEach(0..<2, id: \.self) { _ in
-                HStack(alignment: .center, spacing: 3) {
-                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                        .stroke(color, lineWidth: 1.3)
-                        .frame(width: 7, height: 7)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Capsule(style: .continuous).fill(color).frame(width: 9, height: 1.3)
-                        Capsule(style: .continuous).fill(color).frame(width: 9, height: 1.3)
-                    }
-                }
-            }
-        }
-    }
-}
+// 🔴 2026-11-12：`ImmersiveMultiSelectIcon` 已移到 `PlaylistActionIcons.swift`
+//    （用户给的截图是「2 个勾 + 3 条短横」，不再是两个空心方框）。
+//    类型名不变，SearchView 等调用点无需改动。
 
 /// 「播放全部」按钮：蓝色渐变圆钮 ▶ + 黑色粗体「播放全部」+ 灰色曲目数。
 /// 用户 2026-11-08 给的样式图，替换原来的蓝色胶囊按钮。
@@ -108,6 +86,11 @@ final class ImmersiveHeaderState: ObservableObject {
     @Published var contentOriginYRest: CGFloat = 0
     /// 吸顶头实测高度（PreferenceKey 写入）。
     @Published var stickyHeight: CGFloat = 74
+
+    /// 🔴 2026-11-12：右侧 A–Z 快速索引用。由容器里的 ScrollViewReader 在出现时写入，
+    ///    非 @Published —— 只是个可调用的代理，写它不该触发 body 重算。
+    ///    只在字母排序（按歌曲名/歌手名 A–Z）时才会被页面用到。
+    var scrollProxy: ScrollViewProxy?
 
     /// 状态栏高度：用 keyWindow.safeAreaInsets.top，比 statusBarManager 稳。
     var statusBarHeight: CGFloat {
@@ -186,19 +169,24 @@ struct ImmersiveSongListContainer<Hero: View, Sticky: View, Content: View>: View
             //    已在真机反复验证，不动它。大歌单的懒加载由 content 自己用 LazyVStack
             //    完成（见 KugouPlaylistDetail.content），嵌套 Lazy 反而可能让 SwiftUI
             //    在测量高度时把行全部构建出来。
-            ScrollView {
-                VStack(spacing: 0) {
-                    ImmersiveScrollTracker { m in
-                        DispatchQueue.main.async { state.apply(m) }
+            // 🔴 2026-11-12：外层包 ScrollViewReader，把代理交给 state，供右侧字母索引
+            //    scrollTo 定位。它不改变几何，也不给 ScrollView 加任何 ignoresSafeArea。
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ImmersiveScrollTracker { m in
+                            DispatchQueue.main.async { state.apply(m) }
+                        }
+                        .frame(height: 0)
+
+                        Color.clear.frame(height: state.listPlaceholder)
+
+                        content
                     }
-                    .frame(height: 0)
-
-                    Color.clear.frame(height: state.listPlaceholder)
-
-                    content
                 }
+                .background(AppStyle.background)
+                .onAppear { state.scrollProxy = proxy }
             }
-            .background(AppStyle.background)
             // 🔴 绝不给 ScrollView 本体加 ignoresSafeArea(edges:.top)：
             //    每加一层就会再下推一个安全区（歌手页 180pt 白顶的老坑）。
 

@@ -120,6 +120,11 @@ struct PlaylistDetailView: View {
                                               listKey: sortListKey, originalIsNewestFirst: false)
     }
 
+    /// 🔴 2026-11-12：A–Z 排序时的右侧字母索引 + 每组第一首歌的滚动锚点。
+    private var letterIndexInfo: (letters: [String], anchors: [String: String]) {
+        PlaylistSortMemo.shared.index(songs: displaySongs, mode: sortMode, listKey: sortListKey)
+    }
+
     /// 🔴 5 个推荐板块没有自己的封面 → 用第一首歌的封面放大当大图；
     /// 歌单/专辑有自己的封面就用自己的。
     private var heroURL: URL? {
@@ -144,6 +149,8 @@ struct PlaylistDetailView: View {
             },
             sticky: { actionBar },
             content: {
+                // 🔴 只算一次：ForEach 里逐行再算会让大歌单的排序缓存比较被执行几百遍。
+                let index = letterIndexInfo
                 if isLoading, displaySongs.isEmpty {
                     LoadingRow()
                 } else if let errorMessage, displaySongs.isEmpty {
@@ -156,6 +163,11 @@ struct PlaylistDetailView: View {
                     VStack(spacing: 0) {
                         ForEach(displaySongs) { song in
                             let selected = selectedIDs.contains(song.id)
+                            if PlaylistLetterIndex.isActive(sortMode),
+                               let letter = index.anchors[song.id] {
+                                Color.clear.frame(height: 0)
+                                    .id(PlaylistLetterIndex.anchorID(letter))
+                            }
                             let row = HStack(spacing: 0) {
                                 if isSelecting {
                                     Button {
@@ -333,6 +345,23 @@ struct PlaylistDetailView: View {
             }
         }
         .animation(.easeInOut(duration: 0.26), value: showSortSheet)
+        // 🔴 2026-11-12：A–Z 排序时右侧字母条，点字母跳到该首字母第一首歌。
+        .overlay(alignment: .bottomTrailing) {
+            if PlaylistLetterIndex.isActive(sortMode), !showSortSheet, !isSelecting {
+                let info = letterIndexInfo
+                if !info.letters.isEmpty {
+                    PlaylistLetterIndexBar(letters: info.letters) { letter in
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            headerState.scrollProxy?.scrollTo(
+                                PlaylistLetterIndex.anchorID(letter),
+                                anchor: PlaylistLetterIndex.scrollAnchor)
+                        }
+                    }
+                    .padding(.trailing, 2)
+                    .padding(.bottom, 110)
+                }
+            }
+        }
         .task {
             if !didLoadCollection {
                 didLoadCollection = true
@@ -342,8 +371,8 @@ struct PlaylistDetailView: View {
         }
     }
 
-    /// 🔴 吸顶行：蓝色圆钮 ▶ + 播放全部 + 曲目数 + 排序按钮 + 多选按钮。
-    ///    「下载全部」收在顶栏三点竖菜单里。2026-11-11 排序按钮按用户要求放在多选按钮前面。
+    /// 🔴 吸顶行：蓝色圆钮 ▶ + 播放全部 + 曲目数 + 新建歌单 + 排序 + 多选。
+    ///    「下载全部」收在顶栏三点竖菜单里。2026-11-12 新建歌单按钮放在排序按钮前面。
     private var actionBar: some View {
         HStack(spacing: 12) {
             ImmersivePlayAllButton(count: displaySongs.count) {
@@ -352,6 +381,8 @@ struct PlaylistDetailView: View {
             }
 
             Spacer(minLength: 0)
+
+            PlaylistCreateButton(color: AppStyle.primaryText)
 
             Button {
                 showSortSheet = true
@@ -484,6 +515,11 @@ struct AlbumDetailView: View {
                                        listKey: sortListKey, originalIsNewestFirst: false)
     }
 
+    /// 🔴 2026-11-12：A–Z 排序时的右侧字母索引 + 每组第一首歌的滚动锚点。
+    private var letterIndexInfo: (letters: [String], anchors: [String: String]) {
+        PlaylistSortMemo.shared.index(songs: displaySongs, mode: sortMode, listKey: sortListKey)
+    }
+
     private var isFavorited: Bool { library.isAlbumFavorite(album) }
 
     private var heroURL: URL? { album.coverURL ?? songs.first?.artworkURL }
@@ -505,6 +541,8 @@ struct AlbumDetailView: View {
             },
             sticky: { actionBar },
             content: {
+                // 🔴 只算一次：ForEach 里逐行再算会让排序缓存比较被执行几百遍。
+                let index = letterIndexInfo
                 if isLoading, displaySongs.isEmpty {
                     LoadingRow()
                 } else if let errorMessage, displaySongs.isEmpty {
@@ -515,6 +553,11 @@ struct AlbumDetailView: View {
                     VStack(spacing: 0) {
                         ForEach(displaySongs) { song in
                             let selected = selectedIDs.contains(song.id)
+                            if PlaylistLetterIndex.isActive(sortMode),
+                               let letter = index.anchors[song.id] {
+                                Color.clear.frame(height: 0)
+                                    .id(PlaylistLetterIndex.anchorID(letter))
+                            }
                             HStack(spacing: 0) {
                                 if isSelecting {
                                     Button {
@@ -661,11 +704,28 @@ struct AlbumDetailView: View {
             }
         }
         .animation(.easeInOut(duration: 0.26), value: showSortSheet)
+        // 🔴 2026-11-12：A–Z 排序时右侧字母条，点字母跳到该首字母第一首歌。
+        .overlay(alignment: .bottomTrailing) {
+            if PlaylistLetterIndex.isActive(sortMode), !showSortSheet, !isSelecting {
+                let info = letterIndexInfo
+                if !info.letters.isEmpty {
+                    PlaylistLetterIndexBar(letters: info.letters) { letter in
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            headerState.scrollProxy?.scrollTo(
+                                PlaylistLetterIndex.anchorID(letter),
+                                anchor: PlaylistLetterIndex.scrollAnchor)
+                        }
+                    }
+                    .padding(.trailing, 2)
+                    .padding(.bottom, 110)
+                }
+            }
+        }
         .task { await load() }
     }
 
-    /// 🔴 吸顶行：蓝色圆钮 + 播放全部 + 数量 + 排序按钮 + 多选按钮。
-    ///    「下载全部」移到顶栏三点竖菜单。
+    /// 🔴 吸顶行：蓝色圆钮 + 播放全部 + 数量 + 新建歌单 + 排序 + 多选。
+    ///    「下载全部」移到顶栏三点竖菜单。2026-11-12 新建歌单按钮放在排序按钮前面。
     private var actionBar: some View {
         HStack(spacing: 12) {
             ImmersivePlayAllButton(count: displaySongs.count) {
@@ -674,6 +734,8 @@ struct AlbumDetailView: View {
             }
 
             Spacer(minLength: 0)
+
+            PlaylistCreateButton(color: AppStyle.primaryText)
 
             Button {
                 showSortSheet = true

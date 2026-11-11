@@ -138,6 +138,10 @@ final class PlaylistSortMemo {
         let mode: PlaylistSortMode
         let newestFirst: Bool
         let result: [Song]
+        /// 字母索引（仅 A–Z 排序有效，其余方式为空）。跟着排序结果一起缓存，
+        /// 避免播放器每秒刷新 body 时对几百首歌反复做拼音转换。
+        let letters: [String]
+        let anchors: [String: String]
     }
 
     /// 只在主线程访问（SwiftUI body / 切歌回调均在主线程）。
@@ -156,9 +160,22 @@ final class PlaylistSortMemo {
         }
         let sorted = PlaylistSorter.sorted(songs, mode: mode, listKey: listKey,
                                            originalIsNewestFirst: originalIsNewestFirst)
+        let index = PlaylistLetterIndex.isActive(mode)
+            ? PlaylistLetterIndex.build(sorted, mode: mode)
+            : (letters: [String](), anchors: [String: String]())
         entries[listKey] = Entry(songs: songs, mode: mode,
-                                 newestFirst: originalIsNewestFirst, result: sorted)
+                                 newestFirst: originalIsNewestFirst, result: sorted,
+                                 letters: index.letters, anchors: index.anchors)
         return sorted
+    }
+
+    /// 供页面右侧字母条 / 行锚点读取。命中缓存是 O(1)，不做任何重新排序。
+    func index(songs: [Song], mode: PlaylistSortMode, listKey: String)
+        -> (letters: [String], anchors: [String: String]) {
+        if let e = entries[listKey], e.mode == mode {
+            return (e.letters, e.anchors)
+        }
+        return PlaylistLetterIndex.build(songs, mode: mode)
     }
 
     func invalidate(_ listKey: String) { entries.removeValue(forKey: listKey) }
@@ -249,38 +266,11 @@ final class PlaylistSortOverlayState: @unchecked Sendable {
     }
 }
 
-// MARK: - 吸顶行的「列表顺序排列」按钮图标（自绘）
-
-/// 三条递减短横 + 右侧向下箭头 = 列表 + 顺序。与 `ImmersiveMultiSelectIcon` 同尺寸同配色。
-struct ImmersiveSortIcon: View {
-    let color: Color
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 2) {
-            VStack(alignment: .leading, spacing: 3) {
-                Capsule(style: .continuous).fill(color).frame(width: 11, height: 1.3)
-                Capsule(style: .continuous).fill(color).frame(width: 8, height: 1.3)
-                Capsule(style: .continuous).fill(color).frame(width: 5, height: 1.3)
-            }
-            SortArrowShape()
-                .stroke(color, style: StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
-                .frame(width: 7, height: 13)
-        }
-        .frame(width: 19, height: 17)
-    }
-}
-
-private struct SortArrowShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        p.move(to: CGPoint(x: rect.midX, y: rect.minY + 0.5))
-        p.addLine(to: CGPoint(x: rect.midX, y: rect.maxY - 3.5))
-        p.move(to: CGPoint(x: rect.minX + 0.7, y: rect.maxY - 6.5))
-        p.addLine(to: CGPoint(x: rect.midX, y: rect.maxY - 1.2))
-        p.addLine(to: CGPoint(x: rect.maxX - 0.7, y: rect.maxY - 6.5))
-        return p
-    }
-}
+// MARK: - 吸顶行图标
+//
+// 🔴 2026-11-12：`ImmersiveSortIcon` / `ImmersiveMultiSelectIcon` / `ImmersiveNewPlaylistIcon`
+//    全部移到 `PlaylistActionIcons.swift`，按用户给的三张截图 1:1 自绘。
+//    这里只保留排序弹窗与排序逻辑，避免同名类型重复定义。
 
 // MARK: - 排序方式弹窗
 
