@@ -190,13 +190,15 @@ struct PlayerModeIcon: View {
     let mode: PlaybackMode
     var size: CGFloat = 20
 
-    /// 归一后 single 的等效线宽仍比 order 细约 0.06pt，
-    /// 叠一层等色极细描边补回来（只加粗轮廓，不改形状、不改整体尺寸）。
+    /// 🔴 2026-11-12：按《酷狗音乐 UI 设计规范》四·3 把三个描摹图标的等效线宽
+    ///    统一补到全局规范值（size=24 时 1.5pt，按画布等比缩小）。
+    ///    形状仍是 trace.html 的 1:1 描摹路径，只叠一层等色极细描边加粗轮廓，
+    ///    不改形状、不改整体尺寸；三个图标仍严格一样大一样粗。
     private var strokeBoost: CGFloat {
         let rect = CGRect(x: 0, y: 0, width: size, height: size)
-        let ref = PlayerModeTraceShape(mode: .order).normalizedStroke(in: rect)
+        let target = AppIconSpec.strokeWidth * size / AppIconSpec.canvas
         let cur = PlayerModeTraceShape(mode: mode).normalizedStroke(in: rect)
-        return max(0, ref - cur)
+        return max(0, target - cur)
     }
 
     var body: some View {

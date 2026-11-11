@@ -24,14 +24,15 @@ struct PlayerActionIcon: View {
     /// 激活态（目前只有收藏用到：空心 → 实心填充）
     var active: Bool = false
     var tint: Color = .white
-    var size: CGFloat = 22
+    var size: CGFloat = AppIconSpec.canvas
     /// 音效开关状态（动作行角标 OFF/ON 用）。默认按单例兜底，
     /// 调用方应显式传入（PlayerView 已订阅 SoundEffectSetting，保证切换实时刷新）。
     var soundEffectOn: Bool = SoundEffectSetting.shared.current != .off
 
     /// 🔴 v2.9.18：**全动作行统一线宽** —— 之前下载 1.25、音效 1.30、歌词 1.80 各不相同，
-    /// 一排看过去粗细明显不齐。现在所有自绘图标共用这一个值（24 画布里 1.5 单位）。
-    private var lineWidth: CGFloat { size / 24 * 1.5 }
+    /// 一排看过去粗细明显不齐。现在统一取全局规范 `AppIconSpec`
+    /// （《酷狗音乐 UI 设计规范》四·3「线性简约、粗细统一 1.5px」），size=24 时正好 1.5pt。
+    private var lineWidth: CGFloat { AppIconSpec.strokeWidth * size / AppIconSpec.canvas }
 
     private var stroke: StrokeStyle {
         StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
@@ -61,11 +62,9 @@ struct PlayerActionIcon: View {
             case .quality:
                 ZStack {
                     QualityGlyph().stroke(tint, style: stroke)
-                    // 两个空心小圆用稍细的线，避免小尺寸下糊成一坨
-                    QualityRings().stroke(
-                        tint,
-                        style: StrokeStyle(lineWidth: lineWidth * 0.85,
-                                           lineCap: .round, lineJoin: .round))
+                    // 🔴 2026-11-12：小圆也走同一条 1.5pt 描边。
+                    //    原来 0.85× 的例外线宽会让整排图标粗细不一，按约束文件取消。
+                    QualityRings().stroke(tint, style: stroke)
                 }
             case .soundEffect:
                 ZStack {

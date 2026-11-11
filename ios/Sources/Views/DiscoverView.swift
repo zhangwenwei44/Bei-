@@ -11,6 +11,8 @@ struct DiscoverView: View {
     @State private var feed = DiscoverFeed()
     @State private var isLoading = false
     @State private var errorMessage: String?
+    /// 🔴 2026-11-12：冷启动「一个内容都没拿到」时的自动补试次数（最多 2 轮）。
+    @State private var autoRetryCount = 0
     @State private var guessSongs: [Song] = []
     @State private var isLoadingGuess = false
     @State private var dailySongs: [Song] = []
@@ -20,6 +22,10 @@ struct DiscoverView: View {
     @State private var allArtists: [Artist] = []
     @State private var isLoadingArtists = false
     @State private var artistsLoaded = false
+    /// 🔴 2026-11-12：歌手 Tab 改成「滚到底再加载下一批」，不再进 Tab 就翻完 25 页。
+    @State private var artistPage = 1
+    @State private var hasMoreArtists = true
+    @State private var isLoadingMoreArtists = false
     /// 🔴 2026-11-09：歌手 Tab 的搜索框只过滤本页已加载的歌手，不跳全局搜索。
     @State private var artistQuery = ""
     // 🔴 v2.9.17：热门歌手专辑板块数据（歌手 + 他的一张专辑），从 hotArtists 现拉。
@@ -101,7 +107,15 @@ struct DiscoverView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if let errorMessage, feed.isEmpty {
+                    // 🔴 2026-11-12：只有【所有板块】都空才展示「加载失败」。
+                    //    以前只看 feed.isEmpty（= 榜单空），榜单接口偶发失败就把
+                    //    已经加载好的猜你喜欢/每日推荐全部盖掉，逼用户点重试。
+                    if let errorMessage,
+                       feed.isEmpty,
+                       guessSongs.isEmpty, dailySongs.isEmpty,
+                       hotArtists.isEmpty, recommendedPlaylists.isEmpty,
+                       ktvSongs.isEmpty, classicSongs.isEmpty,
+                       djSongs.isEmpty, newSongs.isEmpty, hallSongs.isEmpty {
                         errorState(errorMessage)
                     } else if isLoading, feed.isEmpty {
                         // 🔴 2026-11-10：首屏加载不再用菊花，按推荐 Tab 真内容摆骨架 + 匀速扫光。
@@ -142,7 +156,7 @@ struct DiscoverView: View {
             }
             .onChange(of: selectedTab) { tab in
                 withAnimation { proxy.scrollTo("tab-top", anchor: .top) }
-                if tab == .artists { Task { await loadAllArtists() } }
+                if tab == .artists { Task { await loadArtistBatch(reset: true) } }
             }
             // 🔴 v2.9.6(修正)：酷狗风格背景 —— 顶部淡蓝渐变钉在页面顶部，上滑不消失。
             // 渐变挂在 ScrollView 自身的背景上（相对可视区域固定），而不是滚动内容里。
@@ -684,12 +698,23 @@ struct DiscoverView: View {
                         }
                         .id("artist-sec-\(group.letter)")
                     }
+                    // 🔴 2026-11-12：触底哨兵放在【懒加载容器内部】，只有真正滚到
+                    //    列表末尾才会出现 → 触发下一批。不再一进 Tab 就翻完 25 页。
+                    if hasMoreArtists, artistSearchText.isEmpty {
+                        HStack {
+                            Spacer()
+                            if isLoadingMoreArtists { ProgressView().controlSize(.small) }
+                            Spacer()
+                        }
+                        .frame(height: 36)
+                        .onAppear { Task { await loadArtistBatch(reset: false) } }
+                    }
                 }
                 .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .padding(.horizontal, 12)
             }
 
-            if artistsLoaded && !allArtists.isEmpty && artistSearchText.isEmpty {
+            if artistsLoaded && !hasMoreArtists && !allArtists.isEmpty && artistSearchText.isEmpty {
                 Text("已经到底啦 ~")
                     .font(.system(size: 12))
                     .foregroundStyle(AppStyle.tertiaryText)
@@ -699,35 +724,47 @@ struct DiscoverView: View {
         }
     }
 
-    /// 一次性分页拉完热门歌手（首页已加载的先铺上，再往后翻页补齐）。
-    /// 接口每页 20 位，连续两页无新增或达上限即停，避免无限请求。
-    private func loadAllArtists() async {
-        guard !artistsLoaded, !isLoadingArtists else { return }
-        isLoadingArtists = true
-        defer { isLoadingArtists = false }
+    /// 🔴 2026-11-12：歌手 Tab 改成「滚到底再加载下一批」，不再一进 Tab 就全量拉完。
+    ///
+    /// 旧版串行翻最多 25 页（≈500 位），**每拉一页**就整体替换 `allArtists`，
+    /// 触发 25 次全量「按拼音首字母分组 + 组内排序」重算，真机上就是这个 Tab 卡死的根因。
+    /// 现在一批只翻 2 页（≤40 位）、一批只刷新一次，其余等用户滚到列表底部再继续。
+    @MainActor
+    private func loadArtistBatch(reset: Bool) async {
+        if reset {
+            guard !artistsLoaded, !isLoadingArtists else { return }
+        } else {
+            guard hasMoreArtists, !isLoadingMoreArtists, !isLoadingArtists else { return }
+        }
+        if reset { isLoadingArtists = true } else { isLoadingMoreArtists = true }
+        defer {
+            if reset { isLoadingArtists = false } else { isLoadingMoreArtists = false }
+        }
 
-        var collected = hotArtists
+        var collected = reset ? hotArtists : allArtists
         var seen = Set(collected.map(\.id))
-        var page = collected.isEmpty ? 1 : (collected.count / 20) + 1
-        var emptyStreak = 0
-        for _ in 0..<25 {
+        var page = reset ? (collected.isEmpty ? 1 : (collected.count / 20) + 1) : artistPage + 1
+        var addedTotal = 0
+        var lastBatchCount = 20
+        for _ in 0..<2 {
             let batch = await KugouClient.shared.hotArtistsPage(page: page, perPage: 20)
-            guard !batch.isEmpty else { break }
-            var added = 0
+            if batch.isEmpty { hasMoreArtists = false; break }
             for artist in batch where !seen.contains(artist.id) {
                 seen.insert(artist.id)
                 collected.append(artist)
-                added += 1
+                addedTotal += 1
             }
-            // 每拉到一批就刷新一次，用户不用等全部跑完。
-            let snapshot = collected
-            await MainActor.run { allArtists = snapshot }
+            lastBatchCount = batch.count
             page += 1
-            emptyStreak = added == 0 ? emptyStreak + 1 : 0
-            if batch.count < 20 || emptyStreak >= 2 { break }
+            if batch.count < 20 { hasMoreArtists = false; break }
         }
-        artistsLoaded = true
-        Log.info("歌手", "歌手 Tab 共 \(allArtists.count) 位")
+        artistPage = max(1, page - 1)
+        if lastBatchCount < 20 || addedTotal == 0 { hasMoreArtists = false }
+        // 🔴 一批只刷新一次，避免每页都触发全量分组重算。
+        let snapshot = collected
+        allArtists = snapshot
+        if reset { artistsLoaded = true }
+        Log.info("歌手", "本批 +\(addedTotal)，共 \(snapshot.count) 位，page=\(artistPage)，还有=\(hasMoreArtists)")
     }
 
     /// 右侧 A–Z 快速定位条（只列出实际有歌手的字母，点击滚到该分组）。
@@ -1896,11 +1933,20 @@ struct DiscoverView: View {
             Task { await loadGuess() }
         }
         if feed.topLists.isEmpty {
-            feed.topLists = await KugouClient.shared.topLists()
-        }
-        if feed.isEmpty {
-            errorMessage = "拿不到榜单，检查一下网络或稍后再试"
-            return
+            // 🔴 2026-11-12：冷启动时网络栈刚就绪，首个 topLists() 常常直接失败。
+            //    旧版一次失败就立刻把 errorMessage 摆出来并 return，用户每次开 App
+            //    都要手动点「重试」才有画面。现在做 3 次退避重试；即使全失败也
+            //    **不 return**，继续把其它板块拉出来，首屏不再是一片「加载失败」。
+            for attempt in 0..<3 {
+                let lists = await KugouClient.shared.topLists()
+                if !lists.isEmpty {
+                    feed.topLists = lists
+                    break
+                }
+                if attempt < 2 {
+                    try? await Task.sleep(nanoseconds: UInt64(600_000_000 * (attempt + 1)))
+                }
+            }
         }
         if guessSongs.isEmpty { await loadGuess() }
         if force || dailySongs.isEmpty { await loadDailySongs() }
@@ -1934,6 +1980,27 @@ struct DiscoverView: View {
         }
         let whitelistedSlices = filteredLists
         await loadTrackCounts(for: whitelistedSlices.prefix(5))
+        // 🔴 2026-11-12：只有全部板块都空，才说明这次真的一条内容都没拿到。
+        //    此时不让用户点「重试」，自动再补一次（最多 2 轮）；只要有任何板块
+        //    出了内容，就清掉错误态并把计数归零。
+        let totallyEmpty = feed.topLists.isEmpty && guessSongs.isEmpty
+            && dailySongs.isEmpty && hotArtists.isEmpty
+            && recommendedPlaylists.isEmpty && ktvSongs.isEmpty
+            && classicSongs.isEmpty && djSongs.isEmpty
+            && newSongs.isEmpty && hallSongs.isEmpty
+        if totallyEmpty {
+            errorMessage = "拿不到榜单，检查一下网络或稍后再试"
+            if autoRetryCount < 2 {
+                autoRetryCount += 1
+                Task {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    await load(force: true)
+                }
+            }
+        } else {
+            errorMessage = nil
+            autoRetryCount = 0
+        }
     }
 
     /// 每日推荐：登录酷狗 → 个性化「每日推荐」；未登录 / 拉取失败 → 回退酷狗 TOP500。

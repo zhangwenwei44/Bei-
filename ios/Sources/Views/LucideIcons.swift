@@ -1121,7 +1121,8 @@ struct LucideIcon: View {
     var size: CGFloat = 22
     var color: Color = .primary
     var filled: Bool = false
-    private var lineWidth: CGFloat { size / 24 * 1.5 }
+    /// 与 `AppIconSpec` 同一个来源（《酷狗音乐 UI 设计规范》四·3，粗细统一 1.5px）。
+    private var lineWidth: CGFloat { AppIconSpec.strokeWidth * size / AppIconSpec.canvas }
     var body: some View {
         LucideShape(icon: icon)
             .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))

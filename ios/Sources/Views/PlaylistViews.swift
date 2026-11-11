@@ -350,15 +350,15 @@ struct PlaylistDetailView: View {
             if PlaylistLetterIndex.isActive(sortMode), !showSortSheet, !isSelecting {
                 let info = letterIndexInfo
                 if !info.letters.isEmpty {
-                    PlaylistLetterIndexBar(letters: info.letters) { letter in
+                    // 🔴 2026-11-12：字母条走同层 UIKit 浮层（z 序高于大图浮层），
+                    //    刚打开 A~Z 就完整可见；行高 14→17pt，上下更疏。
+                    PlaylistLetterIndexOverlay(letters: info.letters) { letter in
                         withAnimation(.easeInOut(duration: 0.25)) {
                             headerState.scrollProxy?.scrollTo(
                                 PlaylistLetterIndex.anchorID(letter),
                                 anchor: PlaylistLetterIndex.scrollAnchor)
                         }
                     }
-                    .padding(.trailing, 2)
-                    .padding(.bottom, 110)
                 }
             }
         }
@@ -709,15 +709,15 @@ struct AlbumDetailView: View {
             if PlaylistLetterIndex.isActive(sortMode), !showSortSheet, !isSelecting {
                 let info = letterIndexInfo
                 if !info.letters.isEmpty {
-                    PlaylistLetterIndexBar(letters: info.letters) { letter in
+                    // 🔴 2026-11-12：字母条走同层 UIKit 浮层（z 序高于大图浮层），
+                    //    刚打开 A~Z 就完整可见；行高 14→17pt，上下更疏。
+                    PlaylistLetterIndexOverlay(letters: info.letters) { letter in
                         withAnimation(.easeInOut(duration: 0.25)) {
                             headerState.scrollProxy?.scrollTo(
                                 PlaylistLetterIndex.anchorID(letter),
                                 anchor: PlaylistLetterIndex.scrollAnchor)
                         }
                     }
-                    .padding(.trailing, 2)
-                    .padding(.bottom, 110)
                 }
             }
         }

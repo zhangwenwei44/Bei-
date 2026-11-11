@@ -266,6 +266,14 @@ final class PlaylistSortOverlayState: @unchecked Sendable {
     }
 }
 
+/// 🔴 2026-11-12：排序弹窗是页面内的 overlay，而迷你播放条挂在导航栈【外层】，
+///    层级更高，会把弹窗最后一行（按播放量高-低排序）压住。弹窗打开期间通知
+///    RootView 临时收起播放条，关闭后恢复。
+extension Notification.Name {
+    static let auroraPlaylistSortSheetVisibility =
+        Notification.Name("aurora.playlistSortSheetVisibility")
+}
+
 // MARK: - 吸顶行图标
 //
 // 🔴 2026-11-12：`ImmersiveSortIcon` / `ImmersiveMultiSelectIcon` / `ImmersiveNewPlaylistIcon`
@@ -303,8 +311,16 @@ struct PlaylistSortSheet: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(edges: .all)
-        .onAppear { PlaylistSortOverlayState.shared.set(true) }
-        .onDisappear { PlaylistSortOverlayState.shared.set(false) }
+        .onAppear {
+            PlaylistSortOverlayState.shared.set(true)
+            NotificationCenter.default.post(name: .auroraPlaylistSortSheetVisibility,
+                                            object: nil, userInfo: ["presented": true])
+        }
+        .onDisappear {
+            PlaylistSortOverlayState.shared.set(false)
+            NotificationCenter.default.post(name: .auroraPlaylistSortSheetVisibility,
+                                            object: nil, userInfo: ["presented": false])
+        }
     }
 
     @ViewBuilder
@@ -339,10 +355,11 @@ struct PlaylistSortSheet: View {
                 .buttonStyle(.plain)
             }
         }
-        // 🔴 白色再向下多铺 20pt：home indicator 那条也是白色，不会露出深色底。
-        //    整体高度 ≈488pt，顶部落在屏幕 350pt 之下 —— 即使大图浮层没来得及隐藏，
+        // 🔴 2026-11-12：底部多留 34pt。弹窗期迷你播放条会被 RootView 收起，
+        //    这里再兜一层 home indicator / 播放条残留，保证最后一项完整可点。
+        //    整体高度 ≈502pt，顶部落在屏幕 350pt 之下 —— 即使大图浮层没来得及隐藏，
         //    也压不到弹窗标题（大图浮层固定 350pt 高）。
-        .padding(.bottom, 20)
+        .padding(.bottom, 34)
         .background(Color.white)
         .clipShape(PlaylistSortTopCorners(radius: 18))
     }

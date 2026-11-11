@@ -1365,7 +1365,9 @@ struct PlayerView: View {
             Haptics.light()
         } label: {
             VStack(spacing: 5) {
-                PlayerActionIcon(glyph: glyph, active: active, tint: tint, size: 22)
+                // 🔴 2026-11-12：动作行统一 24pt 画布 / 1.5pt 线宽（不再有 22pt 的例外）。
+                PlayerActionIcon(glyph: glyph, active: active, tint: tint,
+                                 size: AppIconSpec.canvas)
                     .frame(width: 34, height: 30)
                 if !label.isEmpty {
                     Text(label)

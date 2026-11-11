@@ -597,7 +597,12 @@ struct ArtistDetailView: View {
 
     /// 🔴 歌曲列表主体（不含 全部播放行 / 分段 Tab，那些已提到吸顶头）。
     private var songListBody: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        // 🔴 2026-11-12：一次取好列表。原来 ForEach 里物化
+        //    `Array(displaySongs.enumerated())`，而 displaySongs 每次访问都要
+        //    `songs.reversed()` 重建整个数组 —— 几百首时 body 每次重算都是 O(n) 风暴。
+        //    改成 Range 型的 ForEach（LazyVStack 才能真正懒加载）+ 单次快照。
+        let list = displaySongs
+        return VStack(alignment: .leading, spacing: 0) {
             if isLoading {
                 ListRowsSkeleton(rows: 5)
                     .padding(.horizontal, 16)
@@ -612,7 +617,9 @@ struct ArtistDetailView: View {
             } else {
                 // 🔴 v2.5.46：扁平化列表（去掉卡片底），酷狗同款编号行
                 LazyVStack(spacing: 0) {
-                    ForEach(Array(displaySongs.enumerated()), id: \.element.id) { index, song in
+                    // 🔴 2026-11-12：只物化一次 enumerated，且 id 用【歌曲 id】而不是行号，
+                    //    「最新/最旧」切换倒序时 SwiftUI 才不会把行视图错配。
+                    ForEach(Array(list.enumerated()), id: \.element.id) { index, song in
                         let selected = selectedIDs.contains(song.id)
                         HStack(spacing: 0) {
                             if isSelecting {
@@ -631,7 +638,7 @@ struct ArtistDetailView: View {
                             .padding(.leading, isSelecting ? 0 : 4)
                         }
                         .onAppear {
-                            if index == displaySongs.count - 5 {
+                            if index == list.count - 5 {
                                 Task { await loadMoreSongs() }
                             }
                         }

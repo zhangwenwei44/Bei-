@@ -238,6 +238,8 @@ private struct MiniPlayerOverlay: View {
     private let store: PlayerStore
 
     @Binding var isExpanded: Bool
+    /// 🔴 2026-11-12：排序弹窗打开期间收起播放条，避免压住弹窗最后一项。
+    @State private var sortSheetPresented = false
 
     init(store: PlayerStore, isExpanded: Binding<Bool>) {
         self.store = store
@@ -248,7 +250,7 @@ private struct MiniPlayerOverlay: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if mini.isVisible {
+            if mini.isVisible && !sortSheetPresented {
                 MiniPlayer(mini: mini, playback: playback, store: store, isExpanded: $isExpanded)
                     .padding(.horizontal, 10)
                     // 🔴 底边贴住 TabBar 上沿（用户明确要求的形态）。
@@ -261,6 +263,12 @@ private struct MiniPlayerOverlay: View {
         // 外面再糊一条全宽色带会把它变成一根"粗条"（也盖住 TabBar 上沿的层次）。
         // 隐藏时 VStack 高度为 0，inset 自动消失。
         // 播放页由 RootView 的 fullScreenCover 呈现（见 RootView.body）。
+        .onReceive(NotificationCenter.default.publisher(for: .auroraPlaylistSortSheetVisibility)) { note in
+            let presented = (note.userInfo?["presented"] as? Bool) ?? false
+            if sortSheetPresented != presented {
+                withAnimation(.easeInOut(duration: 0.2)) { sortSheetPresented = presented }
+            }
+        }
         .queueSheet()
     }
 }
