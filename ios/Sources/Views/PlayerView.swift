@@ -75,7 +75,11 @@ struct PlayerView: View {
     @State private var shareItems: [Any]?
     @State private var dominantColor: Color = .white
     /// 🔴 播放页主题：T 恤按钮切换（经典封面 / 歌手写真 / 沉浸式封面），选择持久化。
-    @AppStorage("aurora.playerPageTheme") private var playerPageTheme: PlayerPageTheme = .classic
+    /// 🔴 2026-11-12：默认播放主题改为「沉浸式封面」。
+    ///    AppStorage 已有值的老用户走一次性迁移（只改仍停在 classic 的），
+    ///    之后用户在面板里手动选的主题照常记忆、不会被反复覆盖。
+    @AppStorage("aurora.playerPageTheme") private var playerPageTheme: PlayerPageTheme = .immersiveCover
+    @AppStorage("aurora.playerThemeDefaultV3") private var themeDefaultMigrated = false
     @State private var showThemePicker = false
 
     /// 参数顺序必须与属性声明顺序一致：playback / lyricState 在 isExpanded 之前。
@@ -235,6 +239,11 @@ struct PlayerView: View {
             isLandscape = OrientationLock.shared.isLandscapePlayer
             // 🔴 v2.8.3：常亮统一走 IdleTimerKeeper（多原因登记），不再直接改全局 bool
             IdleTimerKeeper.shared.set("player-landscape", isLandscape)
+            // 🔴 2026-11-12：一次性把旧默认值 classic 迁到沉浸式封面。
+            if !themeDefaultMigrated {
+                themeDefaultMigrated = true
+                if playerPageTheme == .classic { playerPageTheme = .immersiveCover }
+            }
         }
         // 🔴 横屏播放器时隐藏系统状态栏（沉浸播放）；退出横屏自动恢复。
         // 🔴 加 !isLyricsPage：从横屏进歌词页时 isLandscapePlayer 不会置回 false，isLandscape 仍为 true，

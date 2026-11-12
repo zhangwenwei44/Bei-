@@ -1380,12 +1380,12 @@ struct SongRow: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(song.cleanTitle)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(isCurrent ? AppStyle.accent : AppStyle.primaryText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // 🔴 2026-11-12：长歌名不再截成「…」，改成 UIKit 层匀速横向滚动。
+                //    只有真正超出宽度的行才启动动画，短标题与普通 Text 一样零开销。
+                MarqueeText(text: song.cleanTitle,
+                            size: 15,
+                            weight: .medium,
+                            color: isCurrent ? AppStyle.accent : AppStyle.primaryText)
                 // 🔴 3.0.0：列表里不再显示 VIP 标签；「本地」标签从歌名行挪到歌手名后面，
                 //    颜色改成与播放页 VIP / 音质标签同款的灰色胶囊。已下载的网络歌曲也显示。
                 HStack(spacing: 6) {
@@ -1913,21 +1913,23 @@ extension Notification.Name {
 
 // MARK: - MarqueeText 跑马灯（歌名太长时横向滚动，短则正常显示）
 
-/// 简单可靠的跑马灯：
-/// - 外层 GeometryReader 读容器宽度（只有 1 个，不会嵌套出 0）
-/// - 内部 Text + fixedSize 自然撑开，不压缩
-/// - 用 UIFont.boundingRect 提前算文本宽度（比 PreferenceKey 可靠）
-/// - 只有 scroll 状态时才注入第二份文本循环
+/// 🔴 2026-11-12 第三轮重写：用户要求「长歌名改成横向滚动显示，不要三点」。
+///
+/// 旧实现是纯 SwiftUI：GeometryReader + `withAnimation(.linear.repeatForever)`
+/// 逐帧改 @State offset，几百行的大歌单里每个可见行都在跑 SwiftUI 动画 ——
+/// 与「大歌单很卡 / 上滑抖动」直接冲突，所以一直没有接入。
+///
+/// 现在改成 **UIKit 层动画**：
+///   · 只有 `文字自然宽度 > 容器宽度` 的行才启动，短标题就是一个普通 UILabel；
+///   · 滚动用 CoreAnimation 的 transform 补间，不触发 SwiftUI body 重算；
+///   · `lineBreakMode = .byClipping` 彻底去掉省略号；
+///   · 视图离开层级时停动画，避免后台空转。
 struct MarqueeText: View {
     let text: String
     var size: CGFloat = 15
     var weight: Font.Weight = .medium
     var color: Color = AppStyle.primaryText
-
-    @State private var containerW: CGFloat = 0
-    @State private var offset: CGFloat = 0
-
-    private let spacing: CGFloat = 40
+    @Environment(\.colorScheme) private var colorScheme
 
     private var uiFont: UIFont {
         UIFont.systemFont(ofSize: size, weight: {
@@ -1941,84 +1943,108 @@ struct MarqueeText: View {
         }())
     }
 
-    private var font: Font { .system(size: size, weight: weight) }
+    var body: some View {
+        MarqueeUILabel(text: text,
+                       font: uiFont,
+                       color: UIColor(color),
+                       colorScheme: colorScheme)
+            .frame(height: uiFont.lineHeight + 1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
 
-    /// 用 UIFont.boundingRect 算文本自然宽度，不依赖 SwiftUI layout
-    private var textW: CGFloat {
-        let attributes: [NSAttributedString.Key: Any] = [.font: uiFont]
-        let s = text as NSString
-        let rect = s.boundingRect(
-            with: CGSize(width: .greatestFiniteMagnitude, height: uiFont.lineHeight),
-            options: [.usesLineFragmentOrigin],
-            attributes: attributes,
-            context: nil
-        )
-        return max(10, ceil(rect.width))
+private struct MarqueeUILabel: UIViewRepresentable {
+    let text: String
+    let font: UIFont
+    let color: UIColor
+    /// 仅用于深浅色切换时让 SwiftUI 重新调用 updateUIView 刷新文字色。
+    let colorScheme: ColorScheme
+
+    func makeUIView(context: Context) -> MarqueeLabelView { MarqueeLabelView() }
+
+    func updateUIView(_ uiView: MarqueeLabelView, context: Context) {
+        uiView.configure(text: text, font: font, color: color)
     }
 
-    private var needScroll: Bool { textW > containerW + 1 }
-    private var duration: Double { min(max(Double(textW) / 40, 4), 12) }
+    static func dismantleUIView(_ uiView: MarqueeLabelView, coordinator: Void) {
+        uiView.stopScroll()
+    }
+}
 
-    var body: some View {
-        GeometryReader { proxy in
-            // 容器宽度更新
-            let w = proxy.size.width
-            if w != containerW {
-                // 必须异步，不能在 body 里直接改 state
-                DispatchQueue.main.async {
-                    containerW = w
-                    // 容器变了 → 重启滚动
-                    offset = 0
-                    if textW > w + 1 {
-                        withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) {
-                            offset = -(textW + spacing)
-                        }
-                    }
-                }
-            }
+private final class MarqueeLabelView: UIView {
+    private let label = UILabel()
+    private var currentText = ""
+    private var scrolling = false
+    private var currentOverflow: CGFloat = 0
+    private let gap: CGFloat = 24
 
-            return ZStack(alignment: .leading) {
-                // 第一份文本
-                Text(text)
-                    .font(font)
-                    .foregroundStyle(color)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .offset(x: needScroll ? offset : 0)
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        clipsToBounds = true
+        backgroundColor = .clear
+        isUserInteractionEnabled = false
+        label.numberOfLines = 1
+        label.lineBreakMode = .byClipping   // 🔴 不显示「…」
+        label.textAlignment = .left
+        label.baselineAdjustment = .alignCenters
+        addSubview(label)
+    }
 
-                // 第二份（循环用）
-                if needScroll {
-                    Text(text)
-                        .font(font)
-                        .foregroundStyle(color)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .offset(x: textW + spacing + offset)
-                }
-            }
-            .clipped()
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(text: String, font: UIFont, color: UIColor) {
+        label.font = font
+        label.textColor = color
+        if text != currentText {
+            currentText = text
+            label.text = text
+            stopScroll()
+            setNeedsLayout()
         }
-        .frame(height: uiFont.lineHeight)
-        .frame(maxWidth: .infinity, alignment: .leading)   // ← GeometryReader 从父容器拿宽度
-        .onAppear {
-            // 等一帧让 GeometryReader 先拿到宽度
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                if containerW > 0 && textW > containerW + 1 {
-                    offset = 0
-                    withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) {
-                        offset = -(textW + spacing)
-                    }
-                }
-            }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let w = bounds.width
+        let h = bounds.height
+        guard w > 1, h > 0 else { return }
+        let natural = label.sizeThatFits(
+            CGSize(width: CGFloat.greatestFiniteMagnitude, height: h)).width
+        label.frame = CGRect(x: 0, y: 0, width: natural, height: h)
+        let overflow = natural - w
+        currentOverflow = overflow
+        if overflow > 2 {
+            startScrollIfNeeded()
+        } else {
+            stopScroll()
         }
-        .onChange(of: text) { _ in
-            offset = 0
-            if containerW > 0 && textW > containerW + 1 {
-                withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) {
-                    offset = -(textW + spacing)
-                }
-            }
-        }
+    }
+
+    /// 往返匀速滚动：两端各停一会儿，速度按溢出长度归一，长标题也不会飞快。
+    private func startScrollIfNeeded() {
+        guard !scrolling, currentOverflow > 2 else { return }
+        scrolling = true
+        label.transform = .identity
+        let distance = currentOverflow + gap
+        let duration = min(max(TimeInterval(distance / 28), 3.0), 9.0)
+        UIView.animate(withDuration: duration,
+                       delay: 0.9,
+                       options: [.curveLinear, .autoreverse, .repeat, .beginFromCurrentState],
+                       animations: {
+            self.label.transform = CGAffineTransform(translationX: -distance, y: 0)
+        }, completion: nil)
+    }
+
+    func stopScroll() {
+        guard scrolling else { return }
+        scrolling = false
+        label.layer.removeAllAnimations()
+        label.transform = .identity
+    }
+
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        if newWindow == nil { stopScroll() }
     }
 }
 

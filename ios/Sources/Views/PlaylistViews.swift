@@ -188,7 +188,9 @@ struct PlaylistDetailView: View {
                                         })
                                     .equatable()
                                     .songMenu(song)
-                                    .padding(.horizontal, 16)
+                                    .padding(.leading, 16)
+                                    // 🔴 A–Z 排序时给右侧字母条让位，行尾按钮左移。
+                                    .padding(.trailing, PlaylistLetterIndex.isActive(sortMode) ? 32 : 16)
                                     .contextMenu {
                                         if let localPlaylist {
                                             Button(role: .destructive) {
@@ -353,7 +355,7 @@ struct PlaylistDetailView: View {
                     // 🔴 2026-11-12：字母条走同层 UIKit 浮层（z 序高于大图浮层），
                     //    刚打开 A~Z 就完整可见；行高 14→17pt，上下更疏。
                     PlaylistLetterIndexOverlay(letters: info.letters,
-                                                   headerState: headerState) { letter in
+                                                   mode: headerState.letterIndexMode) { letter in
                         headerState.scrollProxy?.scrollTo(
                             PlaylistLetterIndex.anchorID(letter),
                             anchor: PlaylistLetterIndex.scrollAnchor)
@@ -387,7 +389,7 @@ struct PlaylistDetailView: View {
                 showSortSheet = true
             } label: {
                 ImmersiveSortIcon(color: AppIconSpec.actionTint)
-                    .frame(width: 36, height: 36)
+                    .frame(width: AppIconSpec.actionHit, height: AppIconSpec.actionHit)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -397,7 +399,7 @@ struct PlaylistDetailView: View {
                 selectedIDs.removeAll()
             } label: {
                 ImmersiveMultiSelectIcon(color: AppIconSpec.actionTint)
-                    .frame(width: 36, height: 36)
+                    .frame(width: AppIconSpec.actionHit, height: AppIconSpec.actionHit)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -576,7 +578,9 @@ struct AlbumDetailView: View {
                                         })
                                     .equatable()
                                     .songMenu(song)
-                                    .padding(.horizontal, 16)
+                                    .padding(.leading, 16)
+                                    // 🔴 A–Z 排序时给右侧字母条让位，行尾按钮左移。
+                                    .padding(.trailing, PlaylistLetterIndex.isActive(sortMode) ? 32 : 16)
                             }
                         }
                     }
@@ -711,7 +715,7 @@ struct AlbumDetailView: View {
                     // 🔴 2026-11-12：字母条走同层 UIKit 浮层（z 序高于大图浮层），
                     //    刚打开 A~Z 就完整可见；行高 14→17pt，上下更疏。
                     PlaylistLetterIndexOverlay(letters: info.letters,
-                                                   headerState: headerState) { letter in
+                                                   mode: headerState.letterIndexMode) { letter in
                         headerState.scrollProxy?.scrollTo(
                             PlaylistLetterIndex.anchorID(letter),
                             anchor: PlaylistLetterIndex.scrollAnchor)
@@ -739,7 +743,7 @@ struct AlbumDetailView: View {
                 showSortSheet = true
             } label: {
                 ImmersiveSortIcon(color: AppIconSpec.actionTint)
-                    .frame(width: 36, height: 36)
+                    .frame(width: AppIconSpec.actionHit, height: AppIconSpec.actionHit)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -749,7 +753,7 @@ struct AlbumDetailView: View {
                 selectedIDs.removeAll()
             } label: {
                 ImmersiveMultiSelectIcon(color: AppIconSpec.actionTint)
-                    .frame(width: 36, height: 36)
+                    .frame(width: AppIconSpec.actionHit, height: AppIconSpec.actionHit)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

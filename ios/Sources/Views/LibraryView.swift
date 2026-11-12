@@ -916,7 +916,7 @@ struct KugouPlaylistDetail: View {
                     // 🔴 2026-11-12：字母条走同层 UIKit 浮层（z 序高于大图浮层），
                     //    刚打开 A~Z 就完整可见；行高 14→17pt，上下更疏。
                     PlaylistLetterIndexOverlay(letters: info.letters,
-                                                   headerState: headerState) { letter in
+                                                   mode: headerState.letterIndexMode) { letter in
                         headerState.scrollProxy?.scrollTo(
                             PlaylistLetterIndex.anchorID(letter),
                             anchor: PlaylistLetterIndex.scrollAnchor)
@@ -1029,7 +1029,7 @@ struct KugouPlaylistDetail: View {
                 showSortSheet = true
             } label: {
                 ImmersiveSortIcon(color: AppIconSpec.actionTint)
-                    .frame(width: 36, height: 36)
+                    .frame(width: AppIconSpec.actionHit, height: AppIconSpec.actionHit)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -1038,7 +1038,7 @@ struct KugouPlaylistDetail: View {
                 selectedIDs.removeAll()
             } label: {
                 ImmersiveMultiSelectIcon(color: AppIconSpec.actionTint)
-                    .frame(width: 36, height: 36)
+                    .frame(width: AppIconSpec.actionHit, height: AppIconSpec.actionHit)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -1175,7 +1175,10 @@ struct KugouPlaylistDetail: View {
                         // 不透明底：盖住身后的红色删除按钮（页面背景同色）
                         .background(AppStyle.background)
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.leading, 16)
+                    // 🔴 2026-11-12：A–Z 排序时右侧字母条占 24pt，
+                    //    行尾「收藏 / 更多」左移，避免贴着字母被挡住。
+                    .padding(.trailing, PlaylistLetterIndex.isActive(sortMode) ? 32 : 16)
                     // 长按也可以移出歌单
                     .contextMenu {
                         Button(role: .destructive) {

@@ -18,6 +18,15 @@ enum AppIconSpec {
     /// 所有图标的墨迹包围盒（pt）
     static let ink: CGFloat = 20
 
+    /// 🔴 2026-11-12 第三轮：吸顶行「新建歌单 / 排序 / 多选」三枚再改小一档。
+    ///    线宽仍固定 1.5pt（约束文件硬要求），只缩墨迹画布；命中区 36 → 30。
+    static let actionCanvas: CGFloat = 20
+    static let actionHit: CGFloat = 30
+    /// 固定线宽，不随画布缩小而变细（保持一排图标粗细统一）。
+    static func actionStroke() -> StrokeStyle {
+        StrokeStyle(lineWidth: strokeWidth, lineCap: .round, lineJoin: .round)
+    }
+
     /// 🔴 2026-11-12：吸顶行三枚图标不再是近黑 `AppStyle.primaryText`，
     ///    改成酷狗同款「灰白」中性色。白底吸顶行上仍能看清，但不会有硬黑感。
     static let actionTint = Color(red: 0.63, green: 0.66, blue: 0.71)
@@ -46,9 +55,9 @@ struct ImmersiveSortIcon: View {
 
     var body: some View {
         SortDualArrowShape()
-            .stroke(color, style: AppIconSpec.stroke(for: AppIconSpec.canvas))
-            .frame(width: AppIconSpec.canvas, height: AppIconSpec.canvas)
-            .frame(width: 36, height: 36)
+            .stroke(color, style: AppIconSpec.actionStroke())
+            .frame(width: AppIconSpec.actionCanvas, height: AppIconSpec.actionCanvas)
+            .frame(width: AppIconSpec.actionHit, height: AppIconSpec.actionHit)
     }
 }
 
@@ -79,10 +88,11 @@ struct ImmersiveMultiSelectIcon: View {
 
     var body: some View {
         ZStack {
-            MultiSelectCheckShape().stroke(color, style: AppIconSpec.stroke(for: AppIconSpec.canvas))
-            MultiSelectBarShape().stroke(color, style: AppIconSpec.stroke(for: AppIconSpec.canvas))
+            MultiSelectCheckShape().stroke(color, style: AppIconSpec.actionStroke())
+            MultiSelectBarShape().stroke(color, style: AppIconSpec.actionStroke())
         }
-        .frame(width: AppIconSpec.canvas, height: AppIconSpec.canvas)
+        .frame(width: AppIconSpec.actionCanvas, height: AppIconSpec.actionCanvas)
+        .frame(width: AppIconSpec.actionHit, height: AppIconSpec.actionHit)
     }
 }
 
@@ -125,11 +135,12 @@ struct ImmersiveNewPlaylistIcon: View {
         ZStack {
             RoundedRectangle(cornerRadius: 4, style: .continuous)
                 .inset(by: 2)
-                .stroke(color, style: AppIconSpec.stroke(for: AppIconSpec.canvas))
+                .stroke(color, style: AppIconSpec.actionStroke())
             NewPlaylistPlusShape()
-                .stroke(color, style: AppIconSpec.stroke(for: AppIconSpec.canvas))
+                .stroke(color, style: AppIconSpec.actionStroke())
         }
-        .frame(width: AppIconSpec.canvas, height: AppIconSpec.canvas)
+        .frame(width: AppIconSpec.actionCanvas, height: AppIconSpec.actionCanvas)
+        .frame(width: AppIconSpec.actionHit, height: AppIconSpec.actionHit)
     }
 }
 
@@ -169,7 +180,7 @@ struct PlaylistCreateButton: View {
                 Haptics.light()
             } label: {
                 ImmersiveNewPlaylistIcon(color: color)
-                    .frame(width: 36, height: 36)
+                    .frame(width: AppIconSpec.actionHit, height: AppIconSpec.actionHit)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -259,11 +270,20 @@ enum PlaylistLetterIndex {
     }
 
     /// scrollTo 的锚点 id。用 .top 会被吸顶行盖住，这里把目标放在可见区约 12% 处。
-    /// 🔴 2026-11-12：调用处**不再包 withAnimation** —— 手指拖过字母时连续触发
-    ///    scrollTo，叠加动画会让列表来回抖（用户反馈的「滑动抖动」之一）。
+    /// 🔴 调用处**不包 withAnimation** —— 手指拖过字母时连续触发 scrollTo，
+    ///    叠加动画会让列表来回抖（用户反馈的「滑动抖动」之一）。
     static let scrollAnchor = UnitPoint(x: 0.5, y: 0.12)
 
     static func anchorID(_ letter: String) -> String { "sort-sec-\(letter)" }
+}
+
+/// 🔴 2026-11-12 第三轮：字母条的展开态独立成一个只发布 Bool 的对象。
+///    原来 overlay 直接订阅 `ImmersiveHeaderState`，而 `scrolled` 是滚动时逐帧
+///    @Published，导致字母条 SwiftUI 视图每帧重算、updateUIView 每帧被调用 ——
+///    大歌单上滑时这就是持续掉帧 / 抖动的来源之一。
+///    现在 `apply()` 只在跨过阈值那一次写 `expanded`，滚动全程零刷新。
+final class PlaylistLetterIndexMode: ObservableObject {
+    @Published var expanded: Bool = false
 }
 
 /// 把字母条挂到与大图同一层的 UIKit 浮层上。
@@ -271,36 +291,17 @@ enum PlaylistLetterIndex {
 /// 🔴 2026-11-12 真机截图量化：沉浸式大图是 UIKit 浮层（UINavigationController.view
 ///    下、navigationBar 之下），覆盖屏幕 0~350pt，层级【高于整个 SwiftUI 树】。
 ///    页面内 `.overlay` 会被大图盖住 A~F，所以字母条必须与大图【同层且 z 序更高】。
-/// 🔴 2026-11-12 第二轮：按滚动状态双态 ——
-///    `expanded = false`（大图展开）：恢复早期的紧凑尺寸（行高 14pt），不抢封面；
-///    `expanded = true`（上滑吸顶）：展开、行高加大到 21pt，上下间距明显更疏。
-///    状态是 Bool（阈值化），只在跨过阈值那一次重建 rootView，滚动过程不逐帧刷新。
+/// 🔴 双态：`expanded = false`（大图展开）行高 14pt 紧凑；吸顶后 21pt 展开。
 struct PlaylistLetterIndexOverlay: View {
     let letters: [String]
-    /// 🔴 2026-11-12：滚动态订阅放在这个**轻量子视图**里，而不是让歌单详情页
-    ///    的 body 直接读 `headerState.collapseProgress`。
-    ///    `scrolled` 是 @Published、滚动时逐帧变；父页面 body 一旦读它，
-    ///    整页（含几百行 LazyVStack 的构造）每帧都重算，是大歌单掉帧的放大器。
-    ///    这里订阅后，逐帧刷新只落在这个 0 尺寸锚点上；Bool 阈值化又保证
-    ///    只有跨过阈值那一次才会重建 UIKit 浮层的 rootView。
-    @ObservedObject var headerState: ImmersiveHeaderState
+    @ObservedObject var mode: PlaylistLetterIndexMode
     let onSelect: (String) -> Void
 
-    /// true = 大图已收起 / 吸顶，字母条展开加大间距
-    private var expanded: Bool { headerState.collapseProgress >= 0.9 }
-
     var body: some View {
-        PlaylistLetterIndexHost(letters: letters, expanded: expanded, onSelect: onSelect)
+        PlaylistLetterIndexHost(letters: letters, expanded: mode.expanded, onSelect: onSelect)
             .frame(width: 0, height: 0)
             .allowsHitTesting(false)
     }
-}
-
-/// 稳定的回调持有者：滚动时父视图 body 会反复重算，但 rootView 不必跟着重建。
-final class PlaylistLetterIndexAction {
-    var handler: ((String) -> Void)?
-    /// 按住/拖过某个字母时显示左侧放大气泡；nil = 松手隐藏。
-    var hover: ((String?, Int) -> Void)?
 }
 
 private struct PlaylistLetterIndexHost: UIViewRepresentable {
@@ -312,8 +313,7 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
         let v = Anchor()
         v.letters = letters
         v.expanded = expanded
-        v.action.handler = onSelect
-        v.action.hover = { [weak v] letter, index in v?.showBubble(letter, index: index) }
+        v.onSelect = onSelect
         return v
     }
 
@@ -322,7 +322,7 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
         let modeChanged = uiView.expanded != expanded
         uiView.letters = letters
         uiView.expanded = expanded
-        uiView.action.handler = onSelect
+        uiView.onSelect = onSelect
         uiView.installIfNeeded()
         // 🔴 只在「数据 / 展开态」真的变化时才重建 + 重排图层。
         //    旧版每 0.2s 无条件 bringSubviewToFront，滚动时反复触发 UIKit
@@ -341,11 +341,10 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
         var letters: [String] = []
         var expanded: Bool = false
         var rowHeight: CGFloat = 14
-        let action = PlaylistLetterIndexAction()
+        var onSelect: ((String) -> Void)?
 
         private var hosting: UIHostingController<AnyView>?
         private var barView: UIView?
-        private var bubble: UILabel?
         private weak var container: UIView?
         private weak var navBar: UINavigationBar?
         private weak var hostVC: UIViewController?
@@ -386,13 +385,12 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
             let letters = self.letters
             let row = self.rowHeight
             let expanded = self.expanded
-            let action = self.action
             return AnyView(
                 PlaylistLetterIndexBar(letters: letters,
                                        rowHeight: row,
-                                       expanded: expanded,
-                                       onSelect: { action.handler?($0) },
-                                       onHover: { action.hover?($0, $1) })
+                                       expanded: expanded) { [weak self] letter in
+                    self?.onSelect?(letter)
+                }
             )
         }
 
@@ -440,7 +438,7 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
                 rebuildRoot()
             }
             let h = min(count * row + 8, maxH)
-            let w: CGFloat = 22
+            let w: CGFloat = 24
             let rect = CGRect(x: screen.width - w - 1,
                               y: screen.height - bottomReserved - h,
                               width: w, height: h)
@@ -452,15 +450,12 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
                 || !isHostOnTop
                 || PlaylistSortOverlayState.shared.isPresented
             if v.isHidden != hidden { v.isHidden = hidden }
-            if hidden { bubble?.isHidden = true }
         }
 
         /// 🔴 字母条必须保持在 navigationBar 之下的**最上层**：沉浸式大图也是
         ///    insertSubview(belowSubview: navigationBar) 挂在同一层，而且可能比
-        ///    字母条更晚安装（封面异步到达），一旦大图后插入就会重新盖住 A~F，
-        ///    也就是用户第一轮反馈的「刚打开被遮挡」。
-        ///    这里只在位置真的不对时才动 UIKit 层级，正常情况零操作，
-        ///    不会反复触发 layoutSubviews（大歌单滑动抖动的旧根因）。
+        ///    字母条更晚安装（封面异步到达），一旦大图后插入就会重新盖住 A~F。
+        ///    这里只在位置真的不对时才动 UIKit 层级，正常情况零操作。
         private func ensureZOrder() {
             guard let v = barView, let parent = container, let bar = navBar,
                   bar.superview === parent,
@@ -470,52 +465,18 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
             parent.insertSubview(v, belowSubview: bar)
         }
 
-        /// 按住/拖过字母时，左侧弹出一个放大字母气泡（酷狗 / iOS 通讯录同款）。
-        func showBubble(_ letter: String?, index: Int) {
-            guard let parent = container, let bar = barView, let nav = navBar else { return }
-            if bubble == nil {
-                let l = UILabel()
-                l.backgroundColor = UIColor(red: 0.13, green: 0.15, blue: 0.19, alpha: 0.94)
-                l.textColor = .white
-                l.font = .boldSystemFont(ofSize: 34)
-                l.textAlignment = .center
-                l.layer.cornerRadius = 16
-                l.clipsToBounds = true
-                l.isUserInteractionEnabled = false
-                l.isHidden = true
-                parent.insertSubview(l, belowSubview: nav)
-                bubble = l
-            }
-            guard let b = bubble else { return }
-            if let letter {
-                b.text = letter
-                let side: CGFloat = 68
-                let y = bar.frame.minY + 4 + CGFloat(index) * rowHeight + rowHeight / 2 - side / 2
-                b.frame = CGRect(x: bar.frame.minX - side - 14, y: y,
-                                 width: side, height: side)
-                b.alpha = 1
-                b.isHidden = false
-            } else {
-                UIView.animate(withDuration: 0.16, animations: { b.alpha = 0 }) { _ in
-                    b.isHidden = true
-                }
-            }
-        }
-
         /// 低频轮询（0.45s）：只在 push/pop、弹窗开关导致可见性变化时才动 UI。
         private func startMonitoring() {
             guard !monitoring else { return }
             monitoring = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
                 guard let self, self.window != nil else { return }
-                // 大图浮层晚插入时把字母条重新压回它上面；位置正确时零操作。
                 self.ensureZOrder()
                 let hidden = self.letters.isEmpty
                     || !self.isHostOnTop
                     || PlaylistSortOverlayState.shared.isPresented
                 if let v = self.barView, v.isHidden != hidden {
                     v.isHidden = hidden
-                    if hidden { self.bubble?.isHidden = true }
                 }
                 self.monitoring = false
                 self.startMonitoring()
@@ -524,9 +485,7 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
 
         func teardown() {
             barView?.removeFromSuperview()
-            bubble?.removeFromSuperview()
             barView = nil
-            bubble = nil
             hosting = nil
             container = nil
             navBar = nil
@@ -534,36 +493,44 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
     }
 }
 
+/// 🔴 2026-11-12 第三轮：按用户要求移除右侧「滑动条」外观 ——
+///    去掉整条白色 Capsule 背景 + 描边，字母直接浮在列表上；
+///    滑到哪个字母，那个字母出现【蓝色圆形背景 + 白字】高亮（iOS 通讯录同款）。
+///    原来的左侧 68pt 放大气泡一并删除，避免两套提示同时出现。
 struct PlaylistLetterIndexBar: View {
     let letters: [String]
     var rowHeight: CGFloat
     let expanded: Bool
     let onSelect: (String) -> Void
-    let onHover: (String?, Int) -> Void
 
     @State private var activeIndex: Int?
 
     var body: some View {
         VStack(spacing: 0) {
             ForEach(letters.indices, id: \.self) { i in
+                let active = activeIndex == i
                 Text(letters[i])
                     .font(.system(size: expanded ? 12 : 10,
-                                  weight: activeIndex == i ? .bold : .semibold))
-                    .foregroundStyle(activeIndex == i
-                                     ? Color(red: 0.12, green: 0.53, blue: 0.96)
-                                     : Color(red: 0.30, green: 0.32, blue: 0.36))
-                    .frame(width: 18, height: rowHeight)
+                                  weight: active ? .bold : .semibold))
+                    .foregroundStyle(active
+                                     ? Color.white
+                                     : Color(red: 0.32, green: 0.34, blue: 0.38))
+                    .frame(width: 22, height: rowHeight)
+                    .background {
+                        if active {
+                            Circle()
+                                .fill(Color(red: 0.12, green: 0.53, blue: 0.96))
+                                .frame(width: min(20, rowHeight + 2),
+                                       height: min(20, rowHeight + 2))
+                        }
+                    }
                     .contentShape(Rectangle())
             }
         }
         .padding(.vertical, 4)
-        .padding(.horizontal, 2)
-        .background(Capsule().fill(Color.white.opacity(expanded ? 0.86 : 0.74)))
-        .overlay(Capsule().stroke(Color.black.opacity(0.05), lineWidth: 0.5))
         .contentShape(Rectangle())
-        // 🔴 统一用手势处理「点按 / 按住 / 上下拖动」：按下即定位并显示放大气泡，
-        //    拖过字母连续定位，松手隐藏气泡。比 Button 更适合索引条，也避免
-        //    多个 Button 各自抢手势造成的抖动。
+        // 🔴 统一用手势处理「点按 / 按住 / 上下拖动」：按下即定位 + 高亮，
+        //    拖过字母连续定位，松手取消高亮。比多个 Button 更少抢手势。
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
@@ -572,12 +539,10 @@ struct PlaylistLetterIndexBar: View {
                     guard letters.indices.contains(idx), activeIndex != idx else { return }
                     activeIndex = idx
                     onSelect(letters[idx])
-                    onHover(letters[idx], idx)
                     Haptics.light()
                 }
                 .onEnded { _ in
                     activeIndex = nil
-                    onHover(nil, 0)
                 }
         )
     }

@@ -29,6 +29,14 @@ struct DiscoverView: View {
     ///    避免单次网络抖动 / 翻页偶发重复就提前结束（只显示 80 位的元凶之一）。
     @State private var artistEmptyStreak = 0
     @State private var isLoadingMoreArtists = false
+    /// 🔴 2026-11-12 第三轮：歌手分组结果缓存。
+    ///    `artistGroups` 原来是 computed property，页面每次 body 重算都会对
+    ///    【全部 1000+ 位歌手】重新做字典分组 + 组内排序，滚动时累积成主线程卡顿。
+    ///    现在只在数据 / 搜索词变化时算一次，body 只读缓存。
+    @State private var artistGroupsCache: [ArtistGroup] = []
+    @State private var filteredArtistGroupsCache: [ArtistGroup] = []
+    /// 后台自动补齐任务只跑一条，切 Tab 回来时恢复而不重复起任务。
+    @State private var artistAutoLoading = false
     /// 🔴 2026-11-09：歌手 Tab 的搜索框只过滤本页已加载的歌手，不跳全局搜索。
     @State private var artistQuery = ""
     // 🔴 v2.9.17：热门歌手专辑板块数据（歌手 + 他的一张专辑），从 hotArtists 现拉。
@@ -157,8 +165,10 @@ struct DiscoverView: View {
             }
             .onChange(of: selectedTab) { tab in
                 withAnimation { proxy.scrollTo("tab-top", anchor: .top) }
-                if tab == .artists { Task { await loadArtistBatch(reset: true) } }
+                if tab == .artists { Task { await startArtistLoading() } }
             }
+            // 🔴 搜索框只过滤本页已加载歌手，词变了重算一次分组缓存。
+            .onChange(of: artistQuery) { _ in refreshArtistGroups() }
             // 🔴 v2.9.6(修正)：酷狗风格背景 —— 顶部淡蓝渐变钉在页面顶部，上滑不消失。
             // 渐变挂在 ScrollView 自身的背景上（相对可视区域固定），而不是滚动内容里。
             .kugouPinnedTopFade(height: 280)
@@ -546,22 +556,30 @@ struct DiscoverView: View {
         }
     }
 
-    private var artistGroups: [ArtistGroup] { makeArtistGroups(allArtists) }
+    private var artistGroups: [ArtistGroup] { artistGroupsCache }
+
+    /// 数据 / 搜索词变化后显式重算一次，避免逐帧全量分组排序。
+    private func refreshArtistGroups() {
+        let groups = makeArtistGroups(allArtists)
+        artistGroupsCache = groups
+        let q = artistSearchText
+        guard !q.isEmpty else {
+            filteredArtistGroupsCache = groups
+            return
+        }
+        let matched = allArtists.filter { artist in
+            artist.name.localizedCaseInsensitiveContains(q)
+            || artist.initialLetter.localizedCaseInsensitiveContains(q)
+        }
+        filteredArtistGroupsCache = makeArtistGroups(matched)
+    }
 
     private var artistSearchText: String {
         artistQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// 🔴 2026-11-09：只在本页歌手里按名字 / 拼音首字母过滤，不触发网络搜索。
-    private var filteredArtistGroups: [ArtistGroup] {
-        let q = artistSearchText
-        guard !q.isEmpty else { return artistGroups }
-        let matched = allArtists.filter { artist in
-            artist.name.localizedCaseInsensitiveContains(q)
-            || artist.initialLetter.localizedCaseInsensitiveContains(q)
-        }
-        return makeArtistGroups(matched)
-    }
+    private var filteredArtistGroups: [ArtistGroup] { filteredArtistGroupsCache }
 
     /// 🔴 2026-11-09：歌手 Tab 专用搜索框 —— 不跳 SearchView，只改本页列表。
     private var artistSearchBar: some View {
@@ -660,15 +678,17 @@ struct DiscoverView: View {
                         //    每批加载完换 id 重建：用户仍停在底部就继续下一批；
                         //    列表变长后哨兵离开可视区，自然停止，不会一次拉完全部。
                         .id("artist-sentinel-\(artistPage)")
-                        .onAppear { Task { await loadArtistBatch(reset: false) } }
+                        .onAppear { Task { await startArtistLoading() } }
                     }
                 }
                 .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .padding(.horizontal, 12)
             }
 
-            if artistsLoaded && !hasMoreArtists && !allArtists.isEmpty && artistSearchText.isEmpty {
-                Text("已经到底啦 ~")
+            if artistsLoaded && artistSearchText.isEmpty && !allArtists.isEmpty {
+                Text(hasMoreArtists
+                     ? "正在加载更多歌手…"
+                     : "已加载全部 \(allArtists.count) 位歌手")
                     .font(.system(size: 12))
                     .foregroundStyle(AppStyle.tertiaryText)
                     .frame(maxWidth: .infinity)
@@ -677,20 +697,34 @@ struct DiscoverView: View {
         }
     }
 
-    /// 🔴 2026-11-12：歌手 Tab 改成「滚到底再加载下一批」，不再一进 Tab 就全量拉完。
+    /// 🔴 2026-11-12 第三轮：修「歌手页还是获取不到全部歌手」（截图停在 160 位）。
     ///
-    /// 旧版串行翻最多 25 页（≈500 位），**每拉一页**就整体替换 `allArtists`，
-    /// 触发 25 次全量「按拼音首字母分组 + 组内排序」重算，真机上就是这个 Tab 卡死的根因。
-    /// 现在一批只翻 2 页（≤40 位）、一批只刷新一次，其余等用户滚到列表底部再继续。
+    /// 实测酷狗 `/api/v3/singer/list?sort=1&category=0`：
+    ///   · page 1~75 每页都返回 20 条全新数据，`total = 2684455`；
+    ///   · `pagesize` 直接给 100 / 200 / 500 也都能一次返回对应条数。
+    /// 所以「只有 160 位」不是接口到底，而是代码自己提前收工：
+    ///   ① 旧版 `if batch.count < 20 { reachedEnd = true }` —— 只要某一页解析
+    ///      去重后不足 20 条（字段缺失 / host 降级），立刻判「已到底」；
+    ///   ② 触底哨兵的 `.onAppear` 在嵌套 LazyVStack 里极不可靠，用户滚到底
+    ///      也不一定再触发，加载就永远停在中途。
     ///
-    /// 🔴 2026-11-12 第二轮：修「只显示 80 位歌手，加载不出全部」。
-    ///   ① 触底哨兵的 `.onAppear` 在 SwiftUI 里**只触发一次** —— 它一直留在视图树里，
-    ///      只是被新数据推到更下面，不会重新 appear。所以旧版最多两批（40 + 40 = 80）。
-    ///      现在给哨兵绑 `.id(artistPage)`，每批加载完重建，用户仍停在底部就继续下一批。
-    ///   ② 页码不再从 `hotArtists.count / 20` 反推。首页热门是「凑够 50 位」截断来的，
-    ///      与真实页码错位，容易整批重复 → addedTotal == 0 → 被误判「已到底」。
-    ///      歌手 Tab 独立从 page=1 开始翻，靠 singerid 去重。
-    ///   ③ 单批网络抖动 / 整批重复不再立刻收工，连续 2 批无新增才判定到底。
+    /// 现在改成：**进入 Tab 后后台自动分批补齐全部**，不依赖任何 onAppear。
+    ///   · 每批 2 页 × 100 = 200 位，一批只赋值一次 → 不会逐页刷新整页；
+    ///   · 每批之间是网络 await，主线程完全空闲，不卡滚动；
+    ///   · 全部歌手分组只算一次（refreshArtistGroups），body 只读缓存；
+    ///   · 触底哨兵保留，仅作可见的「加载中」指示，不再是加载的唯一途径。
+    @MainActor
+    private func startArtistLoading() async {
+        guard !artistAutoLoading else { return }
+        artistAutoLoading = true
+        defer { artistAutoLoading = false }
+        await loadArtistBatch(reset: true)
+        // 只要还在这个 Tab 且还有后续页，就一直往下补齐（网络 await 天然让出主线程）。
+        while hasMoreArtists, selectedTab == .artists, !Task.isCancelled {
+            await loadArtistBatch(reset: false)
+        }
+    }
+
     @MainActor
     private func loadArtistBatch(reset: Bool) async {
         if reset {
@@ -703,8 +737,8 @@ struct DiscoverView: View {
             if reset { isLoadingArtists = false } else { isLoadingMoreArtists = false }
         }
 
-        let pageLimit = 25  // 500 位安全上限，避免接口异常时无限翻页
-        // reset 从空表第 1 页开始；触底接着上次页码往下翻。
+        let perPage = 100      // 单页 100 位，12 页 = 1200 位
+        let pageLimit = 12
         var collected: [Artist] = reset ? [] : allArtists
         var seen = Set(collected.map(\.id))
         var page = reset ? 1 : artistPage + 1
@@ -714,8 +748,16 @@ struct DiscoverView: View {
 
         for _ in 0..<2 {
             if page > pageLimit { reachedEnd = true; break }
-            let batch = await KugouClient.shared.hotArtistsPage(page: page, perPage: 20)
-            if batch.isEmpty { reachedEnd = true; break }
+            let batch = await KugouClient.shared.hotArtistsPage(page: page, perPage: perPage)
+            page += 1
+            // 🔴 单页空 / 单页不足 perPage **都不判到底**：弱网抖动、host 降级、
+            //    字段缺失都会造成短页。连续 3 页全空才认输，且继续往下翻。
+            if batch.isEmpty {
+                emptyStreak += 1
+                if emptyStreak >= 3 { reachedEnd = true; break }
+                continue
+            }
+            emptyStreak = 0
             var added = 0
             for artist in batch where !seen.contains(artist.id) {
                 seen.insert(artist.id)
@@ -723,17 +765,14 @@ struct DiscoverView: View {
                 added += 1
             }
             addedTotal += added
-            page += 1
-            emptyStreak = added == 0 ? emptyStreak + 1 : 0
-            if emptyStreak >= 2 { reachedEnd = true; break }
-            if batch.count < 20 { reachedEnd = true; break }
         }
         artistPage = max(0, page - 1)
         artistEmptyStreak = emptyStreak
         if reachedEnd || artistPage >= pageLimit { hasMoreArtists = false }
-        // 🔴 一批只刷新一次，避免每页都触发全量分组重算。
+        // 🔴 一批只刷新一次；分组缓存同步重算一次。
         let snapshot = collected
         allArtists = snapshot
+        refreshArtistGroups()
         if reset { artistsLoaded = true }
         Log.info("歌手", "本批 +\(addedTotal)，共 \(snapshot.count) 位，page=\(artistPage)，还有=\(hasMoreArtists)")
     }

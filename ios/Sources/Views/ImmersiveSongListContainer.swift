@@ -87,6 +87,11 @@ final class ImmersiveHeaderState: ObservableObject {
     /// 吸顶头实测高度（PreferenceKey 写入）。
     @Published var stickyHeight: CGFloat = 74
 
+    /// 🔴 2026-11-12 第三轮：字母索引的展开态单独成一个只发 Bool 的对象。
+    ///    `scrolled` 是逐帧 @Published，若字母条直接订阅本对象，滚动时
+    ///    每帧都要重算 SwiftUI 视图 + UIViewRepresentable.updateUIView。
+    let letterIndexMode = PlaylistLetterIndexMode()
+
     /// 🔴 2026-11-12：右侧 A–Z 快速索引用。由容器里的 ScrollViewReader 在出现时写入，
     ///    非 @Published —— 只是个可调用的代理，写它不该触发 body 重算。
     ///    只在字母排序（按歌曲名/歌手名 A–Z）时才会被页面用到。
@@ -130,10 +135,31 @@ final class ImmersiveHeaderState: ObservableObject {
     /// 大图上的文案随上滑淡出，名字交给导航栏标题。
     var heroTextOpacity: CGFloat { 1 - collapseProgress }
 
-    /// 只在数值真的变化时才写 @Published，避免每次 KVO 都无谓重算整棵视图树。
+    /// 🔴 2026-11-12 第三轮：修「歌曲列表往上滑时抖动」。
+    ///
+    /// 根因：`contentOriginYRest = trackerY + scrolled` 是**逐帧实测值**，
+    /// 受 KVO 时机、坐标换算与浮点误差影响，滚动中会 ±1pt 抖；
+    /// 而 `listPlaceholder = 大图高 + 吸顶头高 − contentOriginYRest`
+    /// 直接决定 ScrollView 里 `Color.clear.frame(height:)` 的高度 ——
+    /// 占位高度逐帧变 → 整个列表内容上下跳 → 肉眼看到的上滑抖动。
+    ///
+    /// 现在：内容原点**只在静止时测量并锁定**，滚动中不再写；
+    /// `scrolled` 量化到 0.5pt 才写 @Published，减少整页 body 重算次数；
+    /// 毛玻璃/文字色的连续进度改为 0.05 步长，避免每个像素都触发刷新。
     func apply(_ m: ImmersiveMetrics) {
-        if scrolled != m.scrolled { scrolled = m.scrolled }
-        if contentOriginYRest != m.contentOriginYRest { contentOriginYRest = m.contentOriginYRest }
+        // 静止（或刚开始滚）时测一次内容原点；之后锁死，列表占位高度恒定。
+        if m.scrolled < 1 {
+            let measured = (m.contentOriginYRest * 2).rounded() / 2
+            if abs(contentOriginYRest - measured) >= 0.5 {
+                contentOriginYRest = measured
+            }
+        }
+        let q = (m.scrolled * 2).rounded() / 2
+        if abs(scrolled - q) >= 0.5 { scrolled = q }
+
+        // 字母条只在跨过阈值那一次写 @Published，滚动全程零刷新。
+        let expanded = q >= maxDrag * 0.9
+        if letterIndexMode.expanded != expanded { letterIndexMode.expanded = expanded }
     }
 }
 
@@ -172,10 +198,12 @@ struct ImmersiveSongListContainer<Hero: View, Sticky: View, Content: View>: View
             // 🔴 2026-11-12：外层包 ScrollViewReader，把代理交给 state，供右侧字母索引
             //    scrollTo 定位。它不改变几何，也不给 ScrollView 加任何 ignoresSafeArea。
             ScrollViewReader { proxy in
-                ScrollView {
+                ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 0) {
                         ImmersiveScrollTracker { m in
-                            DispatchQueue.main.async { state.apply(m) }
+                            // KVO contentOffset 回调本就在主线程，同步应用才能与
+                            // UIScrollView 同帧；再 async 一帧就是上滑时的错位抖动。
+                            state.apply(m)
                         }
                         .frame(height: 0)
 
@@ -522,6 +550,9 @@ private struct ImmersiveScrollTracker: UIViewRepresentable {
         private weak var observed: UIScrollView?
         private var observation: NSKeyValueObservation?
         private var last: ImmersiveMetrics?
+        /// 🔴 同步 apply 会写 @Published → SwiftUI 可能立刻触发 layoutSubviews →
+        ///    又回到 report()。加一个不可重入标志，切断这条递归链。
+        private var isReporting = false
 
         func attachToScrollViewIfNeeded() {
             guard observed == nil else { return }
@@ -555,6 +586,9 @@ private struct ImmersiveScrollTracker: UIViewRepresentable {
         /// 所以把 inset 交还 UIKit 自动管理；`contentOriginYRest` 用探针实测，
         /// `listPlaceholder = 大图高 + 吸顶头高 − 实测内容原点` 对任意原点都成立。
         func report() {
+            guard !isReporting else { return }
+            isReporting = true
+            defer { isReporting = false }
             // 🔴 每次都尝试 attach：首帧 superview 链可能还没连上，挂不上就永远测不到数值。
             attachToScrollViewIfNeeded()
             guard let sv = observed else { return }
