@@ -76,25 +76,42 @@ struct ImmersivePlayAllButton: View {
 
 // MARK: - 几何状态（容器与 toolbar 共用同一个对象，颜色才能同步刷新）
 
+/// 🔴 2026-11-13：高频滚动量单独成一个 ObservableObject。
+///
+/// 旧版把 `scrolled` 直接 @Published 在 `ImmersiveHeaderState` 上，而歌单详情页
+/// （PlaylistViews / LibraryView）用 `@StateObject` 持有同一个对象、并在 body 里读
+/// `navContentColor` / `navFrostOpacity` —— 于是**每滚动 0.5pt，整个页面 body
+/// 连同几百行的 LazyVStack 内容闭包全部重算一次**，这就是 A–Z 排序大歌单上滑
+/// 掉帧 + 抖动的真正主因。
+///
+/// 现在：滚动量只由「大图浮层 / 毛玻璃 / 吸顶头」这一小块视觉层订阅；
+/// 页面 body 与歌曲列表完全不订阅它，只在顶栏配色跨过台阶时低频刷新。
+final class ImmersiveScrollProgress: ObservableObject {
+    @Published var scrolled: CGFloat = 0
+}
+
 final class ImmersiveHeaderState: ObservableObject {
     /// 大图高度（与歌手页一致）。
     let headerHeight: CGFloat = 350
 
-    /// 实测的内容上移距离（>=0），由滚动探针 KVO 写入。
-    @Published var scrolled: CGFloat = 0
+    /// 🔴 高频滚动量：只有 `ImmersiveVisualChrome` 订阅，整棵列表不受影响。
+    let scrollProgress = ImmersiveScrollProgress()
+    var scrolled: CGFloat { scrollProgress.scrolled }
+
     /// 静止时「滚动内容 y=0」在 window 里的 y（探针直量，归一化后应为 0）。
     @Published var contentOriginYRest: CGFloat = 0
     /// 吸顶头实测高度（PreferenceKey 写入）。
     @Published var stickyHeight: CGFloat = 74
 
+    /// 🔴 顶栏毛玻璃/文字色用的**低频阶梯值**（0.05 一档）。
+    ///    整个收起过程最多发布 21 次，取代原来的每 0.5pt 一次（约 520 次）。
+    @Published var navFrostOpacity: CGFloat = 0
+
     /// 🔴 2026-11-12 第三轮：字母索引的展开态单独成一个只发 Bool 的对象。
-    ///    `scrolled` 是逐帧 @Published，若字母条直接订阅本对象，滚动时
-    ///    每帧都要重算 SwiftUI 视图 + UIViewRepresentable.updateUIView。
     let letterIndexMode = PlaylistLetterIndexMode()
 
     /// 🔴 2026-11-12：右侧 A–Z 快速索引用。由容器里的 ScrollViewReader 在出现时写入，
     ///    非 @Published —— 只是个可调用的代理，写它不该触发 body 重算。
-    ///    只在字母排序（按歌曲名/歌手名 A–Z）时才会被页面用到。
     var scrollProxy: ScrollViewProxy?
 
     /// 状态栏高度：用 keyWindow.safeAreaInsets.top，比 statusBarManager 稳。
@@ -113,19 +130,18 @@ final class ImmersiveHeaderState: ObservableObject {
     /// 大图完全收起需要的滚动距离。
     var maxDrag: CGFloat { max(1, headerHeight - topInset) }
 
-    /// 收起进度：0 = 完全展开，1 = 大图底边抵达导航栏下沿。
-    var collapseProgress: CGFloat { min(1, max(0, scrolled) / maxDrag) }
-
-    /// 毛玻璃只在「滚到图片底部、快滚完」时才渐显（0.8 → 1），别提前出现。
-    var navFrostOpacity: CGFloat { max(0, min(1, (collapseProgress - 0.8) / 0.2)) }
+    func collapseProgress(for s: CGFloat) -> CGFloat { min(1, max(0, s) / maxDrag) }
+    /// 连续毛玻璃进度：只给视觉层用，不发布、不触发页面 body 重算。
+    func frostOpacity(for s: CGFloat) -> CGFloat {
+        max(0, min(1, (collapseProgress(for: s) - 0.8) / 0.2))
+    }
+    /// 吸顶头相对 ZStack 顶部的偏移：静止时贴大图底边，收起后钉在导航栏下沿。
+    func stickyY(for s: CGFloat) -> CGFloat { max(0, maxDrag - s) }
 
     /// 顶栏文字/图标色：展开纯白（深色大图）、收起纯黑（浅色毛玻璃），与毛玻璃同步。
     var navContentColor: Color {
         Color(uiColor: UIColor(white: 1 - navFrostOpacity, alpha: 1))
     }
-
-    /// 吸顶头相对 ZStack 顶部的偏移：静止时贴大图底边，收起后钉在导航栏下沿。
-    var stickyY: CGFloat { max(0, maxDrag - scrolled) }
 
     /// 列表顶部占位：列表静止时屏幕 y = 大图底边 + 吸顶头高。
     var listPlaceholder: CGFloat {
@@ -133,29 +149,28 @@ final class ImmersiveHeaderState: ObservableObject {
     }
 
     /// 大图上的文案随上滑淡出，名字交给导航栏标题。
-    var heroTextOpacity: CGFloat { 1 - collapseProgress }
+    var heroTextOpacity: CGFloat { 1 - collapseProgress(for: scrolled) }
 
-    /// 🔴 2026-11-12 第三轮：修「歌曲列表往上滑时抖动」。
+    /// 🔴 2026-11-13 第四轮：修 A–Z 歌单「上滑抖动 / 卡顿」。
     ///
-    /// 根因：`contentOriginYRest = trackerY + scrolled` 是**逐帧实测值**，
-    /// 受 KVO 时机、坐标换算与浮点误差影响，滚动中会 ±1pt 抖；
-    /// 而 `listPlaceholder = 大图高 + 吸顶头高 − contentOriginYRest`
-    /// 直接决定 ScrollView 里 `Color.clear.frame(height:)` 的高度 ——
-    /// 占位高度逐帧变 → 整个列表内容上下跳 → 肉眼看到的上滑抖动。
-    ///
-    /// 现在：内容原点**只在静止时测量并锁定**，滚动中不再写；
-    /// `scrolled` 量化到 0.5pt 才写 @Published，减少整页 body 重算次数；
-    /// 毛玻璃/文字色的连续进度改为 0.05 步长，避免每个像素都触发刷新。
+    ///   ① 滚动量写进独立的 `scrollProgress`，页面 body 与歌曲列表不再逐帧重算；
+    ///   ② 顶栏配色按 0.05 台阶发布，整个收起过程只刷新 ~21 次；
+    ///   ③ 内容原点的容差从 0.5pt 提到 2pt —— 旧版在列表顶端（scrolled<1）时
+    ///      实测值会 ±1pt 抖，直接改变 `listPlaceholder` 高度 → 整个列表上下跳；
+    ///      现在只有真正的大变化（旋转 / 安全区改变）才允许更新。
     func apply(_ m: ImmersiveMetrics) {
-        // 静止（或刚开始滚）时测一次内容原点；之后锁死，列表占位高度恒定。
         if m.scrolled < 1 {
             let measured = (m.contentOriginYRest * 2).rounded() / 2
-            if abs(contentOriginYRest - measured) >= 0.5 {
+            if abs(contentOriginYRest - measured) >= 2 {
                 contentOriginYRest = measured
             }
         }
         let q = (m.scrolled * 2).rounded() / 2
-        if abs(scrolled - q) >= 0.5 { scrolled = q }
+        if abs(scrollProgress.scrolled - q) >= 0.5 { scrollProgress.scrolled = q }
+
+        let raw = frostOpacity(for: q)
+        let step = (raw * 20).rounded() / 20
+        if abs(navFrostOpacity - step) > 0.001 { navFrostOpacity = step }
 
         // 字母条只在跨过阈值那一次写 @Published，滚动全程零刷新。
         let expanded = q >= maxDrag * 0.9
@@ -168,8 +183,9 @@ final class ImmersiveHeaderState: ObservableObject {
 /// 沉浸式歌曲列表容器：调用方传入大图 / 吸顶头 / 列表，其余几何全部由本容器负责。
 struct ImmersiveSongListContainer<Hero: View, Sticky: View, Content: View>: View {
     @ObservedObject var state: ImmersiveHeaderState
-    let hero: Hero
-    let sticky: Sticky
+    /// 🔴 头图 / 吸顶头在 init 里装箱一次，滚动时不再每次 body 重算都重新包 AnyView。
+    let heroBox: AnyView
+    let stickyBox: AnyView
     let content: Content
 
     /// 🔴 `heroKey`：头图身份（封面 URL + 标题 + 曲目数）。异步加载完歌曲后 URL 才出现，
@@ -183,14 +199,16 @@ struct ImmersiveSongListContainer<Hero: View, Sticky: View, Content: View>: View
          @ViewBuilder content: () -> Content) {
         self._state = ObservedObject(wrappedValue: state)
         self.heroKey = heroKey
-        self.hero = hero()
-        self.sticky = sticky()
+        self.heroBox = AnyView(hero())
+        self.stickyBox = AnyView(sticky())
         self.content = content()
     }
 
     var body: some View {
         ZStack(alignment: .top) {
             // ① 滚动容器：只有「占位 + 列表」。大图不在这里（会被 UIKit 层盖住）。
+            // 🔴 2026-11-13：本 body **不读高频滚动量**，只在内容原点/吸顶头高度
+            //    等低频事件变化时重算 —— 大歌单滚动时列表树保持稳定，不再掉帧。
             // 🔴 2026-11-09：外层保持 VStack —— 沉浸式几何（探针 / 占位 / 大图浮层）
             //    已在真机反复验证，不动它。大歌单的懒加载由 content 自己用 LazyVStack
             //    完成（见 KugouPlaylistDetail.content），嵌套 Lazy 反而可能让 SwiftUI
@@ -218,24 +236,54 @@ struct ImmersiveSongListContainer<Hero: View, Sticky: View, Content: View>: View
             // 🔴 绝不给 ScrollView 本体加 ignoresSafeArea(edges:.top)：
             //    每加一层就会再下推一个安全区（歌手页 180pt 白顶的老坑）。
 
+            // ②③④ 所有「逐帧跟随滚动」的视觉层集中在这个小视图里：
+            // 它订阅 scrollProgress，每帧只重算三个视图，绝不碰歌曲列表。
+            ImmersiveVisualChrome(state: state,
+                                  heroKey: heroKey,
+                                  hero: heroBox,
+                                  sticky: stickyBox)
+        }
+    }
+}
+
+/// 🔴 2026-11-13：把「大图浮层 / 毛玻璃 / 吸顶头」从容器 body 里拆出来。
+///    容器 body 不再订阅高频滚动量，歌曲列表就不会随滚动逐帧重建。
+private struct ImmersiveVisualChrome: View {
+    @ObservedObject var state: ImmersiveHeaderState
+    @ObservedObject var progress: ImmersiveScrollProgress
+    let heroKey: String
+    let hero: AnyView
+    let sticky: AnyView
+
+    init(state: ImmersiveHeaderState, heroKey: String, hero: AnyView, sticky: AnyView) {
+        self._state = ObservedObject(wrappedValue: state)
+        self._progress = ObservedObject(wrappedValue: state.scrollProgress)
+        self.heroKey = heroKey
+        self.hero = hero
+        self.sticky = sticky
+    }
+
+    var body: some View {
+        let s = progress.scrolled
+        return ZStack(alignment: .top) {
             // ② 大图：UIKit 浮层，插在 UINavigationBar 之下 → 盖住白背景、返回按钮仍可见可点。
-            ImmersiveHeroLayer(scrolled: state.scrolled,
+            ImmersiveHeroLayer(scrolled: s,
                                headerHeight: state.headerHeight,
                                hideThreshold: state.maxDrag,
                                heroKey: heroKey,
-                               hero: AnyView(hero))
+                               hero: hero)
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
 
-            // ③ 毛玻璃顶栏：大图滚走后渐入。offset 从「导航栏下沿」提到屏幕最顶端。
+            // ③ 毛玻璃顶栏：大图滚走后渐入。用连续进度，视觉上不台阶化。
             frostedBar
                 .offset(y: -state.topInset)
                 .allowsHitTesting(false)
-                .opacity(state.navFrostOpacity)
+                .opacity(state.frostOpacity(for: s))
 
             // ④ 吸顶头：大图未收起时贴着大图底边走，收起后钉在顶栏正下方。
             sticky
-                .offset(y: state.stickyY)
+                .offset(y: state.stickyY(for: s))
                 .background(AppStyle.background)
                 .background(
                     GeometryReader { geo in
@@ -243,7 +291,12 @@ struct ImmersiveSongListContainer<Hero: View, Sticky: View, Content: View>: View
                     }
                 )
         }
-        .onPreferenceChange(ImmersiveStickyHeightKey.self) { state.stickyHeight = $0 }
+        // 🔴 视觉层每帧重算时 GeometryReader 都会回传同一个高度；@Published 不去重，
+        //    无条件赋值会让整页（含歌曲列表）又逐帧失效，前面的性能拆分就白做了。
+        //    只有高度真的变化才写。
+        .onPreferenceChange(ImmersiveStickyHeightKey.self) { h in
+            if abs(state.stickyHeight - h) > 0.5 { state.stickyHeight = h }
+        }
     }
 
     private var frostedBar: some View {
@@ -594,8 +647,17 @@ private struct ImmersiveScrollTracker: UIViewRepresentable {
             guard let sv = observed else { return }
             let offsetY = sv.contentOffset.y
             if let base = restOffsetY {
-                // UIKit 可能因 safeArea 变化把起点调小，同步下调基准，别误判成已滚动。
-                if offsetY < base { restOffsetY = offsetY }
+                // 🔴 2026-11-13：只在「非手势、非惯性」时同步下调静止基准。
+                //    旧版无条件 `if offsetY < base { restOffsetY = offsetY }`：
+                //    列表在顶部下拉回弹（rubber band）时 offsetY 会更负，基准被压低；
+                //    松手回到 -adjustedInset 后 scrolled 突然变成正的几十 pt，
+                //    大图 / 吸顶头猛地一跳 = 用户看到的「上滑抖动」。
+                //    safeArea 变大导致的基准下移发生在静止时，仍允许同步。
+                if offsetY < base,
+                   !sv.isDragging, !sv.isDecelerating,
+                   base - offsetY < 40 {
+                    restOffsetY = offsetY
+                }
             } else {
                 restOffsetY = offsetY
             }

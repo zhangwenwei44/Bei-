@@ -1914,6 +1914,8 @@ extension Notification.Name {
 // MARK: - MarqueeText 跑马灯（歌名太长时横向滚动，短则正常显示）
 
 /// 🔴 2026-11-12 第三轮重写：用户要求「长歌名改成横向滚动显示，不要三点」。
+/// 🔴 2026-11-13 第四轮：用户明确「往左移动，不是左右移动」——
+///    去掉 `.autoreverse`，改成两份首尾相接的文字**单向匀速左移 + 无缝循环**。
 ///
 /// 旧实现是纯 SwiftUI：GeometryReader + `withAnimation(.linear.repeatForever)`
 /// 逐帧改 @State offset，几百行的大歌单里每个可见行都在跑 SwiftUI 动画 ——
@@ -1924,6 +1926,8 @@ extension Notification.Name {
 ///   · 滚动用 CoreAnimation 的 transform 补间，不触发 SwiftUI body 重算；
 ///   · `lineBreakMode = .byClipping` 彻底去掉省略号；
 ///   · 视图离开层级时停动画，避免后台空转。
+///   · 两份文字 + `.repeat`（无 autoreverse）：每轮结束瞬间归零时，
+///     第二份正好落在第一份的起点，视觉上完全无缝、方向始终向左。
 struct MarqueeText: View {
     let text: String
     var size: CGFloat = 15
@@ -1972,10 +1976,16 @@ private struct MarqueeUILabel: UIViewRepresentable {
 }
 
 private final class MarqueeLabelView: UIView {
+    /// 第一份文字（从 x=0 开始）。
     private let label = UILabel()
+    /// 第二份文字，紧接在第一份后面（x = natural + gap），用于无缝接上循环。
+    private let ghost = UILabel()
     private var currentText = ""
     private var scrolling = false
-    private var currentOverflow: CGFloat = 0
+    /// 一个循环的长度（两份文字首尾相接的间距）。
+    private var cycleLength: CGFloat = 0
+    /// 已启动动画时的循环长度；宽度没变就不重启动画（滚动时 layoutSubviews 会被调很多次）。
+    private var startedCycle: CGFloat = -1
     private let gap: CGFloat = 24
 
     override init(frame: CGRect) {
@@ -1983,21 +1993,28 @@ private final class MarqueeLabelView: UIView {
         clipsToBounds = true
         backgroundColor = .clear
         isUserInteractionEnabled = false
-        label.numberOfLines = 1
-        label.lineBreakMode = .byClipping   // 🔴 不显示「…」
-        label.textAlignment = .left
-        label.baselineAdjustment = .alignCenters
-        addSubview(label)
+        for l in [label, ghost] {
+            l.numberOfLines = 1
+            l.lineBreakMode = .byClipping   // 🔴 不显示「…」
+            l.textAlignment = .left
+            l.baselineAdjustment = .alignCenters
+            l.isUserInteractionEnabled = false
+            addSubview(l)
+        }
+        ghost.isHidden = true
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func configure(text: String, font: UIFont, color: UIColor) {
         label.font = font
+        ghost.font = font
         label.textColor = color
+        ghost.textColor = color
         if text != currentText {
             currentText = text
             label.text = text
+            ghost.text = text
             stopScroll()
             setNeedsLayout()
         }
@@ -2010,41 +2027,62 @@ private final class MarqueeLabelView: UIView {
         guard w > 1, h > 0 else { return }
         let natural = label.sizeThatFits(
             CGSize(width: CGFloat.greatestFiniteMagnitude, height: h)).width
+        let cycle = natural + gap
         label.frame = CGRect(x: 0, y: 0, width: natural, height: h)
-        let overflow = natural - w
-        currentOverflow = overflow
-        if overflow > 2 {
+        ghost.frame = CGRect(x: cycle, y: 0, width: natural, height: h)
+        cycleLength = cycle
+        if natural - w > 2 {
+            ghost.isHidden = false
             startScrollIfNeeded()
         } else {
+            ghost.isHidden = true
             stopScroll()
         }
     }
 
-    /// 往返匀速滚动：两端各停一会儿，速度按溢出长度归一，长标题也不会飞快。
+    /// 🔴 单向往左：整体匀速平移 `-cycle` 后瞬间回到 0，如此循环。
+    ///    归零那一刻第二份文字正好位于第一份的起点，肉眼看到的文字完全连续，
+    ///    永远不会往右倒退（旧版 `.autoreverse` 会左右来回，用户明确不要）。
     private func startScrollIfNeeded() {
-        guard !scrolling, currentOverflow > 2 else { return }
+        let cycle = cycleLength
+        guard cycle > 1 else { return }
+        // 滚动中 layoutSubviews 会被反复调用，宽度没变就别重启动画（否则文字一直跳回开头）。
+        if scrolling, abs(startedCycle - cycle) < 0.5 { return }
+        startedCycle = cycle
         scrolling = true
+        label.layer.removeAllAnimations()
+        ghost.layer.removeAllAnimations()
         label.transform = .identity
-        let distance = currentOverflow + gap
-        let duration = min(max(TimeInterval(distance / 28), 3.0), 9.0)
+        ghost.transform = .identity
+        let duration = min(max(TimeInterval(cycle / 30), 3.2), 12.0)
+        let shift = CGAffineTransform(translationX: -cycle, y: 0)
         UIView.animate(withDuration: duration,
-                       delay: 0.9,
-                       options: [.curveLinear, .autoreverse, .repeat, .beginFromCurrentState],
+                       delay: 0.6,
+                       options: [.curveLinear, .repeat],
                        animations: {
-            self.label.transform = CGAffineTransform(translationX: -distance, y: 0)
+            self.label.transform = shift
+            self.ghost.transform = shift
         }, completion: nil)
     }
 
     func stopScroll() {
         guard scrolling else { return }
         scrolling = false
+        startedCycle = -1
         label.layer.removeAllAnimations()
+        ghost.layer.removeAllAnimations()
         label.transform = .identity
+        ghost.transform = .identity
     }
 
     override func willMove(toWindow newWindow: UIWindow?) {
         super.willMove(toWindow: newWindow)
-        if newWindow == nil { stopScroll() }
+        if newWindow == nil {
+            stopScroll()
+        } else {
+            // 重新入窗（cell 复用 / 页面返回）时恢复滚动。
+            setNeedsLayout()
+        }
     }
 }
 

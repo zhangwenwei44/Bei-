@@ -9,8 +9,10 @@ import SwiftUI
 //    中间三个自绘（上一首/下一首实心三角+竖条、播放暂停半透明白圆盘）。
 // 🔴 2026-11-11：三个播放模式图标改为酷狗真机截图 1:1 描摹矢量 PlayerModeIcon
 //    （顺序 / 随机 / 单曲循环），全 App 统一，不再用 repeat / shuffle / repeat.1。
-//    整行尺寸沿用缩小后的一档（圆盘 52、行高 54）。
 //    KugouDoubleArrow 作为历史字形保留，已不再参与渲染。
+// 🔴 2026-11-13：用户对照酷狗真机截图要求「播放暂停按钮圆圈再加大点」——
+//    圆盘 52 → 64、行高 54 → 66，内部三角/双竖条同比放大。
+//    主播放页与该主题歌词页共用本行，一处改动两边同时生效。
 
 /// 实心三角（pointsRight = 尖朝右）。
 private struct KugouTriangle: Shape {
@@ -96,6 +98,8 @@ struct KugouStepGlyph: View {
 
 /// 播放 / 暂停：半透明白色圆盘 + 白色实心三角 / 双竖条。
 /// 🔴 2026-11-10 用户要求「播放控件改小点」：圆盘 66→52，内部字形同比收小。
+/// 🔴 2026-11-13 用户对照酷狗截图要求「圆圈再加大点」：52→64（仍比最初 66 略小，
+///    保留一点边距），三角 20×23→24×28、暂停双条 5×20→6×24。
 struct KugouPlayGlyph: View {
     let isPlaying: Bool
     let isLoading: Bool
@@ -105,18 +109,18 @@ struct KugouPlayGlyph: View {
             if isLoading {
                 ProgressView().tint(.white)
             } else if isPlaying {
-                HStack(spacing: 5) {
-                    RoundedRectangle(cornerRadius: 1.2).fill(.white).frame(width: 5, height: 20)
-                    RoundedRectangle(cornerRadius: 1.2).fill(.white).frame(width: 5, height: 20)
+                HStack(spacing: 6) {
+                    RoundedRectangle(cornerRadius: 1.2).fill(.white).frame(width: 6, height: 24)
+                    RoundedRectangle(cornerRadius: 1.2).fill(.white).frame(width: 6, height: 24)
                 }
             } else {
                 KugouTriangle(pointsRight: true)
                     .fill(.white)
-                    .frame(width: 20, height: 23)
+                    .frame(width: 24, height: 28)
                     .offset(x: 2)
             }
         }
-        .frame(width: 52, height: 52)
+        .frame(width: 64, height: 64)
     }
 }
 
@@ -142,7 +146,7 @@ struct KugouControlsRow: View {
         HStack(spacing: 0) {
             Button { store.cycleMode(); Haptics.light() } label: {
                 KugouModeGlyph(mode: store.mode)
-                    .frame(width: 44, height: 48)
+                    .frame(width: 44, height: 54)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -151,7 +155,7 @@ struct KugouControlsRow: View {
 
             Button { store.step(-1); Haptics.light() } label: {
                 KugouStepGlyph(forward: false)
-                    .frame(width: 46, height: 48)
+                    .frame(width: 46, height: 54)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -161,7 +165,7 @@ struct KugouControlsRow: View {
             Button { store.toggle(); Haptics.soft() } label: {
                 KugouPlayGlyph(isPlaying: store.isPlaying,
                                isLoading: store.isLoading || (store.isBuffering && store.isPlaying))
-                    .frame(width: 52, height: 52)
+                    .frame(width: 64, height: 64)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -170,7 +174,7 @@ struct KugouControlsRow: View {
 
             Button { store.step(1); Haptics.light() } label: {
                 KugouStepGlyph(forward: true)
-                    .frame(width: 46, height: 48)
+                    .frame(width: 46, height: 54)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -179,11 +183,11 @@ struct KugouControlsRow: View {
 
             Button { store.isQueuePresented = true; Haptics.light() } label: {
                 KugouQueueGlyph()
-                    .frame(width: 44, height: 48)
+                    .frame(width: 44, height: 54)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
-        .frame(maxWidth: .infinity, minHeight: 54)
+        .frame(maxWidth: .infinity, minHeight: 66)
     }
 }

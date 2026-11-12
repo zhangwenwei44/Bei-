@@ -286,6 +286,14 @@ final class PlaylistLetterIndexMode: ObservableObject {
     @Published var expanded: Bool = false
 }
 
+/// 🔴 2026-11-13：当前高亮字母的持久状态。
+///    字母条在展开/收起切换时会 `rebuildRoot()` 换掉 hosting 的 rootView，
+///    若用 `@State` 存活动下标，重建后会被重置回 0（蓝圆跳回 A）。
+///    把状态放在 Anchor（UIView，生命周期跨重建）持有的对象里即可保留。
+final class PlaylistLetterIndexActive: ObservableObject {
+    @Published var index: Int = 0
+}
+
 /// 把字母条挂到与大图同一层的 UIKit 浮层上。
 ///
 /// 🔴 2026-11-12 真机截图量化：沉浸式大图是 UIKit 浮层（UINavigationController.view
@@ -323,6 +331,10 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
         uiView.letters = letters
         uiView.expanded = expanded
         uiView.onSelect = onSelect
+        // 字母数量变了（换排序 / 切歌单）时把高亮收敛到合法范围。
+        if changed, uiView.active.index >= letters.count {
+            uiView.active.index = max(0, letters.count - 1)
+        }
         uiView.installIfNeeded()
         // 🔴 只在「数据 / 展开态」真的变化时才重建 + 重排图层。
         //    旧版每 0.2s 无条件 bringSubviewToFront，滚动时反复触发 UIKit
@@ -342,6 +354,8 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
         var expanded: Bool = false
         var rowHeight: CGFloat = 14
         var onSelect: ((String) -> Void)?
+        /// 跨 rootView 重建保留的高亮下标。
+        let active = PlaylistLetterIndexActive()
 
         private var hosting: UIHostingController<AnyView>?
         private var barView: UIView?
@@ -388,7 +402,8 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
             return AnyView(
                 PlaylistLetterIndexBar(letters: letters,
                                        rowHeight: row,
-                                       expanded: expanded) { [weak self] letter in
+                                       expanded: expanded,
+                                       active: active) { [weak self] letter in
                     self?.onSelect?(letter)
                 }
             )
@@ -497,27 +512,37 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
 ///    去掉整条白色 Capsule 背景 + 描边，字母直接浮在列表上；
 ///    滑到哪个字母，那个字母出现【蓝色圆形背景 + 白字】高亮（iOS 通讯录同款）。
 ///    原来的左侧 68pt 放大气泡一并删除，避免两套提示同时出现。
+/// 🔴 2026-11-13：用户要求「蓝色圆背景常显，不是按住英文字母才显示」——
+///    活动字母改成非可选的持久状态（默认首个字母），松手后**保留**高亮，
+///    下次按住/拖动才切换到新字母。字母条一出现就有蓝圆，全程不消失。
 struct PlaylistLetterIndexBar: View {
     let letters: [String]
     var rowHeight: CGFloat
     let expanded: Bool
+    /// 🔴 由 Anchor 持有，跨 rootView 重建不丢失当前高亮字母。
+    @ObservedObject var active: PlaylistLetterIndexActive
     let onSelect: (String) -> Void
 
-    @State private var activeIndex: Int?
+    private var safeIndex: Int {
+        guard !letters.isEmpty else { return 0 }
+        return max(0, min(letters.count - 1, active.index))
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
+        let current = safeIndex
+        return VStack(spacing: 0) {
             ForEach(letters.indices, id: \.self) { i in
-                let active = activeIndex == i
+                let isActive = current == i
                 Text(letters[i])
                     .font(.system(size: expanded ? 12 : 10,
-                                  weight: active ? .bold : .semibold))
-                    .foregroundStyle(active
+                                  weight: isActive ? .bold : .semibold))
+                    .foregroundStyle(isActive
                                      ? Color.white
                                      : Color(red: 0.32, green: 0.34, blue: 0.38))
                     .frame(width: 22, height: rowHeight)
                     .background {
-                        if active {
+                        if isActive {
+                            // 🔴 常显：不依赖任何「按住中」的状态。
                             Circle()
                                 .fill(Color(red: 0.12, green: 0.53, blue: 0.96))
                                 .frame(width: min(20, rowHeight + 2),
@@ -530,19 +555,16 @@ struct PlaylistLetterIndexBar: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         // 🔴 统一用手势处理「点按 / 按住 / 上下拖动」：按下即定位 + 高亮，
-        //    拖过字母连续定位，松手取消高亮。比多个 Button 更少抢手势。
+        //    拖过字母连续定位；松手保留高亮（用户明确要求常显）。
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
                     let raw = Int((value.location.y - 4) / max(1, rowHeight))
                     let idx = max(0, min(letters.count - 1, raw))
-                    guard letters.indices.contains(idx), activeIndex != idx else { return }
-                    activeIndex = idx
+                    guard letters.indices.contains(idx), active.index != idx else { return }
+                    active.index = idx
                     onSelect(letters[idx])
                     Haptics.light()
-                }
-                .onEnded { _ in
-                    activeIndex = nil
                 }
         )
     }

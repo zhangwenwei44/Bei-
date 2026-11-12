@@ -680,18 +680,29 @@ struct PlayerView: View {
             //    → deck 顶部（歌名起）整体上移；控件行仍在 deck 底部，位置不变。
             //    🔴 第二轮用户反馈「往下移点，调太多了」：32pt → 16pt，保留一半上移量。
             //    其它两个主题一行不动。
-            classicProgressBlock
-                .frame(height: 34)
-                .padding(.bottom, playerPageTheme == .immersiveCover ? 16 : 0)
+            // 🔴 2026-11-13：沉浸式封面主题改酷狗同款进度条 ——
+            //    细条 + 小圆定位点，时间文字移到条【下方】两端（旧版时间与条同一行）。
+            //    经典封面 / 歌手写真主题保持原来的 classicProgressBlock 不变。
+            if playerPageTheme == .immersiveCover {
+                ImmersiveCoverProgressBlock(playback: store.playback)
+                    .frame(height: 34)
+                    // 🔴 控件行因圆盘加大从 54→66，这里同步把下方留白 16→4，
+                    //    deck 总高不变 → 歌名 / 歌词 / 动作行的位置保持原样，
+                    //    不会因为「按钮加大」把上半屏内容又往上顶。
+                    .padding(.bottom, 4)
+            } else {
+                classicProgressBlock
+                    .frame(height: 34)
+            }
 
             // 🔴 v2.5.47：播放控制行左右间距与动作行一致（收窄 10pt）
             // 🔴 2026-11-10：沉浸式封面主题换成酷狗自绘控件行（实心三角上一首/下一首、
             //    半透明白圆盘播放键）；顺序/随机/循环与列表沿用经典主题的 SF Symbol。
-            //    🔴 控件整体缩小（行高 68→54），与用户「播放控件改小点」的要求一致。
+            // 🔴 2026-11-13：圆盘加大到 64pt，行高跟着 54→66（否则圆会被切）。
             //    经典封面 / 歌手写真主题保持原来的 classicDeckControls 不变。
             if playerPageTheme == .immersiveCover {
                 KugouControlsRow()
-                    .frame(height: 54)
+                    .frame(height: 66)
                     .padding(.horizontal, -10)
             } else {
                 classicDeckControls
@@ -2405,6 +2416,75 @@ private struct ClassicProgressBlock: View {
     }
 }
 
+/// 🔴 2026-11-13：沉浸式封面主题专用「酷狗同款」进度条。
+///
+/// 对照酷狗 20.8.4 真机截图：进度是一条 2pt 细线 + 小圆定位点（线上还有
+/// 一个更小的缓冲点），`00:09 / 04:55` 两个时间**放在条的下方两端**。
+/// 旧版 `ClassicProgressBlock` 是「时间 — 条 — 时间」同一行，与截图不符。
+///
+/// 结构与 ClassicProgressBlock 一样独立订阅 PlaybackProgress：
+/// 4fps 的实时刷新只重算这一小块，不会重建整棵播放页（按钮点击必中）。
+private struct ImmersiveCoverProgressBlock: View {
+    @EnvironmentObject private var store: PlayerStore
+    @ObservedObject var playback: PlaybackProgress
+    @State private var isScrubbing = false
+    @State private var scrubValue: Double = 0
+
+    private var displayTime: Double { isScrubbing ? scrubValue : playback.currentTime }
+
+    var body: some View {
+        VStack(spacing: 2) {
+            GeometryReader { geo in
+                let w = geo.size.width
+                let pf = max(0, min(1, playback.progress))
+                let bf = max(0, min(1, playback.bufferedFraction))
+                let px = pf * w
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.28)).frame(height: 2)
+                    Capsule().fill(.white.opacity(0.40)).frame(width: bf * w, height: 2)
+                    Capsule().fill(.white.opacity(0.95)).frame(width: px, height: 2)
+                    // 缓冲末端的小点（酷狗细条上是两个小圆点）
+                    Circle().fill(.white.opacity(0.55))
+                        .frame(width: 4, height: 4)
+                        .offset(x: min(max(bf * w - 2, 0), max(w - 4, 0)))
+                    // 当前播放位置的大一点的白点
+                    Circle().fill(.white)
+                        .frame(width: isScrubbing ? 11 : 7, height: isScrubbing ? 11 : 7)
+                        .offset(x: px - (isScrubbing ? 5.5 : 3.5))
+                        .shadow(color: .black.opacity(0.25), radius: 2)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { v in
+                            guard playback.duration > 0, w > 0 else { return }
+                            if !isScrubbing {
+                                isScrubbing = true
+                                scrubValue = playback.currentTime
+                            }
+                            scrubValue = min(1, max(0, v.location.x / w)) * playback.duration
+                        }
+                        .onEnded { _ in
+                            store.seek(to: scrubValue)
+                            isScrubbing = false
+                        }
+                )
+            }
+            .frame(height: 18)
+
+            HStack {
+                Text(displayTime.clockString)
+                Spacer(minLength: 0)
+                Text(playback.duration.clockString)
+            }
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.6))
+        }
+        .frame(height: 34)
+    }
+}
+
 /// 细进度条（横屏播放器 / 炫胶·黑胶竖屏共用）：轨道 + 缓冲 + 已播 + 光点 + 拖动。
 private struct PlayerProgressSection: View {
     @EnvironmentObject private var store: PlayerStore
@@ -3709,13 +3789,18 @@ struct KugouLyricsPage: View {
                 let bf = max(0, min(1, playback.bufferedFraction))
                 let px = pf * w
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.30)).frame(height: 2.5)
-                    Capsule().fill(.white.opacity(0.42)).frame(width: bf * w, height: 2.5)
-                    Capsule().fill(.white.opacity(0.95)).frame(width: px, height: 2.5)
+                    // 🔴 2026-11-13：与主播放页「沉浸式封面」统一成酷狗细条（2pt）
+                    //    + 缓冲小点 + 当前位置白点，时间仍在条下方两端。
+                    Capsule().fill(.white.opacity(0.28)).frame(height: 2)
+                    Capsule().fill(.white.opacity(0.40)).frame(width: bf * w, height: 2)
+                    Capsule().fill(.white.opacity(0.95)).frame(width: px, height: 2)
+                    Circle().fill(.white.opacity(0.55))
+                        .frame(width: 4, height: 4)
+                        .offset(x: min(max(bf * w - 2, 0), max(w - 4, 0)))
                     Circle().fill(.white)
-                        .frame(width: isScrubbing ? 13 : 9, height: isScrubbing ? 13 : 9)
-                        .offset(x: px - (isScrubbing ? 6.5 : 4.5))
-                        .shadow(color: .black.opacity(0.35), radius: 2)
+                        .frame(width: isScrubbing ? 11 : 7, height: isScrubbing ? 11 : 7)
+                        .offset(x: px - (isScrubbing ? 5.5 : 3.5))
+                        .shadow(color: .black.opacity(0.28), radius: 2)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 .contentShape(Rectangle())
