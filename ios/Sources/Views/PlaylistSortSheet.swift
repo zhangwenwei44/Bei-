@@ -134,14 +134,28 @@ final class PlaylistSortMemo {
     static let shared = PlaylistSortMemo()
 
     private struct Entry {
-        let songs: [Song]
         let mode: PlaylistSortMode
         let newestFirst: Bool
         let result: [Song]
+        /// 🔴 2026-11-12：缓存 enumerated 行数据。滚动时 content 每帧重算，
+        ///    `Array(displaySongs.enumerated())` 会给 576 首歌逐帧分配新数组 + retain，
+        ///    是大歌单掉帧/抖动的直接来源之一。这里只建一次，之后 O(1) 取引用。
+        let rows: [(offset: Int, element: Song)]
         /// 字母索引（仅 A–Z 排序有效，其余方式为空）。跟着排序结果一起缓存，
         /// 避免播放器每秒刷新 body 时对几百首歌反复做拼音转换。
         let letters: [String]
         let anchors: [String: String]
+        // 🔴 O(1) 指纹：不再保存/比较整份 songs 数组。
+        let fingerprint: String
+    }
+
+    /// 🔴 2026-11-12：缓存命中判断从 `e.songs == songs`（576 个元素逐字段比较，
+    ///    **每帧 × body 里每次 displaySongs 调用**）换成 O(1) 指纹。
+    ///    歌曲数组只有「加载完成 / 删除 / 拖拽改顺序」才会变，这三者都会改变
+    ///    count 或首尾 id；单曲字段变化（下载态等）不影响顺序，无需重排。
+    ///    播放量 / 自定义顺序变化仍有 invalidateAll() / invalidate() 显式兜底。
+    private static func fingerprint(_ songs: [Song]) -> String {
+        "\(songs.count)|\(songs.first?.id ?? "-")|\(songs.last?.id ?? "-")"
     }
 
     /// 只在主线程访问（SwiftUI body / 切歌回调均在主线程）。
@@ -152,10 +166,11 @@ final class PlaylistSortMemo {
                 mode: PlaylistSortMode,
                 listKey: String,
                 originalIsNewestFirst: Bool) -> [Song] {
+        let fp = Self.fingerprint(songs)
         if let e = entries[listKey],
            e.mode == mode,
            e.newestFirst == originalIsNewestFirst,
-           e.songs == songs {
+           e.fingerprint == fp {
             return e.result
         }
         let sorted = PlaylistSorter.sorted(songs, mode: mode, listKey: listKey,
@@ -163,10 +178,21 @@ final class PlaylistSortMemo {
         let index = PlaylistLetterIndex.isActive(mode)
             ? PlaylistLetterIndex.build(sorted, mode: mode)
             : (letters: [String](), anchors: [String: String]())
-        entries[listKey] = Entry(songs: songs, mode: mode,
-                                 newestFirst: originalIsNewestFirst, result: sorted,
-                                 letters: index.letters, anchors: index.anchors)
+        entries[listKey] = Entry(mode: mode,
+                                 newestFirst: originalIsNewestFirst,
+                                 result: sorted,
+                                 rows: Array(sorted.enumerated()),
+                                 letters: index.letters, anchors: index.anchors,
+                                 fingerprint: fp)
         return sorted
+    }
+
+    /// 供 LazyVStack 的 ForEach 直接用的行数据（命中缓存 O(1)，不重新分配 576 个元组）。
+    func rows(songs: [Song], mode: PlaylistSortMode, listKey: String,
+              originalIsNewestFirst: Bool) -> [(offset: Int, element: Song)] {
+        _ = result(songs: songs, mode: mode, listKey: listKey,
+                   originalIsNewestFirst: originalIsNewestFirst)
+        return entries[listKey]?.rows ?? Array(songs.enumerated())
     }
 
     /// 供页面右侧字母条 / 行锚点读取。命中缓存是 O(1)，不做任何重新排序。

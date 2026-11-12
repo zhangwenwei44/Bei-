@@ -18,6 +18,10 @@ enum AppIconSpec {
     /// 所有图标的墨迹包围盒（pt）
     static let ink: CGFloat = 20
 
+    /// 🔴 2026-11-12：吸顶行三枚图标不再是近黑 `AppStyle.primaryText`，
+    ///    改成酷狗同款「灰白」中性色。白底吸顶行上仍能看清，但不会有硬黑感。
+    static let actionTint = Color(red: 0.63, green: 0.66, blue: 0.71)
+
     /// 按显示尺寸等比换算线宽：size=24 时正好 1.5pt。
     static func stroke(for size: CGFloat) -> StrokeStyle {
         StrokeStyle(lineWidth: strokeWidth * size / canvas,
@@ -35,20 +39,16 @@ enum AppIconSpec {
 
 // MARK: 排序按钮
 
-/// 浅灰圆角方块（截图里按钮自身的底色，按规范「小按钮圆角 8px」）+ 左↓右↑ 双箭头。
+/// 左↓右↑ 双箭头。🔴 2026-11-12：用户要求移除那个浅灰方形背景框，
+///    现在与「新建歌单 / 多选」完全一样：24×24 画布、1.5pt 描边、36×36 命中区。
 struct ImmersiveSortIcon: View {
     let color: Color
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(red: 228 / 255, green: 228 / 255, blue: 233 / 255))
-                .frame(width: 30, height: 30)
-            SortDualArrowShape()
-                .stroke(color, style: AppIconSpec.stroke(for: AppIconSpec.canvas))
-                .frame(width: AppIconSpec.canvas, height: AppIconSpec.canvas)
-        }
-        .frame(width: 36, height: 36)
+        SortDualArrowShape()
+            .stroke(color, style: AppIconSpec.stroke(for: AppIconSpec.canvas))
+            .frame(width: AppIconSpec.canvas, height: AppIconSpec.canvas)
+            .frame(width: 36, height: 36)
     }
 }
 
@@ -258,8 +258,9 @@ enum PlaylistLetterIndex {
         return (letters, anchors)
     }
 
-    /// scrollTo 的锚点 id。用 .top 会被吸顶行盖住，这里把目标放在可见区约 12% 处
-    /// （正好落在吸顶行下方），不改动任何列表布局。
+    /// scrollTo 的锚点 id。用 .top 会被吸顶行盖住，这里把目标放在可见区约 12% 处。
+    /// 🔴 2026-11-12：调用处**不再包 withAnimation** —— 手指拖过字母时连续触发
+    ///    scrollTo，叠加动画会让列表来回抖（用户反馈的「滑动抖动」之一）。
     static let scrollAnchor = UnitPoint(x: 0.5, y: 0.12)
 
     static func anchorID(_ letter: String) -> String { "sort-sec-\(letter)" }
@@ -269,19 +270,27 @@ enum PlaylistLetterIndex {
 ///
 /// 🔴 2026-11-12 真机截图量化：沉浸式大图是 UIKit 浮层（UINavigationController.view
 ///    下、navigationBar 之下），覆盖屏幕 0~350pt，层级【高于整个 SwiftUI 树】。
-///    旧版字母条是页面内 `.overlay`，行高 14.6pt、顶边约 275pt → A~F 六行正好
-///    落进大图区被盖住，所以截图里只从 G 开始。
-/// 🔴 只调 SwiftUI 的 zIndex / 可用高度都无解：27 个字母 × 加大后的行高必然
-///    超过「大图底边 ~ 迷你播放条上沿」这段可用区（约 390pt），压下去就得把
-///    行高缩得比原来还小。正解是让字母条与大图【同层且 z 序更高】。
-///    这里用 0 尺寸 UIViewRepresentable 锚点，把 UIHostingController 的 view
-///    加到同一个 nav.view 上（仅低于 navigationBar），随页面出现/消失自动装卸。
+///    页面内 `.overlay` 会被大图盖住 A~F，所以字母条必须与大图【同层且 z 序更高】。
+/// 🔴 2026-11-12 第二轮：按滚动状态双态 ——
+///    `expanded = false`（大图展开）：恢复早期的紧凑尺寸（行高 14pt），不抢封面；
+///    `expanded = true`（上滑吸顶）：展开、行高加大到 21pt，上下间距明显更疏。
+///    状态是 Bool（阈值化），只在跨过阈值那一次重建 rootView，滚动过程不逐帧刷新。
 struct PlaylistLetterIndexOverlay: View {
     let letters: [String]
+    /// 🔴 2026-11-12：滚动态订阅放在这个**轻量子视图**里，而不是让歌单详情页
+    ///    的 body 直接读 `headerState.collapseProgress`。
+    ///    `scrolled` 是 @Published、滚动时逐帧变；父页面 body 一旦读它，
+    ///    整页（含几百行 LazyVStack 的构造）每帧都重算，是大歌单掉帧的放大器。
+    ///    这里订阅后，逐帧刷新只落在这个 0 尺寸锚点上；Bool 阈值化又保证
+    ///    只有跨过阈值那一次才会重建 UIKit 浮层的 rootView。
+    @ObservedObject var headerState: ImmersiveHeaderState
     let onSelect: (String) -> Void
 
+    /// true = 大图已收起 / 吸顶，字母条展开加大间距
+    private var expanded: Bool { headerState.collapseProgress >= 0.9 }
+
     var body: some View {
-        PlaylistLetterIndexHost(letters: letters, onSelect: onSelect)
+        PlaylistLetterIndexHost(letters: letters, expanded: expanded, onSelect: onSelect)
             .frame(width: 0, height: 0)
             .allowsHitTesting(false)
     }
@@ -290,26 +299,38 @@ struct PlaylistLetterIndexOverlay: View {
 /// 稳定的回调持有者：滚动时父视图 body 会反复重算，但 rootView 不必跟着重建。
 final class PlaylistLetterIndexAction {
     var handler: ((String) -> Void)?
+    /// 按住/拖过某个字母时显示左侧放大气泡；nil = 松手隐藏。
+    var hover: ((String?, Int) -> Void)?
 }
 
 private struct PlaylistLetterIndexHost: UIViewRepresentable {
     let letters: [String]
+    let expanded: Bool
     let onSelect: (String) -> Void
 
     func makeUIView(context: Context) -> Anchor {
         let v = Anchor()
         v.letters = letters
+        v.expanded = expanded
         v.action.handler = onSelect
+        v.action.hover = { [weak v] letter, index in v?.showBubble(letter, index: index) }
         return v
     }
 
     func updateUIView(_ uiView: Anchor, context: Context) {
         let changed = uiView.letters != letters
+        let modeChanged = uiView.expanded != expanded
         uiView.letters = letters
+        uiView.expanded = expanded
         uiView.action.handler = onSelect
         uiView.installIfNeeded()
-        if changed { uiView.rebuildRoot() }
-        uiView.refresh()
+        // 🔴 只在「数据 / 展开态」真的变化时才重建 + 重排图层。
+        //    旧版每 0.2s 无条件 bringSubviewToFront，滚动时反复触发 UIKit
+        //    layoutSubviews，是大歌单滑动抖动的直接来源之一。
+        if changed || modeChanged {
+            uiView.rebuildRoot()
+            uiView.refresh()
+        }
     }
 
     static func dismantleUIView(_ uiView: Anchor, coordinator: Void) {
@@ -318,11 +339,13 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
 
     final class Anchor: UIView {
         var letters: [String] = []
-        var rowHeight: CGFloat = 17
+        var expanded: Bool = false
+        var rowHeight: CGFloat = 14
         let action = PlaylistLetterIndexAction()
 
         private var hosting: UIHostingController<AnyView>?
         private var barView: UIView?
+        private var bubble: UILabel?
         private weak var container: UIView?
         private weak var navBar: UINavigationBar?
         private weak var hostVC: UIViewController?
@@ -335,6 +358,10 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
             installIfNeeded()
             refresh()
             startMonitoring()
+            // 🔴 首帧大图浮层可能还没插入，0.15s 后补一次层级校正。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.ensureZOrder()
+            }
         }
 
         private func resolveNavContext() -> (UINavigationBar, UIViewController)? {
@@ -358,9 +385,14 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
         private func root() -> AnyView {
             let letters = self.letters
             let row = self.rowHeight
+            let expanded = self.expanded
             let action = self.action
             return AnyView(
-                PlaylistLetterIndexBar(letters: letters, rowHeight: row) { action.handler?($0) }
+                PlaylistLetterIndexBar(letters: letters,
+                                       rowHeight: row,
+                                       expanded: expanded,
+                                       onSelect: { action.handler?($0) },
+                                       onHover: { action.hover?($0, $1) })
             )
         }
 
@@ -396,39 +428,95 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
         func refresh() {
             guard let v = barView, let parent = container, let win = window else { return }
             let screen = UIScreen.main.bounds
-            // 底边贴住迷你播放条上沿（实测约 718pt），再往上才不会被播放条压住。
             let bottomReserved: CGFloat = 126
-            let topReserved: CGFloat = 92       // 状态栏 + 导航栏
+            let topReserved: CGFloat = 92
             let maxH = screen.height - bottomReserved - topReserved
-            // 小屏（SE 等）放不下 27×17pt 时按可用高度收敛行高，保证 A–Z 一个不裁。
-            let row = min(PlaylistLetterIndexBar.defaultRowHeight,
-                          maxH / max(1, CGFloat(letters.count)))
+            let count = max(1, CGFloat(letters.count))
+            // 紧凑态回到早期 14pt；吸顶后展开到 21pt（上下更疏）；小屏按可用高度收敛。
+            let targetRow = expanded ? 21 : 14
+            let row = min(CGFloat(targetRow), maxH / count)
             if abs(row - rowHeight) > 0.01 {
                 rowHeight = row
                 rebuildRoot()
             }
-            let h = min(CGFloat(letters.count) * row + 8, maxH)
+            let h = min(count * row + 8, maxH)
             let w: CGFloat = 22
             let rect = CGRect(x: screen.width - w - 1,
                               y: screen.height - bottomReserved - h,
                               width: w, height: h)
-            v.frame = parent.convert(rect, from: win)
-            // 🔴 每次都重申 z 序：大图浮层偶发重建时会重新 insert 到 bar 之下，
-            //    不重申就会重新把字母条盖住。
-            parent.bringSubviewToFront(v)
-            if let bar = navBar, bar.superview === parent { parent.bringSubviewToFront(bar) }
-            v.isHidden = letters.isEmpty
+            let newFrame = parent.convert(rect, from: win)
+            if v.frame != newFrame { v.frame = newFrame }
+            // 层级只在这里校正（安装 / 数据变化 / 展开态切换），滚动中不碰。
+            ensureZOrder()
+            let hidden = letters.isEmpty
                 || !isHostOnTop
                 || PlaylistSortOverlayState.shared.isPresented
+            if v.isHidden != hidden { v.isHidden = hidden }
+            if hidden { bubble?.isHidden = true }
         }
 
-        /// 低频轮询（0.2s）：push/pop、弹窗开关后及时恢复 / 隐藏。
+        /// 🔴 字母条必须保持在 navigationBar 之下的**最上层**：沉浸式大图也是
+        ///    insertSubview(belowSubview: navigationBar) 挂在同一层，而且可能比
+        ///    字母条更晚安装（封面异步到达），一旦大图后插入就会重新盖住 A~F，
+        ///    也就是用户第一轮反馈的「刚打开被遮挡」。
+        ///    这里只在位置真的不对时才动 UIKit 层级，正常情况零操作，
+        ///    不会反复触发 layoutSubviews（大歌单滑动抖动的旧根因）。
+        private func ensureZOrder() {
+            guard let v = barView, let parent = container, let bar = navBar,
+                  bar.superview === parent,
+                  let barIdx = parent.subviews.firstIndex(where: { $0 === bar }),
+                  barIdx > 0 else { return }
+            if parent.subviews[barIdx - 1] === v { return }
+            parent.insertSubview(v, belowSubview: bar)
+        }
+
+        /// 按住/拖过字母时，左侧弹出一个放大字母气泡（酷狗 / iOS 通讯录同款）。
+        func showBubble(_ letter: String?, index: Int) {
+            guard let parent = container, let bar = barView, let nav = navBar else { return }
+            if bubble == nil {
+                let l = UILabel()
+                l.backgroundColor = UIColor(red: 0.13, green: 0.15, blue: 0.19, alpha: 0.94)
+                l.textColor = .white
+                l.font = .boldSystemFont(ofSize: 34)
+                l.textAlignment = .center
+                l.layer.cornerRadius = 16
+                l.clipsToBounds = true
+                l.isUserInteractionEnabled = false
+                l.isHidden = true
+                parent.insertSubview(l, belowSubview: nav)
+                bubble = l
+            }
+            guard let b = bubble else { return }
+            if let letter {
+                b.text = letter
+                let side: CGFloat = 68
+                let y = bar.frame.minY + 4 + CGFloat(index) * rowHeight + rowHeight / 2 - side / 2
+                b.frame = CGRect(x: bar.frame.minX - side - 14, y: y,
+                                 width: side, height: side)
+                b.alpha = 1
+                b.isHidden = false
+            } else {
+                UIView.animate(withDuration: 0.16, animations: { b.alpha = 0 }) { _ in
+                    b.isHidden = true
+                }
+            }
+        }
+
+        /// 低频轮询（0.45s）：只在 push/pop、弹窗开关导致可见性变化时才动 UI。
         private func startMonitoring() {
             guard !monitoring else { return }
             monitoring = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
                 guard let self, self.window != nil else { return }
-                self.refresh()
+                // 大图浮层晚插入时把字母条重新压回它上面；位置正确时零操作。
+                self.ensureZOrder()
+                let hidden = self.letters.isEmpty
+                    || !self.isHostOnTop
+                    || PlaylistSortOverlayState.shared.isPresented
+                if let v = self.barView, v.isHidden != hidden {
+                    v.isHidden = hidden
+                    if hidden { self.bubble?.isHidden = true }
+                }
                 self.monitoring = false
                 self.startMonitoring()
             }
@@ -436,7 +524,9 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
 
         func teardown() {
             barView?.removeFromSuperview()
+            bubble?.removeFromSuperview()
             barView = nil
+            bubble = nil
             hosting = nil
             container = nil
             navBar = nil
@@ -446,32 +536,49 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
 
 struct PlaylistLetterIndexBar: View {
     let letters: [String]
-    /// 🔴 2026-11-12：从原来的 14pt 加到 17pt（截图实测 14.6pt），
-    ///    27 个字母在一条里明显更疏朗，不再挤成一坨；小屏由外层按可用高度收敛。
-    static let defaultRowHeight: CGFloat = 17
-    var rowHeight: CGFloat = 17
+    var rowHeight: CGFloat
+    let expanded: Bool
     let onSelect: (String) -> Void
+    let onHover: (String?, Int) -> Void
+
+    @State private var activeIndex: Int?
 
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(letters, id: \.self) { letter in
-                Button {
-                    onSelect(letter)
-                    Haptics.light()
-                } label: {
-                    Text(letter)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.30, green: 0.32, blue: 0.36))
-                        .frame(width: 18, height: rowHeight)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .frame(height: rowHeight)
+            ForEach(letters.indices, id: \.self) { i in
+                Text(letters[i])
+                    .font(.system(size: expanded ? 12 : 10,
+                                  weight: activeIndex == i ? .bold : .semibold))
+                    .foregroundStyle(activeIndex == i
+                                     ? Color(red: 0.12, green: 0.53, blue: 0.96)
+                                     : Color(red: 0.30, green: 0.32, blue: 0.36))
+                    .frame(width: 18, height: rowHeight)
+                    .contentShape(Rectangle())
             }
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 2)
-        .background(Capsule().fill(Color.white.opacity(0.78)))
+        .background(Capsule().fill(Color.white.opacity(expanded ? 0.86 : 0.74)))
         .overlay(Capsule().stroke(Color.black.opacity(0.05), lineWidth: 0.5))
+        .contentShape(Rectangle())
+        // 🔴 统一用手势处理「点按 / 按住 / 上下拖动」：按下即定位并显示放大气泡，
+        //    拖过字母连续定位，松手隐藏气泡。比 Button 更适合索引条，也避免
+        //    多个 Button 各自抢手势造成的抖动。
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    let raw = Int((value.location.y - 4) / max(1, rowHeight))
+                    let idx = max(0, min(letters.count - 1, raw))
+                    guard letters.indices.contains(idx), activeIndex != idx else { return }
+                    activeIndex = idx
+                    onSelect(letters[idx])
+                    onHover(letters[idx], idx)
+                    Haptics.light()
+                }
+                .onEnded { _ in
+                    activeIndex = nil
+                    onHover(nil, 0)
+                }
+        )
     }
 }

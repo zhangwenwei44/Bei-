@@ -23,8 +23,11 @@ struct DiscoverView: View {
     @State private var isLoadingArtists = false
     @State private var artistsLoaded = false
     /// 🔴 2026-11-12：歌手 Tab 改成「滚到底再加载下一批」，不再进 Tab 就翻完 25 页。
-    @State private var artistPage = 1
+    @State private var artistPage = 0
     @State private var hasMoreArtists = true
+    /// 🔴 2026-11-12：连续「整批都是重复歌手」的次数；连续 2 批才判定到底，
+    ///    避免单次网络抖动 / 翻页偶发重复就提前结束（只显示 80 位的元凶之一）。
+    @State private var artistEmptyStreak = 0
     @State private var isLoadingMoreArtists = false
     /// 🔴 2026-11-09：歌手 Tab 的搜索框只过滤本页已加载的歌手，不跳全局搜索。
     @State private var artistQuery = ""
@@ -38,16 +41,14 @@ struct DiscoverView: View {
     @State private var selectedTab: DiscoverTab = .recommend
     @State private var pendingArtist: Artist?
 
-    // 🔴 v2.9.9：推荐页搜索框下方的横幅广告（两张图自动轮播）
-    @State private var adIndex = 0
-    private let adTimer = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
+    // 🔴 2026-11-12：横幅轮播的 @State / Timer 已抽到独立子视图 AdBannerCarousel。
+    //    挂在整页上时，每 4 秒一次 withAnimation 都会让 DiscoverView 整页 body
+    //    重算（十几个推荐板块 + 歌手 A–Z 全量分组），是主页偶发卡死的主因之一。
     // 🔴 2026-11-11：榜单卡片背景的 3 秒轮播已删除 —— 每轮换 url 都强制重建
     //    CoverImage（.id 变化 → @State 清空 → .task 重新联网），弱网下新图根本来不及
     //    加载就又换下一张，用户看到的永远是一片灰底 + 模糊，也就是「图片显示不出来 /
     //    被毛玻璃盖住」。现在固定用该榜第 1 首歌的封面，与标题图标、第 1 行小封面
     //    同源，缓存必命中，打开即显示。
-    /// 🔴 v2.9.10：横幅广告本地覆盖（管理员可在「实验室」更换），adBanner 优先用它
-    @ObservedObject private var bannerConfig = BannerConfig.shared
 
     // 歌单页搜索（搜索歌单而不是歌曲）
     @State private var playlistQuery = ""
@@ -187,13 +188,17 @@ struct DiscoverView: View {
             .navigationBarTitleDisplayMode(.inline)
             // 🔴 v2.9.6：状态栏/导航栏那一段刷成淡蓝，和下面的渐变带连成一片
             .kugouNavigationBarTint()
-            .safeAreaInset(edge: .top, spacing: 0) {
-                tabBar
-                    // 🔴 v2.9.6(修正)：tab 行刷**实色 pageGradientTop** ——
-                    // 上滑时滚动内容会从 safeAreaInset 区域底下穿过，实色把它挡住；
-                    // 页面渐变带顶部 ~50% 是同色纯色块（见 KugouTopFade），
-                    // 与导航栏（appearance 实色）三方同值，无缝衔接不会出现两种颜色。
-                    .background(AppStyle.pageGradientTop)
+            // 🔴 2026-11-12：修「有些用户顶栏跟系统状态栏间距太大」。
+            //    旧版空标题的 inline 导航栏（约 44pt）**再加**一层
+            //    safeAreaInset(edge:.top) 放 tab 行，等于顶部叠了两层占位，
+            //    状态栏到「推荐/歌单/榜单」之间空出一大块淡蓝。
+            //    现在把 tab 行放进导航栏 principal：导航栏本来就钉在状态栏
+            //    正下方、实色 appearance 会挡住上滑穿帮，既消掉多余间距，
+            //    也不隐藏导航栏（不影响 push 出去的二级页）。
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    tabBar.background(AppStyle.pageGradientTop)
+                }
             }
             // 🔴 底部留白已由 RootView 的 .safeAreaInset(edge:.bottom) 统一处理
             // （播放条现在是 TabView 的 inset 内容，不是浮层）。
@@ -252,7 +257,7 @@ struct DiscoverView: View {
             }
             .padding(.trailing, 12)
         }
-        .frame(height: 48)
+        .frame(height: 40)
     }
 
     /// 🔴 v2.9.13：管理员（已登录云账号）标识 —— 只有文字，无胶囊背景。
@@ -334,68 +339,11 @@ struct DiscoverView: View {
         .padding(.bottom, 12)
     }
 
-    // MARK: 🔴 v2.9.9 横幅广告轮播
+    // MARK: 🔴 2026-11-12 横幅广告轮播
 
-    /// 推荐页搜索框下方的横幅广告，每 4 秒自动轮播。
-    /// 显示顺序：云端（管理员设置、跨设备共享）→ 本机自定义 → App 内置默认图。
-    /// 🔴 v2.9.12：比例改为 16:6；宽度随屏宽自适应，与下方「下载行」及各板块统一 16pt 左右间距。
-    private var adBanner: some View {
-        // 🔴 v2.9.14：effectiveImages 现在是 [UIImage?]（保留占位），
-        // 某张图云端没下下来也占一个位置，数量与云端一致。
-        let imgs = bannerConfig.effectiveImages.isEmpty ? [nil, nil] : bannerConfig.effectiveImages
-        let count = imgs.count
-        let h = (UIScreen.main.bounds.width - 32) * 7 / 16 // 🔴 v2.9.13：16:7
-        return TabView(selection: $adIndex) {
-            ForEach(Array(imgs.indices), id: \.self) { i in
-                bannerImage(at: i, in: imgs)
-                    .tag(i)
-            }
-        }
-        // 🔴 关掉系统页码点（居中），改用右下角自定义圆点
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        .frame(height: h)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        // 🔴 自定义页码点：右下角，当前页为长条、其余为圆点
-        .overlay(alignment: .bottomTrailing) {
-            HStack(spacing: 5) {
-                ForEach(0..<count, id: \.self) { i in
-                    Capsule()
-                        .fill(i == adIndex ? Color.white : Color.white.opacity(0.5))
-                        .frame(width: i == adIndex ? 14 : 6, height: 6)
-                }
-            }
-            .padding(6)
-            .background(Capsule().fill(Color.black.opacity(0.28)))
-            .padding(.trailing, 10)
-            .padding(.bottom, 10)
-        }
-        .padding(.horizontal, 16) // 🔴 与「下载行」/各板块统一 16pt 间距
-        .padding(.top, 4)
-        .padding(.bottom, 8)
-        .onReceive(adTimer) { _ in
-            guard count > 1 else { return }
-            let cur = min(adIndex, count - 1)
-            withAnimation(.easeInOut(duration: 0.4)) {
-                adIndex = (cur + 1) % count
-            }
-        }
-    }
-
-    /// 取横幅图：优先自定义 / 云端图；该位置没有图时回退到 Assets 默认图（按奇偶循环 BannerAd1/2）。
-    private func bannerImage(at index: Int, in imgs: [UIImage?]) -> some View {
-        let fallback = (index % 2 == 0) ? "BannerAd1" : "BannerAd2"
-        return Group {
-            if let ui = imgs[index] {
-                Image(uiImage: ui)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                Image(fallback)
-                    .resizable()
-                    .scaledToFill()
-            }
-        }
-    }
+    /// 轮播状态与计时器都关在 AdBannerCarousel 里（见文件末尾）。
+    /// 父页面每 4 秒不再重算，主页滚动 / 冷启动明显更稳。
+    private var adBanner: some View { AdBannerCarousel() }
 
     // MARK: 🔴 v2.9.10 横幅广告下方入口栏
 
@@ -707,6 +655,11 @@ struct DiscoverView: View {
                             Spacer()
                         }
                         .frame(height: 36)
+                        // 🔴 2026-11-12：哨兵一直留在视图树里，只是被新数据推到更下面，
+                        //    `.onAppear` 只触发一次 → 旧版最多两批（40+40=80 位）就停。
+                        //    每批加载完换 id 重建：用户仍停在底部就继续下一批；
+                        //    列表变长后哨兵离开可视区，自然停止，不会一次拉完全部。
+                        .id("artist-sentinel-\(artistPage)")
                         .onAppear { Task { await loadArtistBatch(reset: false) } }
                     }
                 }
@@ -729,6 +682,15 @@ struct DiscoverView: View {
     /// 旧版串行翻最多 25 页（≈500 位），**每拉一页**就整体替换 `allArtists`，
     /// 触发 25 次全量「按拼音首字母分组 + 组内排序」重算，真机上就是这个 Tab 卡死的根因。
     /// 现在一批只翻 2 页（≤40 位）、一批只刷新一次，其余等用户滚到列表底部再继续。
+    ///
+    /// 🔴 2026-11-12 第二轮：修「只显示 80 位歌手，加载不出全部」。
+    ///   ① 触底哨兵的 `.onAppear` 在 SwiftUI 里**只触发一次** —— 它一直留在视图树里，
+    ///      只是被新数据推到更下面，不会重新 appear。所以旧版最多两批（40 + 40 = 80）。
+    ///      现在给哨兵绑 `.id(artistPage)`，每批加载完重建，用户仍停在底部就继续下一批。
+    ///   ② 页码不再从 `hotArtists.count / 20` 反推。首页热门是「凑够 50 位」截断来的，
+    ///      与真实页码错位，容易整批重复 → addedTotal == 0 → 被误判「已到底」。
+    ///      歌手 Tab 独立从 page=1 开始翻，靠 singerid 去重。
+    ///   ③ 单批网络抖动 / 整批重复不再立刻收工，连续 2 批无新增才判定到底。
     @MainActor
     private func loadArtistBatch(reset: Bool) async {
         if reset {
@@ -741,25 +703,34 @@ struct DiscoverView: View {
             if reset { isLoadingArtists = false } else { isLoadingMoreArtists = false }
         }
 
-        var collected = reset ? hotArtists : allArtists
+        let pageLimit = 25  // 500 位安全上限，避免接口异常时无限翻页
+        // reset 从空表第 1 页开始；触底接着上次页码往下翻。
+        var collected: [Artist] = reset ? [] : allArtists
         var seen = Set(collected.map(\.id))
-        var page = reset ? (collected.isEmpty ? 1 : (collected.count / 20) + 1) : artistPage + 1
+        var page = reset ? 1 : artistPage + 1
         var addedTotal = 0
-        var lastBatchCount = 20
+        var emptyStreak = reset ? 0 : artistEmptyStreak
+        var reachedEnd = false
+
         for _ in 0..<2 {
+            if page > pageLimit { reachedEnd = true; break }
             let batch = await KugouClient.shared.hotArtistsPage(page: page, perPage: 20)
-            if batch.isEmpty { hasMoreArtists = false; break }
+            if batch.isEmpty { reachedEnd = true; break }
+            var added = 0
             for artist in batch where !seen.contains(artist.id) {
                 seen.insert(artist.id)
                 collected.append(artist)
-                addedTotal += 1
+                added += 1
             }
-            lastBatchCount = batch.count
+            addedTotal += added
             page += 1
-            if batch.count < 20 { hasMoreArtists = false; break }
+            emptyStreak = added == 0 ? emptyStreak + 1 : 0
+            if emptyStreak >= 2 { reachedEnd = true; break }
+            if batch.count < 20 { reachedEnd = true; break }
         }
-        artistPage = max(1, page - 1)
-        if lastBatchCount < 20 || addedTotal == 0 { hasMoreArtists = false }
+        artistPage = max(0, page - 1)
+        artistEmptyStreak = emptyStreak
+        if reachedEnd || artistPage >= pageLimit { hasMoreArtists = false }
         // 🔴 一批只刷新一次，避免每页都触发全量分组重算。
         let snapshot = collected
         allArtists = snapshot
@@ -2166,6 +2137,79 @@ struct DiscoverView: View {
                 if let idx = feed.topLists.firstIndex(where: { $0.id == pid }) {
                     feed.topLists[idx].trackCount = total
                 }
+            }
+        }
+    }
+}
+
+// MARK: - 🔴 2026-11-12 横幅轮播（独立子视图）
+
+/// 轮播状态 + 4 秒计时器都关在这个视图里。
+///
+/// 以前 `@State adIndex` / `Timer.publish(...).autoconnect()` 挂在 DiscoverView 上，
+/// 每 4 秒一次 `withAnimation` 会让**整页 body** 重算：十几个推荐板块、
+/// 歌手 A–Z 全量分组排序、ScrollViewReader 里几百个懒加载子视图全部跟着失效，
+/// 真机上就表现成「主页有时候会卡死 / 滑动掉帧」。
+/// 现在重算范围只剩横幅自己，父页面只在切 Tab / 数据到达时才刷新。
+private struct AdBannerCarousel: View {
+    @ObservedObject private var bannerConfig = BannerConfig.shared
+    @State private var adIndex = 0
+    private let adTimer = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        let imgs: [UIImage?] = bannerConfig.effectiveImages.isEmpty
+            ? [nil, nil] : bannerConfig.effectiveImages
+        let count = imgs.count
+        let h = (UIScreen.main.bounds.width - 32) * 7 / 16 // 16:7
+        return TabView(selection: $adIndex) {
+            ForEach(Array(imgs.indices), id: \.self) { i in
+                bannerImage(at: i, in: imgs)
+                    .tag(i)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .frame(height: h)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(alignment: .bottomTrailing) { dots(count: count) }
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
+        .onReceive(adTimer) { _ in
+            guard count > 1 else { return }
+            let cur = min(adIndex, count - 1)
+            withAnimation(.easeInOut(duration: 0.4)) {
+                adIndex = (cur + 1) % count
+            }
+        }
+        // 云端 / 本机换图后张数可能变少，把越界 selection 拉回来，避免空白页。
+        .onChange(of: count) { newCount in
+            if adIndex >= newCount { adIndex = 0 }
+        }
+    }
+
+    /// 右下角自定义页码点：当前页长条、其余圆点。
+    private func dots(count: Int) -> some View {
+        HStack(spacing: 5) {
+            ForEach(0..<count, id: \.self) { i in
+                Capsule()
+                    .fill(i == adIndex ? Color.white : Color.white.opacity(0.5))
+                    .frame(width: i == adIndex ? 14 : 6, height: 6)
+            }
+        }
+        .padding(6)
+        .background(Capsule().fill(Color.black.opacity(0.28)))
+        .padding(.trailing, 10)
+        .padding(.bottom, 10)
+    }
+
+    /// 优先自定义 / 云端图；该位置没图时回退 Assets 默认图（按奇偶循环）。
+    private func bannerImage(at index: Int, in imgs: [UIImage?]) -> some View {
+        let fallback = (index % 2 == 0) ? "BannerAd1" : "BannerAd2"
+        return Group {
+            if let ui = imgs[index] {
+                Image(uiImage: ui).resizable().scaledToFill()
+            } else {
+                Image(fallback).resizable().scaledToFill()
             }
         }
     }

@@ -843,6 +843,13 @@ struct KugouPlaylistDetail: View {
                                        listKey: sortListKey, originalIsNewestFirst: true)
     }
 
+    /// 🔴 2026-11-12：ForEach 直接用缓存的 enumerated 行，不再每帧
+    ///    `Array(displaySongs.enumerated())` 重建 576 个元组（滚动掉帧主因）。
+    private var displayRows: [(offset: Int, element: Song)] {
+        PlaylistSortMemo.shared.rows(songs: songs, mode: sortMode,
+                                     listKey: sortListKey, originalIsNewestFirst: true)
+    }
+
     /// 🔴 2026-11-12：A–Z 排序时的右侧字母索引 + 每组第一首歌的滚动锚点（跟着排序结果缓存）。
     private var letterIndexInfo: (letters: [String], anchors: [String: String]) {
         PlaylistSortMemo.shared.index(songs: displaySongs, mode: sortMode, listKey: sortListKey)
@@ -908,12 +915,11 @@ struct KugouPlaylistDetail: View {
                 if !info.letters.isEmpty {
                     // 🔴 2026-11-12：字母条走同层 UIKit 浮层（z 序高于大图浮层），
                     //    刚打开 A~Z 就完整可见；行高 14→17pt，上下更疏。
-                    PlaylistLetterIndexOverlay(letters: info.letters) { letter in
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            headerState.scrollProxy?.scrollTo(
-                                PlaylistLetterIndex.anchorID(letter),
-                                anchor: PlaylistLetterIndex.scrollAnchor)
-                        }
+                    PlaylistLetterIndexOverlay(letters: info.letters,
+                                                   headerState: headerState) { letter in
+                        headerState.scrollProxy?.scrollTo(
+                            PlaylistLetterIndex.anchorID(letter),
+                            anchor: PlaylistLetterIndex.scrollAnchor)
                     }
                 }
             }
@@ -1018,11 +1024,11 @@ struct KugouPlaylistDetail: View {
                 store.play(displaySongs, startAt: 0)
             }
             Spacer(minLength: 0)
-            PlaylistCreateButton(color: AppStyle.primaryText)
+            PlaylistCreateButton(color: AppIconSpec.actionTint)
             Button {
                 showSortSheet = true
             } label: {
-                ImmersiveSortIcon(color: AppStyle.primaryText)
+                ImmersiveSortIcon(color: AppIconSpec.actionTint)
                     .frame(width: 36, height: 36)
                     .contentShape(Rectangle())
             }
@@ -1031,7 +1037,7 @@ struct KugouPlaylistDetail: View {
                 isSelecting = true
                 selectedIDs.removeAll()
             } label: {
-                ImmersiveMultiSelectIcon(color: AppStyle.primaryText)
+                ImmersiveMultiSelectIcon(color: AppIconSpec.actionTint)
                     .frame(width: 36, height: 36)
                     .contentShape(Rectangle())
             }
@@ -1129,7 +1135,7 @@ struct KugouPlaylistDetail: View {
             //    576 行全部构建出来（还带 SwipeToDeleteRow / contextMenu），主线程直接卡死。
             //    Lazy 后只构建可见的十几行；占位 / 分隔线随行一起懒加载。
             LazyVStack(spacing: 0) {
-                ForEach(Array(displaySongs.enumerated()), id: \.element.id) { index, song in
+                ForEach(displayRows, id: \.element.id) { index, song in
                     let selected = selectedIDs.contains(song.id)
                     // 🔴 2026-11-12：每组首字母第一首歌放一个 0 高度锚点，
                     //    供右侧字母条 scrollTo 定位（不改任何列表布局）。

@@ -160,7 +160,7 @@ struct PlaylistDetailView: View {
                                    title: "歌单里还没有歌曲",
                                    message: "重新下拉试试，或换一个榜单")
                 } else {
-                    VStack(spacing: 0) {
+                    LazyVStack(spacing: 0) {
                         ForEach(displaySongs) { song in
                             let selected = selectedIDs.contains(song.id)
                             if PlaylistLetterIndex.isActive(sortMode),
@@ -352,12 +352,11 @@ struct PlaylistDetailView: View {
                 if !info.letters.isEmpty {
                     // 🔴 2026-11-12：字母条走同层 UIKit 浮层（z 序高于大图浮层），
                     //    刚打开 A~Z 就完整可见；行高 14→17pt，上下更疏。
-                    PlaylistLetterIndexOverlay(letters: info.letters) { letter in
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            headerState.scrollProxy?.scrollTo(
-                                PlaylistLetterIndex.anchorID(letter),
-                                anchor: PlaylistLetterIndex.scrollAnchor)
-                        }
+                    PlaylistLetterIndexOverlay(letters: info.letters,
+                                                   headerState: headerState) { letter in
+                        headerState.scrollProxy?.scrollTo(
+                            PlaylistLetterIndex.anchorID(letter),
+                            anchor: PlaylistLetterIndex.scrollAnchor)
                     }
                 }
             }
@@ -382,12 +381,12 @@ struct PlaylistDetailView: View {
 
             Spacer(minLength: 0)
 
-            PlaylistCreateButton(color: AppStyle.primaryText)
+            PlaylistCreateButton(color: AppIconSpec.actionTint)
 
             Button {
                 showSortSheet = true
             } label: {
-                ImmersiveSortIcon(color: AppStyle.primaryText)
+                ImmersiveSortIcon(color: AppIconSpec.actionTint)
                     .frame(width: 36, height: 36)
                     .contentShape(Rectangle())
             }
@@ -397,7 +396,7 @@ struct PlaylistDetailView: View {
                 isSelecting = true
                 selectedIDs.removeAll()
             } label: {
-                ImmersiveMultiSelectIcon(color: AppStyle.primaryText)
+                ImmersiveMultiSelectIcon(color: AppIconSpec.actionTint)
                     .frame(width: 36, height: 36)
                     .contentShape(Rectangle())
             }
@@ -550,7 +549,7 @@ struct AlbumDetailView: View {
                 } else if displaySongs.isEmpty {
                     EmptyStateView(icon: "music.note.list", title: "专辑里没找到歌曲", message: "可能这个专辑在酷狗上的信息较少")
                 } else {
-                    VStack(spacing: 0) {
+                    LazyVStack(spacing: 0) {
                         ForEach(displaySongs) { song in
                             let selected = selectedIDs.contains(song.id)
                             if PlaylistLetterIndex.isActive(sortMode),
@@ -711,12 +710,11 @@ struct AlbumDetailView: View {
                 if !info.letters.isEmpty {
                     // 🔴 2026-11-12：字母条走同层 UIKit 浮层（z 序高于大图浮层），
                     //    刚打开 A~Z 就完整可见；行高 14→17pt，上下更疏。
-                    PlaylistLetterIndexOverlay(letters: info.letters) { letter in
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            headerState.scrollProxy?.scrollTo(
-                                PlaylistLetterIndex.anchorID(letter),
-                                anchor: PlaylistLetterIndex.scrollAnchor)
-                        }
+                    PlaylistLetterIndexOverlay(letters: info.letters,
+                                                   headerState: headerState) { letter in
+                        headerState.scrollProxy?.scrollTo(
+                            PlaylistLetterIndex.anchorID(letter),
+                            anchor: PlaylistLetterIndex.scrollAnchor)
                     }
                 }
             }
@@ -735,12 +733,12 @@ struct AlbumDetailView: View {
 
             Spacer(minLength: 0)
 
-            PlaylistCreateButton(color: AppStyle.primaryText)
+            PlaylistCreateButton(color: AppIconSpec.actionTint)
 
             Button {
                 showSortSheet = true
             } label: {
-                ImmersiveSortIcon(color: AppStyle.primaryText)
+                ImmersiveSortIcon(color: AppIconSpec.actionTint)
                     .frame(width: 36, height: 36)
                     .contentShape(Rectangle())
             }
@@ -750,7 +748,7 @@ struct AlbumDetailView: View {
                 isSelecting = true
                 selectedIDs.removeAll()
             } label: {
-                ImmersiveMultiSelectIcon(color: AppStyle.primaryText)
+                ImmersiveMultiSelectIcon(color: AppIconSpec.actionTint)
                     .frame(width: 36, height: 36)
                     .contentShape(Rectangle())
             }
