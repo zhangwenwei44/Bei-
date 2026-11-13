@@ -2047,7 +2047,7 @@ struct DiscoverView: View {
         if g.count < 10 {
             let extra = (try? await KugouClient.shared.rankSongs(rankID: "8888", limit: 60)) ?? []
             var seen = Set(g.map(\.id))
-            for s in extra where !dailyIDs.contains(s.id), !seen.contains(s.id) {
+            for s in extra where !dailyIDs.contains(s.id) && !seen.contains(s.id) {
                 g.append(s)
                 seen.insert(s.id)
                 if g.count >= 30 { break }

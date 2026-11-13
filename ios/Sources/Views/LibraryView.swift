@@ -257,7 +257,9 @@ private struct KugouProfileCard: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(
+        // 🔴 `.background(_:in:)` 只收 ShapeStyle，传 ZStack 会编译失败；
+        //    改用 ViewBuilder 形式 + 内部 clipShape（iOS 15 可用）。
+        .background {
             ZStack {
                 LinearGradient(colors: [AppStyle.accent.opacity(0.18), AppStyle.accent.opacity(0.07)],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -272,9 +274,9 @@ private struct KugouProfileCard: View {
                     }
                     Color.white.opacity(0.30)
                 }
-            },
-            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-        )
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(AppStyle.accent.opacity(0.15), lineWidth: 1)
