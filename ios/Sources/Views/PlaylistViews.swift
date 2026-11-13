@@ -121,7 +121,7 @@ struct PlaylistDetailView: View {
     }
 
     /// 🔴 2026-11-12：A–Z 排序时的右侧字母索引 + 每组第一首歌的滚动锚点。
-    private var letterIndexInfo: (letters: [String], anchors: [String: String]) {
+    private var letterIndexInfo: (letters: [String], anchors: [String: String], rowLetters: [String]) {
         PlaylistSortMemo.shared.index(songs: displaySongs, mode: sortMode, listKey: sortListKey)
     }
 
@@ -355,7 +355,8 @@ struct PlaylistDetailView: View {
                     // 🔴 2026-11-12：字母条走同层 UIKit 浮层（z 序高于大图浮层），
                     //    刚打开 A~Z 就完整可见；行高 14→17pt，上下更疏。
                     PlaylistLetterIndexOverlay(letters: info.letters,
-                                                   mode: headerState.letterIndexMode) { letter in
+                                               rowLetters: info.rowLetters,
+                                               mode: headerState.letterIndexMode) { letter in
                         headerState.scrollProxy?.scrollTo(
                             PlaylistLetterIndex.anchorID(letter),
                             anchor: PlaylistLetterIndex.scrollAnchor)
@@ -517,7 +518,7 @@ struct AlbumDetailView: View {
     }
 
     /// 🔴 2026-11-12：A–Z 排序时的右侧字母索引 + 每组第一首歌的滚动锚点。
-    private var letterIndexInfo: (letters: [String], anchors: [String: String]) {
+    private var letterIndexInfo: (letters: [String], anchors: [String: String], rowLetters: [String]) {
         PlaylistSortMemo.shared.index(songs: displaySongs, mode: sortMode, listKey: sortListKey)
     }
 
@@ -715,7 +716,8 @@ struct AlbumDetailView: View {
                     // 🔴 2026-11-12：字母条走同层 UIKit 浮层（z 序高于大图浮层），
                     //    刚打开 A~Z 就完整可见；行高 14→17pt，上下更疏。
                     PlaylistLetterIndexOverlay(letters: info.letters,
-                                                   mode: headerState.letterIndexMode) { letter in
+                                               rowLetters: info.rowLetters,
+                                               mode: headerState.letterIndexMode) { letter in
                         headerState.scrollProxy?.scrollTo(
                             PlaylistLetterIndex.anchorID(letter),
                             anchor: PlaylistLetterIndex.scrollAnchor)

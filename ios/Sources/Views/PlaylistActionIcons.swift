@@ -284,6 +284,40 @@ enum PlaylistLetterIndex {
 ///    现在 `apply()` 只在跨过阈值那一次写 `expanded`，滚动全程零刷新。
 final class PlaylistLetterIndexMode: ObservableObject {
     @Published var expanded: Bool = false
+
+    /// 🔴 2026-11-13：蓝圆高亮对象由 Mode 持有，容器滚动回调与字母条共用同一个，
+    ///    这样「滚动到哪首歌 → 蓝圆跳到那个字母」不需要经过页面 @State。
+    let active = PlaylistLetterIndexActive()
+
+    /// 由页面在 A–Z 排序时注入：字母表 + 每一行对应的首字母（与 displaySongs 对齐）。
+    var letters: [String] = []
+    var rowLetters: [String] = []
+    /// SongRow 固定行高（Components.swift 里 .frame(height: 64)）。
+    var rowHeight: CGFloat = 64
+
+    func configure(letters: [String], rowLetters: [String]) {
+        self.letters = letters
+        self.rowLetters = rowLetters
+        if active.index >= letters.count {
+            active.index = max(0, letters.count - 1)
+        }
+    }
+
+    /// 🔴 修「移动歌曲蓝色圆不会根据当前歌曲名跳转」。
+    ///    contentY = 吸顶头下沿在「滚动内容坐标系」里的 y，listStart = 列表第一行的内容 y。
+    ///    两者都由容器实测值算出，不依赖 GeometryReader 的全球坐标换算。
+    ///    只在字母跨组时写 active.index —— 只有 UIKit hosting 的字母条订阅它，
+    ///    不会触发整页 / 几百行列表重算。
+    func syncVisible(contentY: CGFloat, listStart: CGFloat) {
+        guard expanded, !rowLetters.isEmpty, !letters.isEmpty,
+              !active.isHoldingSelection else { return }
+        let offset = max(0, contentY - listStart)
+        let raw = Int((offset / max(1, rowHeight)).rounded(.down))
+        let idx = max(0, min(rowLetters.count - 1, raw))
+        let letter = rowLetters[idx]
+        guard let target = letters.firstIndex(of: letter), active.index != target else { return }
+        active.index = target
+    }
 }
 
 /// 🔴 2026-11-13：当前高亮字母的持久状态。
@@ -292,6 +326,14 @@ final class PlaylistLetterIndexMode: ObservableObject {
 ///    把状态放在 Anchor（UIView，生命周期跨重建）持有的对象里即可保留。
 final class PlaylistLetterIndexActive: ObservableObject {
     @Published var index: Int = 0
+
+    /// 用户刚按住/点过字母后短暂锁定高亮，避免 scrollTo 的滚动回调立刻把蓝圆
+    /// 改写成邻近字母（点 A 却跳到 # 那种跳变）。普通属性，不触发视图刷新。
+    private var holdUntil: Date = .distantPast
+    func holdSelection(seconds: TimeInterval = 1.2) {
+        holdUntil = Date().addingTimeInterval(seconds)
+    }
+    var isHoldingSelection: Bool { Date() < holdUntil }
 }
 
 /// 把字母条挂到与大图同一层的 UIKit 浮层上。
@@ -302,34 +344,46 @@ final class PlaylistLetterIndexActive: ObservableObject {
 /// 🔴 双态：`expanded = false`（大图展开）行高 14pt 紧凑；吸顶后 21pt 展开。
 struct PlaylistLetterIndexOverlay: View {
     let letters: [String]
+    /// 与字母表一一对应的「每一行首字母」，供蓝圆随滚动自动跳转。
+    var rowLetters: [String] = []
     @ObservedObject var mode: PlaylistLetterIndexMode
     let onSelect: (String) -> Void
 
     var body: some View {
-        PlaylistLetterIndexHost(letters: letters, expanded: mode.expanded, onSelect: onSelect)
+        PlaylistLetterIndexHost(letters: letters, mode: mode, onSelect: onSelect)
             .frame(width: 0, height: 0)
             .allowsHitTesting(false)
+            // 数据注入只写普通属性，不发布 → 不会让页面 body 重算。
+            .onAppear { mode.configure(letters: letters, rowLetters: rowLetters) }
+            .onChange(of: rowLetters) { newValue in
+                mode.configure(letters: letters, rowLetters: newValue)
+            }
+            .onChange(of: letters) { newValue in
+                mode.configure(letters: newValue, rowLetters: rowLetters)
+            }
     }
 }
 
 private struct PlaylistLetterIndexHost: UIViewRepresentable {
     let letters: [String]
-    let expanded: Bool
+    @ObservedObject var mode: PlaylistLetterIndexMode
     let onSelect: (String) -> Void
 
     func makeUIView(context: Context) -> Anchor {
         let v = Anchor()
         v.letters = letters
-        v.expanded = expanded
+        v.expanded = mode.expanded
+        v.active = mode.active
         v.onSelect = onSelect
         return v
     }
 
     func updateUIView(_ uiView: Anchor, context: Context) {
         let changed = uiView.letters != letters
-        let modeChanged = uiView.expanded != expanded
+        let modeChanged = uiView.expanded != mode.expanded
         uiView.letters = letters
-        uiView.expanded = expanded
+        uiView.expanded = mode.expanded
+        uiView.active = mode.active
         uiView.onSelect = onSelect
         // 字母数量变了（换排序 / 切歌单）时把高亮收敛到合法范围。
         if changed, uiView.active.index >= letters.count {
@@ -354,8 +408,8 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
         var expanded: Bool = false
         var rowHeight: CGFloat = 14
         var onSelect: ((String) -> Void)?
-        /// 跨 rootView 重建保留的高亮下标。
-        let active = PlaylistLetterIndexActive()
+        /// 跨 rootView 重建保留的高亮下标（由 Mode 持有，滚动回调也能改）。
+        var active = PlaylistLetterIndexActive()
 
         private var hosting: UIHostingController<AnyView>?
         private var barView: UIView?
@@ -364,6 +418,13 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
         private weak var hostVC: UIViewController?
         private var retry = 0
         private var monitoring = false
+        /// 缩起态下可用高度太小（小屏）→ 整条隐藏，避免字母挤成一团。
+        private var compactClipped = false
+
+        private var shouldHide: Bool {
+            letters.isEmpty || !isHostOnTop
+                || PlaylistSortOverlayState.shared.isPresented || compactClipped
+        }
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -442,8 +503,16 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
             guard let v = barView, let parent = container, let win = window else { return }
             let screen = UIScreen.main.bounds
             let bottomReserved: CGFloat = 126
-            let topReserved: CGFloat = 92
+            // 🔴 2026-11-13：修「刚打开歌单、英文排序缩起时字母显示在图片上」。
+            //    缩起态（大图展开）把字母条整条压进【大图 350 + 吸顶头 74 + 8】
+            //    以下的列表区域，绝不再浮到沉浸式大图上；吸顶后恢复原 92pt 上限。
+            let topReserved: CGFloat = expanded ? 92 : 432
             let maxH = screen.height - bottomReserved - topReserved
+            compactClipped = !expanded && maxH < 180
+            if compactClipped {
+                if !v.isHidden { v.isHidden = true }
+                return
+            }
             let count = max(1, CGFloat(letters.count))
             // 紧凑态回到早期 14pt；吸顶后展开到 21pt（上下更疏）；小屏按可用高度收敛。
             let targetRow = expanded ? 21 : 14
@@ -461,9 +530,7 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
             if v.frame != newFrame { v.frame = newFrame }
             // 层级只在这里校正（安装 / 数据变化 / 展开态切换），滚动中不碰。
             ensureZOrder()
-            let hidden = letters.isEmpty
-                || !isHostOnTop
-                || PlaylistSortOverlayState.shared.isPresented
+            let hidden = shouldHide
             if v.isHidden != hidden { v.isHidden = hidden }
         }
 
@@ -487,9 +554,7 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
                 guard let self, self.window != nil else { return }
                 self.ensureZOrder()
-                let hidden = self.letters.isEmpty
-                    || !self.isHostOnTop
-                    || PlaylistSortOverlayState.shared.isPresented
+                let hidden = self.shouldHide
                 if let v = self.barView, v.isHidden != hidden {
                     v.isHidden = hidden
                 }
@@ -562,6 +627,7 @@ struct PlaylistLetterIndexBar: View {
                     let raw = Int((value.location.y - 4) / max(1, rowHeight))
                     let idx = max(0, min(letters.count - 1, raw))
                     guard letters.indices.contains(idx), active.index != idx else { return }
+                    active.holdSelection()
                     active.index = idx
                     onSelect(letters[idx])
                     Haptics.light()

@@ -239,6 +239,31 @@ final class KugouClient {
         return url
     }
 
+    /// 🔴 2026-11-13：按歌曲 hash 反查封面（修「歌曲列表有些歌曲获取不到歌曲图片」）。
+    /// 本地收藏 / 云歌单里常有个别条目 artworkURL 为空或已失效，`song/info` 返回的
+    /// `imgurl` 是权威封面；imgurl 缺失时退回按 album_id 查专辑封面。
+    func coverForHash(_ hash: String) async -> URL? {
+        let h = hash.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard h.count >= 16 else { return nil }
+        guard let info = await songInfo(hash: h) else { return nil }
+        let raw = info.imgURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !raw.isEmpty {
+            let fixed = raw.replacingOccurrences(of: "{size}", with: "480")
+                .replacingOccurrences(of: "{si}", with: "480")
+                .replacingOccurrences(of: "{sizetype}", with: "4")
+            let final: String
+            if fixed.hasPrefix("//") { final = "https:" + fixed }
+            else if fixed.hasPrefix("http://") {
+                final = fixed.replacingOccurrences(of: "http://", with: "https://")
+            } else { final = fixed }
+            if let url = URL(string: final), !final.isEmpty { return url }
+        }
+        if !info.albumID.isEmpty {
+            return await albumCover(albumID: info.albumID)
+        }
+        return nil
+    }
+
     /// 歌手写真。三路兜底：
     /// 1) mixedSearchJSON 里找 type=4 歌手卡片（imgurl / first_frame_image）
     /// 2) mixedSearchJSON 里找歌曲节点的 singerimg 字段（最稳，酷狗必返回）
@@ -1793,10 +1818,11 @@ final class KugouClient {
         }
     }
 
-    /// 🔴 v2.9.15：酷狗个性化「每日推荐」（需登录酷狗账号）。
-    /// 未登录 / 调用失败 / 空 → 返回 nil（调用方回退 TOP500）。
+    /// 🔴 2026-11-13：酷狗官方「每日推荐」——与酷狗 App 每日推荐同一份真实数据。
+    ///    `/everyday_song_recommend` 实测**未登录也返回当天 30 首**，所以不再设登录门槛
+    ///    （旧版未登录直接 nil → 回退 TOP500，结果和「猜你喜欢」内容撞车/变成假数据）。
+    ///    调用失败 / 返回空 → nil，由调用方回退 TOP500。
     func dailyRecommendSongs(limit: Int = 30) async -> [Song]? {
-        guard KugouAuth.shared.isLoggedIn else { return nil }
         return await everydayRecommendSongs(limit: limit)
     }
 

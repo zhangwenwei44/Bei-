@@ -1,5 +1,49 @@
 import SwiftUI
 import AVFoundation
+import UIKit
+
+// MARK: - 🔴 2026-11-13：我的音乐顶部卡片自定义背景图
+
+/// 存到 Documents，重装 / 重启 App 都还在；只放一份压缩后的 JPEG，不占多少空间。
+private final class ProfileCardBackground: ObservableObject {
+    static let shared = ProfileCardBackground()
+
+    @Published private(set) var image: UIImage?
+
+    private let fileURL: URL = {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return dir.appendingPathComponent("profile_card_bg.jpg")
+    }()
+
+    private init() {
+        if let data = try? Data(contentsOf: fileURL) {
+            image = UIImage(data: data)
+        }
+    }
+
+    func set(_ picked: UIImage) {
+        let scaled = Self.scaled(picked, maxSide: 1400)
+        guard let data = scaled.jpegData(compressionQuality: 0.82) else { return }
+        try? data.write(to: fileURL, options: .atomic)
+        image = UIImage(data: data)
+    }
+
+    func clear() {
+        try? FileManager.default.removeItem(at: fileURL)
+        image = nil
+    }
+
+    /// 缩到 1400px 长边再落盘，避免 4000×3000 原图解码后占几十 MB 内存。
+    private static func scaled(_ image: UIImage, maxSide: CGFloat) -> UIImage {
+        let longest = max(image.size.width, image.size.height)
+        guard longest > maxSide else { return image }
+        let ratio = maxSide / longest
+        let size = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
+}
 
 /// 🔴 2026-11-09：酷狗大歌单后台补齐时的「上屏节流器」。
 /// 576 首歌单每反查完一小批（4~6 首）都会回调一次 onBatch，若每批都整体替换
@@ -42,23 +86,116 @@ private struct KugouProfileCard: View {
     @ObservedObject private var kugouAuth = KugouAuth.shared
     // 🔴 v2.8.3：今日听歌统计（首数 + 时长），独立对象、低频发布，不会拖累主页面
     @ObservedObject private var today = TodayListenStats.shared
+    @ObservedObject private var cardBackground = ProfileCardBackground.shared
+    @State private var showCardSettings = false
+    @State private var pickingCardImage = false
 
     var body: some View {
-        // 🔴 v2.8.0：未登录时点卡片直接弹扫码登录（顶栏登录按钮已移除，这里是登录入口）
-        if kugouAuth.isLoggedIn {
-            NavigationLink {
-                KugouAccountCenter()
-            } label: {
-                cardLabel
+        // 🔴 2026-11-13：设置按钮必须压在卡片上层。塞进 NavigationLink 的 label
+        //    会被父按钮抢点击，所以这里用 ZStack 分层，按钮只响应自己那一小块。
+        ZStack(alignment: .topTrailing) {
+            Group {
+                // 🔴 v2.8.0：未登录时点卡片直接弹扫码登录（这里是登录入口）
+                if kugouAuth.isLoggedIn {
+                    NavigationLink {
+                        KugouAccountCenter()
+                    } label: {
+                        cardLabel
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Button {
+                        NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
+                    } label: {
+                        cardLabel
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(maxWidth: .infinity)
+
+            Button { showCardSettings = true } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppStyle.accent)
+                    .frame(width: 26, height: 26)
+                    .background(Color.white.opacity(0.82), in: Circle())
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
-        } else {
-            Button {
-                NotificationCenter.default.post(name: .auroraShowKugouLogin, object: nil)
-            } label: {
-                cardLabel
+            .padding(.top, 10)
+            .padding(.trailing, 10)
+        }
+        .sheet(isPresented: $showCardSettings) { cardSettingsSheet }
+    }
+
+    /// 单个 sheet 内切换「菜单 / 相册」，避开 iOS 15 链式 .sheet 只有最后一个生效的坑。
+    private var cardSettingsSheet: some View {
+        Group {
+            if pickingCardImage {
+                AuroraImagePicker(onImagePicked: { img in
+                    cardBackground.set(img)
+                    pickingCardImage = false
+                    showCardSettings = false
+                }, onCancel: {
+                    pickingCardImage = false
+                    showCardSettings = false
+                })
+                .ignoresSafeArea()
+            } else {
+                VStack(spacing: 18) {
+                    Text("设置顶部卡片背景")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(AppStyle.primaryText)
+                    ZStack {
+                        LinearGradient(colors: [AppStyle.accent.opacity(0.18), AppStyle.accent.opacity(0.07)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+                        if let bg = cardBackground.image {
+                            GeometryReader { geo in
+                                Image(uiImage: bg)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: geo.size.width, height: geo.size.height)
+                                    .clipped()
+                            }
+                            Color.white.opacity(0.30)
+                        } else {
+                            Text("默认渐变背景")
+                                .font(.system(size: 12))
+                                .foregroundStyle(AppStyle.secondaryText)
+                        }
+                    }
+                    .frame(height: 110)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .padding(.horizontal, 24)
+
+                    Button { pickingCardImage = true } label: {
+                        Text("从相册选择图片")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 24)
+
+                    Button {
+                        cardBackground.clear()
+                        showCardSettings = false
+                    } label: {
+                        Text("恢复默认背景")
+                            .font(.system(size: 14))
+                            .foregroundStyle(AppStyle.secondaryText)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button("取消") { showCardSettings = false }
+                        .font(.system(size: 14))
+                        .padding(.top, 4)
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, 28)
             }
-            .buttonStyle(.plain)
         }
     }
 
@@ -121,8 +258,21 @@ private struct KugouProfileCard: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(
-            LinearGradient(colors: [AppStyle.accent.opacity(0.18), AppStyle.accent.opacity(0.07)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing),
+            ZStack {
+                LinearGradient(colors: [AppStyle.accent.opacity(0.18), AppStyle.accent.opacity(0.07)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                // 🔴 2026-11-13：用户自定义背景图铺满卡片；压一层白纱保证深色文字可读。
+                if let bg = cardBackground.image {
+                    GeometryReader { geo in
+                        Image(uiImage: bg)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .clipped()
+                    }
+                    Color.white.opacity(0.30)
+                }
+            },
             in: RoundedRectangle(cornerRadius: 14, style: .continuous)
         )
         .overlay(
@@ -851,7 +1001,7 @@ struct KugouPlaylistDetail: View {
     }
 
     /// 🔴 2026-11-12：A–Z 排序时的右侧字母索引 + 每组第一首歌的滚动锚点（跟着排序结果缓存）。
-    private var letterIndexInfo: (letters: [String], anchors: [String: String]) {
+    private var letterIndexInfo: (letters: [String], anchors: [String: String], rowLetters: [String]) {
         PlaylistSortMemo.shared.index(songs: displaySongs, mode: sortMode, listKey: sortListKey)
     }
 
@@ -916,7 +1066,8 @@ struct KugouPlaylistDetail: View {
                     // 🔴 2026-11-12：字母条走同层 UIKit 浮层（z 序高于大图浮层），
                     //    刚打开 A~Z 就完整可见；行高 14→17pt，上下更疏。
                     PlaylistLetterIndexOverlay(letters: info.letters,
-                                                   mode: headerState.letterIndexMode) { letter in
+                                               rowLetters: info.rowLetters,
+                                               mode: headerState.letterIndexMode) { letter in
                         headerState.scrollProxy?.scrollTo(
                             PlaylistLetterIndex.anchorID(letter),
                             anchor: PlaylistLetterIndex.scrollAnchor)

@@ -174,6 +174,9 @@ extension Song {
                     "pic_slarge", "pic_xlarge", "pic_xxlarge", "AlbumImg", "song_img",
                     "albumImg", "cover_url", "Cover", "coverImg",
                     "album_sizable_cover", "album_sizable_cover_1",
+                    // 🔴 2026-11-13：song/info、部分云歌单节点用 imgurl / image 返回封面，
+                    //    旧列表没这几个 key → 这些歌曲在列表里显示成灰白占位。
+                    "imgurl", "img_url", "image", "singer_cover",
                     // 🔴 2026-11-11：酷狗真实推荐接口（everyday_song_recommend）
                     // 的封面字段是 sizable_cover（形如 .../stdmusic/{size}/xxx.jpg），
                     // 不在旧列表里 → 30 首歌全部没封面、卡片掉成灰块。

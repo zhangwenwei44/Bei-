@@ -706,31 +706,44 @@ struct CoverImage: View {
     }
 
     private func load() async {
-        // 直连地址和登记表都没有时，尝试按 key 联网补一次（al:专辑id）。
-        var target = effectiveURL
+        // 直连地址和登记表都没有时，尝试按 key 联网补一次（al:专辑id / kg:歌曲hash）。
+        let primary = effectiveURL
+        var target = primary
         if target == nil, !fallbackKeys.isEmpty {
             target = await CoverResolver.shared.resolveCover(for: fallbackKeys)
         }
-        guard let target else {
-            image = nil
-            return
-        }
+        if let first = target, await loadFrom(first) { return }
+
+        // 🔴 2026-11-13：修「歌曲列表有些歌曲获取不到歌曲图片」。
+        //    旧版只要 Song 带了一个 artworkURL（哪怕 404 / 占位符没替换干净 /
+        //    域名被 ATS 拦），就再也不走 fallbackKeys，卡片永远停在灰白占位。
+        //    这里在首选地址失败后按歌曲 hash / 专辑 id 反查一张真实封面，
+        //    并把结果登记进 CoverResolver，同一首歌在别处也能直接命中。
+        guard !fallbackKeys.isEmpty else { return }
+        guard let fallback = await CoverResolver.shared.resolveCover(for: fallbackKeys),
+              fallback.absoluteString != primary?.absoluteString else { return }
+        _ = await loadFrom(fallback)
+    }
+
+    private func loadFrom(_ target: URL) async -> Bool {
         if target.isFileURL, let data = try? Data(contentsOf: target) {
             image = Self.decodeImageData(data, maxPixelSize: size * 3)
-            return
+            return image != nil
         }
         if let loaded = await CoverLoader.download(target, maxPixelSize: size * 3) {
             image = loaded
-        } else if !Task.isCancelled {
-            // 🔴 2026-11-10：弱网 / 偶发 403 时列表卡片会长期停在灰色占位块
-            //    （用户反馈「榜单推荐的图片显示不出来」）。隔 0.6s 补一次重试；
-            //    CoverLoader 内部有候选 URL 与内存缓存，重试命中即返回，代价很小。
-            try? await Task.sleep(nanoseconds: 600_000_000)
-            guard !Task.isCancelled else { return }
-            if let retry = await CoverLoader.download(target, maxPixelSize: size * 3) {
-                image = retry
-            }
+            return true
         }
+        guard !Task.isCancelled else { return false }
+        // 🔴 2026-11-10：弱网 / 偶发 403 时列表卡片会长期停在灰色占位块。
+        //    隔 0.6s 补一次重试；CoverLoader 内部有候选 URL 与内存缓存，代价很小。
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        guard !Task.isCancelled else { return false }
+        if let retry = await CoverLoader.download(target, maxPixelSize: size * 3) {
+            image = retry
+            return true
+        }
+        return false
     }
 
     /// 在后台线程用 ImageIO 解码图片数据，避免主线程解码阻塞 120Hz。
@@ -1926,8 +1939,14 @@ extension Notification.Name {
 ///   · 滚动用 CoreAnimation 的 transform 补间，不触发 SwiftUI body 重算；
 ///   · `lineBreakMode = .byClipping` 彻底去掉省略号；
 ///   · 视图离开层级时停动画，避免后台空转。
-///   · 两份文字 + `.repeat`（无 autoreverse）：每轮结束瞬间归零时，
-///     第二份正好落在第一份的起点，视觉上完全无缝、方向始终向左。
+///   · 🔴 2026-11-13 第五轮：去掉 `.repeat`。用户反馈「走完会有空白时间，
+///     不要移完空白从右边开始，移完一轮停几秒」——
+///     旧版两份文字之间留了 24pt 间距，一轮末尾那段空白会横穿屏幕；
+///     且 `.repeat` 每轮立刻重启，没有停顿。
+///     现在两份文字**紧贴（gap = 0）**，每轮只向左平移一个文字宽度，
+///     归零瞬间第二份正好落在第一份的起点（画面无跳变），
+///     然后停 2.5 秒显示完整歌名开头，再开始下一轮。
+///     全程方向单一向左，任何时刻屏幕里都有文字，没有空白。
 struct MarqueeText: View {
     let text: String
     var size: CGFloat = 15
@@ -1982,11 +2001,16 @@ private final class MarqueeLabelView: UIView {
     private let ghost = UILabel()
     private var currentText = ""
     private var scrolling = false
-    /// 一个循环的长度（两份文字首尾相接的间距）。
+    /// 一个循环的长度（两份文字紧贴，等于文字自然宽度）。
     private var cycleLength: CGFloat = 0
     /// 已启动动画时的循环长度；宽度没变就不重启动画（滚动时 layoutSubviews 会被调很多次）。
     private var startedCycle: CGFloat = -1
-    private let gap: CGFloat = 24
+    /// 🔴 0 = 两份文字首尾紧贴，轮次之间不留任何空白。
+    private let gap: CGFloat = 0
+    /// 每轮的令牌：stopScroll / 重新 configure 时自增，让在途的 completion 与延时失效。
+    private var cycleToken: UInt = 0
+    /// 一轮滚完后停顿的秒数。
+    private let pauseSeconds: TimeInterval = 2.5
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -2040,9 +2064,10 @@ private final class MarqueeLabelView: UIView {
         }
     }
 
-    /// 🔴 单向往左：整体匀速平移 `-cycle` 后瞬间回到 0，如此循环。
-    ///    归零那一刻第二份文字正好位于第一份的起点，肉眼看到的文字完全连续，
-    ///    永远不会往右倒退（旧版 `.autoreverse` 会左右来回，用户明确不要）。
+    /// 🔴 单向往左：每轮匀速平移 `-cycle`，归零后停顿，再开始下一轮。
+    ///    两份文字紧贴，所以平移途中「第一份的尾部」后面立刻是「第二份的开头」，
+    ///    屏幕里任何时刻都有文字；归零那一刻第二份正好位于第一份的起点，
+    ///    画面无跳变、不往右倒退，停顿期间显示的是完整歌名开头。
     private func startScrollIfNeeded() {
         let cycle = cycleLength
         guard cycle > 1 else { return }
@@ -2050,29 +2075,51 @@ private final class MarqueeLabelView: UIView {
         if scrolling, abs(startedCycle - cycle) < 0.5 { return }
         startedCycle = cycle
         scrolling = true
+        cycleToken &+= 1
         label.layer.removeAllAnimations()
         ghost.layer.removeAllAnimations()
-        label.transform = .identity
-        ghost.transform = .identity
-        let duration = min(max(TimeInterval(cycle / 30), 3.2), 12.0)
+        runCycle(token: cycleToken, cycle: cycle, initialDelay: 0.7)
+    }
+
+    private func runCycle(token: UInt, cycle: CGFloat, initialDelay: TimeInterval) {
+        UIView.performWithoutAnimation {
+            label.transform = .identity
+            ghost.transform = .identity
+        }
+        let duration = min(max(TimeInterval(cycle / 32), 3.0), 11.0)
         let shift = CGAffineTransform(translationX: -cycle, y: 0)
         UIView.animate(withDuration: duration,
-                       delay: 0.6,
-                       options: [.curveLinear, .repeat],
+                       delay: initialDelay,
+                       options: [.curveLinear, .beginFromCurrentState],
                        animations: {
             self.label.transform = shift
             self.ghost.transform = shift
-        }, completion: nil)
+        }, completion: { [weak self] finished in
+            guard let self, finished, self.scrolling, self.cycleToken == token else { return }
+            // 归零：此刻第二份正好在第一份的起点，画面完全连续。
+            UIView.performWithoutAnimation {
+                self.label.transform = .identity
+                self.ghost.transform = .identity
+            }
+            // 一轮结束后停几秒（显示完整歌名开头），再开始下一轮。
+            DispatchQueue.main.asyncAfter(deadline: .now() + self.pauseSeconds) { [weak self] in
+                guard let self, self.scrolling, self.cycleToken == token else { return }
+                self.runCycle(token: token, cycle: cycle, initialDelay: 0)
+            }
+        })
     }
 
     func stopScroll() {
         guard scrolling else { return }
         scrolling = false
         startedCycle = -1
+        cycleToken &+= 1
         label.layer.removeAllAnimations()
         ghost.layer.removeAllAnimations()
-        label.transform = .identity
-        ghost.transform = .identity
+        UIView.performWithoutAnimation {
+            label.transform = .identity
+            ghost.transform = .identity
+        }
     }
 
     override func willMove(toWindow newWindow: UIWindow?) {
@@ -2080,7 +2127,8 @@ private final class MarqueeLabelView: UIView {
         if newWindow == nil {
             stopScroll()
         } else {
-            // 重新入窗（cell 复用 / 页面返回）时恢复滚动。
+            // 重新入窗（cell 复用 / 页面返回）：系统可能已移除 layer 动画，重启一轮。
+            if scrolling { stopScroll() }
             setNeedsLayout()
         }
     }

@@ -145,6 +145,9 @@ final class PlaylistSortMemo {
         /// 避免播放器每秒刷新 body 时对几百首歌反复做拼音转换。
         let letters: [String]
         let anchors: [String: String]
+        /// 🔴 2026-11-13：每一行对应的首字母（与 result 同序），
+        ///    供右侧蓝圆随列表滚动跳到当前歌曲的字母。跟着排序结果一起缓存。
+        let rowLetters: [String]
         // 🔴 O(1) 指纹：不再保存/比较整份 songs 数组。
         let fingerprint: String
     }
@@ -175,14 +178,19 @@ final class PlaylistSortMemo {
         }
         let sorted = PlaylistSorter.sorted(songs, mode: mode, listKey: listKey,
                                            originalIsNewestFirst: originalIsNewestFirst)
-        let index = PlaylistLetterIndex.isActive(mode)
+        let activeAZ = PlaylistLetterIndex.isActive(mode)
+        let index = activeAZ
             ? PlaylistLetterIndex.build(sorted, mode: mode)
             : (letters: [String](), anchors: [String: String]())
+        let rowLetters = activeAZ
+            ? sorted.map { PlaylistLetterIndex.letter(for: PlaylistLetterIndex.key($0, mode: mode)) }
+            : []
         entries[listKey] = Entry(mode: mode,
                                  newestFirst: originalIsNewestFirst,
                                  result: sorted,
                                  rows: Array(sorted.enumerated()),
                                  letters: index.letters, anchors: index.anchors,
+                                 rowLetters: rowLetters,
                                  fingerprint: fp)
         return sorted
     }
@@ -197,11 +205,15 @@ final class PlaylistSortMemo {
 
     /// 供页面右侧字母条 / 行锚点读取。命中缓存是 O(1)，不做任何重新排序。
     func index(songs: [Song], mode: PlaylistSortMode, listKey: String)
-        -> (letters: [String], anchors: [String: String]) {
+        -> (letters: [String], anchors: [String: String], rowLetters: [String]) {
         if let e = entries[listKey], e.mode == mode {
-            return (e.letters, e.anchors)
+            return (e.letters, e.anchors, e.rowLetters)
         }
-        return PlaylistLetterIndex.build(songs, mode: mode)
+        let built = PlaylistLetterIndex.build(songs, mode: mode)
+        let rows = PlaylistLetterIndex.isActive(mode)
+            ? songs.map { PlaylistLetterIndex.letter(for: PlaylistLetterIndex.key($0, mode: mode)) }
+            : []
+        return (built.letters, built.anchors, rows)
     }
 
     func invalidate(_ listKey: String) { entries.removeValue(forKey: listKey) }

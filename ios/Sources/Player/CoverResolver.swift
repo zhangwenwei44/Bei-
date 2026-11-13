@@ -53,14 +53,24 @@ final class CoverResolver {
     }
 
     /// 按需联网解析封面。列表里的歌曲没有图时按 key 补：
-    /// `al:<专辑id>` → 专辑接口的 imgurl（榜单歌曲的节点不带图，只有专辑 id）。
+    /// `al:<专辑id>` → 专辑接口的 imgurl（榜单歌曲的节点不带图，只有专辑 id）；
+    /// `kg:<歌曲hash>` → `song/info` 的 imgurl（本地收藏里 artworkURL 失效的条目）。
     /// 解析成功后登记进 overrides，下次同步查表就能命中。
+    /// 🔴 2026-11-13：CoverImage 现在在「首选 URL 下载失败」时也会调这里，
+    ///    所以坏链接不会再让卡片永久停在灰白占位。
     func resolveCover(for keys: [String]) async -> URL? {
         if let url = firstAvailable(keys) { return url }
         for key in keys where key.hasPrefix("al:") {
             let albumID = String(key.dropFirst(3))
             guard !albumID.isEmpty else { continue }
             if let url = await CoverFetchCoordinator.shared.albumCover(albumID: albumID, key: key) {
+                return url
+            }
+        }
+        for key in keys where key.hasPrefix("kg:") {
+            let hash = String(key.dropFirst(3))
+            guard !hash.isEmpty else { continue }
+            if let url = await CoverFetchCoordinator.shared.hashCover(hash: hash, key: key) {
                 return url
             }
         }
@@ -90,6 +100,8 @@ actor CoverFetchCoordinator {
     static let shared = CoverFetchCoordinator()
 
     private var inFlight: [String: Task<URL?, Never>] = [:]
+    /// 反查失败过的 key：列表来回滚动时不重复打同样的失败请求。
+    private var failed: Set<String> = []
 
     func albumCover(albumID: String, key: String) async -> URL? {
         if let existing = inFlight[key] {
@@ -103,6 +115,25 @@ actor CoverFetchCoordinator {
         inFlight[key] = nil
         if let url {
             CoverResolver.shared.register(url, for: [key])
+        }
+        return url
+    }
+
+    /// 按歌曲 hash 反查封面（同一 hash 并发只发一次；失败做负缓存）。
+    func hashCover(hash: String, key: String) async -> URL? {
+        if let url = CoverResolver.shared.url(for: key) { return url }
+        if failed.contains(key) { return nil }
+        if let existing = inFlight[key] { return await existing.value }
+        let task = Task<URL?, Never> {
+            await KugouClient.shared.coverForHash(hash)
+        }
+        inFlight[key] = task
+        let url = await task.value
+        inFlight[key] = nil
+        if let url {
+            CoverResolver.shared.register(url, for: [key])
+        } else {
+            failed.insert(key)
         }
         return url
     }

@@ -175,6 +175,12 @@ final class ImmersiveHeaderState: ObservableObject {
         // 字母条只在跨过阈值那一次写 @Published，滚动全程零刷新。
         let expanded = q >= maxDrag * 0.9
         if letterIndexMode.expanded != expanded { letterIndexMode.expanded = expanded }
+
+        // 🔴 2026-11-13：蓝圆跟随「当前吸顶头下方第一行」的首字母。
+        //    屏幕 y = topInset + stickyHeight；内容坐标 = 屏幕 y − 内容原点 y + 已滚动量。
+        //    两组数据都来自实测的 contentOriginYRest / listPlaceholder，不做坐标猜测。
+        let contentY = topInset + stickyHeight - max(0, contentOriginYRest) + q
+        letterIndexMode.syncVisible(contentY: contentY, listStart: listPlaceholder)
     }
 }
 

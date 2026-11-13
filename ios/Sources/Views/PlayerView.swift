@@ -2418,9 +2418,11 @@ private struct ClassicProgressBlock: View {
 
 /// 🔴 2026-11-13：沉浸式封面主题专用「酷狗同款」进度条。
 ///
-/// 对照酷狗 20.8.4 真机截图：进度是一条 2pt 细线 + 小圆定位点（线上还有
-/// 一个更小的缓冲点），`00:09 / 04:55` 两个时间**放在条的下方两端**。
+/// 对照酷狗 20.8.4 真机截图：进度是一条 2pt 细线 + 小圆定位点，
+/// `00:09 / 04:55` 两个时间**放在条的下方两端**。
 /// 旧版 `ClassicProgressBlock` 是「时间 — 条 — 时间」同一行，与截图不符。
+/// 🔴 2026-11-13 第二轮：按用户要求移除「缓冲末端的小圆点」，只留播放点；
+///    播放点位置逻辑不变（不随动画漂移），额外加白色呼吸发光。
 ///
 /// 结构与 ClassicProgressBlock 一样独立订阅 PlaybackProgress：
 /// 4fps 的实时刷新只重算这一小块，不会重建整棵播放页（按钮点击必中）。
@@ -2429,6 +2431,8 @@ private struct ImmersiveCoverProgressBlock: View {
     @ObservedObject var playback: PlaybackProgress
     @State private var isScrubbing = false
     @State private var scrubValue: Double = 0
+    /// 播放点呼吸发光的开关（值本身不变，动画由 SwiftUI repeatForever 驱动）。
+    @State private var breathing = false
 
     private var displayTime: Double { isScrubbing ? scrubValue : playback.currentTime }
 
@@ -2443,15 +2447,21 @@ private struct ImmersiveCoverProgressBlock: View {
                     Capsule().fill(.white.opacity(0.28)).frame(height: 2)
                     Capsule().fill(.white.opacity(0.40)).frame(width: bf * w, height: 2)
                     Capsule().fill(.white.opacity(0.95)).frame(width: px, height: 2)
-                    // 缓冲末端的小点（酷狗细条上是两个小圆点）
-                    Circle().fill(.white.opacity(0.55))
-                        .frame(width: 4, height: 4)
-                        .offset(x: min(max(bf * w - 2, 0), max(w - 4, 0)))
-                    // 当前播放位置的大一点的白点
+                    // 🔴 缓冲末端的小圆点已按用户要求移除，只保留播放位置的这一个点。
+                    //    点的 x 只跟播放进度走，呼吸动画只改 scale / 光晕，不产生位移。
                     Circle().fill(.white)
                         .frame(width: isScrubbing ? 11 : 7, height: isScrubbing ? 11 : 7)
-                        .offset(x: px - (isScrubbing ? 5.5 : 3.5))
+                        .background {
+                            Circle().fill(.white.opacity(breathing && !isScrubbing ? 0.42 : 0))
+                                .frame(width: 20, height: 20)
+                                .blur(radius: 5)
+                        }
+                        .scaleEffect(breathing && !isScrubbing ? 1.18 : 1.0)
                         .shadow(color: .black.opacity(0.25), radius: 2)
+                        .offset(x: px - (isScrubbing ? 5.5 : 3.5))
+                        .animation(.easeInOut(duration: 1.25).repeatForever(autoreverses: true),
+                                   value: breathing)
+                        .onAppear { breathing = true }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 .contentShape(Rectangle())

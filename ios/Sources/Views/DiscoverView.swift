@@ -1339,7 +1339,7 @@ struct DiscoverView: View {
 
     private var dailySubtitle: String {
         if let pick = dailyPick { return "\(pick.title) · \(pick.artist)" }
-        return "酷狗TOP500 · 每日更新"
+        return "酷狗每日推荐 · 每天同步"
     }
 
     private var personalizedHint: String {
@@ -1927,7 +1927,10 @@ struct DiscoverView: View {
 
     private func load(force: Bool = false) async {
         guard !isLoading else { return }
-        if !force,
+        // 🔴 2026-11-13：每日推荐按「自然日」与酷狗同步，跨天自动重拉一次，
+        //    即使其它板块都有缓存也不能跳过（否则每天看到的还是昨天那批歌）。
+        let stale = dailyStale
+        if !force, !stale,
            !feed.topLists.isEmpty, !guessSongs.isEmpty,
            !dailySongs.isEmpty, !hotArtists.isEmpty,
            !recommendedPlaylists.isEmpty {
@@ -1936,11 +1939,11 @@ struct DiscoverView: View {
         isLoading = true
         defer { isLoading = false }
         errorMessage = nil
-        // 下拉刷新时也顺手刷新「新歌推荐」和「猜你喜欢」，同样独立并发、不拖慢主链。
-        // 猜你喜欢每次刷新都会重新拉酷狗真实推荐（相当于「换一批」）。
+        // 下拉刷新时顺手刷新「新歌推荐」。
+        // ⚠️ 「猜你喜欢」不再在 force 时另起 Task：它必须与「每日推荐」串行，
+        //    否则两栏同时拉取、后写的那份没法做去重，会出现一模一样的歌。
         if force {
             Task { await loadNewSongs(force: true) }
-            Task { await loadGuess() }
         }
         if feed.topLists.isEmpty {
             // 🔴 2026-11-12：冷启动时网络栈刚就绪，首个 topLists() 常常直接失败。
@@ -1958,8 +1961,10 @@ struct DiscoverView: View {
                 }
             }
         }
-        if guessSongs.isEmpty { await loadGuess() }
-        if force || dailySongs.isEmpty { await loadDailySongs() }
+        // 🔴 顺序固定：先拿酷狗官方每日推荐，再拉猜你喜欢 —— 后者要按前者的 id 去重。
+        if force || stale || dailySongs.isEmpty { await loadDailySongs() }
+        if force || stale || guessSongs.isEmpty { await loadGuess() }
+        await reconcileDailyAndGuess()
         if force || hotArtists.isEmpty {
             hotArtists = await KugouClient.shared.hotArtists(count: 50)
         }
@@ -2013,11 +2018,52 @@ struct DiscoverView: View {
         }
     }
 
-    /// 每日推荐：登录酷狗 → 个性化「每日推荐」；未登录 / 拉取失败 → 回退酷狗 TOP500。
+    private static let dailyDayStoreKey = "aurora.discover.dailyDay"
+
+    /// 本地自然日戳（不是 UTC，跨零点就换）。
+    private var dayStamp: String {
+        let c = Calendar(identifier: .gregorian)
+        let d = c.dateComponents([.year, .month, .day], from: Date())
+        return "\(d.year ?? 0)-\(d.month ?? 0)-\(d.day ?? 0)"
+    }
+
+    /// 今天还没成功同步过酷狗官方每日推荐 → 需要重拉。
+    private var dailyStale: Bool {
+        UserDefaults.standard.string(forKey: Self.dailyDayStoreKey) != dayStamp
+    }
+
+    private func markDailyFresh() {
+        UserDefaults.standard.set(dayStamp, forKey: Self.dailyDayStoreKey)
+    }
+
+    /// 🔴 2026-11-13：用户反馈「每日推荐跟猜你喜欢一样的歌曲」。
+    ///    两栏都从酷狗真实接口取数，但登录态 / 风控回退时可能落到同一份推荐列表。
+    ///    这里把猜你喜欢里与每日推荐重复的歌剔除；剩余不足 10 首就用酷狗 TOP500
+    ///    （同样真实数据）补齐，保证两栏始终是不同的歌。
+    private func reconcileDailyAndGuess() async {
+        guard !dailySongs.isEmpty, !guessSongs.isEmpty else { return }
+        let dailyIDs = Set(dailySongs.map(\.id))
+        var g = guessSongs.filter { !dailyIDs.contains($0.id) }
+        if g.count < 10 {
+            let extra = (try? await KugouClient.shared.rankSongs(rankID: "8888", limit: 60)) ?? []
+            var seen = Set(g.map(\.id))
+            for s in extra where !dailyIDs.contains(s.id), !seen.contains(s.id) {
+                g.append(s)
+                seen.insert(s.id)
+                if g.count >= 30 { break }
+            }
+        }
+        guard g.count >= 10, g.map(\.id) != guessSongs.map(\.id) else { return }
+        guessSongs = g
+        guessPick = g.first(where: { $0.artworkURL != nil }) ?? g.first
+        Log.info("发现页", "每日推荐 / 猜你喜欢去重后 猜你喜欢 \(g.count) 首")
+    }
+
+    /// 🔴 2026-11-13：每日推荐直接同步酷狗 App 的官方「每日推荐」（30 首、每天更新）。
+    ///    旧版要求登录，未登录就整段回退 TOP500，和猜你喜欢/榜单内容撞车；
+    ///    现在未登录也走官方接口（实测可用），只有接口真的失败才回退 TOP500。
     private func loadDailySongs() async {
-        // 🔴 v2.9.15：登录酷狗账号后拉个性化每日推荐（属于你的口味），失败时回退 TOP500。
-        if kugouAuth.isLoggedIn,
-           let recs = await KugouClient.shared.dailyRecommendSongs(limit: 30),
+        if let recs = await KugouClient.shared.dailyRecommendSongs(limit: 30),
            !recs.isEmpty {
             var enriched = recs
             // 推荐接口部分歌可能没封面 → 优先拿有封面的做封面卡；没封面的反查专辑补图
@@ -2033,11 +2079,12 @@ struct DiscoverView: View {
             }
             dailySongs = enriched
             dailyPick = pick
-            Log.info("发现页", "每日推荐(个性化) \(enriched.count) 首，封面：\(pick?.title ?? "-")")
+            markDailyFresh()
+            Log.info("发现页", "每日推荐(酷狗官方同步) \(enriched.count) 首，封面：\(pick?.title ?? "-")")
             return
         }
-        // 回退：酷狗 TOP500 前 30 首，补齐第一首封面。
-        guard let songs = try? await KugouClient.shared.rankSongs(rankID: "8888", limit: 100),
+        // 回退：酷狗 TOP500 前 30 首（同样是酷狗真实数据），补齐第一首封面。
+        guard let songs = try? await KugouClient.shared.rankSongs(rankID: "8888", limit: 30),
               !songs.isEmpty else {
             Log.warn("发现页", "每日推荐 TOP500 0 首")
             return
