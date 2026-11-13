@@ -86,7 +86,7 @@ struct LibraryView: View {
 private struct KugouProfileCard: View {
     @ObservedObject private var kugouAuth = KugouAuth.shared
     @ObservedObject private var cardBackground = ProfileCardBackground.shared
-    // 🔴 2026-11-14：卡片左侧改显示本机设备码 + 授权激活状态（原「今日 N 首 / N 分」移除）。
+    // 🔴 2026-11-14：卡片左侧改显示本机设备ID + 授权激活状态（原「今日 N 首 / N 分」移除）。
     @ObservedObject private var license = LicenseManager.shared
     // 🔴 2026-11-13：当前音频输出设备（蓝牙耳机图标 + 设备名）
     @ObservedObject private var audioRoute = AudioRouteMonitor.shared
@@ -182,8 +182,8 @@ private struct KugouProfileCard: View {
             }
 
             // 🔴 2026-11-14：原「今日 N 首 / N 分」统计整块移除，
-            //    左侧改成本机设备码 + 激活状态；点一下复制完整设备码（换授权码时要用）。
-            //    设备码与酷狗账号无关，未登录也常显。
+            //    左侧改成本机设备ID + 激活状态；点一下复制完整设备ID（换授权码时要用）。
+            //    设备ID与酷狗账号无关，未登录也常显。
             Divider()
                 .background(onImage ? Color.white.opacity(0.45) : Color.clear)
             HStack(spacing: 10) {
@@ -264,8 +264,9 @@ private struct KugouProfileCard: View {
         })
     }
 
-    /// 🔴 2026-11-14：设备码 + 激活状态（放在原「8 首 / 10 分」的位置）。
-    /// 设备码完整显示、等宽小字；点一下把完整设备码复制到剪贴板（换授权码时要用）。
+    /// 🔴 2026-11-14：设备ID + 激活状态（放在原「8 首 / 10 分」的位置）。
+    /// 🔴 同日第二轮：文案由「设备码」改为「设备ID」，已激活 / 未激活状态保留不变。
+    /// 设备ID完整显示、等宽小字；点一下把完整设备ID复制到剪贴板（换授权码时要用）。
     /// 文字颜色跟随卡片（自定义背景图=白字，普通背景=深色字），状态点固定绿/红便于辨识。
     private var deviceStatus: some View {
         let activated = license.isActivated
@@ -276,7 +277,7 @@ private struct KugouProfileCard: View {
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(activated ? (onImage ? Color.white : dot) : dot)
             VStack(alignment: .leading, spacing: 3) {
-                Text("设备码 \(license.deviceID)")
+                Text("设备ID \(license.deviceID)")
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundStyle(subtitleColor)
                     .lineLimit(1)
@@ -1075,10 +1076,11 @@ struct KugouPlaylistDetail: View {
             if PlaylistLetterIndex.isActive(sortMode), !showSortSheet, !isSelecting {
                 let info = letterIndexInfo
                 if !info.letters.isEmpty {
-                    // 🔴 2026-11-12：字母条走同层 UIKit 浮层（z 序高于大图浮层），
-                    //    刚打开 A~Z 就完整可见；行高 14→17pt，上下更疏。
+                    // 🔴 2026-11-14：A–Z 排序 = 字母索引条；其余排序 = 真滑动条。
+                    //    两者都走同层 UIKit 浮层（z 序高于大图浮层）。
                     PlaylistLetterIndexOverlay(letters: info.letters,
                                                rowLetters: info.rowLetters,
+                                               isSlider: PlaylistLetterIndex.isSlider(sortMode),
                                                mode: headerState.letterIndexMode) { letter in
                         headerState.scrollProxy?.scrollTo(
                             PlaylistLetterIndex.anchorID(letter),

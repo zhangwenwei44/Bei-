@@ -227,15 +227,19 @@ struct PlaylistCreateButton: View {
 /// 中文按拼音首字母归组（与 DownloadsList.makeGroups 完全同一套规则），
 /// 所以中文歌单也有可用的字母索引。
 enum PlaylistLetterIndex {
-    /// 🔴 2026-11-14：右侧快速滑动条改成【所有 7 种排序方式常驻】。
-    ///    以前只有 A–Z 排序才有，自定义排序 / 新到旧 / 旧到新 / 播放量排序
-    ///    右边空空如也 —— 用户明确要求这几种排序也要有可拖动的滑动条。
+    /// 🔴 2026-11-14：右侧快速定位条【所有 7 种排序方式常驻】。
+    ///    A–Z 排序 = 字母索引条；其余 5 种 = 真正的滑动条。
     static func isActive(_ mode: PlaylistSortMode) -> Bool { return true }
 
-    /// 只有这两种排序用 A–Z 字母刻度；其余用「列表位置」0–9 刻度。
+    /// 只有这两种排序用 A–Z 字母刻度。
     static func isAZ(_ mode: PlaylistSortMode) -> Bool {
         mode == .titleAZ || mode == .artistAZ
     }
+
+    /// 🔴 2026-11-14 定稿：用户明确「我要的是滑动条不是数字」。
+    ///    非 A–Z 排序右侧是一根细轨道 + 可拖动的蓝色滑块，
+    ///    没有任何数字 / 字母 / 放大气泡；滑块直接驱动 UIScrollView.contentOffset。
+    static func isSlider(_ mode: PlaylistSortMode) -> Bool { !isAZ(mode) }
 
     static func key(_ song: Song, mode: PlaylistSortMode) -> String {
         mode == .artistAZ ? song.artist : song.cleanTitle
@@ -261,22 +265,14 @@ enum PlaylistLetterIndex {
     /// 🔴 入参必须是【已排好序】的数组，这样同一字母的歌天然连续。
     static func build(_ songs: [Song], mode: PlaylistSortMode) -> (letters: [String], anchors: [String: String]) {
         guard isAZ(mode) else {
-            // 🔴 非字母排序：按列表位置等分成最多 10 段，生成 0–9 刻度滑动条。
-            //    每段第一行放一个 .id() 锚点，拖到哪个刻度就 scrollTo 到那一段。
-            // 空列表 / 只剩一首时不显示孤零零的刻度。
+            // 🔴 2026-11-14：滑动条模式【不生成任何刻度 / 锚点】。
+            //    滑动条是纯 UIKit 视图，按 contentOffset 比例直接定位列表，
+            //    不需要字母条那套分组锚点，也不往 LazyVStack 里插 0 高度 Color.clear。
+            //    letters 非空只是让外层 `if !letters.isEmpty` 判定「该显示浮层」。
             guard songs.count >= 2 else {
                 return (letters: [String](), anchors: [String: String]())
             }
-            let segs = min(10, songs.count)
-            var letters: [String] = []
-            var anchors: [String: String] = [:]
-            for k in 0..<segs {
-                let label = String(k)
-                let idx = songs.count * k / segs
-                letters.append(label)
-                if idx < songs.count { anchors[songs[idx].id] = label }
-            }
-            return (letters, anchors)
+            return (letters: ["__slider__"], anchors: [String: String]())
         }
         var firstOfGroup: [String: String] = [:]
         var present = Set<String>()
@@ -293,18 +289,12 @@ enum PlaylistLetterIndex {
         return (letters, anchors)
     }
 
-    /// 🔴 每一行对应的刻度标签（与排序结果同序），供右侧蓝圆随列表滚动跟随。
-    ///    A–Z 排序 = 该行首字母；其余排序 = 该行落在第几段（0–9），
-    ///    于是非字母排序时蓝圆就变成「滚动进度滑块」。
+    /// 🔴 每一行对应的刻度标签（与排序结果同序），仅 A–Z 字母条使用。
+    ///    滑动条模式直接读 UIScrollView.contentOffset，不需要逐行标签 → 返回空数组，
+    ///    大歌单（574 首）也就不必在每次排序缓存时分配一整份字符串数组。
     static func rowLabels(_ songs: [Song], mode: PlaylistSortMode,
                           letters: [String]) -> [String] {
-        guard isAZ(mode) else {
-            let segs = max(1, letters.count)
-            let count = max(1, songs.count)
-            return songs.indices.map { i in
-                String(min(segs - 1, i * segs / count))
-            }
-        }
+        guard isAZ(mode) else { return [String]() }
         return songs.map { letter(for: key($0, mode: mode)) }
     }
 
@@ -375,7 +365,185 @@ final class PlaylistLetterIndexActive: ObservableObject {
     var isHoldingSelection: Bool { Date() < holdUntil }
 }
 
-/// 把字母条挂到与大图同一层的 UIKit 浮层上。
+// MARK: - 🔴 2026-11-14 定稿：非 A–Z 排序的「真滑动条」（纯 UIKit）
+
+/// 用户明确「我要的是滑动条不是数字」：右侧 = 一根细轨道 + 蓝色圆角滑块，
+///   · 滑块高度按「可视区 / 内容高度」比例（最短 32pt），位置按 contentOffset 实时跟随；
+///   · 按住 / 上下拖动直接改 UIScrollView.contentOffset，等价于拖着整份歌单快速定位；
+///   · 没有数字、没有字母、没有白色 Capsule 底板、没有放大气泡。
+/// 🔴 全程只改 UIView.frame：不写 @Published、不重建 SwiftUI 树 —— 574 首大歌单
+///    滚动时不会触发整页 body 重算（项目「大歌单掉帧」红线）。
+final class PlaylistScrollSliderView: UIView {
+
+    private let track = UIView()
+    private let thumb = UIView()
+
+    private weak var scrollView: UIScrollView?
+    private weak var searchRoot: UIView?
+    private var offsetObservation: NSKeyValueObservation?
+    private var sizeObservation: NSKeyValueObservation?
+    private var dragging = false
+
+    private let trackWidth: CGFloat = 3
+    private let thumbWidth: CGFloat = 9
+    private let minThumbHeight: CGFloat = 32
+    private let edgeY: CGFloat = 6
+
+    private static let blue = UIColor(red: 0.12, green: 0.53, blue: 0.96, alpha: 1)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        clipsToBounds = true
+        isMultipleTouchEnabled = false
+
+        track.backgroundColor = PlaylistScrollSliderView.blue.withAlphaComponent(0.16)
+        track.layer.cornerRadius = trackWidth / 2
+        track.isUserInteractionEnabled = false
+        addSubview(track)
+
+        thumb.backgroundColor = PlaylistScrollSliderView.blue
+        thumb.layer.cornerRadius = thumbWidth / 2
+        thumb.isUserInteractionEnabled = false
+        thumb.layer.shadowColor = PlaylistScrollSliderView.blue.withAlphaComponent(0.45).cgColor
+        thumb.layer.shadowRadius = 3
+        thumb.layer.shadowOpacity = 0.5
+        thumb.layer.shadowOffset = .zero
+        addSubview(thumb)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let usable = max(0, bounds.height - edgeY * 2)
+        track.frame = CGRect(x: (bounds.width - trackWidth) / 2,
+                             y: edgeY, width: trackWidth, height: usable)
+        syncThumb()
+    }
+
+    /// 从宿主页面视图树里找「真正承载歌曲列表」的 UIScrollView（contentSize 最高那个）。
+    /// 首帧 SwiftUI 的 ScrollView 可能还没装好 → 由 Anchor 的轮询反复调用，找到即锁住。
+    func attachIfNeeded(from root: UIView?) {
+        if let r = root { searchRoot = r }
+        guard let r = searchRoot ?? root else { return }
+        var best: UIScrollView?
+        func walk(_ v: UIView) {
+            if let sv = v as? UIScrollView {
+                if let cur = best {
+                    if sv.contentSize.height > cur.contentSize.height { best = sv }
+                } else {
+                    best = sv
+                }
+            }
+            for sub in v.subviews { walk(sub) }
+        }
+        walk(r)
+        // 宿主 VC 的 view 有时不是承载列表的那棵树 → 退回整个 window 再扫一遍。
+        if best == nil, let win = window { walk(win) }
+        guard let sv = best else { return }
+        // 🔴 首帧可能只找到横滑卡片那种小 ScrollView，等 LazyVStack 撑开后要允许替换成大列表。
+        //    短列表（内容不足一屏）也照绑：此时滑块自然占满整条轨道，语义仍正确。
+        if let old = scrollView, old !== sv, old.contentSize.height >= sv.contentSize.height {
+            syncThumb()
+            return
+        }
+        if scrollView !== sv {
+            offsetObservation?.invalidate()
+            sizeObservation?.invalidate()
+            scrollView = sv
+            offsetObservation = sv.observe(\.contentOffset, options: [.initial, .new]) { [weak self] _, _ in
+                self?.syncThumb()
+            }
+            sizeObservation = sv.observe(\.contentSize, options: [.initial, .new]) { [weak self] _, _ in
+                self?.syncThumb()
+            }
+        }
+        syncThumb()
+    }
+
+    private func metrics() -> (minY: CGFloat, maxY: CGFloat, progress: CGFloat,
+                               thumbHeight: CGFloat, usable: CGFloat) {
+        let usable = max(1, bounds.height - edgeY * 2)
+        guard let sv = scrollView else {
+            return (0, 1, 0, min(usable, minThumbHeight), usable)
+        }
+        let ins = sv.adjustedContentInset
+        let minY = -ins.top
+        let maxY = max(minY, sv.contentSize.height + ins.bottom - sv.bounds.height)
+        let span = max(1, maxY - minY)
+        let progress = min(1, max(0, (sv.contentOffset.y - minY) / span))
+        let ratio: CGFloat = sv.contentSize.height > 0
+            ? min(1, sv.bounds.height / sv.contentSize.height) : 1
+        let thumbHeight = min(usable, max(min(usable, minThumbHeight), usable * ratio))
+        return (minY, maxY, progress, thumbHeight, usable)
+    }
+
+    private func setThumb(y: CGFloat, height: CGFloat) {
+        thumb.frame = CGRect(x: (bounds.width - thumbWidth) / 2,
+                             y: y, width: thumbWidth, height: height)
+    }
+
+    /// 🔴 只让靠近轨道的窄条接收触摸，两侧边缘事件穿透回歌曲行，
+    ///    否则这根 24pt 宽、几百 pt 高的浮层会挡住列表行尾的三点菜单 / 收藏按钮。
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard super.point(inside: point, with: event) else { return false }
+        return abs(point.x - bounds.width / 2) <= 9
+    }
+
+    /// 滚动位置 → 滑块位置。拖动中不跑，避免和手指抢位置。
+    private func syncThumb() {
+        guard !dragging else { return }
+        let m = metrics()
+        let travel = max(1, m.usable - m.thumbHeight)
+        setThumb(y: edgeY + travel * m.progress, height: m.thumbHeight)
+    }
+
+    /// 手指位置 → 列表位置。
+    private func seek(toY: CGFloat) {
+        guard let sv = scrollView else { return }
+        let m = metrics()
+        let travel = max(1, m.usable - m.thumbHeight)
+        let p = min(1, max(0, (toY - edgeY - m.thumbHeight / 2) / travel))
+        setThumb(y: edgeY + travel * p, height: m.thumbHeight)
+        let targetY = m.minY + p * (m.maxY - m.minY)
+        if abs(sv.contentOffset.y - targetY) > 0.5 {
+            sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: targetY), animated: false)
+        }
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let t = touches.first else { return }
+        dragging = true
+        thumb.backgroundColor = PlaylistScrollSliderView.blue.withAlphaComponent(0.82)
+        Haptics.light()
+        seek(toY: t.location(in: self).y)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let t = touches.first else { return }
+        seek(toY: t.location(in: self).y)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { finish() }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { finish() }
+
+    private func finish() {
+        dragging = false
+        thumb.backgroundColor = PlaylistScrollSliderView.blue
+        syncThumb()
+    }
+
+    func detach() {
+        offsetObservation?.invalidate()
+        sizeObservation?.invalidate()
+        offsetObservation = nil
+        sizeObservation = nil
+        scrollView = nil
+    }
+}
+
+/// 把字母条 / 滑动条挂到与大图同一层的 UIKit 浮层上。
 ///
 /// 🔴 2026-11-12 真机截图量化：沉浸式大图是 UIKit 浮层（UINavigationController.view
 ///    下、navigationBar 之下），覆盖屏幕 0~350pt，层级【高于整个 SwiftUI 树】。
@@ -385,11 +553,14 @@ struct PlaylistLetterIndexOverlay: View {
     let letters: [String]
     /// 与字母表一一对应的「每一行首字母」，供蓝圆随滚动自动跳转。
     var rowLetters: [String] = []
+    /// 🔴 2026-11-14：true = 安装纯 UIKit 滑动条；false = A–Z 字母索引条。
+    var isSlider: Bool = false
     @ObservedObject var mode: PlaylistLetterIndexMode
     let onSelect: (String) -> Void
 
     var body: some View {
-        PlaylistLetterIndexHost(letters: letters, mode: mode, onSelect: onSelect)
+        PlaylistLetterIndexHost(letters: letters, mode: mode,
+                                isSlider: isSlider, onSelect: onSelect)
             .frame(width: 0, height: 0)
             .allowsHitTesting(false)
             // 数据注入只写普通属性，不发布 → 不会让页面 body 重算。
@@ -406,6 +577,7 @@ struct PlaylistLetterIndexOverlay: View {
 private struct PlaylistLetterIndexHost: UIViewRepresentable {
     let letters: [String]
     @ObservedObject var mode: PlaylistLetterIndexMode
+    var isSlider: Bool = false
     let onSelect: (String) -> Void
 
     func makeUIView(context: Context) -> Anchor {
@@ -413,11 +585,16 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
         v.letters = letters
         v.expanded = mode.expanded
         v.active = mode.active
+        v.isSlider = isSlider
         v.onSelect = onSelect
         return v
     }
 
     func updateUIView(_ uiView: Anchor, context: Context) {
+        // 🔴 A–Z ↔ 其它排序切换：浮层形态不同，必须先拆旧视图再装新的。
+        if uiView.isSlider != isSlider {
+            uiView.switchMode(to: isSlider)
+        }
         let changed = uiView.letters != letters
         let modeChanged = uiView.expanded != mode.expanded
         uiView.letters = letters
@@ -447,10 +624,13 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
         var expanded: Bool = false
         var rowHeight: CGFloat = 14
         var onSelect: ((String) -> Void)?
+        /// 🔴 2026-11-14：true = 纯 UIKit 滑动条；false = A–Z 字母索引条。
+        var isSlider: Bool = false
         /// 跨 rootView 重建保留的高亮下标（由 Mode 持有，滚动回调也能改）。
         var active = PlaylistLetterIndexActive()
 
         private var hosting: UIHostingController<AnyView>?
+        private var sliderView: PlaylistScrollSliderView?
         private var barView: UIView?
         private weak var container: UIView?
         private weak var navBar: UINavigationBar?
@@ -514,7 +694,23 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
             )
         }
 
-        func rebuildRoot() { hosting?.rootView = root() }
+        func rebuildRoot() {
+            guard !isSlider else { return }
+            hosting?.rootView = root()
+        }
+
+        /// A–Z ↔ 其它排序：浮层是两种完全不同的视图，拆掉重装（含 KVO）。
+        func switchMode(to slider: Bool) {
+            isSlider = slider
+            barView?.removeFromSuperview()
+            barView = nil
+            hosting = nil
+            sliderView?.detach()
+            sliderView = nil
+            retry = 0
+            installIfNeeded()
+            refresh()
+        }
 
         /// 🔴 不能标 private：`UIViewRepresentable.updateUIView`（外层作用域）也要调它。
         func installIfNeeded() {
@@ -529,11 +725,21 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
                 }
                 return
             }
-            let host = UIHostingController(rootView: root())
-            let v = host.view!
+            let v: UIView
+            if isSlider {
+                let slider = PlaylistScrollSliderView()
+                sliderView = slider
+                v = slider
+            } else {
+                let host = UIHostingController(rootView: root())
+                let hv = host.view!
+                hv.backgroundColor = .clear
+                hv.clipsToBounds = true
+                hosting = host
+                v = hv
+            }
             v.backgroundColor = .clear
             v.clipsToBounds = true
-            hosting = host
             barView = v
             container = parent
             navBar = bar
@@ -541,6 +747,8 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
             navController = pageHost.navigationController
             parent.addSubview(v)
             parent.bringSubviewToFront(bar)
+            // 滑动条要拿到承载歌曲列表的 UIScrollView；首帧可能还没建好，轮询里会重试。
+            sliderView?.attachIfNeeded(from: pageHost.view)
             refresh()
         }
 
@@ -553,21 +761,32 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
             //    以下的列表区域，绝不再浮到沉浸式大图上；吸顶后恢复原 92pt 上限。
             let topReserved: CGFloat = expanded ? 92 : 432
             let maxH = screen.height - bottomReserved - topReserved
-            compactClipped = !expanded && maxH < 180
+            // 字母条在缩起态挤不下会糊成一团才隐藏；滑动条是滚动指示器，
+            // 只要还留得下一根轨道就必须常显（小屏大图展开时也别整条消失）。
+            compactClipped = !expanded && maxH < (isSlider ? 60 : 180)
             if compactClipped {
                 if !v.isHidden { v.isHidden = true }
                 return
             }
-            let count = max(1, CGFloat(letters.count))
-            // 紧凑态回到早期 14pt；吸顶后展开到 21pt（上下更疏）；小屏按可用高度收敛。
-            let targetRow = expanded ? 21 : 14
-            let row = min(CGFloat(targetRow), maxH / count)
-            if abs(row - rowHeight) > 0.01 {
-                rowHeight = row
-                rebuildRoot()
+            let h: CGFloat
+            let w: CGFloat
+            if isSlider {
+                // 🔴 滑动条 = 一整根轨道占满列表可视区，宽度给足手指命中区（28pt），
+                //    轨道本身只有 3pt 居中绘制。不再按「刻度行数」算高度。
+                h = maxH
+                w = 24
+            } else {
+                let count = max(1, CGFloat(letters.count))
+                // 紧凑态回到早期 14pt；吸顶后展开到 21pt（上下更疏）；小屏按可用高度收敛。
+                let targetRow = expanded ? 21 : 14
+                let row = min(CGFloat(targetRow), maxH / count)
+                if abs(row - rowHeight) > 0.01 {
+                    rowHeight = row
+                    rebuildRoot()
+                }
+                h = min(count * row + 8, maxH)
+                w = 24
             }
-            let h = min(count * row + 8, maxH)
-            let w: CGFloat = 24
             let rect = CGRect(x: screen.width - w - 1,
                               y: screen.height - bottomReserved - h,
                               width: w, height: h)
@@ -575,6 +794,8 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
             if v.frame != newFrame { v.frame = newFrame }
             // 层级只在这里校正（安装 / 数据变化 / 展开态切换），滚动中不碰。
             ensureZOrder()
+            // 列表 UIScrollView 可能比浮层晚建好，这里顺手补一次绑定。
+            sliderView?.attachIfNeeded(from: hostVC?.view)
             let hidden = shouldHide
             if v.isHidden != hidden { v.isHidden = hidden }
         }
@@ -592,34 +813,44 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
             parent.insertSubview(v, belowSubview: bar)
         }
 
-        /// 低频轮询（0.45s）：只在 push/pop、弹窗开关导致可见性变化时才动 UI。
+        /// 低频轮询：只在 push/pop、弹窗开关导致可见性变化时才动 UI。
         private func startMonitoring() {
             guard !monitoring else { return }
             monitoring = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                guard let self, self.window != nil else { return }
-                self.ensureZOrder()
-                let hidden = self.shouldHide
-                if let v = self.barView, v.isHidden != hidden {
+                guard let anchor = self, anchor.window != nil else {
+                    self?.monitoring = false
+                    return
+                }
+                let target = anchor
+                target.ensureZOrder()
+                // 滑动条首次可能还没找到列表 UIScrollView（LazyVStack 异步装载），补绑。
+                target.sliderView?.attachIfNeeded(from: target.hostVC?.view)
+                let hidden = target.shouldHide
+                if let v = target.barView, v.isHidden != hidden {
                     v.isHidden = hidden
                 }
-                self.monitoring = false
-                self.startMonitoring()
+                target.monitoring = false
+                target.startMonitoring()
             }
         }
 
         func teardown() {
+            sliderView?.detach()
+            sliderView = nil
             barView?.removeFromSuperview()
             barView = nil
             hosting = nil
             container = nil
             navBar = nil
+            monitoring = false
+            retry = 0
         }
     }
 }
 
-/// 🔴 2026-11-12 第三轮：按用户要求移除右侧「滑动条」外观 ——
-///    去掉整条白色 Capsule 背景 + 描边，字母直接浮在列表上；
+/// 🔴 A–Z 排序专用字母索引条（非 A–Z 排序现在用 `PlaylistScrollSliderView` 真滑动条）。
+///    2026-11-12 第三轮：去掉整条白色 Capsule 背景 + 描边，字母直接浮在列表上；
 ///    滑到哪个字母，那个字母出现【蓝色圆形背景 + 白字】高亮（iOS 通讯录同款）。
 ///    原来的左侧 68pt 放大气泡一并删除，避免两套提示同时出现。
 /// 🔴 2026-11-13：用户要求「蓝色圆背景常显，不是按住英文字母才显示」——

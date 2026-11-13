@@ -178,9 +178,10 @@ final class PlaylistSortMemo {
         }
         let sorted = PlaylistSorter.sorted(songs, mode: mode, listKey: listKey,
                                            originalIsNewestFirst: originalIsNewestFirst)
-        // 🔴 2026-11-14：右侧快速滑动条改成【所有排序方式常驻】。
-        //    A–Z 排序显示字母刻度；自定义 / 新到旧 / 旧到新 / 播放量排序
-        //    显示按列表位置等分的 0–9 刻度（拖动即可跳到对应段落）。
+        // 🔴 2026-11-14 定稿：右侧快速定位条【所有排序方式常驻】。
+        //    A–Z 排序 = 字母索引条；其余排序 = 纯 UIKit 真滑动条（细轨道 + 蓝色滑块，
+        //    按 contentOffset 比例定位，无数字无刻度）。滑动条不需要分组 / 行标签，
+        //    所以非 A–Z 时 build 只返回一个占位标识、rowLabels 返回空数组。
         let index = PlaylistLetterIndex.build(sorted, mode: mode)
         let rowLetters = PlaylistLetterIndex.rowLabels(sorted, mode: mode,
                                                        letters: index.letters)

@@ -352,10 +352,11 @@ struct PlaylistDetailView: View {
             if PlaylistLetterIndex.isActive(sortMode), !showSortSheet, !isSelecting {
                 let info = letterIndexInfo
                 if !info.letters.isEmpty {
-                    // 🔴 2026-11-12：字母条走同层 UIKit 浮层（z 序高于大图浮层），
-                    //    刚打开 A~Z 就完整可见；行高 14→17pt，上下更疏。
+                    // 🔴 2026-11-14：A–Z 排序 = 字母索引条；其余排序 = 真滑动条。
+                    //    两者都走同层 UIKit 浮层（z 序高于大图浮层）。
                     PlaylistLetterIndexOverlay(letters: info.letters,
                                                rowLetters: info.rowLetters,
+                                               isSlider: PlaylistLetterIndex.isSlider(sortMode),
                                                mode: headerState.letterIndexMode) { letter in
                         headerState.scrollProxy?.scrollTo(
                             PlaylistLetterIndex.anchorID(letter),
@@ -713,10 +714,11 @@ struct AlbumDetailView: View {
             if PlaylistLetterIndex.isActive(sortMode), !showSortSheet, !isSelecting {
                 let info = letterIndexInfo
                 if !info.letters.isEmpty {
-                    // 🔴 2026-11-12：字母条走同层 UIKit 浮层（z 序高于大图浮层），
-                    //    刚打开 A~Z 就完整可见；行高 14→17pt，上下更疏。
+                    // 🔴 2026-11-14：A–Z 排序 = 字母索引条；其余排序 = 真滑动条。
+                    //    两者都走同层 UIKit 浮层（z 序高于大图浮层）。
                     PlaylistLetterIndexOverlay(letters: info.letters,
                                                rowLetters: info.rowLetters,
+                                               isSlider: PlaylistLetterIndex.isSlider(sortMode),
                                                mode: headerState.letterIndexMode) { letter in
                         headerState.scrollProxy?.scrollTo(
                             PlaylistLetterIndex.anchorID(letter),
