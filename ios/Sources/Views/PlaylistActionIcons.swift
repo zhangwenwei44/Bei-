@@ -383,6 +383,8 @@ final class PlaylistScrollSliderView: UIView {
     private var offsetObservation: NSKeyValueObservation?
     private var sizeObservation: NSKeyValueObservation?
     private var dragging = false
+    /// 已绑定到「真正可滚动的长列表」：此后不再遍历视图树。
+    private var locked = false
 
     private let trackWidth: CGFloat = 3
     private let thumbWidth: CGFloat = 9
@@ -426,6 +428,12 @@ final class PlaylistScrollSliderView: UIView {
     /// 首帧 SwiftUI 的 ScrollView 可能还没装好 → 由 Anchor 的轮询反复调用，找到即锁住。
     func attachIfNeeded(from root: UIView?) {
         if let r = root { searchRoot = r }
+        // 🔴 已经锁定「真正可滚动的长列表」后直接同步，不再每 0.15s 遍历整棵视图树
+        //    （大歌单视图树很大，重复 walk 会掉帧 —— 项目「大歌单性能」红线）。
+        if locked {
+            syncThumb()
+            return
+        }
         guard let r = searchRoot ?? root else { return }
         var best: UIScrollView?
         func walk(_ v: UIView) {
@@ -439,11 +447,10 @@ final class PlaylistScrollSliderView: UIView {
             for sub in v.subviews { walk(sub) }
         }
         walk(r)
-        // 宿主 VC 的 view 有时不是承载列表的那棵树 → 退回整个 window 再扫一遍。
-        if best == nil, let win = window { walk(win) }
         guard let sv = best else { return }
-        // 🔴 首帧可能只找到横滑卡片那种小 ScrollView，等 LazyVStack 撑开后要允许替换成大列表。
-        //    短列表（内容不足一屏）也照绑：此时滑块自然占满整条轨道，语义仍正确。
+        // 🔴 只认「内容明显高于可视区」的竖向列表，绝不误绑到横滑卡片 /
+        //    导航栈里别的页面的小 ScrollView（window 级兜底会带来这个风险）。
+        let isLongList = sv.contentSize.height > sv.bounds.height + 40
         if let old = scrollView, old !== sv, old.contentSize.height >= sv.contentSize.height {
             syncThumb()
             return
@@ -459,6 +466,7 @@ final class PlaylistScrollSliderView: UIView {
                 self?.syncThumb()
             }
         }
+        if isLongList { locked = true }
         syncThumb()
     }
 
