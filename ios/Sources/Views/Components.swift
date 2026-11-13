@@ -2129,7 +2129,7 @@ private final class MarqueeLabelView: UIView {
     }
 
     override func willMove(toWindow newWindow: UIWindow?) {
-        super.willMove(toWindow newWindow)
+        super.willMove(toWindow: newWindow)
         if newWindow == nil {
             stopScroll()
         } else {
