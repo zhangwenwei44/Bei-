@@ -1939,14 +1939,13 @@ extension Notification.Name {
 ///   · 滚动用 CoreAnimation 的 transform 补间，不触发 SwiftUI body 重算；
 ///   · `lineBreakMode = .byClipping` 彻底去掉省略号；
 ///   · 视图离开层级时停动画，避免后台空转。
-///   · 🔴 2026-11-13 第五轮：去掉 `.repeat`。用户反馈「走完会有空白时间，
-///     不要移完空白从右边开始，移完一轮停几秒」——
-///     旧版两份文字之间留了 24pt 间距，一轮末尾那段空白会横穿屏幕；
-///     且 `.repeat` 每轮立刻重启，没有停顿。
-///     现在两份文字**紧贴（gap = 0）**，每轮只向左平移一个文字宽度，
-///     归零瞬间第二份正好落在第一份的起点（画面无跳变），
-///     然后停 2.5 秒显示完整歌名开头，再开始下一轮。
-///     全程方向单一向左，任何时刻屏幕里都有文字，没有空白。
+///   · 🔴 2026-11-13 第六轮：用户要「不是一开始就从右边走，走一轮多停几秒」。
+///     去掉两份文字的做法，改成**单份文字的经典单向跑马灯**：
+///       ① 一开始文字停在左侧 x=0，完整显示歌名开头（静止 4 秒）；
+///       ② 整体匀速向左移出左边界（一直往左，永不倒退）；
+///       ③ 瞬间放到右侧屏幕外，再向左开进来，回到 x=0 显示歌名开头；
+///       ④ 再停 4 秒，开始下一轮。
+///     方向始终向左，第一轮绝不会「一上来就从右边走」，每轮结束都有明显停顿。
 struct MarqueeText: View {
     let text: String
     var size: CGFloat = 15
@@ -1995,50 +1994,43 @@ private struct MarqueeUILabel: UIViewRepresentable {
 }
 
 private final class MarqueeLabelView: UIView {
-    /// 第一份文字（从 x=0 开始）。
+    /// 🔴 单份文字：一开始就在左侧 x=0 显示歌名开头，不再有第二份从右边跟着走。
     private let label = UILabel()
-    /// 第二份文字，紧接在第一份后面（x = natural + gap），用于无缝接上循环。
-    private let ghost = UILabel()
     private var currentText = ""
     private var scrolling = false
-    /// 一个循环的长度（两份文字紧贴，等于文字自然宽度）。
-    private var cycleLength: CGFloat = 0
-    /// 已启动动画时的循环长度；宽度没变就不重启动画（滚动时 layoutSubviews 会被调很多次）。
-    private var startedCycle: CGFloat = -1
-    /// 🔴 0 = 两份文字首尾紧贴，轮次之间不留任何空白。
-    private let gap: CGFloat = 0
+    /// 实测文字自然宽度 / 容器宽度。
+    private var naturalWidth: CGFloat = 0
+    private var containerWidth: CGFloat = 0
+    /// 已启动动画时的尺寸；宽度没变就不重启动画（滚动时 layoutSubviews 会被调很多次）。
+    private var startedSize: (CGFloat, CGFloat) = (0, 0)
     /// 每轮的令牌：stopScroll / 重新 configure 时自增，让在途的 completion 与延时失效。
     private var cycleToken: UInt = 0
-    /// 一轮滚完后停顿的秒数。
-    private let pauseSeconds: TimeInterval = 2.5
+    /// 每轮开始前 / 结束后停留的秒数（用户要求「多停几秒」）。
+    private let pauseSeconds: TimeInterval = 4.0
+    /// 匀速速度（pt/s），四舍五入后不至于长歌名飞快掠过。
+    private let speed: CGFloat = 34
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = true
         backgroundColor = .clear
         isUserInteractionEnabled = false
-        for l in [label, ghost] {
-            l.numberOfLines = 1
-            l.lineBreakMode = .byClipping   // 🔴 不显示「…」
-            l.textAlignment = .left
-            l.baselineAdjustment = .alignCenters
-            l.isUserInteractionEnabled = false
-            addSubview(l)
-        }
-        ghost.isHidden = true
+        label.numberOfLines = 1
+        label.lineBreakMode = .byClipping   // 🔴 不显示「…」
+        label.textAlignment = .left
+        label.baselineAdjustment = .alignCenters
+        label.isUserInteractionEnabled = false
+        addSubview(label)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func configure(text: String, font: UIFont, color: UIColor) {
         label.font = font
-        ghost.font = font
         label.textColor = color
-        ghost.textColor = color
         if text != currentText {
             currentText = text
             label.text = text
-            ghost.text = text
             stopScroll()
             setNeedsLayout()
         }
@@ -2051,75 +2043,74 @@ private final class MarqueeLabelView: UIView {
         guard w > 1, h > 0 else { return }
         let natural = label.sizeThatFits(
             CGSize(width: CGFloat.greatestFiniteMagnitude, height: h)).width
-        let cycle = natural + gap
         label.frame = CGRect(x: 0, y: 0, width: natural, height: h)
-        ghost.frame = CGRect(x: cycle, y: 0, width: natural, height: h)
-        cycleLength = cycle
+        naturalWidth = natural
+        containerWidth = w
         if natural - w > 2 {
-            ghost.isHidden = false
             startScrollIfNeeded()
         } else {
-            ghost.isHidden = true
             stopScroll()
         }
     }
 
-    /// 🔴 单向往左：每轮匀速平移 `-cycle`，归零后停顿，再开始下一轮。
-    ///    两份文字紧贴，所以平移途中「第一份的尾部」后面立刻是「第二份的开头」，
-    ///    屏幕里任何时刻都有文字；归零那一刻第二份正好位于第一份的起点，
-    ///    画面无跳变、不往右倒退，停顿期间显示的是完整歌名开头。
+    /// 只有超宽才跑；宽度没变就不重启动画（滚动时 layoutSubviews 会被调很多次）。
     private func startScrollIfNeeded() {
-        let cycle = cycleLength
-        guard cycle > 1 else { return }
-        // 滚动中 layoutSubviews 会被反复调用，宽度没变就别重启动画（否则文字一直跳回开头）。
-        if scrolling, abs(startedCycle - cycle) < 0.5 { return }
-        startedCycle = cycle
+        guard naturalWidth > containerWidth + 2 else { return }
+        if scrolling,
+           abs(startedSize.0 - naturalWidth) < 0.5,
+           abs(startedSize.1 - containerWidth) < 0.5 { return }
+        startedSize = (naturalWidth, containerWidth)
         scrolling = true
         cycleToken &+= 1
         label.layer.removeAllAnimations()
-        ghost.layer.removeAllAnimations()
-        runCycle(token: cycleToken, cycle: cycle, initialDelay: 0.7)
+        // 首轮先静止显示歌名开头（不是一上来就有文字从右边走）。
+        runCycle(token: cycleToken, natural: naturalWidth, width: containerWidth,
+                 initialDelay: pauseSeconds)
     }
 
-    private func runCycle(token: UInt, cycle: CGFloat, initialDelay: TimeInterval) {
-        UIView.performWithoutAnimation {
-            label.transform = .identity
-            ghost.transform = .identity
-        }
-        let duration = min(max(TimeInterval(cycle / 32), 3.0), 11.0)
-        let shift = CGAffineTransform(translationX: -cycle, y: 0)
-        UIView.animate(withDuration: duration,
+    /// 一轮 = 【左侧静止】→【向左移出左边界】→【从右侧进入、向左回到 x=0】→【再停几秒】。
+    /// 全程 transform 的 x 只减不增，方向始终向左。
+    private func runCycle(token: UInt, natural: CGFloat, width: CGFloat,
+                          initialDelay: TimeInterval) {
+        UIView.performWithoutAnimation { label.transform = .identity }
+        let outDistance = natural + 12
+        let outDuration = min(max(TimeInterval(outDistance / speed), 2.0), 12.0)
+        UIView.animate(withDuration: outDuration,
                        delay: initialDelay,
-                       options: [.curveLinear, .beginFromCurrentState],
+                       options: [.curveLinear],
                        animations: {
-            self.label.transform = shift
-            self.ghost.transform = shift
+            self.label.transform = CGAffineTransform(translationX: -outDistance, y: 0)
         }, completion: { [weak self] finished in
             guard let self, finished, self.scrolling, self.cycleToken == token else { return }
-            // 归零：此刻第二份正好在第一份的起点，画面完全连续。
+            // 文字已整体移出左边：瞬间放到右侧屏幕外，下一拍从右边进入。
+            let inDistance = width + 12
             UIView.performWithoutAnimation {
+                self.label.transform = CGAffineTransform(translationX: inDistance, y: 0)
+            }
+            let inDuration = min(max(TimeInterval(inDistance / self.speed), 1.5), 8.0)
+            UIView.animate(withDuration: inDuration,
+                           delay: 0,
+                           options: [.curveLinear],
+                           animations: {
                 self.label.transform = .identity
-                self.ghost.transform = .identity
-            }
-            // 一轮结束后停几秒（显示完整歌名开头），再开始下一轮。
-            DispatchQueue.main.asyncAfter(deadline: .now() + self.pauseSeconds) { [weak self] in
-                guard let self, self.scrolling, self.cycleToken == token else { return }
-                self.runCycle(token: token, cycle: cycle, initialDelay: 0)
-            }
+            }, completion: { [weak self] finished in
+                guard let self, finished, self.scrolling, self.cycleToken == token else { return }
+                // 一轮走完，停在歌名开头「多停几秒」再开始下一轮。
+                DispatchQueue.main.asyncAfter(deadline: .now() + self.pauseSeconds) { [weak self] in
+                    guard let self, self.scrolling, self.cycleToken == token else { return }
+                    self.runCycle(token: token, natural: natural, width: width, initialDelay: 0)
+                }
+            })
         })
     }
 
     func stopScroll() {
         guard scrolling else { return }
         scrolling = false
-        startedCycle = -1
+        startedSize = (0, 0)
         cycleToken &+= 1
         label.layer.removeAllAnimations()
-        ghost.layer.removeAllAnimations()
-        UIView.performWithoutAnimation {
-            label.transform = .identity
-            ghost.transform = .identity
-        }
+        UIView.performWithoutAnimation { label.transform = .identity }
     }
 
     override func willMove(toWindow newWindow: UIWindow?) {

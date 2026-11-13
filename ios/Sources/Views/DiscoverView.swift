@@ -14,6 +14,9 @@ struct DiscoverView: View {
     /// 🔴 2026-11-12：冷启动「一个内容都没拿到」时的自动补试次数（最多 2 轮）。
     @State private var autoRetryCount = 0
     @State private var guessSongs: [Song] = []
+    /// 🔴 2026-11-13：猜你喜欢的「备用池」——去重后不足 30 首时从这里补齐，
+    /// 里面全是酷狗真实榜单数据，绝不再用「每日推荐」那一批。
+    @State private var guessPool: [Song] = []
     @State private var isLoadingGuess = false
     @State private var dailySongs: [Song] = []
     @State private var hotArtists: [Artist] = []
@@ -180,21 +183,16 @@ struct DiscoverView: View {
                 //    自己再串行翻 2 页「新歌榜」搜索 → 骨架屏一直挂着，用户觉得「加载巨慢」。
                 //    用非结构化 Task 只发起不等待（.task 随视图消失会被取消，这里不会）。
                 Task { await loadNewSongs() }
-                // 🔴 2026-11-11：「猜你喜欢」换成酷狗真实推荐后也只有一次请求，
-                //    同样并发发起，别排在 load() 串行链里等前面的榜单 / 歌手请求。
-                Task { await loadGuess() }
                 if feed.isEmpty { await load() }
-                // 🔴 v2.9.22：横幅拉取必须**独立于本视图的 task**。
-                // `.task` 在视图消失时会被 SwiftUI 取消，连带把正在下载的云端横幅也取消掉
-                // （URLError.cancelled → 日志里「下载出错：已取消」）→
-                // 用户只要从发现页切走，横幅就永远加载不出来，只能显示默认图。
-                // 这里只「发起」不「等待」：非结构化 Task 不会随父 task 被取消。
-                Task { await BannerConfig.shared.pullCloud() }
             }
-            // 🔴 v2.9.15：酷狗登录态变化（登录/退出）时，每日推荐切换「个性化 / TOP500 回退」
-            .task(id: kugouAuth.isLoggedIn) {
-                await loadDailySongs()
-            }
+            // 🔴 2026-11-13 第二轮：这里原来还挂了两条并发链路，都是「两栏重复 / 首页卡死」的元凶：
+            //    ① `Task { await loadGuess() }` —— 猜你喜欢与 load() 里的串行链抢着写 @State，
+            //       常常在「两栏去重」跑完之后才把**未去重的原始数据**写回来；
+            //    ② `Task { await BannerConfig.shared.pullCloud() }` 每进一次发现页就拉一遍
+            //       十几 MB 的云端横幅大图，解码全压在主线程上（iPhone 14 偶发卡死）。
+            //       横幅已改成本机设置、不读写服务器，这条链路整体删除。
+            //    另外 `.task(id: 登录态) { await loadDailySongs() }` 也会绕过去重单独重拉每日推荐，
+            //    一并移除；每日推荐由 load() 按自然日统一刷新。
             .navigationBarTitleDisplayMode(.inline)
             // 🔴 v2.9.6：状态栏/导航栏那一段刷成淡蓝，和下面的渐变带连成一片
             .kugouNavigationBarTint()
@@ -1945,6 +1943,13 @@ struct DiscoverView: View {
         if force {
             Task { await loadNewSongs(force: true) }
         }
+        // 🔴 2026-11-13：把「每日推荐 / 猜你喜欢」提到榜单之前。
+        //    topLists() 冷启动要 3 次退避重试（最多 1.8s）甚至卡更久，
+        //    放在前面会拖慢首屏这两栏；现在先出歌，再补榜单。
+        //    顺序固定：先拿酷狗官方每日推荐，再拉猜你喜欢（不同数据源），最后统一去重。
+        if force || stale || dailySongs.isEmpty { await loadDailySongs() }
+        if force || stale || guessSongs.isEmpty { await loadGuess() }
+        await reconcileDailyAndGuess()
         if feed.topLists.isEmpty {
             // 🔴 2026-11-12：冷启动时网络栈刚就绪，首个 topLists() 常常直接失败。
             //    旧版一次失败就立刻把 errorMessage 摆出来并 return，用户每次开 App
@@ -1961,10 +1966,6 @@ struct DiscoverView: View {
                 }
             }
         }
-        // 🔴 顺序固定：先拿酷狗官方每日推荐，再拉猜你喜欢 —— 后者要按前者的 id 去重。
-        if force || stale || dailySongs.isEmpty { await loadDailySongs() }
-        if force || stale || guessSongs.isEmpty { await loadGuess() }
-        await reconcileDailyAndGuess()
         if force || hotArtists.isEmpty {
             hotArtists = await KugouClient.shared.hotArtists(count: 50)
         }
@@ -2036,27 +2037,68 @@ struct DiscoverView: View {
         UserDefaults.standard.set(dayStamp, forKey: Self.dailyDayStoreKey)
     }
 
-    /// 🔴 2026-11-13：用户反馈「每日推荐跟猜你喜欢一样的歌曲」。
-    ///    两栏都从酷狗真实接口取数，但登录态 / 风控回退时可能落到同一份推荐列表。
-    ///    这里把猜你喜欢里与每日推荐重复的歌剔除；剩余不足 10 首就用酷狗 TOP500
-    ///    （同样真实数据）补齐，保证两栏始终是不同的歌。
-    private func reconcileDailyAndGuess() async {
-        guard !dailySongs.isEmpty, !guessSongs.isEmpty else { return }
+    // MARK: - 🔴 2026-11-13 第二轮：两栏重复的真正根因与统一出口
+    //
+    //  ① `guessYouLike()` 未登录时回退到 `everydayRecommendSongs()`，
+    //     而「每日推荐」正是这个接口 —— 同一个请求、同一份 30 首，必然一模一样；
+    //  ② 首屏 `.task` 里另起过一个非结构化 Task 并发跑 `loadGuess()`，
+    //     常在「去重」跑完之后才把原始（未去重）数据写回 `guessSongs`；
+    //  ③ `.task(id: 登录态)` 也会单独重拉每日推荐、绕过去重。
+    //  现在：两栏用**不同**数据源，且所有写入路径最后都过一次 `applyDailyAndGuess()`。
+
+    /// 歌名 + 歌手归一化：不同接口给同一首歌的 hash/id 可能不一样，双保险。
+    private func songKey(_ s: Song) -> String {
+        (s.cleanTitle + "|" + s.artist).lowercased().filter { !$0.isWhitespace }
+    }
+
+    private func rememberGuessCandidates(_ songs: [Song]) {
+        var next = guessPool
+        var seen = Set(next.map(\.id))
+        for s in songs where !seen.contains(s.id) {
+            next.append(s)
+            seen.insert(s.id)
+        }
+        if next.count > 120 { next = Array(next.prefix(120)) }
+        // @State 数组也整体替换，避免原地改动与 SwiftUI 遍历撞车。
+        if next.count != guessPool.count { guessPool = next }
+    }
+
+    /// 唯一的上屏出口：按当前每日推荐剔除重复，不足 30 首从备用池补齐。
+    /// 无论数据从哪条并发路径回来，最终展示的都是「与每日推荐不重复」的那一批。
+    private func applyDailyAndGuess() {
+        guard !dailySongs.isEmpty else { return }
         let dailyIDs = Set(dailySongs.map(\.id))
-        var g = guessSongs.filter { !dailyIDs.contains($0.id) }
-        if g.count < 10 {
-            let extra = (try? await KugouClient.shared.rankSongs(rankID: "8888", limit: 60)) ?? []
-            var seen = Set(g.map(\.id))
-            for s in extra where !dailyIDs.contains(s.id) && !seen.contains(s.id) {
-                g.append(s)
-                seen.insert(s.id)
-                if g.count >= 30 { break }
+        let dailyKeys = Set(dailySongs.map { songKey($0) })
+        var seen = Set<String>()
+        var result: [Song] = []
+        for s in guessSongs + guessPool {
+            if dailyIDs.contains(s.id) || dailyKeys.contains(songKey(s)) { continue }
+            if !seen.insert(s.id).inserted { continue }
+            result.append(s)
+            if result.count >= 30 { break }
+        }
+        // 备用池还没数据时不要硬清空界面；下面的 reconcile 会继续拉真实榜单补池。
+        guard result.count >= 3 else { return }
+        if result.map(\.id) != guessSongs.map(\.id) {
+            guessSongs = result
+            guessPick = result.first(where: { $0.artworkURL != nil }) ?? result.first
+            Log.info("发现页", "两栏去重后 猜你喜欢 \(result.count) 首（每日推荐 \(dailySongs.count) 首）")
+        }
+    }
+
+    /// 备用池不够时按酷狗真实榜单补齐（飙升榜 / 网络热歌榜 / TOP500）。
+    private func reconcileDailyAndGuess() async {
+        guard !dailySongs.isEmpty else { return }
+        applyDailyAndGuess()
+        if guessSongs.count < 20 {
+            for rid in ["6666", "82831", "8888"] {
+                guard let extra = try? await KugouClient.shared.rankSongs(rankID: rid, limit: 60),
+                      !extra.isEmpty else { continue }
+                rememberGuessCandidates(extra)
+                applyDailyAndGuess()
+                if guessSongs.count >= 20 { break }
             }
         }
-        guard g.count >= 10, g.map(\.id) != guessSongs.map(\.id) else { return }
-        guessSongs = g
-        guessPick = g.first(where: { $0.artworkURL != nil }) ?? g.first
-        Log.info("发现页", "每日推荐 / 猜你喜欢去重后 猜你喜欢 \(g.count) 首")
     }
 
     /// 🔴 2026-11-13：每日推荐直接同步酷狗 App 的官方「每日推荐」（30 首、每天更新）。
@@ -2080,6 +2122,8 @@ struct DiscoverView: View {
             dailySongs = enriched
             dailyPick = pick
             markDailyFresh()
+            // 每日推荐换了 → 立刻按新列表重新给猜你喜欢去重。
+            applyDailyAndGuess()
             Log.info("发现页", "每日推荐(酷狗官方同步) \(enriched.count) 首，封面：\(pick?.title ?? "-")")
             return
         }
@@ -2114,26 +2158,29 @@ struct DiscoverView: View {
             }
         }
         dailyPick = pick
+        applyDailyAndGuess()
         Log.info("发现页", "每日推荐(回退TOP500) \(enriched.count) 首，第一首：\(enriched[0].title) - \(enriched[0].artist)")
     }
 
-    /// 🔴 2026-11-11：「猜你喜欢」全部换成酷狗真实数据，数量与酷狗一致（30 首）。
-    /// 主数据源 KugouClient.guessYouLike(30)：
-    ///   登录 → 私人 FM 个性化推荐；未登录 / 风控 200101 → 酷狗真实推荐接口
-    ///   `/everyday_song_recommend`（实测未登录也返回 song_list_size = 30 首真歌）。
-    /// 兜底：酷狗 TOP500 前 30 首（同样是真实数据）。
-    /// ⚠️ 旧版「本地关键词随机搜歌拼 10 首」是假数据，已彻底删除。
+    /// 🔴 2026-11-13 第二轮：「猜你喜欢」改用**与每日推荐不同**的酷狗真实数据源。
+    ///   登录 → 私人 FM 个性化推荐（/personal_recommend）；
+    ///   未登录 / 风控 200101 → 酷狗真实榜单（飙升榜 6666 → 网络热歌榜 82831 → DJ 热歌榜 24971）。
+    ///   ⚠️ 绝不再回退 `/everyday_song_recommend`——那是「每日推荐」的数据源，
+    ///      两栏会拿到同一批歌（用户截图里「心之火(DJ版)/DAY BY DAY/落」三首完全重复）。
     private func loadGuess() async {
         guard !isLoadingGuess else { return }
         isLoadingGuess = true
         defer { isLoadingGuess = false }
 
-        let recommended = await KugouClient.shared.guessYouLike(limit: 30)
-        var songs: [Song] = recommended ?? []
+        var songs: [Song] = await KugouClient.shared.guessYouLike(limit: 30) ?? []
         if songs.isEmpty {
-            songs = (try? await KugouClient.shared.rankSongs(rankID: "8888", limit: 30)) ?? []
-            if !songs.isEmpty {
-                Log.info("发现页", "猜你喜欢(兜底TOP500) \(songs.count) 首")
+            for rid in ["6666", "82831", "24971"] {
+                if let ranked = try? await KugouClient.shared.rankSongs(rankID: rid, limit: 30),
+                   !ranked.isEmpty {
+                    songs = ranked
+                    Log.info("发现页", "猜你喜欢(酷狗榜单 \(rid)) \(ranked.count) 首")
+                    break
+                }
             }
         }
         guard !songs.isEmpty else {
@@ -2158,6 +2205,9 @@ struct DiscoverView: View {
             }
         }
 
+        // 先入备用池，再走统一出口：即使本方法是被并发 Task 调用的，
+        // 最后一步也会按「当前每日推荐」重新去重，不会出现两栏撞车。
+        rememberGuessCandidates(songs)
         guessSongs = songs
         var pick = songs.randomElement()
         if let g = pick, g.artworkURL == nil,
@@ -2165,6 +2215,7 @@ struct DiscoverView: View {
             pick = withCover
         }
         guessPick = pick
+        applyDailyAndGuess()
         Log.info("发现页", "猜你喜欢(酷狗真实数据) \(songs.count) 首，第一首：\(songs[0].title) - \(songs[0].artist)")
     }
 
@@ -2239,6 +2290,7 @@ struct DiscoverView: View {
 /// 现在重算范围只剩横幅自己，父页面只在切 Tab / 数据到达时才刷新。
 private struct AdBannerCarousel: View {
     @ObservedObject private var bannerConfig = BannerConfig.shared
+    @Environment(\.scenePhase) private var scenePhase
     @State private var adIndex = 0
     private let adTimer = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
 
@@ -2261,7 +2313,10 @@ private struct AdBannerCarousel: View {
         .padding(.top, 4)
         .padding(.bottom, 8)
         .onReceive(adTimer) { _ in
-            guard count > 1 else { return }
+            // 🔴 2026-11-13：App 退到后台 / 页面已不在前台时别再驱动 TabView 翻页。
+            //    新系统（用户反馈 iOS 27）在后台收到 withAnimation 时更容易触发
+            //    布局重入；前台外一律跳过，回前台后由下一次 tick 自然恢复。
+            guard scenePhase == .active, count > 1 else { return }
             let cur = min(adIndex, count - 1)
             withAnimation(.easeInOut(duration: 0.4)) {
                 adIndex = (cur + 1) % count

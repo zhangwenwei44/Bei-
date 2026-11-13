@@ -1887,20 +1887,18 @@ final class KugouClient {
         }
     }
 
-    /// 🔴 2026-11-11：「猜你喜欢」接入酷狗真实数据，数量与酷狗一致（30 首）。
-    /// 登录态优先私人 FM 个性化推荐（personal_recommend）；
-    /// 未登录 / 风控拒绝（200101）/ 空 → 用酷狗真实推荐接口 everyday_song_recommend。
-    /// ⚠️ 不再回退「本地关键词随机搜歌」——那不是酷狗数据，也不是 30 首。
+    /// 🔴 2026-11-13 第二轮：「猜你喜欢」只走私人 FM（登录后个性化）。
+    ///    ⚠️ 这里**绝不**回退 `everyday_song_recommend`：那是「每日推荐」的数据源，
+    ///    一旦回退两栏就是同一批 30 首（用户截图实锤完全重复）。
+    ///    未登录 / 风控 200101 / 空 → 返回 nil，由 DiscoverView 换用酷狗真实榜单
+    ///    （飙升榜 / 网络热歌榜 / DJ 热歌榜），同样是真数据但与每日推荐不同源。
     func guessYouLike(limit: Int = 30) async -> [Song]? {
-        if KugouAuth.shared.isLoggedIn {
-            if let personalized = await personalFMSongs(limit: limit), !personalized.isEmpty {
-                Log.info("酷狗", "猜你喜欢(私人FM个性化) \(personalized.count) 首")
-                return personalized
-            }
+        guard KugouAuth.shared.isLoggedIn else { return nil }
+        guard let personalized = await personalFMSongs(limit: limit), !personalized.isEmpty else {
+            return nil
         }
-        let real = await everydayRecommendSongs(limit: limit)
-        if let real { Log.info("酷狗", "猜你喜欢(酷狗真实推荐) \(real.count) 首") }
-        return real
+        Log.info("酷狗", "猜你喜欢(私人FM个性化) \(personalized.count) 首")
+        return personalized
     }
 
     /// 私人 FM 个性化推荐：gateway POST `/personal_recommend`，

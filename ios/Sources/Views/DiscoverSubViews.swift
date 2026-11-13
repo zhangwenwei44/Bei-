@@ -1,49 +1,24 @@
 import SwiftUI
 import UIKit
+import ImageIO
 
-// MARK: - 横幅广告配置（管理员可运行时更换 / 添加多张）
+// MARK: - 横幅广告配置（🔴 2026-11-13：纯本机，不读写服务器）
 
-/// 横幅广告图片的本地覆盖：管理员在「实验室」里选图后存到 Documents/AuroraBanners，
-/// DiscoverView 的 adBanner 优先用这里的图，没有则用 Assets 里的默认图（BannerAd1/BannerAd2 按奇偶循环）。
+/// 「实验室」里选的图只存 Documents/AuroraBanners，重启仍在；
+/// 没有自定义图时 DiscoverView 的 adBanner 用 Assets 默认图（BannerAd1/BannerAd2 按奇偶）。
 ///
-/// 🔴 v2.9.11：改为支持动态数量（管理员可「添加」多张），用 meta.json 记录哪些下标是自定义图，
-/// 避免「恢复默认」后文件缺失导致下标错乱。
+/// 🔴 2026-11-13 用户要求「横幅广告也改成本地修改不上传服务器」：
+///    整套 Supabase 云端同步（启动拉取 + 10 分钟轮询 + 改图自动上传）已删除。
+///    云端大图一张 15–20MB，进一次发现页拉一遍、主线程整张解码，
+///    是 iPhone 14 / iOS 27 上「推荐页有时候卡死」的主要嫌疑点。
 final class BannerConfig: ObservableObject {
     static let shared = BannerConfig()
-    @Published var images: [UIImage?] = []
-    /// 🔴 v2.9.14：云端（管理员设置）横幅，所有设备共享展示。
-    /// 用 `[UIImage?]` 保留占位：某张图下载失败也占一个位置，数量与云端一致。
-    @Published private(set) var cloudImages: [UIImage?] = []
-    /// 🔴 v2.9.14：云端同步状态，直接显示在「实验室」里，让管理员能看到同步成没成功。
-    @Published private(set) var syncState: SyncState = .idle
-    /// 是否已经拿到过云端数据（区分「云端为空」和「还没拉过」）。
-    private var hasCloudData = false
-
-    enum SyncState: Equatable {
-        case idle
-        case syncing
-        case done(String)
-        case failed(String)
-    }
+    @Published private(set) var images: [UIImage?] = []
 
     private let prefix = "aurora_banner_"
-    private let ext = ".png"
-
     private struct Meta: Codable { var custom: [Bool] }
 
-    private var refreshTimer: Timer?
-
-    /// 正在拉取云端横幅（防止并发重复下载几十 MB 的大图）。
-    private var pulling = false
-    private let pullingLock = NSLock()
-
-    private init() {
-        reload()
-        // 🔴 v2.9.14：启动即拉一次云端横幅，并开启 60s 定时刷新——
-        // 管理员在另一台设备改了横幅，本机最多 1 分钟内自动更新（原来只在进页面时拉一次）。
-        Task { [self] in await pullCloud() }
-        DispatchQueue.main.async { [weak self] in self?.startAutoRefresh() }
-    }
+    private init() { reload() }
 
     private static func dir() -> URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -69,179 +44,94 @@ final class BannerConfig: ObservableObject {
         }
     }
 
+    /// 新版存 JPEG；老版本留下的 PNG 仍然认，升级不会丢已设置的横幅。
+    private func imageURL(_ index: Int) -> URL {
+        let jpg = Self.dir().appendingPathComponent("\(prefix)\(index).jpg")
+        if FileManager.default.fileExists(atPath: jpg.path) { return jpg }
+        return Self.dir().appendingPathComponent("\(prefix)\(index).png")
+    }
+
+    /// 🔴 直接从文件解出限尺寸缩略图，不把 4000×3000 原图整张解进内存。
+    ///    旧版 `UIImage(contentsOfFile:)` 在 App 启动（`reload()`）时同步解码，
+    ///    几张大图能把主线程堵住几秒 —— 真机上就是「推荐页有时候卡死」。
+    static func thumbnail(from url: URL, maxPixel: Int = 1000) -> UIImage? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else {
+            return nil
+        }
+        return UIImage(cgImage: cg)
+    }
+
+    private static func scaled(_ image: UIImage, maxSide: CGFloat) -> UIImage {
+        let longest = max(image.size.width, image.size.height)
+        guard longest > maxSide else { return image }
+        let ratio = maxSide / longest
+        let size = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
+
     func reload() {
         let meta = readMeta()
         var imgs: [UIImage?] = []
         for i in 0..<meta.custom.count {
-            let url = Self.dir().appendingPathComponent("\(prefix)\(i)\(ext)")
-            imgs.append(meta.custom[i] && FileManager.default.fileExists(atPath: url.path)
-                        ? UIImage(contentsOfFile: url.path) : nil)
+            imgs.append(meta.custom[i] ? Self.thumbnail(from: imageURL(i)) : nil)
         }
         images = imgs
     }
 
     func set(_ image: UIImage, at index: Int) {
+        let scaledImage = Self.scaled(image, maxSide: 1600)
+        guard let data = scaledImage.jpegData(compressionQuality: 0.82) else { return }
+        let url = Self.dir().appendingPathComponent("\(prefix)\(index).jpg")
+        try? data.write(to: url, options: .atomic)
+        // 旧 PNG 留着也没关系（imageURL 优先 jpg），顺手删掉省空间。
+        try? FileManager.default.removeItem(at: Self.dir().appendingPathComponent("\(prefix)\(index).png"))
         var meta = readMeta()
         while meta.custom.count <= index { meta.custom.append(false) }
-        let url = Self.dir().appendingPathComponent("\(prefix)\(index)\(ext)")
-        if let data = image.pngData() { try? data.write(to: url, options: .atomic) }
         meta.custom[index] = true
-        // 数组长度不足时补齐
-        while images.count <= index { images.append(nil) }
-        images[index] = image
+        // 🔴 @Published 数组必须「复制→改→整体替换」：原地改下标不会触发 publisher，
+        //    旧版是靠 syncCloud() 里手动 objectWillChange.send() 才刷新的（现已删除）。
+        var next = images
+        while next.count <= index { next.append(nil) }
+        next[index] = Self.thumbnail(from: url) ?? scaledImage
+        images = next
         writeMeta(meta)
-        syncCloud()
     }
 
     func reset(at index: Int) {
         guard images.indices.contains(index) else { return }
         var meta = readMeta()
         if meta.custom.indices.contains(index) { meta.custom[index] = false }
-        try? FileManager.default.removeItem(at: Self.dir().appendingPathComponent("\(prefix)\(index)\(ext)"))
-        images[index] = nil
+        try? FileManager.default.removeItem(at: Self.dir().appendingPathComponent("\(prefix)\(index).jpg"))
+        try? FileManager.default.removeItem(at: Self.dir().appendingPathComponent("\(prefix)\(index).png"))
+        var next = images
+        next[index] = nil
+        images = next
         writeMeta(meta)
-        syncCloud()
     }
 
-    /// 🔴 v2.9.11：新增一张横幅位（默认用 App 内置图，管理员随后可「更换」）。
+    /// 新增一张横幅位（默认用 App 内置图，随后可「更换」）。
     func append() {
         var meta = readMeta()
         meta.custom.append(false)
-        images.append(nil)
+        var next = images
+        next.append(nil)
+        images = next
         writeMeta(meta)
-        syncCloud()
     }
 
-    // MARK: - 云端同步（跨设备共享管理员设置的横幅）
+    // MARK: - 展示
 
-    /// 云端拉取到的横幅（所有设备共用，由 BannerSync 填充）。
-    func applyCloud(_ imgs: [UIImage?]) {
-        cloudImages = imgs
-        hasCloudData = true
-        objectWillChange.send()
-    }
-
-    /// 异步从云端拉取横幅（App 启动 / 进入发现页 / 定时刷新时调用）。
-    /// 失败会自动重试 2 次；**拉取失败时保留本机已有横幅，不会被清空**。
-    /// - Returns: 是否成功拿到云端数据。
-    @discardableResult
-    func pullCloud(retry: Int = 2) async -> Bool {
-        // 🔴 已经在拉就别重复下载：启动、进发现页、60s 定时刷新会同时触发，
-        // 而云端大图一张就是 18–20MB，重复拉纯属浪费流量和时间。
-        if !beginPull() {
-            Log.debug("横幅", "已有云端横幅拉取在进行中，跳过本次")
-            return false
-        }
-        defer { endPull() }
-        return await pullCloudInner(retry: retry)
-    }
-
-    private func pullCloudInner(retry: Int) async -> Bool {
-        let (imgs, err) = await BannerSync.fetch()
-        if let imgs {
-            await MainActor.run { self.applyCloud(imgs) }
-            // 🔴 v2.9.11：这里原来有一个 autoPushIfNeeded()——"本机横幅数 > 云端成功下载数"
-            //   就把本机那套整套推上去覆盖云端。云端图 15–20MB，弱网下常常整批下载失败 →
-            //   cloudCount=0 → 任何一台登录过的设备都会把管理员的横幅覆盖掉（真实发生过）。
-            //   现在**彻底删掉自动补传**：云端内容只在你手动改图 / 点「立即同步到云端」时才写入。
-            return true
-        }
-        // 失败：退避后重试
-        if retry > 0 {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            return await pullCloudInner(retry: retry - 1)
-        }
-        await MainActor.run { syncState = .failed(err ?? "云端横幅拉取失败") }
-        Log.warn("横幅", "云端横幅拉取最终失败：\(err ?? "未知错误")")
-        return false
-    }
-
-    /// 抢占「拉取中」标记。返回 false 表示已有拉取在进行。
-    private func beginPull() -> Bool {
-        pullingLock.lock()
-        defer { pullingLock.unlock() }
-        if pulling { return false }
-        pulling = true
-        return true
-    }
-
-    private func endPull() {
-        pullingLock.lock()
-        pulling = false
-        pullingLock.unlock()
-    }
-
-    /// 🔴 v2.9.11：**已删除 autoPushIfNeeded()**。原逻辑是"本机自定义图数量 > 云端成功下载到的数量"
-    ///   就整套推上去覆盖云端；云端大图弱网下常整批下载失败 → cloudCount=0 →
-    ///   任何登录过的设备都会把管理员的横幅覆盖掉（2026-11-01 真实发生：
-    ///   管理员设的横幅被换成别人的"钟馗骑虎"图）。
-    ///   现在云端只在你**手动改图**或点「立即同步到云端」时才写入，不再有任何自动覆盖。
-
-    /// 定时刷新（600s = 10 分钟一次）：管理员在别的设备改了横幅，本机自动跟上。
-    /// 🔴 v2.9.21 带宽优化：原为 60s，配合「本地缓存 + 版本增量」后，图片只在 version 变化时才下载，
-    /// 但 60s 仍过于频繁（meta.json 虽小，也没必要）；改 10 分钟足够发现管理员更新，且大幅降请求量。
-    func startAutoRefresh() {
-        stopAutoRefresh()
-        // 注意：闭包里用 BannerConfig.shared 而不是捕获 self ——
-        // Timer 的 block 是 @Sendable，捕获非 Sendable 的 self 会触发并发告警，
-        // 而本 CI 有「有编译警告就判失败」的检查。
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { _ in
-            Task { await BannerConfig.shared.pullCloud(retry: 0) }
-        }
-    }
-
-    func stopAutoRefresh() {
-        refreshTimer?.invalidate()
-        refreshTimer = nil
-    }
-
-    /// 实际展示用图：优先云端（管理员设置、跨设备共享），否则用本机自定义图。
-    /// 元素为 nil 表示该位置用 App 内置默认图。
-    var effectiveImages: [UIImage?] {
-        hasCloudData ? cloudImages : images
-    }
-
-    /// 管理端编辑后同步到云端（fire-and-forget）。同时乐观更新 cloudImages 让本机即时看到。
-    private func syncCloud() {
-        // 🔴 v2.9.11：只有管理员账号能写云端。别人登录了也改不动管理员的横幅。
-        guard CloudAccount.shared.isAdmin else {
-            syncState = .failed("只有管理员账号可以修改云端横幅")
-            Log.warn("横幅", "当前账号不是管理员，已跳过云端同步")
-            return
-        }
-        let banners = images.enumerated().compactMap { idx, img -> (String, UIImage)? in
-            guard let img else { return nil }
-            return ("横幅广告 \(idx + 1)", img)
-        }
-        cloudImages = banners.map { $0.1 }
-        hasCloudData = true
-        objectWillChange.send()
-        syncState = .syncing
-        Task { [self] in
-            if let err = await BannerSync.upload(banners) {
-                await MainActor.run { self.syncState = .failed(err) }
-                Log.warn("横幅", "云端同步失败：\(err)")
-            } else {
-                await MainActor.run {
-                    self.syncState = .done(banners.isEmpty ? "已同步（云端暂无横幅）" : "已同步到云端（\(banners.count) 张）")
-                }
-            }
-        }
-    }
-
-    /// 手动「立即同步到云端」（把本机当前设置重新推上去）。
-    func pushToCloudNow() {
-        syncCloud()
-    }
-
-    /// 手动「刷新云端横幅」（从云端拉一次）。
-    func refreshFromCloud() async {
-        syncState = .syncing
-        let ok = await pullCloud(retry: 1)
-        if ok {
-            await MainActor.run { self.syncState = .done("已从云端刷新") }
-        }
-    }
+    /// 🔴 只用本机自定义图，不再读写云端；元素为 nil 表示该位置用 App 内置默认图。
+    var effectiveImages: [UIImage?] { images }
 }
 
 // MARK: - 图片选择（iOS 15：UIImagePickerController 包装）
@@ -524,303 +414,144 @@ struct RankingsView: View {
     }
 }
 
-// MARK: - 实验室（管理员页：横幅图片更换 + 解锁码）
+// MARK: - 实验室（🔴 2026-11-13 开放：横幅广告 + 我的音乐卡片背景，全部本机保存）
 
+/// 🔴 2026-11-13：实验室改为**开放**，不再验证管理员账号 / 云账号；
+///    解锁码生成器入口整体移除（只保留设置页「版本」连点 7 次的隐藏入口）。
+///    横幅不再上传服务器，我的音乐卡片背景设置也从卡片上的齿轮搬到这里。
 struct LabView: View {
-    @ObservedObject private var cloud = CloudAccount.shared
     @ObservedObject private var banner = BannerConfig.shared
-    // 🔴 v2.9.11：单一图片选择器 + 下标驱动，支持任意张数横幅
-    @State private var showPickerIndex: Int? = nil
-    @State private var showGenerator = false
-    // 🔴 v2.9.11：进入实验室必须**验证管理员账号密码**（每次进入都要验）
-    @State private var verified = false
-    @State private var loginEmail = ""
-    @State private var loginPassword = ""
-    @State private var loginError: String? = nil
-    @State private var verifying = false
+    @ObservedObject private var cardBackground = ProfileCardBackground.shared
+
+    /// iOS 15：链式叠多个 .sheet(isPresented:) 只有最后一个生效 → 单个 .sheet(item:) 统一分发。
+    private enum PickerTarget: Identifiable {
+        case banner(Int)
+        case card
+        var id: String {
+            switch self {
+            case .banner(let i): return "banner-\(i)"
+            case .card: return "card"
+            }
+        }
+    }
+    @State private var pickerTarget: PickerTarget?
 
     var body: some View {
         CompatNavigationStack {
-            Group {
-                // 🔴 v2.9.11 门禁：已登录且是管理员 → 直接进入、不再弹验证（用户要求自动识别管理员）；
-                // 否则（未登录 / 登录了但不是管理员）仍要验证管理员账号密码。
-                if cloud.isAdmin {
-                    adminPanel
-                } else {
-                    verifyGate
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    bannerSection
+                    cardSection
+                    Text("横幅与卡片背景都只保存在本机，不会上传到服务器。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppStyle.tertiaryText)
                 }
+                .padding(16)
+                .padding(.bottom, 40)
             }
+            .background(AppStyle.background)
             .navigationTitle("实验室")
             .navigationBarTitleDisplayMode(.inline)
             .kugouNavigationBarBackground()
         }
-        // 🔴 v2.9.11：每次重新进入实验室都要重新验证密码
-        .onAppear { verified = false }
-        .sheet(isPresented: Binding(
-            get: { showPickerIndex != nil },
-            set: { if !$0 { showPickerIndex = nil } }
-        )) {
-            AuroraImagePicker(
-                onImagePicked: { img in
-                    if let i = showPickerIndex { banner.set(img, at: i) }
-                    showPickerIndex = nil
-                },
-                onCancel: { showPickerIndex = nil }
-            )
-        }
-        .sheet(isPresented: $showGenerator) {
-            LicenseGeneratorView()
+        .sheet(item: $pickerTarget) { target in
+            AuroraImagePicker(onImagePicked: { img in
+                switch target {
+                case .banner(let i): banner.set(img, at: i)
+                case .card: cardBackground.set(img)
+                }
+                pickerTarget = nil
+            }, onCancel: { pickerTarget = nil })
+            .ignoresSafeArea()
         }
     }
 
-    // MARK: 🔴 v2.9.11 验证门：必须输入管理员账号密码
+    // MARK: 横幅广告（纯本机）
 
-    private var verifyGate: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                Image(systemName: "lock.shield")
-                    .font(.system(size: 38))
-                    .foregroundStyle(AppStyle.accent)
-                Text("实验室需要验证管理员账号")
-                    .font(.system(size: 16, weight: .medium))
+    private var bannerSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("横幅广告管理")
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(AppStyle.primaryText)
-                Text("请输入管理员邮箱和密码，验证通过后才能进入。")
-                    .font(.system(size: 12))
-                    .foregroundStyle(AppStyle.tertiaryText)
-                    .multilineTextAlignment(.center)
-
-                VStack(spacing: 10) {
-                    TextField("管理员邮箱", text: $loginEmail)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.emailAddress)
-                        .textContentType(.emailAddress)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
-                    SecureField("密码", text: $loginPassword)
-                        .textContentType(.password)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
-                    if let err = loginError {
-                        Text(err)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.red)
-                    }
-                    Button {
-                        verifyAdmin()
-                    } label: {
-                        if verifying {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Text("验证并进入").font(.system(size: 14, weight: .semibold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 11)
-                                .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                .foregroundStyle(.white)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(verifying || loginEmail.isEmpty || loginPassword.isEmpty)
+                Spacer(minLength: 0)
+                Button {
+                    banner.append()
+                    Haptics.light()
+                } label: {
+                    Label("添加", systemImage: "plus")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(AppStyle.accent)
                 }
-                .padding(.horizontal, 28)
+                .buttonStyle(.plain)
             }
-            .padding(.top, 70)
+            ForEach(Array(0..<banner.images.count), id: \.self) { index in
+                bannerRow(index: index)
+            }
+            Text("选择图片后即时生效，只保存在本机；恢复默认即使用 App 内置图。点「添加」可增加更多横幅位。")
+                .font(.system(size: 11))
+                .foregroundStyle(AppStyle.tertiaryText)
         }
-        .background(AppStyle.background)
+        .padding(16)
+        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    /// 验证管理员账号密码：
-    /// ① 先校验密码（不通过就完全不动会话）；
-    /// ② 校验通过后**建立会话**（上传横幅需要 access token）；
-    /// ③ 再确认这是**管理员邮箱**；不是就立刻登出，绝不给普通账号留会话。
-    private func verifyAdmin() {
-        loginError = nil
-        verifying = true
-        let email = loginEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        let password = loginPassword
-        Task {
-            // 先校验密码（不通过就完全不动会话）。
-            // requireAdmin: false —— 先只验"密码对不对"，再由下面判"是不是管理员"，
-            // 这样"密码错"和"不是管理员"能给出各自准确的提示。
-            guard await LicenseAdmin.verify(email: email, password: password, requireAdmin: false) else {
-                await MainActor.run {
-                    verifying = false
-                    loginError = "邮箱或密码不正确"
-                }
-                return
-            }
-            do {
-                // 校验通过 → 建立会话（上传需要 token）
-                try await cloud.signIn(email: email, password: password)
-                await MainActor.run {
-                    verifying = false
-                    if cloud.isAdmin {
-                        loginPassword = ""
-                        verified = true
-                    } else {
-                        // 不是管理员：立刻把会话踢掉，别留在别人设备上
-                        Task { try? await cloud.signOut() }
-                        loginError = "这个账号不是管理员，无法进入实验室"
+    // MARK: 我的音乐顶部卡片背景（纯本机）
+
+    private var cardSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("我的音乐卡片背景")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(AppStyle.primaryText)
+            ZStack {
+                LinearGradient(colors: [AppStyle.accent.opacity(0.18), AppStyle.accent.opacity(0.07)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                if let bg = cardBackground.image {
+                    GeometryReader { geo in
+                        Image(uiImage: bg)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .clipped()
                     }
-                }
-            } catch {
-                await MainActor.run {
-                    verifying = false
-                    loginError = CloudAccount.localizedCloudError(error)
-                }
-            }
-        }
-    }
-
-    private var adminPanel: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                // 横幅广告管理
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("横幅广告管理")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(AppStyle.primaryText)
-                        Spacer(minLength: 0)
-                        // 🔴 v2.9.11：添加横幅位
-                        Button {
-                            banner.append()
-                            Haptics.light()
-                        } label: {
-                            Label("添加", systemImage: "plus")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(AppStyle.accent)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    // 🔴 v2.9.14：本机没有但云端有的横幅位也要列出来（管理员在别的设备改过的情况）
-                    ForEach(Array(0..<max(banner.images.count, banner.cloudImages.count)), id: \.self) { index in
-                        bannerRow(index: index)
-                    }
-                    Text("选择图片后即时生效；恢复默认即使用 App 内置图。点「添加」可增加更多横幅位。")
-                        .font(.system(size: 11))
-                        .foregroundStyle(AppStyle.tertiaryText)
-                }
-                .padding(16)
-                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-                // 🔴 v2.9.14：云端同步状态 + 手动同步 / 刷新
-                // （原来只写日志，用户看不到结果，以为"没上传到服务器"）
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("云端同步")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(AppStyle.primaryText)
-
-                    HStack(spacing: 6) {
-                        Image(systemName: syncIcon)
-                            .font(.system(size: 13))
-                            .foregroundStyle(syncColor)
-                        Text(syncText)
-                            .font(.system(size: 12))
-                            .foregroundStyle(AppStyle.secondaryText)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    HStack(spacing: 10) {
-                        Button {
-                            banner.pushToCloudNow()
-                            Haptics.light()
-                        } label: {
-                            Text("立即同步到云端")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(AppStyle.accent)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 9)
-                                .background(AppStyle.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            Task { await banner.refreshFromCloud() }
-                            Haptics.light()
-                        } label: {
-                            Text("刷新云端横幅")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(AppStyle.accent)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 9)
-                                .background(AppStyle.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    Text("改完横幅会自动上传到云端，其他手机约 1 分钟内自动更新；本机每 60 秒自动拉取一次云端横幅。")
-                        .font(.system(size: 11))
-                        .foregroundStyle(AppStyle.tertiaryText)
-                }
-                .padding(16)
-                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-                // 解锁码
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("解锁码")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(AppStyle.primaryText)
-                    Text("生成 / 管理设备授权码（含管理员口令校验）。")
+                    Color.white.opacity(0.30)
+                } else {
+                    Text("默认渐变背景")
                         .font(.system(size: 12))
-                        .foregroundStyle(AppStyle.tertiaryText)
-                    Button {
-                        showGenerator = true
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "key.fill")
-                            Text("打开授权码生成器")
-                        }
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .background(AppStyle.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
+                        .foregroundStyle(AppStyle.secondaryText)
                 }
-                .padding(16)
-                .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
-            .padding(16)
-            .padding(.bottom, 40)
-        }
-        .background(AppStyle.background)
-    }
+            .frame(height: 110)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-    // MARK: 🔴 v2.9.14 云端同步状态
-
-    private var syncText: String {
-        switch banner.syncState {
-        case .idle:
-            return "尚未同步。修改横幅后会自动上传到云端。"
-        case .syncing:
-            return "正在同步到云端…"
-        case .done(let msg):
-            return msg
-        case .failed(let msg):
-            return "同步失败：\(msg)"
+            HStack(spacing: 10) {
+                Button { pickerTarget = .card } label: {
+                    Text("从相册选择图片")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(AppStyle.accent)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                        .background(AppStyle.accent.opacity(0.12),
+                                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                Button { cardBackground.clear() } label: {
+                    Text("恢复默认")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(AppStyle.secondaryText)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                        .background(AppStyle.surfaceHigh,
+                                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            Text("卡片大小与推荐页横幅一致；设置只保存在本机。")
+                .font(.system(size: 11))
+                .foregroundStyle(AppStyle.tertiaryText)
         }
-    }
-
-    private var syncIcon: String {
-        switch banner.syncState {
-        case .idle: return "icloud"
-        case .syncing: return "arrow.triangle.2.circlepath"
-        case .done: return "checkmark.icloud.fill"
-        case .failed: return "exclamationmark.icloud.fill"
-        }
-    }
-
-    private var syncColor: Color {
-        switch banner.syncState {
-        case .idle: return AppStyle.tertiaryText
-        case .syncing: return AppStyle.accent
-        case .done: return .green
-        case .failed: return .red
-        }
+        .padding(16)
+        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func bannerRow(index: Int) -> some View {
@@ -846,7 +577,7 @@ struct LabView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(AppStyle.primaryText)
                 HStack(spacing: 10) {
-                    Button { showPickerIndex = index } label: {
+                    Button { pickerTarget = .banner(index) } label: {
                         Text("更换").font(.system(size: 13, weight: .medium)).foregroundStyle(AppStyle.accent)
                     }
                     .buttonStyle(.plain)
@@ -860,12 +591,7 @@ struct LabView: View {
         }
     }
 
-    /// 预览用图：优先本机设置的图，没有就显示云端那张（管理员在别的设备改过时也能看到）。
     private func previewImage(at index: Int) -> UIImage? {
-        if let local = banner.images.indices.contains(index) ? banner.images[index] : nil {
-            return local
-        }
-        if banner.cloudImages.indices.contains(index) { return banner.cloudImages[index] }
-        return nil
+        banner.images.indices.contains(index) ? banner.images[index] : nil
     }
 }

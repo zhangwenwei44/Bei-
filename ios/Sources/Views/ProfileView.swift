@@ -28,7 +28,7 @@ struct ProfileView: View {
     }
     /// 「检查更新」和「关于」点了完全没反应，只有排在最后的更新日志能弹出来。
     private enum Sheet: String, Identifiable {
-        case about, update, changelog, kugouLogin, licenseMaker, unlock, banner
+        case about, update, changelog, kugouLogin, licenseMaker, banner
         var id: String { rawValue }
     }
 
@@ -130,31 +130,19 @@ struct ProfileView: View {
                                     .font(.system(size: 13))
                                     .foregroundStyle(AppStyle.secondaryText)
                             }
-                            // 🔴 用户要求：云账号不显示歌曲同步信息（同步中/已同步/同步失败等状态文字），保留邮箱与同步按钮。
-                            HStack(spacing: 12) {
-                                Button {
-                                    sheet = .unlock
-                                } label: {
-                                    Text("解锁码")
-                                        .font(.system(size: 14, weight: .medium))
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 9)
-                                        .background(AppStyle.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
-                                        .foregroundStyle(AppStyle.accent)
-                                }
-                                .buttonStyle(.plain)
-                                Button {
-                                    sheet = .banner
-                                } label: {
-                                    Text("横屏广告更换")
-                                        .font(.system(size: 14, weight: .medium))
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 9)
-                                        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
-                                        .foregroundStyle(AppStyle.primaryText)
-                                }
-                                .buttonStyle(.plain)
+                            // 🔴 2026-11-13：解锁码生成器的可见入口全部移除，
+                            //    只保留「版本」连点 7 次的隐藏入口（实验室里也不再放）。
+                            Button {
+                                sheet = .banner
+                            } label: {
+                                Text("实验室")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 9)
+                                    .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 8))
+                                    .foregroundStyle(AppStyle.primaryText)
                             }
+                            .buttonStyle(.plain)
                             Button {
                                 Task {
                                     do { try await cloud.signOut() }
@@ -594,9 +582,8 @@ struct ProfileView: View {
             case .update: UpdateView()
             case .changelog: ChangelogView()
             case .kugouLogin: KugouLoginSheet()
-            case .licenseMaker: LicenseGeneratorView(requireCloudLogin: false)
-            case .unlock: LicenseGeneratorView(requireCloudLogin: false)   // 🔴 解锁码：打开授权码生成器（真实功能）
-            case .banner: LabView()                // 🔴 横屏广告更换：打开横幅广告管理（真实功能）
+            case .licenseMaker: LicenseGeneratorView(requireCloudLogin: false)  // 仅「版本」连点 7 次隐藏入口
+            case .banner: LabView()                // 🔴 实验室：横幅 + 我的音乐卡片背景（已开放）
             }
         }
         // 🔴 2026-11-08：运行日志的隐藏 NavigationLink（列表里不显示任何一行），
