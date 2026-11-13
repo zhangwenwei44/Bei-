@@ -178,13 +178,12 @@ final class PlaylistSortMemo {
         }
         let sorted = PlaylistSorter.sorted(songs, mode: mode, listKey: listKey,
                                            originalIsNewestFirst: originalIsNewestFirst)
-        let activeAZ = PlaylistLetterIndex.isActive(mode)
-        let index = activeAZ
-            ? PlaylistLetterIndex.build(sorted, mode: mode)
-            : (letters: [String](), anchors: [String: String]())
-        let rowLetters = activeAZ
-            ? sorted.map { PlaylistLetterIndex.letter(for: PlaylistLetterIndex.key($0, mode: mode)) }
-            : []
+        // 🔴 2026-11-14：右侧快速滑动条改成【所有排序方式常驻】。
+        //    A–Z 排序显示字母刻度；自定义 / 新到旧 / 旧到新 / 播放量排序
+        //    显示按列表位置等分的 0–9 刻度（拖动即可跳到对应段落）。
+        let index = PlaylistLetterIndex.build(sorted, mode: mode)
+        let rowLetters = PlaylistLetterIndex.rowLabels(sorted, mode: mode,
+                                                       letters: index.letters)
         entries[listKey] = Entry(mode: mode,
                                  newestFirst: originalIsNewestFirst,
                                  result: sorted,
@@ -210,9 +209,7 @@ final class PlaylistSortMemo {
             return (e.letters, e.anchors, e.rowLetters)
         }
         let built = PlaylistLetterIndex.build(songs, mode: mode)
-        let rows = PlaylistLetterIndex.isActive(mode)
-            ? songs.map { PlaylistLetterIndex.letter(for: PlaylistLetterIndex.key($0, mode: mode)) }
-            : []
+        let rows = PlaylistLetterIndex.rowLabels(songs, mode: mode, letters: built.letters)
         return (built.letters, built.anchors, rows)
     }
 

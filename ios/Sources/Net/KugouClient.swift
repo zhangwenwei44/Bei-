@@ -762,6 +762,28 @@ final class KugouClient {
         }
     }
 
+    /// 🔴 2026-11-14：酷狗官方「新歌榜」真实新歌推荐（rankid=74534，每日更新）。
+    /// 一次 `/rank/info` 请求返回 30 首，字段 `album_sizable_cover` 自带专辑封面
+    /// （Song(kugouJSON:) 的 coverKeys 已收录），所以不用再逐个 album/info 补图。
+    /// 榜单顺序就是官方推荐顺序，调用方不要再 shuffle。
+    func newSongRecommendations(limit: Int = 28) async -> [Song] {
+        guard let json = try? await getJSON(path: "/rank/info",
+                                           host: "https://m.kugou.com",
+                                           params: ["rankid": "74534",
+                                                    "page": "1",
+                                                    "json": "true"],
+                                           headers: [:]),
+              let songs = json["songs"] as? [String: Any],
+              let list = songs["list"] as? [[String: Any]] else {
+            Log.warn("榜单", "新歌榜 74534 请求失败或结构变化")
+            return []
+        }
+        let result = Array(list.compactMap { Song(kugouJSON: $0) }.prefix(limit))
+        Log.info("榜单", "新歌榜 74534 返回 \(list.count) 条 -> \(result.count) 首，"
+                 + "带封面 \(result.filter { $0.artworkURL != nil }.count) 首")
+        return result
+    }
+
     // MARK: - 推荐歌单
 
     /// 网络歌单推荐。走 m.kugou.com/plist/index?json=true，

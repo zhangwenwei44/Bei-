@@ -458,6 +458,13 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
         uiView.applyFrame()
     }
 
+    /// 🔴 2026-11-14：SwiftUI 把这个 Representable 移出视图树时立刻拆掉浮层。
+    ///    以前只靠 didMoveToWindow(window==nil)，而 pop 返回后 SwiftUI 可能隔几秒
+    ///    才真正释放 destination 视图 → 上一张歌单大图会盖在列表上好几秒。
+    static func dismantleUIView(_ uiView: AnchorView, coordinator: Void) {
+        uiView.removeHeroLayer()
+    }
+
     final class AnchorView: UIView {
         var scrolled: CGFloat = 0
         var headerHeight: CGFloat = 350
@@ -479,16 +486,18 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
         private var hosting: UIHostingController<AnyView>?
         private weak var container: UIView?
         private weak var hostVC: UIViewController?
+        /// 🔴 2026-11-14：hostVC 是 weak，pop 后页面 VC 可能立刻被释放 → 变 nil。
+        ///    必须另外记住导航控制器本身（它随整条栈存活），否则判断会漏掉。
+        private weak var navController: UINavigationController?
         private var retry = 0
         private var monitoring = false
+        /// 已拆除（页面 pop / Representable 被移除）：重试闭包不得再装回大图。
+        private var tornDown = false
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
             if window == nil {
-                heroView?.removeFromSuperview()
-                heroView = nil
-                hosting = nil
-                container = nil
+                removeHeroLayer()
                 return
             }
             installIfNeeded()
@@ -509,17 +518,24 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
         /// 🔴 本页是否仍是导航栈顶。浮层挂在 UINavigationController.view 上（整条栈共用），
         ///    push 到普通白底页时若不隐藏，旧大图会一直盖在下一页内容上。
         private var isHostOnTop: Bool {
-            guard let host = hostVC, let nav = host.navigationController else { return true }
-            // 响应链偶尔会先给到容器 VC；那不是栈里的项，宁可不隐藏（避免误判成白顶）。
-            guard nav.viewControllers.contains(where: { $0 === host }) else { return true }
-            return nav.topViewController === host
+            guard let nav = navController else { return true }
+            // host 仍在栈里且就是栈顶：保持旧行为（最快、最稳）。
+            if let host = hostVC, nav.viewControllers.contains(where: { $0 === host }),
+               nav.topViewController === host { return true }
+            // 🔴 2026-11-14：其余一律看「本视图是否仍属于当前栈顶页」。
+            //    pop 之后 hostVC 可能已被释放（weak 变 nil），只有 nav 还在；
+            //    AnchorView 属于被移除的旧页，不再是 topVC.view 的后代 → 立刻隐藏。
+            //    旧逻辑在这里无条件 return true，正是「退出歌单后大图残留几秒」的根因。
+            guard let topView = nav.topViewController?.view else { return true }
+            return isDescendant(of: topView)
         }
 
         /// 低频轮询（0.2s）：push/pop 后及时隐藏 / 恢复浮层。页面销毁（window=nil）后自动停止。
         private func startVisibilityMonitoring() {
-            guard !monitoring else { return }
+            guard !monitoring, !tornDown else { return }
             monitoring = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            // 🔴 0.12s：pop 转场期间就把旧大图藏掉，用户完全看不到残留。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
                 guard let self, self.window != nil else { return }
                 if let view = self.heroView {
                     // 🔴 2026-11-11：排序弹窗打开期间临时隐藏大图浮层。
@@ -534,8 +550,18 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             }
         }
 
+        /// 立即从 nav.view 上摘掉大图（页面被 pop / SwiftUI 视图销毁时调用）。
+        func removeHeroLayer() {
+            tornDown = true
+            heroView?.removeFromSuperview()
+            heroView = nil
+            hosting = nil
+            container = nil
+            hostVC = nil
+        }
+
         private func installIfNeeded() {
-            guard heroView == nil, let root = heroRoot else { return }
+            guard !tornDown, heroView == nil, let root = heroRoot else { return }
             // 🔴 绝不 fallback 到 rootView.addSubview —— 那会把大图盖在返回/收藏按钮上。
             guard let (bar, pageHost) = resolveNavContext(), let parent = bar.superview else {
                 if retry < 6 {
@@ -555,6 +581,7 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             heroView = view
             container = parent
             hostVC = pageHost
+            navController = pageHost.navigationController
             view.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: headerHeight)
             parent.insertSubview(view, belowSubview: bar)
             applyFrame()

@@ -1832,33 +1832,27 @@ struct DiscoverView: View {
 
     // MARK: 加载
 
-    /// 🔴 2026-11-11：新歌推荐独立、单次请求加载（首屏与下拉刷新都走这里）。
-    /// 不再用 `shuffledSearchSongs`：它为了凑 28 首会把 target 抬到 40，
-    /// 从而**串行翻 2 页**搜索接口；再加上原来排在 load() 串行链末尾，
-    /// 首屏要等十几个请求才轮到它 —— 这才是「加载那么慢」的根因。
-    /// 现在直接取「新歌榜」第 1 页（30 首）→ 过滤老歌 → 随机 → 裁成 4 的倍数，
-    /// 一次网络请求就能把骨架换成真卡片，且与 load() 并发发起。
+    /// 🔴 2026-11-14：新歌推荐改接**酷狗官方「新歌榜」**（rankid=74534，每日更新）。
+    /// 旧实现是 `searchSongs(keyword: "新歌榜")` —— 拿关键词去搜索接口碰运气，
+    /// 返回的是歌名/歌单混杂结果，既不是真实新歌，还要为凑数串行翻页 + 逐个补封面。
+    /// 现在一次 `/rank/info` 请求直接拿官方新歌榜的 30 首，自带 album_sizable_cover 封面；
+    /// 保持榜单原序（真实排名），不再随机打乱、也不再用黑名单筛老歌。
     private func loadNewSongs(force: Bool = false) async {
         if isLoadingNewSongs { return }
         if !force, !newSongs.isEmpty { return }
         isLoadingNewSongs = true
         defer { isLoadingNewSongs = false }
-        let excluded = ["擦肩而过", "丢了幸福的猪", "看透爱情", "看透你"]
-        var batch = (try? await KugouClient.shared.searchSongs(keyword: "新歌榜", page: 1)) ?? []
-        if batch.isEmpty {
+        var picked = await KugouClient.shared.newSongRecommendations(limit: 28)
+        if picked.isEmpty {
             // 弱网偶发失败：隔 0.6s 补一次，避免骨架一直挂着。
             try? await Task.sleep(nanoseconds: 600_000_000)
-            batch = (try? await KugouClient.shared.searchSongs(keyword: "新歌榜", page: 1)) ?? []
+            picked = await KugouClient.shared.newSongRecommendations(limit: 28)
         }
-        var picked = batch.filter { song in
-            !excluded.contains { song.title.contains($0) }
-        }
-        picked.shuffle()
         // 裁成 4 的倍数：横滑卡片每屏整整齐齐，不出现半行。
         let trimmed = Array(picked.prefix(picked.count / 4 * 4))
         guard !trimmed.isEmpty else { return }
         newSongs = trimmed
-        Log.info("发现页", "新歌推荐 \(trimmed.count) 首（单次请求）")
+        Log.info("发现页", "新歌推荐 \(trimmed.count) 首（酷狗新歌榜 74534 真实数据）")
     }
 
     private func load(force: Bool = false) async {

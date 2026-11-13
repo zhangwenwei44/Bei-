@@ -85,9 +85,9 @@ struct LibraryView: View {
 
 private struct KugouProfileCard: View {
     @ObservedObject private var kugouAuth = KugouAuth.shared
-    // 🔴 v2.8.3：今日听歌统计（首数 + 时长），独立对象、低频发布，不会拖累主页面
-    @ObservedObject private var today = TodayListenStats.shared
     @ObservedObject private var cardBackground = ProfileCardBackground.shared
+    // 🔴 2026-11-14：卡片左侧改显示本机设备码 + 授权激活状态（原「今日 N 首 / N 分」移除）。
+    @ObservedObject private var license = LicenseManager.shared
     // 🔴 2026-11-13：当前音频输出设备（蓝牙耳机图标 + 设备名）
     @ObservedObject private var audioRoute = AudioRouteMonitor.shared
 
@@ -181,19 +181,15 @@ private struct KugouProfileCard: View {
                     .modifier(CardTextShadow(onImage: onImage))
             }
 
-            // 🔴 v2.8.3：今日听歌统计 + 标签
-            if kugouAuth.isLoggedIn {
-                Divider()
-                    .background(onImage ? Color.white.opacity(0.45) : Color.clear)
-                HStack(spacing: 12) {
-                    statItem(icon: "music.note", value: "\(today.songs)", unit: "首")
-                    statItem(icon: "clock", value: today.formattedDuration, unit: "")
-                    Spacer(minLength: 0)
-                    HStack(spacing: 6) {
-                        if kugouAuth.isVip { tagChip("会员") }
-                        tagChip("今日 \(today.songs) 首")
-                    }
-                }
+            // 🔴 2026-11-14：原「今日 N 首 / N 分」统计整块移除，
+            //    左侧改成本机设备码 + 激活状态；点一下复制完整设备码（换授权码时要用）。
+            //    设备码与酷狗账号无关，未登录也常显。
+            Divider()
+                .background(onImage ? Color.white.opacity(0.45) : Color.clear)
+            HStack(spacing: 10) {
+                deviceStatus
+                Spacer(minLength: 0)
+                if kugouAuth.isVip { tagChip("会员") }
             }
             Spacer(minLength: 0)
         }
@@ -268,21 +264,39 @@ private struct KugouProfileCard: View {
         })
     }
 
-    private func statItem(icon: String, value: String, unit: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(iconColor)
-            Text(value)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(titleColor)
-            if !unit.isEmpty {
-                Text(unit)
-                    .font(.system(size: 11))
+    /// 🔴 2026-11-14：设备码 + 激活状态（放在原「8 首 / 10 分」的位置）。
+    /// 设备码完整显示、等宽小字；点一下把完整设备码复制到剪贴板（换授权码时要用）。
+    /// 文字颜色跟随卡片（自定义背景图=白字，普通背景=深色字），状态点固定绿/红便于辨识。
+    private var deviceStatus: some View {
+        let activated = license.isActivated
+        let dot = activated ? Color(red: 0.16, green: 0.76, blue: 0.38)
+                            : Color(red: 1.0, green: 0.36, blue: 0.36)
+        return HStack(spacing: 7) {
+            Image(systemName: "shield.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(activated ? (onImage ? Color.white : dot) : dot)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("设备码 \(license.deviceID)")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundStyle(subtitleColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                HStack(spacing: 4) {
+                    Circle().fill(dot).frame(width: 5, height: 5)
+                    Text(activated ? "已激活" : "未激活")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(titleColor)
+                }
             }
         }
         .modifier(CardTextShadow(onImage: onImage))
+        .contentShape(Rectangle())
+        // 整张卡片是 NavigationLink / Button 的 label：用高优先级手势复制，
+        // 既不会和外链抢点击，也不嵌套 Button（iOS 15 上嵌套按钮容易失效）。
+        .highPriorityGesture(TapGesture().onEnded {
+            UIPasteboard.general.string = license.deviceID
+            Haptics.light()
+        })
     }
 
     private func tagChip(_ text: String) -> some View {

@@ -227,7 +227,13 @@ struct PlaylistCreateButton: View {
 /// 中文按拼音首字母归组（与 DownloadsList.makeGroups 完全同一套规则），
 /// 所以中文歌单也有可用的字母索引。
 enum PlaylistLetterIndex {
-    static func isActive(_ mode: PlaylistSortMode) -> Bool {
+    /// 🔴 2026-11-14：右侧快速滑动条改成【所有 7 种排序方式常驻】。
+    ///    以前只有 A–Z 排序才有，自定义排序 / 新到旧 / 旧到新 / 播放量排序
+    ///    右边空空如也 —— 用户明确要求这几种排序也要有可拖动的滑动条。
+    static func isActive(_ mode: PlaylistSortMode) -> Bool { return true }
+
+    /// 只有这两种排序用 A–Z 字母刻度；其余用「列表位置」0–9 刻度。
+    static func isAZ(_ mode: PlaylistSortMode) -> Bool {
         mode == .titleAZ || mode == .artistAZ
     }
 
@@ -254,6 +260,24 @@ enum PlaylistLetterIndex {
     /// 返回：① 实际出现的字母（A–Z 顺序，# 放最后）；② 每组第一首歌 id → 字母，供 .id() 锚点。
     /// 🔴 入参必须是【已排好序】的数组，这样同一字母的歌天然连续。
     static func build(_ songs: [Song], mode: PlaylistSortMode) -> (letters: [String], anchors: [String: String]) {
+        guard isAZ(mode) else {
+            // 🔴 非字母排序：按列表位置等分成最多 10 段，生成 0–9 刻度滑动条。
+            //    每段第一行放一个 .id() 锚点，拖到哪个刻度就 scrollTo 到那一段。
+            // 空列表 / 只剩一首时不显示孤零零的刻度。
+            guard songs.count >= 2 else {
+                return (letters: [String](), anchors: [String: String]())
+            }
+            let segs = min(10, songs.count)
+            var letters: [String] = []
+            var anchors: [String: String] = [:]
+            for k in 0..<segs {
+                let label = String(k)
+                let idx = songs.count * k / segs
+                letters.append(label)
+                if idx < songs.count { anchors[songs[idx].id] = label }
+            }
+            return (letters, anchors)
+        }
         var firstOfGroup: [String: String] = [:]
         var present = Set<String>()
         for song in songs {
@@ -267,6 +291,21 @@ enum PlaylistLetterIndex {
         var anchors: [String: String] = [:]
         for (letter, id) in firstOfGroup { anchors[id] = letter }
         return (letters, anchors)
+    }
+
+    /// 🔴 每一行对应的刻度标签（与排序结果同序），供右侧蓝圆随列表滚动跟随。
+    ///    A–Z 排序 = 该行首字母；其余排序 = 该行落在第几段（0–9），
+    ///    于是非字母排序时蓝圆就变成「滚动进度滑块」。
+    static func rowLabels(_ songs: [Song], mode: PlaylistSortMode,
+                          letters: [String]) -> [String] {
+        guard isAZ(mode) else {
+            let segs = max(1, letters.count)
+            let count = max(1, songs.count)
+            return songs.indices.map { i in
+                String(min(segs - 1, i * segs / count))
+            }
+        }
+        return songs.map { letter(for: key($0, mode: mode)) }
     }
 
     /// scrollTo 的锚点 id。用 .top 会被吸顶行盖住，这里把目标放在可见区约 12% 处。
@@ -416,6 +455,8 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
         private weak var container: UIView?
         private weak var navBar: UINavigationBar?
         private weak var hostVC: UIViewController?
+        /// 🔴 同大图浮层：hostVC 是 weak，pop 后会变 nil，必须另记 nav。
+        private weak var navController: UINavigationController?
         private var retry = 0
         private var monitoring = false
         /// 缩起态下可用高度太小（小屏）→ 整条隐藏，避免字母挤成一团。
@@ -451,9 +492,12 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
 
         /// 浮层挂在 nav.view 上、整条栈共用 → push 到普通页时必须隐藏。
         private var isHostOnTop: Bool {
-            guard let host = hostVC, let nav = host.navigationController else { return true }
-            guard nav.viewControllers.contains(where: { $0 === host }) else { return true }
-            return nav.topViewController === host
+            guard let nav = navController else { return true }
+            if let host = hostVC, nav.viewControllers.contains(where: { $0 === host }),
+               nav.topViewController === host { return true }
+            // 🔴 2026-11-14：本页已被 pop 时字母条必须立刻隐藏（与大图浮层同一套判断）。
+            guard let topView = nav.topViewController?.view else { return true }
+            return isDescendant(of: topView)
         }
 
         private func root() -> AnyView {
@@ -494,6 +538,7 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
             container = parent
             navBar = bar
             hostVC = pageHost
+            navController = pageHost.navigationController
             parent.addSubview(v)
             parent.bringSubviewToFront(bar)
             refresh()
@@ -551,7 +596,7 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
         private func startMonitoring() {
             guard !monitoring else { return }
             monitoring = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
                 guard let self, self.window != nil else { return }
                 self.ensureZOrder()
                 let hidden = self.shouldHide
