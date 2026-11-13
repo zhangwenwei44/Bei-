@@ -1937,15 +1937,15 @@ extension Notification.Name {
 ///   · `lineBreakMode = .byClipping` 彻底去掉省略号；
 ///   · 视图离开层级时停动画，避免后台空转。
 ///
-/// 🔴 2026-11-13 第七轮（当前定稿）：用户要「一直都是从左边进，右边就接着出，
-///    出到原始位置后就等 6 秒再进」。删掉上一版「整段移出左边界 → 放到右侧屏外
-///    → 再向左开回 x=0」的回程动画（那段看起来就是文字从右边走），改成**单份文字
-///    经典单向跑马灯**：
-///      ① 文字停在左侧原始位置 x=0，完整显示歌名开头（停 6 秒）；
-///      ② 匀速向左滚，**只滚到「文字末尾贴住右边界」**：滚动过程中被裁掉的后半段
-///         从右边接着露出，全程都有文字铺满可视区，既不会空白、也不会有文字从右边开进来；
-///      ③ 瞬间（无动画）回到 x=0 原始位置，停 6 秒，再从左边开始下一轮。
-///    每一轮的起点都是左对齐的歌名开头，方向始终向左、永不倒退。
+/// 🔴 2026-11-14 第八轮（当前定稿）：用户要「整段从左边移出，右侧紧跟显示出来，
+///    第一个字到初始位置后停 6 秒又继续」。改成**两份同文首尾相接的无缝单向跑马灯**：
+///      ① 第一份文字停在左侧原始位置 x=0，完整显示歌名开头，静止 6 秒；
+///      ② 两份一起匀速向左移：第一份**整段**移出左边界，第二份紧贴其后从右侧进入，
+///         屏幕上始终有文字，没有长时间空白，也没有「从右侧屏外开回来」的回程；
+///      ③ 当第二份的第一个字正好到达 x=0（初始位置）时，一轮结束 ——
+///         瞬间把整个条带复位到 0（两份文字相同，画面像素级一致，看不出跳变），
+///         于是第一个字又停在初始位置，停 6 秒后继续下一轮。
+///    方向始终向左、永不倒退；每轮的起点和终点都是「歌名开头左对齐」。
 struct MarqueeText: View {
     let text: String
     var size: CGFloat = 15
@@ -1994,8 +1994,12 @@ private struct MarqueeUILabel: UIViewRepresentable {
 }
 
 private final class MarqueeLabelView: UIView {
-    /// 🔴 单份文字：一开始就在左侧 x=0 显示歌名开头，不再有第二份从右边跟着走。
+    /// 🔴 2026-11-14 第八轮：两份**同文**文字装进同一个条带，动画只作用在条带的
+    ///    transform 上（一个动画、一次复位，绝对同步，不会出现两份错位）。
+    ///    第 1 份在 x=0，第 2 份在 x = natural + gap（紧跟在右侧）。
+    private let strip = UIView()
     private let label = UILabel()
+    private let trailing = UILabel()
     private var currentText = ""
     private var scrolling = false
     /// 实测文字自然宽度 / 容器宽度。
@@ -2005,8 +2009,10 @@ private final class MarqueeLabelView: UIView {
     private var startedSize: (CGFloat, CGFloat) = (0, 0)
     /// 每轮的令牌：stopScroll / 重新 configure 时自增，让在途的 completion 与延时失效。
     private var cycleToken: UInt = 0
-    /// 🔴 2026-11-13 第七轮：回到原始位置后停 6 秒再进下一轮（用户指定）。
+    /// 第一个字回到初始位置后停 6 秒再继续（用户指定）。
     private let pauseSeconds: TimeInterval = 6.0
+    /// 两份文字之间的间隔：够小才算「右侧紧跟」，又不会把两个歌名粘成一串。
+    private let gap: CGFloat = 16
     /// 匀速速度（pt/s），四舍五入后不至于长歌名飞快掠过。
     private let speed: CGFloat = 34
 
@@ -2015,12 +2021,23 @@ private final class MarqueeLabelView: UIView {
         clipsToBounds = true
         backgroundColor = .clear
         isUserInteractionEnabled = false
-        label.numberOfLines = 1
-        label.lineBreakMode = .byClipping   // 🔴 不显示「…」
-        label.textAlignment = .left
-        label.baselineAdjustment = .alignCenters
-        label.isUserInteractionEnabled = false
-        addSubview(label)
+
+        // 🔴 anchorPoint 固定在左上角，之后只改 strip.bounds（不动 frame / center），
+        //    就不会和正在跑的 transform 动画打架：父视图 transform 不影响子视图 frame，
+        //    改 bounds 也不会重置 transform。这是这版能稳定无缝的关键。
+        strip.backgroundColor = .clear
+        strip.isUserInteractionEnabled = false
+        strip.layer.anchorPoint = CGPoint(x: 0, y: 0)
+        strip.layer.position = .zero
+        for l in [label, trailing] {
+            l.numberOfLines = 1
+            l.lineBreakMode = .byClipping   // 🔴 不显示「…」
+            l.textAlignment = .left
+            l.baselineAdjustment = .alignCenters
+            l.isUserInteractionEnabled = false
+            strip.addSubview(l)
+        }
+        addSubview(strip)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -2028,9 +2045,12 @@ private final class MarqueeLabelView: UIView {
     func configure(text: String, font: UIFont, color: UIColor) {
         label.font = font
         label.textColor = color
+        trailing.font = font
+        trailing.textColor = color
         if text != currentText {
             currentText = text
             label.text = text
+            trailing.text = text
             stopScroll()
             setNeedsLayout()
         }
@@ -2043,9 +2063,13 @@ private final class MarqueeLabelView: UIView {
         guard w > 1, h > 0 else { return }
         let natural = label.sizeThatFits(
             CGSize(width: CGFloat.greatestFiniteMagnitude, height: h)).width
-        label.frame = CGRect(x: 0, y: 0, width: natural, height: h)
         naturalWidth = natural
         containerWidth = w
+        strip.bounds = CGRect(x: 0, y: 0, width: natural * 2 + gap, height: h)
+        label.frame = CGRect(x: 0, y: 0, width: natural, height: h)
+        trailing.frame = CGRect(x: natural + gap, y: 0, width: natural, height: h)
+        // 短标题不超宽：第二份藏起来，否则它会在右边露出半截重复歌名。
+        trailing.isHidden = natural - w <= 2
         if natural - w > 2 {
             startScrollIfNeeded()
         } else {
@@ -2062,36 +2086,35 @@ private final class MarqueeLabelView: UIView {
         startedSize = (naturalWidth, containerWidth)
         scrolling = true
         cycleToken &+= 1
-        label.layer.removeAllAnimations()
+        strip.layer.removeAllAnimations()
         // 首轮先静止显示歌名开头（不是一上来就有文字从右边走）。
-        runCycle(token: cycleToken, natural: naturalWidth, width: containerWidth,
-                 initialDelay: pauseSeconds)
+        runCycle(token: cycleToken, natural: naturalWidth, initialDelay: pauseSeconds)
     }
 
-    /// 一轮 = 【左侧原始位置静止 6 秒】→【向左滚到文字末尾贴右边界】→
-    ///       【瞬间回到 x=0】→【停 6 秒再进下一轮】。
-    /// 全程 transform 的 x 只减不增，方向始终向左；每轮起点都是左对齐的歌名开头。
-    private func runCycle(token: UInt, natural: CGFloat, width: CGFloat,
-                          initialDelay: TimeInterval) {
-        UIView.performWithoutAnimation { label.transform = .identity }
-        // 🔴 只滚「多出来的那截」：滚到末尾刚好贴住右边界，后半段从右边接着露出；
-        //    整段文字始终覆盖可视区域，不会像上一版那样移出左边后留一片空白，
-        //    更不会再有「从右侧屏幕外开进来」的回程。
-        let travel = max(natural - width, 0) + 6
-        let duration = min(max(TimeInterval(travel / speed), 1.5), 14.0)
+    /// 一轮 = 【第一份首字在 x=0 静止 6 秒】→【整段向左移出左边界，
+    ///        第二份紧跟从右侧进入】→【第二份首字到达 x=0】→【瞬间复位，画面不变】
+    ///        →【停 6 秒再进下一轮】。
+    /// 位移恰好 = natural + gap：此时第一份右边缘 = -gap（整段出左边），
+    /// 第二份左边缘 = 0（第一个字正好到初始位置）。两份同文，复位后画面像素级一致。
+    private func runCycle(token: UInt, natural: CGFloat, initialDelay: TimeInterval) {
+        UIView.performWithoutAnimation { strip.transform = .identity }
+        let travel = natural + gap
+        // 不截断上限：整段移出必须走完，长歌名只是滚久一点，速度始终匀速。
+        let duration = min(max(TimeInterval(travel / speed), 2.0), 20.0)
         UIView.animate(withDuration: duration,
                        delay: initialDelay,
                        options: [.curveLinear],
                        animations: {
-            self.label.transform = CGAffineTransform(translationX: -travel, y: 0)
+            self.strip.transform = CGAffineTransform(translationX: -travel, y: 0)
         }, completion: { [weak self] finished in
             guard let self, finished, self.scrolling, self.cycleToken == token else { return }
-            // 一轮走完：无动画瞬间复位到左侧原始位置（歌名开头）。
-            UIView.performWithoutAnimation { self.label.transform = .identity }
-            // 回到原始位置后停 6 秒，再从左边开始下一轮。
+            // 第二份第一个字已到初始位置 x=0。两份文字完全相同，
+            // 瞬间复位后仍是「歌名开头左对齐」，看不出任何跳变。
+            UIView.performWithoutAnimation { self.strip.transform = .identity }
+            // 第一个字到初始位置后停 6 秒又继续。
             DispatchQueue.main.asyncAfter(deadline: .now() + self.pauseSeconds) { [weak self] in
                 guard let self, self.scrolling, self.cycleToken == token else { return }
-                self.runCycle(token: token, natural: natural, width: width, initialDelay: 0)
+                self.runCycle(token: token, natural: natural, initialDelay: 0)
             }
         })
     }
@@ -2101,12 +2124,12 @@ private final class MarqueeLabelView: UIView {
         scrolling = false
         startedSize = (0, 0)
         cycleToken &+= 1
-        label.layer.removeAllAnimations()
-        UIView.performWithoutAnimation { label.transform = .identity }
+        strip.layer.removeAllAnimations()
+        UIView.performWithoutAnimation { strip.transform = .identity }
     }
 
     override func willMove(toWindow newWindow: UIWindow?) {
-        super.willMove(toWindow: newWindow)
+        super.willMove(toWindow newWindow)
         if newWindow == nil {
             stopScroll()
         } else {

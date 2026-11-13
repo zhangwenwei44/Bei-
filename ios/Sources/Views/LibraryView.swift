@@ -244,18 +244,19 @@ private struct KugouProfileCard: View {
         .contentShape(Rectangle())
     }
 
-    /// 🔴 2026-11-13 第七轮：图标换成用户指定的浅灰圆角方块蓝牙图标，
+    /// 🔴 2026-11-14 第八轮：蓝牙图标去掉浅灰方块底板，只留符号本体；
+    ///    颜色跟随卡片文字（自定义背景图上白色 / 普通背景主题蓝）。
     ///    名字后面的「笔」已移除；点整条仍可改名（隐藏入口，不占视觉）。
     private var bluetoothChip: some View {
         HStack(spacing: 6) {
-            BluetoothBadgeIcon(size: 22)
+            BluetoothBadgeIcon(size: 15, color: iconColor)
             Text(audioRoute.deviceName)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(chipText)
                 .lineLimit(1)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
         .background(chipFill, in: Capsule())
         .modifier(CardTextShadow(onImage: onImage))
         .contentShape(Capsule())

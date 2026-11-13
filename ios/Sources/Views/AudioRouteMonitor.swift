@@ -95,10 +95,10 @@ final class AudioRouteMonitor: ObservableObject {
     }
 }
 
-// MARK: - 🔴 2026-11-13 第七轮：蓝牙图标换成用户指定的「浅灰圆角方块 + 深色蓝牙标志」
+// MARK: - 🔴 2026-11-14 第八轮：蓝牙图标「只要蓝牙符号，移除浅灰方块底板」
 //
 // 系统 SF Symbols 里没有通用 Bluetooth 标志，`systemName:` 拼名字会静默渲染成空白，
-// 所以整枚图标全部手绘。参考图 = 浅灰紫圆角底板 + 粗线 rune（中部左右各一条短横）。
+// 所以符号全部手绘（标准 rune + 中部左右各一条短横，与用户给的参考图一致）。
 struct BluetoothMark: Shape {
     func path(in rect: CGRect) -> Path {
         let sx = rect.width / 24
@@ -123,23 +123,19 @@ struct BluetoothMark: Shape {
     }
 }
 
-/// 卡片右下角的蓝牙设备图标：独立浅灰圆角方块，深色符号。
+/// 🔴 2026-11-14 第八轮：卡片右下角蓝牙设备图标 —— 只要蓝牙符号本身，
+///    浅灰圆角方块底板已按用户要求移除。颜色跟随卡片：自定义背景图上用白字，
+///    普通背景用主题蓝（都由调用方传 iconColor），保证任意背景都看得清。
 struct BluetoothBadgeIcon: View {
-    var size: CGFloat = 22
-    private var plate: Color { Color(red: 0.906, green: 0.906, blue: 0.933) }
-    private var ink: Color { Color(red: 0.239, green: 0.239, blue: 0.267) }
+    var size: CGFloat = 15
+    var color: Color = Color(red: 0.239, green: 0.239, blue: 0.267)
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
-                .fill(plate)
-            BluetoothMark()
-                .stroke(ink, style: StrokeStyle(lineWidth: size * 0.042,
-                                               lineCap: .round, lineJoin: .round))
-                .frame(width: size * 0.52, height: size * 0.52)
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
+        BluetoothMark()
+            .stroke(color, style: StrokeStyle(lineWidth: size * 0.072,
+                                             lineCap: .round, lineJoin: .round))
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
     }
 }
 
