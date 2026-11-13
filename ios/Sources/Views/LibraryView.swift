@@ -244,23 +244,18 @@ private struct KugouProfileCard: View {
         .contentShape(Rectangle())
     }
 
-    /// 蓝牙耳机图标 + 设备名 + 改名入口（点一下弹输入框）。
+    /// 🔴 2026-11-13 第七轮：图标换成用户指定的浅灰圆角方块蓝牙图标，
+    ///    名字后面的「笔」已移除；点整条仍可改名（隐藏入口，不占视觉）。
     private var bluetoothChip: some View {
-        HStack(spacing: 5) {
-            BluetoothGlyph()
-                .stroke(iconColor,
-                        style: StrokeStyle(lineWidth: 1.7, lineCap: .round, lineJoin: .round))
-                .frame(width: 11, height: 15)
+        HStack(spacing: 6) {
+            BluetoothBadgeIcon(size: 22)
             Text(audioRoute.deviceName)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(chipText)
                 .lineLimit(1)
-            Image(systemName: "pencil")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(chipText.opacity(0.85))
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
         .background(chipFill, in: Capsule())
         .modifier(CardTextShadow(onImage: onImage))
         .contentShape(Capsule())

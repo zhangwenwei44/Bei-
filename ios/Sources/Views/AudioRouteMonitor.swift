@@ -95,11 +95,11 @@ final class AudioRouteMonitor: ObservableObject {
     }
 }
 
-// MARK: - 蓝牙标志（手绘 Path，不用 SF Symbol）
+// MARK: - 🔴 2026-11-13 第七轮：蓝牙图标换成用户指定的「浅灰圆角方块 + 深色蓝牙标志」
 //
-// SF Symbols 里没有通用的 Bluetooth 标志；用 `systemName:` 拼名字会静默渲染成空白。
-// 这条路径是标准 Bluetooth rune 的线框画法（与 Feather / Lucide 的 bluetooth 图标一致）。
-struct BluetoothGlyph: Shape {
+// 系统 SF Symbols 里没有通用 Bluetooth 标志，`systemName:` 拼名字会静默渲染成空白，
+// 所以整枚图标全部手绘。参考图 = 浅灰紫圆角底板 + 粗线 rune（中部左右各一条短横）。
+struct BluetoothMark: Shape {
     func path(in rect: CGRect) -> Path {
         let sx = rect.width / 24
         let sy = rect.height / 24
@@ -107,34 +107,62 @@ struct BluetoothGlyph: Shape {
             CGPoint(x: rect.minX + x * sx, y: rect.minY + y * sy)
         }
         var path = Path()
+        // 主 rune：中竖线 + 上下两个右三角 + 交叉斜线
         path.move(to: p(6.5, 6.5))
         path.addLine(to: p(17.5, 17.5))
         path.addLine(to: p(12, 22))
         path.addLine(to: p(12, 2))
         path.addLine(to: p(17.5, 6.5))
         path.addLine(to: p(6.5, 17.5))
+        // 参考图里符号中部左右各有一条短横
+        path.move(to: p(2.5, 12))
+        path.addLine(to: p(5.2, 12))
+        path.move(to: p(18.8, 12))
+        path.addLine(to: p(21.5, 12))
         return path
     }
 }
 
-// MARK: - 绿色呼吸发光圆点（主页顶栏「已连接」前面用）
-struct BreathingStatusDot: View {
-    var size: CGFloat = 6
-    @State private var breathing = false
+/// 卡片右下角的蓝牙设备图标：独立浅灰圆角方块，深色符号。
+struct BluetoothBadgeIcon: View {
+    var size: CGFloat = 22
+    private var plate: Color { Color(red: 0.906, green: 0.906, blue: 0.933) }
+    private var ink: Color { Color(red: 0.239, green: 0.239, blue: 0.267) }
 
-    private let green = Color(red: 0.16, green: 0.76, blue: 0.38)
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
+                .fill(plate)
+            BluetoothMark()
+                .stroke(ink, style: StrokeStyle(lineWidth: size * 0.042,
+                                               lineCap: .round, lineJoin: .round))
+                .frame(width: size * 0.52, height: size * 0.52)
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}
+
+// MARK: - 呼吸发光圆点（主页顶栏状态标识前面用）
+//
+// 🔴 2026-11-13 第七轮：用户要求「发光圈再改小点」——圆点 5→4pt，
+//    光晕 3 倍→2.2 倍、blur 3→1.8；并支持传颜色（音源绿=绿、红=红）。
+struct BreathingStatusDot: View {
+    var size: CGFloat = 4
+    var color: Color = Color(red: 0.16, green: 0.76, blue: 0.38)
+    @State private var breathing = false
 
     var body: some View {
         Circle()
-            .fill(green)
+            .fill(color)
             .frame(width: size, height: size)
             .background {
                 Circle()
-                    .fill(green.opacity(breathing ? 0.55 : 0.10))
-                    .frame(width: size * 3, height: size * 3)
-                    .blur(radius: 3)
+                    .fill(color.opacity(breathing ? 0.45 : 0.08))
+                    .frame(width: size * 2.2, height: size * 2.2)
+                    .blur(radius: 1.8)
             }
-            .scaleEffect(breathing ? 1.15 : 1.0)
+            .scaleEffect(breathing ? 1.10 : 1.0)
             .animation(.easeInOut(duration: 1.25).repeatForever(autoreverses: true),
                        value: breathing)
             .onAppear { breathing = true }

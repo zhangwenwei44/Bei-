@@ -1927,9 +1927,6 @@ extension Notification.Name {
 // MARK: - MarqueeText 跑马灯（歌名太长时横向滚动，短则正常显示）
 
 /// 🔴 2026-11-12 第三轮重写：用户要求「长歌名改成横向滚动显示，不要三点」。
-/// 🔴 2026-11-13 第四轮：用户明确「往左移动，不是左右移动」——
-///    去掉 `.autoreverse`，改成两份首尾相接的文字**单向匀速左移 + 无缝循环**。
-///
 /// 旧实现是纯 SwiftUI：GeometryReader + `withAnimation(.linear.repeatForever)`
 /// 逐帧改 @State offset，几百行的大歌单里每个可见行都在跑 SwiftUI 动画 ——
 /// 与「大歌单很卡 / 上滑抖动」直接冲突，所以一直没有接入。
@@ -1939,13 +1936,16 @@ extension Notification.Name {
 ///   · 滚动用 CoreAnimation 的 transform 补间，不触发 SwiftUI body 重算；
 ///   · `lineBreakMode = .byClipping` 彻底去掉省略号；
 ///   · 视图离开层级时停动画，避免后台空转。
-///   · 🔴 2026-11-13 第六轮：用户要「不是一开始就从右边走，走一轮多停几秒」。
-///     去掉两份文字的做法，改成**单份文字的经典单向跑马灯**：
-///       ① 一开始文字停在左侧 x=0，完整显示歌名开头（静止 4 秒）；
-///       ② 整体匀速向左移出左边界（一直往左，永不倒退）；
-///       ③ 瞬间放到右侧屏幕外，再向左开进来，回到 x=0 显示歌名开头；
-///       ④ 再停 4 秒，开始下一轮。
-///     方向始终向左，第一轮绝不会「一上来就从右边走」，每轮结束都有明显停顿。
+///
+/// 🔴 2026-11-13 第七轮（当前定稿）：用户要「一直都是从左边进，右边就接着出，
+///    出到原始位置后就等 6 秒再进」。删掉上一版「整段移出左边界 → 放到右侧屏外
+///    → 再向左开回 x=0」的回程动画（那段看起来就是文字从右边走），改成**单份文字
+///    经典单向跑马灯**：
+///      ① 文字停在左侧原始位置 x=0，完整显示歌名开头（停 6 秒）；
+///      ② 匀速向左滚，**只滚到「文字末尾贴住右边界」**：滚动过程中被裁掉的后半段
+///         从右边接着露出，全程都有文字铺满可视区，既不会空白、也不会有文字从右边开进来；
+///      ③ 瞬间（无动画）回到 x=0 原始位置，停 6 秒，再从左边开始下一轮。
+///    每一轮的起点都是左对齐的歌名开头，方向始终向左、永不倒退。
 struct MarqueeText: View {
     let text: String
     var size: CGFloat = 15
@@ -2005,8 +2005,8 @@ private final class MarqueeLabelView: UIView {
     private var startedSize: (CGFloat, CGFloat) = (0, 0)
     /// 每轮的令牌：stopScroll / 重新 configure 时自增，让在途的 completion 与延时失效。
     private var cycleToken: UInt = 0
-    /// 每轮开始前 / 结束后停留的秒数（用户要求「多停几秒」）。
-    private let pauseSeconds: TimeInterval = 4.0
+    /// 🔴 2026-11-13 第七轮：回到原始位置后停 6 秒再进下一轮（用户指定）。
+    private let pauseSeconds: TimeInterval = 6.0
     /// 匀速速度（pt/s），四舍五入后不至于长歌名飞快掠过。
     private let speed: CGFloat = 34
 
@@ -2068,39 +2068,31 @@ private final class MarqueeLabelView: UIView {
                  initialDelay: pauseSeconds)
     }
 
-    /// 一轮 = 【左侧静止】→【向左移出左边界】→【从右侧进入、向左回到 x=0】→【再停几秒】。
-    /// 全程 transform 的 x 只减不增，方向始终向左。
+    /// 一轮 = 【左侧原始位置静止 6 秒】→【向左滚到文字末尾贴右边界】→
+    ///       【瞬间回到 x=0】→【停 6 秒再进下一轮】。
+    /// 全程 transform 的 x 只减不增，方向始终向左；每轮起点都是左对齐的歌名开头。
     private func runCycle(token: UInt, natural: CGFloat, width: CGFloat,
                           initialDelay: TimeInterval) {
         UIView.performWithoutAnimation { label.transform = .identity }
-        let outDistance = natural + 12
-        let outDuration = min(max(TimeInterval(outDistance / speed), 2.0), 12.0)
-        UIView.animate(withDuration: outDuration,
+        // 🔴 只滚「多出来的那截」：滚到末尾刚好贴住右边界，后半段从右边接着露出；
+        //    整段文字始终覆盖可视区域，不会像上一版那样移出左边后留一片空白，
+        //    更不会再有「从右侧屏幕外开进来」的回程。
+        let travel = max(natural - width, 0) + 6
+        let duration = min(max(TimeInterval(travel / speed), 1.5), 14.0)
+        UIView.animate(withDuration: duration,
                        delay: initialDelay,
                        options: [.curveLinear],
                        animations: {
-            self.label.transform = CGAffineTransform(translationX: -outDistance, y: 0)
+            self.label.transform = CGAffineTransform(translationX: -travel, y: 0)
         }, completion: { [weak self] finished in
             guard let self, finished, self.scrolling, self.cycleToken == token else { return }
-            // 文字已整体移出左边：瞬间放到右侧屏幕外，下一拍从右边进入。
-            let inDistance = width + 12
-            UIView.performWithoutAnimation {
-                self.label.transform = CGAffineTransform(translationX: inDistance, y: 0)
+            // 一轮走完：无动画瞬间复位到左侧原始位置（歌名开头）。
+            UIView.performWithoutAnimation { self.label.transform = .identity }
+            // 回到原始位置后停 6 秒，再从左边开始下一轮。
+            DispatchQueue.main.asyncAfter(deadline: .now() + self.pauseSeconds) { [weak self] in
+                guard let self, self.scrolling, self.cycleToken == token else { return }
+                self.runCycle(token: token, natural: natural, width: width, initialDelay: 0)
             }
-            let inDuration = min(max(TimeInterval(inDistance / self.speed), 1.5), 8.0)
-            UIView.animate(withDuration: inDuration,
-                           delay: 0,
-                           options: [.curveLinear],
-                           animations: {
-                self.label.transform = .identity
-            }, completion: { [weak self] finished in
-                guard let self, finished, self.scrolling, self.cycleToken == token else { return }
-                // 一轮走完，停在歌名开头「多停几秒」再开始下一轮。
-                DispatchQueue.main.asyncAfter(deadline: .now() + self.pauseSeconds) { [weak self] in
-                    guard let self, self.scrolling, self.cycleToken == token else { return }
-                    self.runCycle(token: token, natural: natural, width: width, initialDelay: 0)
-                }
-            })
         })
     }
 

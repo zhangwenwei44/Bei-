@@ -301,17 +301,14 @@ struct DiscoverView: View {
         .frame(height: 40)
     }
 
-    /// 🔴 2026-11-13：酷狗账号登录后，名字上方显示「● 已连接」（绿点带发光呼吸）；
-    ///    未登录但登录了云账号时保留原来的「管理员」文字标识。
+    /// 🔴 2026-11-13 第七轮：酷狗账号登录后的「已连接」不再写死绿色，
+    ///    改成接入音源健康状态（见文件末尾 `SourceStatusBadge`）：
+    ///    音源列表里是绿点（可用）就绿、红点（无用）就红；发光圈也改小了。
+    ///    未登录但登录了云账号时仍保留原来的「管理员」文字标识。
     @ViewBuilder
     private var accountStatusBadge: some View {
         if kugouAuth.isLoggedIn {
-            HStack(spacing: 3) {
-                BreathingStatusDot(size: 5)
-                Text("已连接")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.13, green: 0.58, blue: 0.30))
-            }
+            SourceStatusBadge()
         } else if cloud.isSignedIn {
             Text("管理员")
                 .font(.system(size: 9, weight: .semibold))
@@ -2731,5 +2728,53 @@ private struct RankRow: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - 🔴 2026-11-13 第七轮：主页顶栏「已连接」接入当前音源状态
+//
+// 单独抽成一个小视图订阅 SourceHealth / SourceStore：音源检测每写完一条结果，
+// 只重算这一小块，不会让 DiscoverView 整页 body 重算（主页卡顿红线）。
+// 颜色规则与「第三方音源」列表里的圆点一致：音源绿=绿、音源红=红。
+//   · 有任一启用音源检测为「可用（绿点）」→ 绿点 + 已连接；
+//   · 一个可用都没有、且检测出了「无用（红点）」→ 红点 + 未连接；
+//   · 还没检测完 / 检测被跳过 → 保持绿点 + 已连接（不误报异常）。
+private struct SourceStatusBadge: View {
+    @ObservedObject private var health = SourceHealth.shared
+    @ObservedObject private var sourceStore = SourceStore.shared
+
+    private var isRed: Bool {
+        let enabled = sourceStore.sources.filter { $0.enabled && $0.isUsable }
+        guard !enabled.isEmpty else { return false }
+        var hasOK = false
+        var hasBad = false
+        for source in enabled {
+            switch health.status(for: source.id) {
+            case .ok: hasOK = true
+            case .bad: hasBad = true
+            default: break
+            }
+        }
+        return !hasOK && hasBad
+    }
+
+    private var dotColor: Color {
+        isRed ? Color(red: 0.90, green: 0.22, blue: 0.22)
+              : Color(red: 0.16, green: 0.76, blue: 0.38)
+    }
+
+    private var textColor: Color {
+        isRed ? Color(red: 0.78, green: 0.18, blue: 0.18)
+              : Color(red: 0.13, green: 0.58, blue: 0.30)
+    }
+
+    var body: some View {
+        HStack(spacing: 3) {
+            // 🔴 发光圈改小：圆点 4pt、光晕 2.2 倍、blur 1.8（见 BreathingStatusDot）。
+            BreathingStatusDot(size: 4, color: dotColor)
+            Text(isRed ? "未连接" : "已连接")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(textColor)
+        }
     }
 }
