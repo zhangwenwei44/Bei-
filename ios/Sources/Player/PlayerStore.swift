@@ -12,6 +12,7 @@ final class PlayerStore: ObservableObject {
         didSet {
             mini.song = current
             scheduleSessionSave()
+            syncQueueSnapshot()
         }
     }
     // 🔴 currentIndex 变化即代表「换歌」，同步给迷你播放条。
@@ -26,10 +27,13 @@ final class PlayerStore: ObservableObject {
                 if let song = current { PlayCountTracker.shared.record(song.id) }
             }
             scheduleSessionSave()
+            syncQueueSnapshot()
         }
     }
     @Published var queueID: String? = nil { didSet { scheduleSessionSave() } }
-    @Published var mode: PlaybackMode = .order { didSet { scheduleSessionSave() } }
+    @Published var mode: PlaybackMode = .order {
+        didSet { scheduleSessionSave(); syncQueueSnapshot() }
+    }
 
     // MARK: - 播放会话记忆（2026-11-10：退出 App 再进来继续上次的播放列表）
     private enum SessionKey {
@@ -52,7 +56,10 @@ final class PlayerStore: ObservableObject {
     // 用 didSet 而不是手动调用 syncMiniState()，是为了覆盖所有赋值点
     // （播放/暂停/解析完成/切歌/换源都有赋值，漏一处就表现为播放条状态不更新）。
     @Published private(set) var isPlaying = false {
-        didSet { if isPlaying != oldValue { mini.isPlaying = isPlaying } }
+        didSet {
+            if isPlaying != oldValue { mini.isPlaying = isPlaying }
+            syncQueueSnapshot()
+        }
     }
     @Published private(set) var isLoading = false {
         didSet { if isLoading != oldValue { mini.isLoading = isLoading } }
@@ -182,7 +189,9 @@ final class PlayerStore: ObservableObject {
     // MARK: 交互
 
     @Published private(set) var isLiked = false
-    @Published var isQueuePresented = false
+    /// 🔴 2026-11-13：播放列表的呈现状态已拆到 `QueuePresentation`（独立轻量对象）。
+    ///    不要再加回本类 —— 这里每一次 @Published 发布都会让 SwiftUI 重新评估
+    ///    sheet 绑定，iOS 27 上会与全屏播放页的呈现动画撞车导致卡死 / 退回推荐页。
     /// 睡眠定时结束时间，nil 表示未设置。
     @Published var sleepTimerEnd: Date?
 
@@ -359,6 +368,20 @@ final class PlayerStore: ObservableObject {
         let work = DispatchWorkItem { [weak self] in self?.saveSession() }
         sessionSaveWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
+    }
+
+    /// 🔴 2026-11-13：把队列相关的低频状态同步给 `QueueSnapshot`。
+    /// 只写**另一个** ObservableObject，不改本类任何 @Published → 不会递归触发 didSet。
+    /// 队列视图因此不用订阅 PlayerStore 的 30+ 个高频状态。
+    private func syncQueueSnapshot() {
+        let s = queue, i = currentIndex, p = isPlaying, m = mode
+        if Thread.isMainThread {
+            QueueSnapshot.shared.update(songs: s, currentIndex: i, isPlaying: p, mode: m)
+        } else {
+            DispatchQueue.main.async {
+                QueueSnapshot.shared.update(songs: s, currentIndex: i, isPlaying: p, mode: m)
+            }
+        }
     }
 
     /// 把队列 / 当前曲目 / 播放模式 / 队列来源落盘。

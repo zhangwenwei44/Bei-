@@ -1,7 +1,8 @@
 import Foundation
 
 /// 歌单。酷狗这边在线的是榜单，本地的是用户自建歌单。
-struct Playlist: Identifiable, Hashable {
+/// 🔴 2026-11-13：加 Codable —— 首屏快照要把它落盘（启动时不再闪骨架屏）。
+struct Playlist: Identifiable, Hashable, Codable {
     var id: String
     var name: String
     var coverURL: URL?
@@ -97,7 +98,8 @@ struct SearchResults {
 }
 
 /// 首页聚合数据。
-struct DiscoverFeed {
+/// 🔴 2026-11-13：加 Codable 供首屏本地快照持久化。
+struct DiscoverFeed: Codable {
     var topLists: [Playlist] = []
 
     var isEmpty: Bool { topLists.isEmpty }

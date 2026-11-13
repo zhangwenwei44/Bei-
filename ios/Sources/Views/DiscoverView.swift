@@ -85,6 +85,32 @@ struct DiscoverView: View {
     /// 🔴 v2.9.6：「至臻音质」主题歌单的歌曲（供「歌单推荐」大卡使用）
     @State private var hallSongs: [Song] = []
 
+    /// 🔴 2026-11-13：骨架屏的「延迟许可」。
+    /// 冷启动 0.4 秒内数据就回来时根本不显示骨架，避免闪一下灰块；
+    /// 只有真正等得久（且本机没有任何快照）才允许出现。
+    @State private var skeletonAllowed = false
+
+    /// 🔴 2026-11-13：**启动即有内容**。
+    /// 从本地快照同步恢复首屏数据（内存缓存，只有进程首次读盘，<10ms）。
+    /// 这样 `feed.isEmpty == false`，启动时不会命中 `FeedSkeleton()`；
+    /// 随后 `.task` 里的 `load(force: true)` 在后台静默刷新，界面不会空窗。
+    init() {
+        let cached = DiscoverFeedCache.shared.load()
+        _feed = State(initialValue: cached?.feed ?? DiscoverFeed())
+        _guessSongs = State(initialValue: cached?.guessSongs ?? [])
+        _guessPool = State(initialValue: cached?.guessPool ?? [])
+        _dailySongs = State(initialValue: cached?.dailySongs ?? [])
+        _dailyPick = State(initialValue: cached.flatMap { $0.dailyPick })
+        _guessPick = State(initialValue: cached.flatMap { $0.guessPick })
+        _hotArtists = State(initialValue: cached?.hotArtists ?? [])
+        _recommendedPlaylists = State(initialValue: cached?.recommendedPlaylists ?? [])
+        _ktvSongs = State(initialValue: cached?.ktvSongs ?? [])
+        _classicSongs = State(initialValue: cached?.classicSongs ?? [])
+        _djSongs = State(initialValue: cached?.djSongs ?? [])
+        _newSongs = State(initialValue: cached?.newSongs ?? [])
+        _hallSongs = State(initialValue: cached?.hallSongs ?? [])
+    }
+
     /// 榜单 Tab 展示的榜单（按酷狗「排行榜」页顺序排列）。
     /// 截图里 15 个榜：未音原创榜 / AI音乐榜 / 华语流行音乐原创榜 / 原创音乐榜
     /// 这 4 个 2026 新榜酷狗公开接口还没放出来（rank/list 只有 56 个旧榜），
@@ -129,8 +155,10 @@ struct DiscoverView: View {
                        ktvSongs.isEmpty, classicSongs.isEmpty,
                        djSongs.isEmpty, newSongs.isEmpty, hallSongs.isEmpty {
                         errorState(errorMessage)
-                    } else if isLoading, feed.isEmpty {
+                    } else if isLoading, feed.isEmpty, skeletonAllowed {
                         // 🔴 2026-11-10：首屏加载不再用菊花，按推荐 Tab 真内容摆骨架 + 匀速扫光。
+                        // 🔴 2026-11-13：加了本地快照 + 0.4s 延迟许可后，正常启动根本走不到这里；
+                        //    只有「首次安装、本机无任何快照且网络确实慢」才会出现骨架。
                         FeedSkeleton()
                     } else {
                         // 歌单 Tab：搜索框变成「搜索歌单」；其它 Tab 保持全局搜索入口
@@ -177,13 +205,18 @@ struct DiscoverView: View {
             .kugouPinnedTopFade(height: 280)
             .refreshable { await load(force: true) }
             .task {
-                // 🔴 2026-11-11：新歌推荐是 Feed 第一屏第一块，必须和 load() **并发**发起。
-                //    原来它在 load() 串行链末尾：要等 topLists / 每日推荐 / 热门歌手 /
-                //    歌单 / KTV / 经典+DJ 各 4 页搜索 / 曲目数统计等十几个请求跑完，
-                //    自己再串行翻 2 页「新歌榜」搜索 → 骨架屏一直挂着，用户觉得「加载巨慢」。
-                //    用非结构化 Task 只发起不等待（.task 随视图消失会被取消，这里不会）。
-                Task { await loadNewSongs() }
-                if feed.isEmpty { await load() }
+                // 🔴 2026-11-13：启动时不再等「feed 为空」才加载。
+                //    本地快照已经让首帧有内容，这里静默刷新（force 会重拉每日推荐 /
+                //    猜你喜欢 / 热门歌手，并在 load() 内并发发起新歌推荐），
+                //    界面全程不空窗，也不会因为 isLoading 命中骨架屏。
+                //    ⚠️ 新歌推荐仍由 load(force:) 里的非结构化 Task 并发发起
+                //    （.task 随视图消失会被取消，那条链路不会）。
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    // 只有「本机无快照 + 0.4s 还没出内容」才允许显示骨架。
+                    if isLoading, feed.isEmpty { skeletonAllowed = true }
+                }
+                await load(force: true)
             }
             // 🔴 2026-11-13 第二轮：这里原来还挂了两条并发链路，都是「两栏重复 / 首页卡死」的元凶：
             //    ① `Task { await loadGuess() }` —— 猜你喜欢与 load() 里的串行链抢着写 @State，
@@ -2016,7 +2049,29 @@ struct DiscoverView: View {
         } else {
             errorMessage = nil
             autoRetryCount = 0
+            saveSnapshot()
         }
+    }
+
+    /// 🔴 2026-11-13：把这次拿到的首屏数据落盘，供下次冷启动**首帧直接出内容**。
+    /// 编码在后台队列（DiscoverFeedCache），这里只做值拷贝。
+    private func saveSnapshot() {
+        guard !feed.topLists.isEmpty || !dailySongs.isEmpty || !guessSongs.isEmpty else { return }
+        let snap = DiscoverSnapshot(feed: feed,
+                                    guessSongs: guessSongs,
+                                    guessPool: guessPool,
+                                    dailySongs: dailySongs,
+                                    dailyPick: dailyPick,
+                                    guessPick: guessPick,
+                                    hotArtists: hotArtists,
+                                    recommendedPlaylists: recommendedPlaylists,
+                                    ktvSongs: ktvSongs,
+                                    classicSongs: classicSongs,
+                                    djSongs: djSongs,
+                                    newSongs: newSongs,
+                                    hallSongs: hallSongs,
+                                    savedAt: Date().timeIntervalSince1970)
+        DiscoverFeedCache.shared.save(snap)
     }
 
     private static let dailyDayStoreKey = "aurora.discover.dailyDay"

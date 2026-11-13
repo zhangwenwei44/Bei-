@@ -181,7 +181,7 @@ struct KugouControlsRow: View {
 
             Spacer(minLength: 0)
 
-            Button { store.isQueuePresented = true; Haptics.light() } label: {
+            Button { QueuePresentation.shared.present(); Haptics.light() } label: {
                 KugouQueueGlyph()
                     .frame(width: 44, height: 54)
                     .contentShape(Rectangle())

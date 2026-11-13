@@ -764,10 +764,12 @@ struct PlayerView: View {
 
     /// 队列按钮（裸图标）
     private var classicQueueButton: some View {
-        Button { store.isQueuePresented.toggle(); Haptics.light() } label: {
+        Button { QueuePresentation.shared.present(); Haptics.light() } label: {
             Image(systemName: "list.bullet")
                 .font(.system(size: 19, weight: .medium))
-                .foregroundStyle(store.isQueuePresented ? dominantColor : .white.opacity(0.85))
+                // 🔴 不再读 sheet 呈现态：打开后播放页本来就被列表盖住，
+                //    读它只会让按钮跟着高频状态发布重算。
+                .foregroundStyle(.white.opacity(0.85))
                 .frame(width: 44, height: 48)
                 .contentShape(Rectangle())
                 .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
@@ -2191,7 +2193,7 @@ private struct LyricsBottomBar: View {
 
                 // 右：播放列表
                 Button {
-                    store.isQueuePresented = true
+                    QueuePresentation.shared.present()
                     Haptics.light()
                 } label: {
                     Image(systemName: "list.bullet")

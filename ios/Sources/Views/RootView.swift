@@ -269,7 +269,11 @@ private struct MiniPlayerOverlay: View {
                 withAnimation(.easeInOut(duration: 0.2)) { sortSheetPresented = presented }
             }
         }
-        .queueSheet()
+        // 🔴 2026-11-13：这里原来还挂了一份 `.queueSheet()`，与播放页那份共用
+        //    同一个 isPresented → 一次点击驱动两个 sheet 同时 present。
+        //    iOS 27.0.1 上正是它造成「打开播放列表卡死 → 整页退回推荐页」。
+        //    全 App 只保留播放页（PlayerView）上的那一份；队列入口也全在播放页内，
+        //    迷你播放条层级不需要再弹一次。
     }
 }
 
