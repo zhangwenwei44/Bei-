@@ -88,6 +88,11 @@ private struct KugouProfileCard: View {
     // 🔴 v2.8.3：今日听歌统计（首数 + 时长），独立对象、低频发布，不会拖累主页面
     @ObservedObject private var today = TodayListenStats.shared
     @ObservedObject private var cardBackground = ProfileCardBackground.shared
+    // 🔴 2026-11-13：当前音频输出设备（蓝牙耳机图标 + 设备名）
+    @ObservedObject private var audioRoute = AudioRouteMonitor.shared
+
+    @State private var showDeviceRename = false
+    @State private var deviceNameDraft = ""
 
     var body: some View {
         // 🔴 2026-11-13：卡片右上角的齿轮设置按钮已移除，
@@ -110,7 +115,26 @@ private struct KugouProfileCard: View {
             }
         }
         .frame(maxWidth: .infinity)
+        // 🔴 改名弹窗挂在外层 Group（不要挂在 NavigationLink 的 label 里，iOS 15 上偶尔弹不出来）。
+        .alert("修改设备名称", isPresented: $showDeviceRename) {
+            TextField("设备名称", text: $deviceNameDraft)
+            Button("保存") { audioRoute.setDisplayName(deviceNameDraft) }
+            Button("恢复默认") { audioRoute.resetDisplayName() }
+            Button("取消", role: .cancel) { }
+        } message: {
+            Text("只改本机显示的名字，不会修改系统蓝牙设置。")
+        }
     }
+
+    // 🔴 2026-11-13：自定义背景图上深色文字会被图吃掉（用户实测昵称 / 统计都看不清）。
+    //    统一切成白字 + 深色压暗 + 文字投影；没换背景时保持原来的深色文字。
+    private var onImage: Bool { cardBackground.image != nil }
+    private var titleColor: Color { onImage ? .white : AppStyle.primaryText }
+    private var subtitleColor: Color { onImage ? Color.white.opacity(0.90) : AppStyle.secondaryText }
+    private var faintColor: Color { onImage ? Color.white.opacity(0.78) : AppStyle.tertiaryText }
+    private var iconColor: Color { onImage ? .white : AppStyle.accent }
+    private var chipFill: Color { onImage ? Color.black.opacity(0.32) : AppStyle.accent.opacity(0.12) }
+    private var chipText: Color { onImage ? .white : AppStyle.accent }
 
     private var cardLabel: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -134,8 +158,9 @@ private struct KugouProfileCard: View {
                     HStack(spacing: 6) {
                         Text(kugouAuth.isLoggedIn ? (kugouAuth.nickname.isEmpty ? kugouAuth.userId : kugouAuth.nickname) : "登录酷狗账号")
                             .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(AppStyle.primaryText)
+                            .foregroundStyle(titleColor)
                             .lineLimit(1)
+                            .modifier(CardTextShadow(onImage: onImage))
                         if kugouAuth.isVip {
                             Text("VIP")
                                 .font(.system(size: 9, weight: .bold))
@@ -146,17 +171,20 @@ private struct KugouProfileCard: View {
                     }
                     Text(kugouAuth.isLoggedIn ? "已登录酷狗 · 音乐随行" : "点这里扫码登录，同步酷狗歌单")
                         .font(.system(size: 11))
-                        .foregroundStyle(AppStyle.secondaryText)
+                        .foregroundStyle(subtitleColor)
+                        .modifier(CardTextShadow(onImage: onImage))
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(AppStyle.tertiaryText)
+                    .foregroundStyle(faintColor)
+                    .modifier(CardTextShadow(onImage: onImage))
             }
 
             // 🔴 v2.8.3：今日听歌统计 + 标签
             if kugouAuth.isLoggedIn {
                 Divider()
+                    .background(onImage ? Color.white.opacity(0.45) : Color.clear)
                 HStack(spacing: 12) {
                     statItem(icon: "music.note", value: "\(today.songs)", unit: "首")
                     statItem(icon: "clock", value: today.formattedDuration, unit: "")
@@ -180,7 +208,6 @@ private struct KugouProfileCard: View {
             ZStack {
                 LinearGradient(colors: [AppStyle.accent.opacity(0.18), AppStyle.accent.opacity(0.07)],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
-                // 🔴 2026-11-13：用户自定义背景图铺满卡片；压一层白纱保证深色文字可读。
                 if let bg = cardBackground.image {
                     GeometryReader { geo in
                         Image(uiImage: bg)
@@ -189,40 +216,95 @@ private struct KugouProfileCard: View {
                             .frame(width: geo.size.width, height: geo.size.height)
                             .clipped()
                     }
-                    Color.white.opacity(0.30)
+                    // 🔴 白纱 + 深色文字是死路（白纱压不住深色图、白字又看不清）。
+                    //    改成「上下深、中间浅」的暗色渐变 + 左侧再压一层，
+                    //    保证顶部昵称 / 底部统计的白字在任何照片上都读得出来。
+                    LinearGradient(colors: [Color.black.opacity(0.48),
+                                            Color.black.opacity(0.16),
+                                            Color.black.opacity(0.44)],
+                                   startPoint: .top, endPoint: .bottom)
+                    LinearGradient(colors: [Color.black.opacity(0.26), Color.clear],
+                                   startPoint: .leading, endPoint: .trailing)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(AppStyle.accent.opacity(0.15), lineWidth: 1)
+                .stroke(onImage ? Color.white.opacity(0.30) : AppStyle.accent.opacity(0.15), lineWidth: 1)
         )
+        // 🔴 蓝牙设备条放卡片右下角浮层：不挤占顶部内容、卡片尺寸也不变。
+        .overlay(alignment: .bottomTrailing) {
+            if audioRoute.isBluetoothConnected {
+                bluetoothChip
+                    .padding(.trailing, 14)
+                    .padding(.bottom, 12)
+            }
+        }
         .contentShape(Rectangle())
+    }
+
+    /// 蓝牙耳机图标 + 设备名 + 改名入口（点一下弹输入框）。
+    private var bluetoothChip: some View {
+        HStack(spacing: 5) {
+            BluetoothGlyph()
+                .stroke(iconColor,
+                        style: StrokeStyle(lineWidth: 1.7, lineCap: .round, lineJoin: .round))
+                .frame(width: 11, height: 15)
+            Text(audioRoute.deviceName)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(chipText)
+                .lineLimit(1)
+            Image(systemName: "pencil")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(chipText.opacity(0.85))
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(chipFill, in: Capsule())
+        .modifier(CardTextShadow(onImage: onImage))
+        .contentShape(Capsule())
+        // 🔴 整张卡片是 NavigationLink / Button 的 label，嵌套 Button 会和外链抢点击。
+        //    这里用高优先级手势，只让「改名」生效，不会顺带 push 账号中心。
+        .highPriorityGesture(TapGesture().onEnded {
+            deviceNameDraft = audioRoute.deviceName
+            showDeviceRename = true
+        })
     }
 
     private func statItem(icon: String, value: String, unit: String) -> some View {
         HStack(spacing: 4) {
             Image(systemName: icon)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(AppStyle.accent)
+                .foregroundStyle(iconColor)
             Text(value)
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(AppStyle.primaryText)
+                .foregroundStyle(titleColor)
             if !unit.isEmpty {
                 Text(unit)
                     .font(.system(size: 11))
-                    .foregroundStyle(AppStyle.secondaryText)
+                    .foregroundStyle(subtitleColor)
             }
         }
+        .modifier(CardTextShadow(onImage: onImage))
     }
 
     private func tagChip(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(AppStyle.accent)
+            .foregroundStyle(chipText)
             .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(AppStyle.accent.opacity(0.12), in: Capsule())
+            .background(chipFill, in: Capsule())
+            .modifier(CardTextShadow(onImage: onImage))
+    }
+}
+
+/// 自定义背景图上的白字投影（没换图时完全不加，保持原来的清爽观感）。
+private struct CardTextShadow: ViewModifier {
+    let onImage: Bool
+    func body(content: Content) -> some View {
+        content.shadow(color: onImage ? Color.black.opacity(0.75) : Color.clear,
+                       radius: onImage ? 2 : 0, x: 0, y: 1)
     }
 }
 

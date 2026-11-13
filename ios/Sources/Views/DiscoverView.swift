@@ -293,7 +293,7 @@ struct DiscoverView: View {
             Spacer(minLength: 0)
 
             VStack(spacing: 2) {
-                // 🔴 v2.9.13：管理员标识移到「名字」上方（kugouAvatar 内部），这里不再单独渲染
+                // 🔴 2026-11-13：登录态标识（绿点 + 已连接）放在名字上方（kugouAvatar 内部）
                 kugouAvatar
             }
             .padding(.trailing, 12)
@@ -301,10 +301,18 @@ struct DiscoverView: View {
         .frame(height: 40)
     }
 
-    /// 🔴 v2.9.13：管理员（已登录云账号）标识 —— 只有文字，无胶囊背景。
+    /// 🔴 2026-11-13：酷狗账号登录后，名字上方显示「● 已连接」（绿点带发光呼吸）；
+    ///    未登录但登录了云账号时保留原来的「管理员」文字标识。
     @ViewBuilder
-    private var adminBadge: some View {
-        if cloud.isSignedIn {
+    private var accountStatusBadge: some View {
+        if kugouAuth.isLoggedIn {
+            HStack(spacing: 3) {
+                BreathingStatusDot(size: 5)
+                Text("已连接")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.13, green: 0.58, blue: 0.30))
+            }
+        } else if cloud.isSignedIn {
             Text("管理员")
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(AppStyle.accent)
@@ -322,9 +330,9 @@ struct DiscoverView: View {
                                fallbackKeys: ["kg-user:\(kugouAuth.userId)"],
                                seed: kugouAuth.nickname,
                                size: 30, corner: 8)  // 🔴 v2.8.4 头像改方形
-                    // 🔴 v2.9.13：管理员标识显示在「名字」上方
+                    // 🔴 2026-11-13：登录态显示在「名字」上方（绿点 + 已连接）
                     VStack(alignment: .leading, spacing: 1) {
-                        adminBadge
+                        accountStatusBadge
                         Text(kugouAuth.nickname.isEmpty ? "酷狗" : kugouAuth.nickname)
                             .font(.system(size: 13, weight: .medium))  // 12→13
                             .foregroundStyle(AppStyle.secondaryText)
@@ -341,7 +349,7 @@ struct DiscoverView: View {
                     // 酷狗品牌登录图标（绿圆白话筒），替代通用 SF Symbol
                     KugouLogoIcon(size: 22)
                     VStack(alignment: .leading, spacing: 1) {
-                        adminBadge
+                        accountStatusBadge
                         Text("登录")
                             .font(.system(size: 13, weight: .medium))  // 12→13
                             .foregroundStyle(AppStyle.secondaryText)
@@ -1118,25 +1126,41 @@ struct DiscoverView: View {
         }
     }
 
-    // MARK: 🔴 v2.9.9 榜单推荐（横向滑动卡片）
-
-    /// 「榜单推荐」板块：横向滑动的榜单卡片（榜名 + 更新信息 + 白色圆形播放键 + 3 首排名封面 + 爱心）。
+    // MARK: 🔴 2026-11-13 榜单推荐（改成与「每日推荐」一致的单行横滑封面卡）
+    //
+    // 原来是一列 4 张「大卡」：整张专辑图铺底 + 榜名 + 3 首带排名的小封面，
+    // 和上面的每日推荐（108pt 方形封面 + 名字 + 副标题，横滑一排）不是一套视觉。
+    // 现在统一成 slideSongCard 同款版式；点卡片进榜单详情，
+    // 原来大卡上的播放键 / 前 3 首在详情页里都有，功能不丢。
     private var rankRecommendSection: some View {
         let lists = recommendRankLists
         return VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("榜单推荐") { EmptyView() }
+            sectionHeader("榜单推荐") {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { selectedTab = .ranks }
+                } label: {
+                    HStack(spacing: 2) {
+                        Text("更多").font(.system(size: 12))
+                        Image(systemName: "chevron.right").font(.system(size: 10))
+                    }
+                    .foregroundStyle(AppStyle.tertiaryText)
+                }
+                .buttonStyle(.plain)
+            }
 
             if lists.isEmpty {
                 // 🔴 2026-11-10：加载菊花 → 按真实卡片版式摆灰色占位块 + 匀速扫光。
                 SlideCardsSkeleton()
             } else {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(lists, id: \.playlist.id) { item in
-                        rankSlideCard(playlist: item.playlist, displayName: item.displayName)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 12) {
+                        ForEach(lists, id: \.playlist.id) { item in
+                            rankStyleCard(playlist: item.playlist, displayName: item.displayName)
+                        }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 2)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 2)
             }
         }
         // 这 4 个榜的前 3 首预览要单独拉 —— 榜单 Tab 的预拉取只在切到那个 Tab 时才跑。
@@ -1145,152 +1169,36 @@ struct DiscoverView: View {
         }
     }
 
-    /// 🔴 2026-11-11：卡片背景固定用该榜第 1 首歌（与标题图标 / 第 1 行小封面同源）。
-    private func rankBackgroundSong(_ songs: [Song]) -> Song? {
-        songs.first
-    }
-
-    /// 单张榜单横滑卡片（图 5 样式）：榜名 + 更新信息 + 白色圆形播放键 + 3 首带排名角标的封面 + 爱心。
-    private func rankSlideCard(playlist: Playlist, displayName: String) -> some View {
+    /// 与「每日推荐」的 slideSongCard 完全同款：108pt 方形封面 + 名字 + 副标题。
+    /// 封面优先取该榜第 1 首歌的专辑图（榜单自带封面常常是纯色文字块）。
+    private func rankStyleCard(playlist: Playlist, displayName: String) -> some View {
         let songs = rankPreviewSongs[playlist.kugouRankID ?? ""] ?? []
-        // 🔴 2026-11-10：榜单接口常回传 trackCount=0，UI 上会出现「· 0 首」；
-        //    有预览歌曲时优先用实际拿到的首数。
+        let first = songs.first
         let trackCount = playlist.trackCount > 0 ? playlist.trackCount : songs.count
-        return VStack(alignment: .leading, spacing: 10) {
-            // 顶部：榜名 + 更新信息（左）｜白色圆形播放键（右，播前 3 首）
-            HStack(spacing: 10) {
-                // 🔴 2026-11-09：标题图标与下面歌曲封面左边缘对齐。
-                //    歌曲行是「序号(width 22) + spacing 10 + 封面」，所以这里补 32pt 占位，
-                //    标题图标 / 标题文字正好落在封面 / 歌名的同一竖线上。
-                Color.clear.frame(width: 22, height: 1)
-                // 🔴 2026-11-11 修复「榜单标题图标还是一块紫底白字」：
-                //    原来 `songs.first?.artworkURL ?? playlist.coverURL` 在首曲封面为空时
-                //    回退到榜单自带的纯色文字块，fallbackKeys 里还塞了 playlist.id，
-                //    CoverResolver 又把它解析成同一张文字块 → 永远显示不出真封面。
-                //    现在与第 1 行小封面**完全同参数**（url + fallbackKeys + seed），
-                //    由 CoverResolver 反查真实专辑图；预览未到时只短暂显示占位音符。
-                CoverImage(url: songs.first?.artworkURL,
-                           fallbackKeys: songs.first?.coverFallbackKeys ?? [],
-                           seed: songs.first.map { "\($0.artist)-\($0.title)" } ?? displayName,
-                           size: 44, corner: 6)
-                    .frame(width: 44, height: 44)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(displayName)
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(AppStyle.primaryText)
-                        .lineLimit(1)
-                    Text(trackCount > 0
-                         ? "\(rankFrequencyText(playlist.updateFrequency)) · \(trackCount) 首"
-                         : rankFrequencyText(playlist.updateFrequency))
-                        .font(.system(size: 11))
-                        .foregroundStyle(AppStyle.tertiaryText)
-                }
-                Spacer(minLength: 0)
-                // 白色圆形播放键：点一下播放该榜单前 3 首
-                Button {
-                    guard !songs.isEmpty else { return }
-                    store.queueID = playlist.id
-                    store.play(songs, startAt: 0)
-                    Haptics.soft()
-                } label: {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(AppStyle.accent)
-                        .frame(width: 34, height: 34)
-                        .background(Circle().fill(Color.white))
-                        .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
-                }
-                .buttonStyle(.plain)
-                // 右侧箭头进榜单详情
-                NavigationLink {
-                    PlaylistDetailView(playlist: playlist)
-                } label: {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(AppStyle.tertiaryText)
-                        .frame(width: 28, height: 34)
-                }
-                .buttonStyle(.plain)
+        let subtitle = trackCount > 0
+            ? "\(rankFrequencyText(playlist.updateFrequency)) · \(trackCount) 首"
+            : rankFrequencyText(playlist.updateFrequency)
+        return NavigationLink {
+            PlaylistDetailView(playlist: playlist)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                CoverImage(url: first?.artworkURL ?? playlist.coverURL,
+                           fallbackKeys: first?.coverFallbackKeys ?? [],
+                           seed: first.map { "\($0.artist)-\($0.title)" } ?? displayName,
+                           size: 108, corner: 10)
+                Text(displayName)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(AppStyle.primaryText)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppStyle.tertiaryText)
+                    .lineLimit(1)
             }
-
-            // 3 首带排名角标的封面 + 歌名/歌手 + 爱心（每行之间加分隔线，更精致）
-            VStack(spacing: 0) {
-                ForEach(Array(songs.prefix(3).enumerated()), id: \.element.id) { index, song in
-                    if index > 0 {
-                        Divider().padding(.leading, 76).padding(.vertical, 2)
-                    }
-                    HStack(spacing: 10) {
-                        // 🔴 v2.9.18：排名数字移到最前面、去掉蓝色圆圈背景、字号加大
-                        Text("\(index + 1)")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(AppStyle.tertiaryText)
-                            .frame(width: 22, alignment: .center)
-                        CoverImage(url: song.artworkURL,
-                                   fallbackKeys: song.coverFallbackKeys,
-                                   seed: "\(song.artist)-\(song.title)",
-                                   size: 44, corner: 6)
-                            .frame(width: 44, height: 44)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(song.title)
-                                .font(.system(size: 13))
-                                .foregroundStyle(AppStyle.primaryText)
-                                .lineLimit(1)
-                            Text(song.artist)
-                                .font(.system(size: 11))
-                                .foregroundStyle(AppStyle.tertiaryText)
-                                .lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Button {
-                            _ = library.toggleFavorite(song); Haptics.light()
-                        } label: {
-                            Image(systemName: library.isFavorite(song) ? "heart.fill" : "heart")
-                                .font(.system(size: 15))
-                                .foregroundStyle(library.isFavorite(song) ? AppStyle.like : AppStyle.tertiaryText)
-                                .frame(width: 32, height: 32)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.vertical, 4)
-                }
-            }
+            .frame(width: 108)
+            .contentShape(Rectangle())
         }
-        .padding(12)
-        .frame(maxWidth: .infinity)
-        // 🔴 2026-11-11 第二轮：用户反馈「榜单推荐的图片还是显示不出来」——
-        //    实测图片其实已经下载成功，但 blur(6) 在 3x 屏上等效 18px 模糊，
-        //    再叠一层白纱，整张卡看起来就是「灰色毛玻璃」，用户自然认为图没出来。
-        //    现在彻底去掉 blur，封面清晰铺满；白纱只压左侧文字区（0.80 → 0.28），
-        //    右侧封面一眼可辨，深色歌名仍可读。
-        .background {
-            ZStack {
-                AppStyle.surface
-                if let bg = rankBackgroundSong(songs) {
-                    GeometryReader { geo in
-                        CoverImage(url: bg.artworkURL,
-                                   fallbackKeys: bg.coverFallbackKeys,
-                                   seed: "\(bg.artist)-\(bg.title)",
-                                   // 铺满整卡，解码 960px 足够清晰；与小封面同源，缓存必命中。
-                                   size: 320,
-                                   displayWidth: geo.size.width,
-                                   displayHeight: geo.size.height,
-                                   contentMode: .fill)
-                            .clipped()
-                            .opacity(0.95)
-                    }
-                    .clipped()
-                    // 只给左侧文字留白底：左 0.80 保证深色榜名/歌名可读，
-                    // 右侧 0.28 让封面细节完整透出来。
-                    LinearGradient(colors: [Color.white.opacity(0.80),
-                                            Color.white.opacity(0.28)],
-                                   startPoint: .leading, endPoint: .trailing)
-                }
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(AppStyle.stroke.opacity(0.6), lineWidth: 0.5))
+        .buttonStyle(.plain)
     }
 
     // MARK: 🔴 v2.9.8 经典推荐 / DJ推荐 —— 改成和新歌推荐一致的「单行横滑卡片」
