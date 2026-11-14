@@ -269,7 +269,8 @@ struct SearchView: View {
                         }
 
                         Divider()
-                            .padding(.leading, 60)
+                            .padding(.leading, 78)
+                            .padding(.trailing, 28)
                     }
                     // 底部加载指示器
                     HStack {

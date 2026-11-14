@@ -328,6 +328,8 @@ struct DiscoverView: View {
                                seed: kugouAuth.nickname,
                                size: 30, corner: 8)  // 🔴 v2.8.4 头像改方形
                     // 🔴 2026-11-13：登录态显示在「名字」上方（绿点 + 已连接）
+                    // 🔴 2026-11-15：整块固定宽度 78pt —— 昵称长短变化不该把
+                    //    右侧这一块（连同绿点）在 Spacer 上推来推去。
                     VStack(alignment: .leading, spacing: 1) {
                         accountStatusBadge
                         Text(kugouAuth.nickname.isEmpty ? "酷狗" : kugouAuth.nickname)
@@ -335,6 +337,7 @@ struct DiscoverView: View {
                             .foregroundStyle(AppStyle.secondaryText)
                             .lineLimit(1)
                     }
+                    .frame(width: 78, alignment: .leading)
                 }
             }
             .buttonStyle(.plain)
@@ -1320,14 +1323,13 @@ struct DiscoverView: View {
                                                    seed: artist.name,
                                                    size: 60,
                                                    corner: 30)
-                                            .overlay(alignment: .bottomTrailing) {
+                                            .overlay {
+                                                // 🔴 2026-11-15：蓝色圆点角标 → 与播放队列一致的播放动效。
                                                 if playingArtistID == artist.id {
-                                                    PlayingBarsIndicator(isPlaying: store.isPlaying)
-                                                        .padding(3)
-                                                        .background(AppStyle.accent, in: Circle())
-                                                        .offset(x: 3, y: 3)
+                                                    NowPlayingCoverBars(isPlaying: store.isPlaying, dim: 0.32)
                                                 }
                                             }
+                                            .clipShape(Circle())
                                         Text(artist.name)
                                             .font(.system(size: 11))
                                             .foregroundStyle(AppStyle.primaryText)
@@ -2766,13 +2768,15 @@ private struct SourceStatusBadge: View {
         HStack(spacing: 3) {
             // 🔴 发光圈改小：圆点 4pt、光晕 2.2 倍、blur 1.8（见 BreathingStatusDot）。
             BreathingStatusDot(size: 4, color: dotColor)
+                .frame(width: 7, height: 7)
             Text(isRed ? "未连接" : "已连接")
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(textColor)
+                .frame(width: 30, alignment: .leading)
         }
-        // 🔴 2026-11-14 第十二轮：音源健康状态轮询会频繁重算这一小块，
-        //    若宽度随文字/状态变化，右侧整块（含绿点）会被 Spacer 推得左右飘。
-        //    固定宽度 + 呼吸只动 opacity（见 BreathingStatusDot），位置彻底锁死。
+        // 🔴 2026-11-15：绿点 / 文字 / 整块都固定宽度，且禁用状态切换的隐式动画；
+        //    音源健康轮询再频繁刷新，绿点也不会被 Spacer 推得左右飘。
         .frame(width: 46, alignment: .leading)
+        .animation(nil, value: isRed)
     }
 }

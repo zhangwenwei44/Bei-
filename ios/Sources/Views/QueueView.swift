@@ -213,7 +213,7 @@ struct QueueView: View {
                     ForEach(entries) { entry in
                         queueRow(entry)
                             .id(entry.id)
-                        Divider().padding(.leading, 78)
+                        Divider().padding(.leading, 78).padding(.trailing, 28)
                     }
                 }
             }
@@ -266,8 +266,8 @@ struct QueueView: View {
                                seed: entry.song.title,
                                size: 52, corner: 5)
                     if current && snapshot.isPlaying {
-                        Color.black.opacity(0.26)
-                        NowPlayingBars()
+                        // 🔴 2026-11-15：抽成全 App 共用组件，其它歌曲列表现在也是这一套动效。
+                        NowPlayingCoverBars()
                     }
                 }
                 .frame(width: 52, height: 52)
@@ -367,7 +367,7 @@ struct QueueView: View {
                                 store.play(songs, startAt: item.index)
                                 dismiss()
                             }
-                            Divider().padding(.leading, 78)
+                            Divider().padding(.leading, 78).padding(.trailing, 28)
                         }
                     }
                 }
@@ -457,7 +457,7 @@ struct QueueView: View {
                                 store.play(item.songs, startAt: 0)
                                 dismiss()
                             }
-                            Divider().padding(.leading, 78)
+                            Divider().padding(.leading, 78).padding(.trailing, 28)
                         }
                     }
                 }
@@ -549,22 +549,5 @@ struct QueueView: View {
     }
 }
 
-/// 当前播放歌曲封面上的三根跳动音量柱（对齐酷狗截图的播放中标识）。
-private struct NowPlayingBars: View {
-    @State private var animate = false
-
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(0..<3, id: \.self) { i in
-                Capsule()
-                    .fill(Color.white)
-                    .frame(width: 2.5, height: animate ? 13 : 6)
-                    .animation(.easeInOut(duration: 0.48)
-                        .repeatForever(autoreverses: true)
-                        .delay(Double(i) * 0.14),
-                               value: animate)
-            }
-        }
-        .onAppear { animate = true }
-    }
-}
+/// 🔴 2026-11-15：队列的播放动效已抽到 Components.swift 的 `NowPlayingCoverBars`，
+///    歌单 / 歌手 / 下载 / 搜索等所有歌曲列表共用同一套视觉（不再有蓝色圆点角标）。

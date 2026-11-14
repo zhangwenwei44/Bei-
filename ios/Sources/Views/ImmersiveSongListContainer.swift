@@ -100,6 +100,10 @@ final class ImmersiveHeaderState: ObservableObject {
 
     /// 静止时「滚动内容 y=0」在 window 里的 y（探针直量，归一化后应为 0）。
     @Published var contentOriginYRest: CGFloat = 0
+    /// 🔴 2026-11-15：内容原点只在入页后的短时间内允许收敛，之后锁死。
+    ///    旧版每次回到列表顶部（scrolled<1）都重新实测，探针值 ±1~2pt 的抖动会
+    ///    反复改写 `listPlaceholder` → 整张列表上下跳几下（用户实机反馈）。
+    private var originSettleDeadline: TimeInterval = 0
     /// 吸顶头实测高度（PreferenceKey 写入）。
     @Published var stickyHeight: CGFloat = 74
 
@@ -161,7 +165,13 @@ final class ImmersiveHeaderState: ObservableObject {
     func apply(_ m: ImmersiveMetrics) {
         if m.scrolled < 1 {
             let measured = (m.contentOriginYRest * 2).rounded() / 2
-            if abs(contentOriginYRest - measured) >= 2 {
+            let now = Date.timeIntervalSinceReferenceDate
+            if originSettleDeadline == 0 { originSettleDeadline = now + 0.8 }
+            // 入页 0.8s 内让首帧 / 0.15s / 0.5s 三次补测收敛到准确值；
+            // 之后只有安全区、旋转这类大变化才允许改写，顶部回弹再也不会顶动列表。
+            let settling = now < originSettleDeadline
+            if (settling && abs(contentOriginYRest - measured) >= 2)
+                || abs(contentOriginYRest - measured) > 12 {
                 contentOriginYRest = measured
             }
         }
@@ -173,7 +183,12 @@ final class ImmersiveHeaderState: ObservableObject {
         if abs(navFrostOpacity - step) > 0.001 { navFrostOpacity = step }
 
         // 字母条只在跨过阈值那一次写 @Published，滚动全程零刷新。
-        let expanded = q >= maxDrag * 0.9
+        // 🔴 2026-11-15：加滞回（进 0.92 / 出 0.78）——旧版单一阈值在
+        //    scrolled 量化到 0.5pt 后会在临界点反复横跳，导致字母条/滑动条
+        //    浮层反复重建、列表视觉层跟着抖几下。
+        let enter = maxDrag * 0.92
+        let exit = maxDrag * 0.78
+        let expanded = letterIndexMode.expanded ? (q >= exit) : (q >= enter)
         if letterIndexMode.expanded != expanded { letterIndexMode.expanded = expanded }
 
         // 🔴 2026-11-13：蓝圆跟随「当前吸顶头下方第一行」的首字母。
@@ -722,6 +737,11 @@ private struct ImmersiveScrollTracker: UIViewRepresentable {
                 //    safeArea 变大导致的基准下移发生在静止时，仍允许同步。
                 if offsetY < base,
                    !sv.isDragging, !sv.isDecelerating,
+                   // 🔴 2026-11-15：排除「顶部下拉回弹区」。
+                   //    回弹时 contentOffset 会比 -adjustedContentInset.top 更负，
+                   //    旧版把它当成新的静止基准，松手回到原位后 scrolled 突然变正
+                   //    几十 pt → 大图/吸顶头猛地一跳（滑到顶部抖几下）。
+                   offsetY >= -sv.adjustedContentInset.top - 1,
                    base - offsetY < 40 {
                     restOffsetY = offsetY
                 }

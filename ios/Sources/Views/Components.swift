@@ -1293,6 +1293,40 @@ struct PlayingBarsIndicator: View {
     }
 }
 
+/// 🔴 2026-11-15：全 App 统一的「正在播放」封面标识 —— 与播放队列列表一致：
+///    半透明黑色蒙层盖住整张封面 + 中间三根白色跳动音量柱。
+///    旧版是封面右下角一个「蓝色圆底 + 白柱」的小角标，用户要求全部改成队列这种。
+///    暂停时柱子收拢静止（仍保留标识），播放时错相位跳动。
+struct NowPlayingCoverBars: View {
+    var isPlaying: Bool = true
+    /// 蒙层深度（队列/列表默认 0.26，歌手圆头像可略浅）。
+    var dim: CGFloat = 0.26
+    @State private var animate = false
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(dim)
+            HStack(spacing: 2) {
+                ForEach(0..<3, id: \.self) { i in
+                    Capsule()
+                        .fill(Color.white)
+                        .frame(width: 2.5, height: (isPlaying && animate) ? 13 : 6)
+                        .animation(
+                            isPlaying
+                                ? .easeInOut(duration: 0.48)
+                                    .repeatForever(autoreverses: true)
+                                    .delay(Double(i) * 0.14)
+                                : .easeOut(duration: 0.18),
+                            value: animate)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .onAppear { animate = isPlaying }
+        .onChange(of: isPlaying) { playing in animate = playing }
+    }
+}
+
 // MARK: - 歌曲行
 
 /// 统一 VIP 标签：默认白字 + 淡白半透明底（小圆角、无图标、无边框）。
@@ -1413,16 +1447,14 @@ struct SongRow: View {
                            fallbackKeys: song.coverFallbackKeys,
                            seed: "\(song.artist)-\(song.title)",
                            size: 50)
-                .overlay(alignment: .bottomTrailing) {
-                    // 只有「当前播放的这首歌」才显示角标；其余歌曲一律不显示。
-                    // 播放时声波跳动，暂停时收拢静止（仍保留标识，表示这是当前曲）。
+                .overlay {
+                    // 🔴 2026-11-15：蓝色圆点角标 → 与播放队列一致的「整张封面压暗 + 白色三柱」。
+                    //    只有当前播放的这首歌显示；暂停时柱子静止、仍保留标识。
                     if isCurrent {
-                        PlayingBarsIndicator(isPlaying: isPlaying)
-                            .padding(4)
-                            .background(AppStyle.accent, in: Circle())
-                            .offset(x: 4, y: 4)
+                        NowPlayingCoverBars(isPlaying: isPlaying)
                     }
                 }
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
 
             VStack(alignment: .leading, spacing: 4) {

@@ -49,7 +49,7 @@ struct SongListView: View {
                                     onPlay: { play(song) })
                                 .equatable()
                                 .songMenu(song)
-                                Divider().padding(.leading, 74)
+                                Divider().padding(.leading, 80).padding(.trailing, 28)
                         }
                     }
                     .padding(.horizontal, 16)

@@ -295,20 +295,20 @@ private struct KugouProfileCard: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                     if activated {
+                        // 🔴 2026-11-15：换成用户给的「豪华 VIP」金色钻石图（透明底），
+                        //    高度 10→12pt，小字才看得清；1x/2x/3x 按 12pt 重新导出。
                         Image("VipBadge")
                             .resizable()
                             .scaledToFit()
-                            .frame(height: 10)
+                            .frame(height: 12)
                             .accessibilityLabel("VIP")
                     }
                 }
-                HStack(spacing: 4) {
-                    Circle().fill(dot).frame(width: 5, height: 5)
-                    Text(activated ? "已激活 · 永久" : "未激活")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(titleColor)
-                        .lineLimit(1)
-                }
+                // 🔴 2026-11-15：用户要求「已激活前面的绿色圆点不要」，只留文字。
+                Text(activated ? "已激活 · 永久" : "未激活")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(titleColor)
+                    .lineLimit(1)
             }
         }
         .modifier(CardTextShadow(onImage: onImage))
@@ -421,15 +421,13 @@ private struct DownloadsList: View {
                                    fallbackKeys: song.coverFallbackKeys,
                                    seed: "\(song.artist)-\(song.title)",
                                    size: 56)
-                        // 🔴 当前播放的歌显示与其他列表一致的动态声波（PlayingBarsIndicator）
-                        .overlay(alignment: .bottomTrailing) {
+                        // 🔴 2026-11-15：与播放队列一致的「封面压暗 + 白色三柱」播放动效。
+                        .overlay {
                             if store.current?.id == song.id {
-                                PlayingBarsIndicator(isPlaying: store.isPlaying)
-                                    .padding(3)
-                                    .background(AppStyle.accent, in: Circle())
-                                    .offset(x: 3, y: 3)
+                                NowPlayingCoverBars(isPlaying: store.isPlaying)
                             }
                         }
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         VStack(alignment: .leading, spacing: 5) {
                             HStack(spacing: 6) {
                                 Text(song.cleanTitle)
@@ -1374,10 +1372,13 @@ struct KugouPlaylistDetail: View {
                         }
                     }
                     if index < displaySongs.count - 1 {
-                        // 🔴 2026-11-14 第十三轮：用户要求分隔线往左移。
-                        //    原来 16+48+12+44=120pt（按多选态算）起点太靠右，
-                        //    改成与列表左边缘齐平（16pt），不再从歌名中间才起线。
-                        Divider().padding(.leading, 16)
+                        // 🔴 2026-11-15：用户要求「下划线改短一点，歌曲图片下面不要、
+                        //    滑动条那里也不要」。上一轮从 120pt 直接改到 16pt（从封面下穿过、
+                        //    一直顶到右侧索引条）过头了；现在起点回到封面右沿
+                        //    （16 + 50 封面 + 14 间距 = 80），右侧留 28pt 给灰条/字母条。
+                        Divider()
+                            .padding(.leading, 80)
+                            .padding(.trailing, 28)
                     }
                 }
                 // 🔴 底部留白：让最后一首歌能滚到迷你播放条上方（与其它沉浸式列表一致）。
@@ -1410,11 +1411,20 @@ struct KugouPlaylistDetail: View {
     /// 缓存有效期：超过这个时间，下次进入时旧数据先显示、再在后台静默刷新
     private static let cacheTTL: TimeInterval = 300
 
+    /// 🔴 2026-11-15：酷狗「默认收藏」歌单里的歌本来就是已收藏，本地收藏表却可能没有它们，
+    ///    于是每行红心显示灰色空心（用户反馈「红心不同步、不是红色」）。
+    ///    按「账号 + 歌单」只并入一次，所有列表的红心状态立刻一致。
+    private static func syncDefaultFavorites(_ songs: [Song], name: String) {
+        guard name == "默认收藏", !songs.isEmpty else { return }
+        LibraryStore.shared.mergeFavorites(songs)
+    }
+
     private func load() async {
         let cached = Self.detailCache[listid] ?? []
         if !cached.isEmpty {
             songs = cached
             isLoading = false
+            Self.syncDefaultFavorites(cached, name: name)
             // 缓存还新鲜 → 直接用，完全不重新加载
             if let at = Self.cacheTime[listid], Date().timeIntervalSince(at) < Self.cacheTTL { return }
         } else {
@@ -1437,6 +1447,10 @@ struct KugouPlaylistDetail: View {
             songs = ordered
             Self.detailCache[listid] = ordered
             Self.cacheTime[listid] = Date()
+            // 🔴 2026-11-15：默认收藏是云端收藏歌单，歌曲并入本地收藏，红心才会同步变红。
+            await MainActor.run {
+                Self.syncDefaultFavorites(ordered, name: name)
+            }
             // 🔴 v2.8.1/v2.8.2：歌手/封面在后台补齐，`onBatch` 逐批随到随填。
             // 🔴 2026-11-09：大歌单（「我喜欢」576 首）每批都整体替换 songs 会让主线程
             //    在整个补齐期间被反复打断（一次 diff 576 行），滚动明显卡顿。

@@ -642,7 +642,9 @@ struct ArtistDetailView: View {
                                 Task { await loadMoreSongs() }
                             }
                         }
-                        Divider().padding(.leading, isSelecting ? 56 : 60)
+                        Divider()
+                            .padding(.leading, isSelecting ? 100 : 80)
+                            .padding(.trailing, 28)
                     }
                     HStack {
                         Spacer()

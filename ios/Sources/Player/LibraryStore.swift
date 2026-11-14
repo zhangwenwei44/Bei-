@@ -18,7 +18,15 @@ enum DownloadState: Equatable {
 final class LibraryStore: ObservableObject {
     static let shared = LibraryStore()
 
-    @Published private(set) var favorites: [Song] = []
+    @Published private(set) var favorites: [Song] = [] {
+        didSet { favoriteIDs = Set(favorites.map(\.id)) }
+    }
+    /// 🔴 2026-11-15：收藏判定改成 O(1)。默认收藏歌单 569 首全部并入本地后，
+    ///    每行 SongRow 再做 `favorites.contains { }` 就是 569×569 次线性扫描（上滑掉帧）。
+    private var favoriteIDs: Set<String> = []
+    /// 🔴 2026-11-15：用户主动取消收藏的歌。云端「默认收藏」里可能仍有它们，
+    ///    每次同步时不能又加回来，否则红心「取消不掉」。按账号持久化，集合很小。
+    private var excludedFavoriteIDs: Set<String> = []
     @Published private(set) var downloads: [Song] = []
     @Published private(set) var localSongs: [Song] = []
     @Published private(set) var playlists: [UserPlaylist] = []
@@ -98,6 +106,7 @@ final class LibraryStore: ObservableObject {
 
     private func reload() {
         favorites = Self.load([Song].self, key: key("favorites")) ?? []
+        excludedFavoriteIDs = Set(Self.load([String].self, key: key("favExcluded")) ?? [])
         downloads = Self.load([Song].self, key: key("downloads")) ?? []
         localSongs = Self.load([Song].self, key: key("local")) ?? []
         history = Self.load([Song].self, key: key("history")) ?? []
@@ -138,17 +147,47 @@ final class LibraryStore: ObservableObject {
     // MARK: 收藏
 
     func isFavorite(_ song: Song) -> Bool {
-        favorites.contains { $0.id == song.id }
+        // didSet 未覆盖到的老路径（例如直接改持久化后 reload 前）兜底重建一次。
+        if favoriteIDs.isEmpty, !favorites.isEmpty {
+            favoriteIDs = Set(favorites.map(\.id))
+        }
+        return favoriteIDs.contains(song.id)
+    }
+
+    /// 🔴 2026-11-15：酷狗云歌单「默认收藏」与本地收藏状态同步。
+    ///
+    ///    之前云端默认收藏（截图里 569 首）与本地 `favorites` 是两套互不相干的数据，
+    ///    进歌单页看每行红心都是灰色空心 —— 明明已经是收藏的歌却显示未收藏。
+    ///    这里把歌单里的歌**一次性**并入本地收藏（去重、只增不减），于是歌单页、
+    ///    播放队列、搜索结果里同一首歌的红心都会跟着变成红色实心，点击取消也能立刻变灰。
+    ///    ⚠️ 必须做成**幂等增量**合并：详情页先显示缓存（可能只有几十首），
+    ///    随后网络拿到完整 569 首，两次都要能补进来；若第一次就写「已同步」标记，
+    ///    后面那批歌的红心就永远是灰的。用户主动取消过的歌由 excludedFavoriteIDs 挡住。
+    func mergeFavorites(_ songs: [Song]) {
+        var ids = favoriteIDs
+        if ids.isEmpty { ids = Set(favorites.map(\.id)) }
+        var added: [Song] = []
+        for song in songs where !excludedFavoriteIDs.contains(song.id) {
+            if ids.insert(song.id).inserted { added.append(song) }
+        }
+        guard !added.isEmpty else { return }
+        favorites = added + favorites
+        persist(favorites, key: key("favorites"))
+        remember(added)
     }
 
     @discardableResult
     func toggleFavorite(_ song: Song) -> Bool {
         if let index = favorites.firstIndex(where: { $0.id == song.id }) {
             favorites.remove(at: index)
+            excludedFavoriteIDs.insert(song.id)
+            persist(Array(excludedFavoriteIDs), key: key("favExcluded"))
             persist(favorites, key: key("favorites"))
             return false
         }
         favorites.insert(song, at: 0)
+        excludedFavoriteIDs.remove(song.id)
+        persist(Array(excludedFavoriteIDs), key: key("favExcluded"))
         persist(favorites, key: key("favorites"))
         remember(song)
         // 🔴 v2.7.7：收藏自动同步到酷狗「默认收藏」歌单（fire-and-forget）

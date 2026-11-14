@@ -389,6 +389,11 @@ final class PlaylistScrollSliderView: UIView {
     private let thumbWidth: CGFloat = 3
     private let minThumbHeight: CGFloat = 32
     private let edgeY: CGFloat = 6
+    /// 🔴 2026-11-15：SwiftUI LazyVStack 的 contentSize 在滚动/懒加载时会反复重估
+    ///    （同一位置先报一个短高度、几帧后又变长），旧版每次都拿实时值算 progress，
+    ///    灰条就会「一下跳到上面、一下又在中间」。这里用「只增、明显变少才重置」
+    ///    的稳定内容高度，拖动与松手也共用同一基准。
+    private var stableContentHeight: CGFloat = 0
 
     private static let gray = UIColor(white: 0.55, alpha: 0.9)
 
@@ -485,6 +490,7 @@ final class PlaylistScrollSliderView: UIView {
             offsetObservation?.invalidate()
             sizeObservation?.invalidate()
             scrollView = sv
+            stableContentHeight = 0   // 换了列表（切歌单 / 排序）重新建立稳定基准
             offsetObservation = sv.observe(\.contentOffset, options: [.initial, .new]) { [weak self] sv, _ in
                 self?.handleScroll(sv.contentOffset.y)
             }
@@ -503,12 +509,20 @@ final class PlaylistScrollSliderView: UIView {
             return (0, 1, 0, min(usable, minThumbHeight), usable)
         }
         let ins = sv.adjustedContentInset
+        let raw = sv.contentSize.height
+        if stableContentHeight <= 0 {
+            stableContentHeight = raw
+        } else if raw > stableContentHeight {
+            stableContentHeight = raw                       // 懒加载补出更多行
+        } else if raw < stableContentHeight * 0.75 {
+            stableContentHeight = raw                       // 内容真的变少了（切歌单/筛选）
+        }
+        let contentHeight = max(1, stableContentHeight)
         let minY = -ins.top
-        let maxY = max(minY, sv.contentSize.height + ins.bottom - sv.bounds.height)
+        let maxY = max(minY, contentHeight + ins.bottom - sv.bounds.height)
         let span = max(1, maxY - minY)
         let progress = min(1, max(0, (sv.contentOffset.y - minY) / span))
-        let ratio: CGFloat = sv.contentSize.height > 0
-            ? min(1, sv.bounds.height / sv.contentSize.height) : 1
+        let ratio: CGFloat = min(1, sv.bounds.height / contentHeight)
         let thumbHeight = min(usable, max(min(usable, minThumbHeight), usable * ratio))
         return (minY, maxY, progress, thumbHeight, usable)
     }
@@ -650,7 +664,8 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
         // 🔴 只在「数据 / 展开态」真的变化时才重建 + 重排图层。
         //    旧版每 0.2s 无条件 bringSubviewToFront，滚动时反复触发 UIKit
         //    layoutSubviews，是大歌单滑动抖动的直接来源之一。
-        if changed || modeChanged {
+        //    滑动条高度已固定，expanded 切换时不必重排图层（否则又会抖一下）。
+        if changed || (modeChanged && !isSlider) {
             uiView.rebuildRoot()
             uiView.refresh()
         }
@@ -803,13 +818,16 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
             // 🔴 2026-11-14 第十二轮：滑动条在吸顶态原来从 y=92 起，正好压在
             //    「播放全部 / 排序 / 多选」那一行右侧（用户截图：滑动条显示在多选按钮那里）。
             //    下移到「导航栏 92 + 吸顶头 74 + 余量」之下；字母索引条保持原值不动。
-            let topReserved: CGFloat = isSlider
-                ? (expanded ? 176 : 432)
-                : (expanded ? 92 : 432)
+            // 🔴 2026-11-15：滑动条浮层的高度【恒定】，绝不随 expanded（吸顶阈值）变化。
+            //    旧版缩起 432 / 吸顶 176，刚跨过阈值时整根轨道高度瞬间差 256pt，
+            //    progress 映射被整体重算 → 灰条「一下跳到上面、一下又在中间」，
+            //    同时还会触发列表视觉层反复刷新（用户说的滑到顶部抖几下）。
+            //    固定成吸顶态的 176（避开「播放全部 / 多选」那一行）即可根治。
+            let topReserved: CGFloat = isSlider ? 176 : (expanded ? 92 : 432)
             let maxH = screen.height - bottomReserved - topReserved
             // 字母条在缩起态挤不下会糊成一团才隐藏；滑动条是滚动指示器，
             // 只要还留得下一根轨道就必须常显（小屏大图展开时也别整条消失）。
-            compactClipped = !expanded && maxH < (isSlider ? 60 : 180)
+            compactClipped = !isSlider && !expanded && maxH < 180
             if compactClipped {
                 if !v.isHidden { v.isHidden = true }
                 return

@@ -172,26 +172,23 @@ struct BreathingBluetoothIcon: View {
 struct BreathingStatusDot: View {
     var size: CGFloat = 4
     var color: Color = Color(red: 0.16, green: 0.76, blue: 0.38)
-    @State private var breathing = false
 
     var body: some View {
-        // 🔴 2026-11-14 第十二轮：删掉 `.scaleEffect` —— 它作用在一个参与
-        //    HStack 布局的视图上，动画期间几何插值会让绿点（以及它右边的
-        //    「已连接」）看起来左右飘。改为只动 opacity + 固定占位 frame，
-        //    呼吸感保留，布局尺寸恒定不变。
-        Circle()
-            .fill(color)
-            .frame(width: size, height: size)
-            .background {
-                Circle()
-                    .fill(color.opacity(breathing ? 0.45 : 0.08))
-                    .frame(width: size * 2.2, height: size * 2.2)
-                    .blur(radius: 1.8)
-            }
-            .frame(width: size, height: size)
-            .opacity(breathing ? 1.0 : 0.76)
-            .animation(.easeInOut(duration: 1.25).repeatForever(autoreverses: true),
-                       value: breathing)
-            .onAppear { breathing = true }
+        // 🔴 2026-11-15：用户第二次反馈「主页顶栏绿点有时候还是会左右飘」。
+        //    上一轮只删了 scaleEffect、保留 repeatForever 的 opacity 动画，
+        //    但 SwiftUI 的隐式动画仍会沿着视图树影响父级 HStack 的布局插值，
+        //    音源健康状态轮询刷新时圆点就会横移。彻底静态化：
+        //    固定光晕 + 固定占位 frame + 零动画，位置永远锁死。
+        ZStack {
+            Circle()
+                .fill(color.opacity(0.30))
+                .frame(width: size * 2.2, height: size * 2.2)
+                .blur(radius: 1.8)
+            Circle()
+                .fill(color)
+                .frame(width: size, height: size)
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
