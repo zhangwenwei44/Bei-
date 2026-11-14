@@ -153,11 +153,13 @@ enum AppStyle {
         }
     }
 
-    /// 主页面 tab 行的**固定**背景色：不随 navigationBar 被逐页改写的 trait 变色。
-    /// 与 `navigationBarBackgroundUIColor` 同值，顶栏永远连成一片。
+    /// 主页面 tab 行的背景色：与 `navigationBarBackgroundUIColor` 严格同源。
+    /// 🔴 仍用 dynamic UIColor（主题切换时 UIKit 会重解析），但**闭包忽略传入 trait**，
+    ///    只读 `AppStyle.isDarkTheme` —— 沉浸式页逐页改写导航栏 trait 时不会把 tab 行染黑。
     static var pinnedTabBarColor: Color {
-        AppStyle.isDarkTheme ? Color(red: 0.094, green: 0.161, blue: 0.235)
-                    : Color(red: 0.761, green: 0.871, blue: 1.0)
+        Color(uiColor: UIColor { _ in
+            AppStyle.isDarkTheme ? hex(0x18293C) : hex(0xC2DEFF)
+        })
     }
 
     /// 二级页 / 弹窗的导航栏底色（白色系）。
@@ -368,28 +370,29 @@ extension View {
         }
     }
 
-    /// 🔴 2026-11-15 第十八轮：主页顶栏「有时候整条变黑」的根治。
+    /// 🔴 2026-11-15 第十九轮：**不要给主页面加任何逐页导航栏修饰符**。
     ///
-    /// `installNavigationBarAppearance()` 装在全局 appearance 代理上，底色是一个
-    /// **dynamic UIColor**（浅色 #C2DEFF / 深色 #18293C），按 UINavigationBar 自身的
-    /// trait 解析。而歌手 / 歌单 / 专辑等沉浸式页用
-    /// `compatToolbarDynamicScheme(dark: navFrostOpacity < 0.5)` 把导航栏强制切成
-    /// `.dark`（大图上要白字状态栏）。pop 回主页时 SwiftUI 偶尔不还原这个逐页设置，
-    /// 导航栏 trait 残留 dark → 全局代理解析出 #18293C；同时 `.toolbar(.principal)`
-    /// 里的 `tabBar.background(AppStyle.pageGradientTop)` 也在 toolbar 环境里被解析成
-    /// 同一深色分支。结果就是真机截图「顶栏整条黑、下面内容淡蓝」。
+    /// 第十八轮曾在这里挂 `MainPageToolbarScheme`（`.toolbarColorScheme(_:for:)`）
+    /// 想覆盖沉浸式页残留的 dark，结果真机翻车：SwiftUI 一旦接管本页导航栏外观，
+    /// 就会把 `installNavigationBarAppearance()` 装的**实色 appearance 代理**换掉，
+    /// 导航栏退回系统半透明材质 —— 状态栏那截变灰、上滑内容文字透过顶栏显示
+    /// （用户截图 IMG_2598）。这与 `toolbarBackground` 是同一类坑。
     ///
-    /// 这里给四个主页面**显式声明**导航栏 colorScheme = 页面真实主题（读
-    /// `@Environment(\.colorScheme)`，来自 RootView 的 preferredColorScheme，不受
-    /// toolbarColorScheme 影响）。它不是 `toolbarBackground`，不改背景、不动安全区，
-    /// 不踩下面记录的两个坑；pop 回来时 SwiftUI 会重新应用这条声明覆盖残留的 dark。
+    /// 「顶栏变黑」的正解只在 UIKit 侧：`navigationBarBackgroundUIColor` 不再按
+    /// 导航栏自身 trait 解析深浅，改读 `AppStyle.isDarkTheme`（App 主题 + 系统外观）；
+    /// tab 行用同源的 `pinnedTabBarColor`。两者都不看会被逐页改写的 trait，
+    /// 所以 pop 回来不会残留 dark，也不需要 SwiftUI 再声明一次。
     ///
     /// ⚠️ 踩坑记录（都实测过，别再走回头路）：
     /// - `toolbarBackground(.visible, 颜色)`：系统分隔线（黑线）会跟着出现；
-    /// - `toolbarBackground(.hidden)`：导航栏丢安全区，内容顶到状态栏。
+    /// - `toolbarBackground(.hidden)`：导航栏丢安全区，内容顶到状态栏；
+    /// - `.toolbarColorScheme(_:for:)`：顶栏变回半透明，内容穿透；
     /// - appearance 代理 + `shadowColor = .clear`：布局正常 + 没有黑线，两全其美。
+    ///
+    /// 各页面保留这个调用只是为了语义清晰（标记"这页导航栏要酷狗淡蓝"），
+    /// 实际着色由全局 appearance 完成。
     func kugouNavigationBarTint() -> some View {
-        self.modifier(MainPageToolbarScheme())
+        self
     }
 
     /// 🔴 v2.9.6(修正)：把**当前这一页**的导航栏刷成指定底色（二级页/弹窗用白色）。
@@ -430,26 +433,6 @@ extension View {
     /// 同一导航栈里的其它页面不受影响。
     func kugouTransparentNavigationBar() -> some View {
         background(NavigationBarItemAppearance(color: .clear, transparent: true))
-    }
-}
-
-/// 🔴 2026-11-15 第十八轮：主页面顶栏显式钉回 App 主题，覆盖沉浸式页残留的 dark。
-///
-/// 与 `compatToolbarDynamicScheme` 的区别：那一个是「沉浸式页自己要白字」而主动切
-/// dark；这一个是「主页面回到自己的主题」，值取自页面 environment（RootView 的
-/// preferredColorScheme），不会被上一条逐页设置带偏。零布局、零动画，只改 trait。
-private struct MainPageToolbarScheme: ViewModifier {
-    /// 不用 `@Environment(\.colorScheme)`：沉浸式页的 toolbarColorScheme(.dark)
-    /// 残留时这个值本身也可能被带偏。统一按 App 主题设置解析，和 UIKit 侧同源。
-    private var scheme: ColorScheme { AppStyle.isDarkTheme ? .dark : .light }
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if #available(iOS 16.0, *) {
-            content.toolbarColorScheme(scheme, for: .navigationBar)
-        } else {
-            content
-        }
     }
 }
 

@@ -1074,13 +1074,13 @@ private struct ArtistHeroLayer: UIViewRepresentable {
         private weak var navController: UINavigationController?
         private var retry = 0
         private var monitoring = false
-        /// 🔴 2026-11-15 第十八轮：push 转场期间大图淡入。
-        ///    浮层挂在 UINavigationController.view 上、**不参与系统 push 动画**，
-        ///    原来一进页面就以全屏 frame 突然出现，转场中间帧就会看到
-        ///    一大块纯色盖住正在从右滑入的列表（用户截图 IMG_2595 的错位）。
-        ///    现在安装后先 alpha=0，用 0.32s 与 push 同步淡入；期间 applyFrame
-        ///    不得覆盖 alpha，淡入结束再恢复滚动淡出逻辑。
-        private var entering = false
+        /// 🔴 2026-11-15 第十九轮：push 转场期间大图**完全隐藏**。
+        ///    浮层挂在 UINavigationController.view 上、不参与系统 push 转场，
+        ///    只要在中间帧画出来，就会整屏盖住正在滑入的列表、并和旧页的半透明
+        ///    顶栏叠在一起（用户截图 IMG_2595 / IMG_2599 的「半屏大图 + 叠字」）。
+        ///    第十八轮的 alpha 淡入挡不住 —— 0.32s 还没走完，alpha 已接近 1。
+        ///    改成转场期间 isHidden=true，转场结束后一次性显示，不做任何淡入动画。
+        private var transitioning = false
         /// 已拆除（页面 pop / Representable 被移除）：重试闭包不得再把大图装回来。
         private var tornDown = false
 
@@ -1127,7 +1127,9 @@ private struct ArtistHeroLayer: UIViewRepresentable {
                 }
                 let target = anchor
                 if let view = target.heroView {
-                    view.isHidden = target.scrolled >= target.hideThreshold || !target.isHostOnTop
+                    // 🔴 转场期间恒定隐藏，轮询不得把它提前放出来。
+                    view.isHidden = target.transitioning || target.scrolled >= target.hideThreshold
+                                    || !target.isHostOnTop
                 }
                 target.monitoring = false
                 target.startVisibilityMonitoring()
@@ -1165,18 +1167,24 @@ private struct ArtistHeroLayer: UIViewRepresentable {
             navController = pageHost.navigationController
             view.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: headerHeight)
             parent.insertSubview(view, belowSubview: bar)
-            // 🔴 转场淡入：与系统 push 时长对齐，避免纯色大图盖住滑入中的页面。
-            entering = true
-            view.alpha = 0
+            // 🔴 第十九轮：转场期间一律隐藏，转场结束再显示（无动画）。
+            transitioning = true
+            view.isHidden = true
             applyFrame()
-            UIView.animate(withDuration: 0.32, delay: 0.06,
-                           options: [.curveEaseOut, .allowUserInteraction]) {
-                view.alpha = 1
-            } completion: { [weak self, weak view] _ in
-                guard let self, let view, !self.tornDown, self.heroView === view else { return }
-                self.entering = false
+
+            // 「只放行一次」：转场 completion 与兜底定时器谁先到都只生效一次。
+            let reveal = { [weak self, weak view] in
+                guard let self, let view, !self.tornDown,
+                      self.heroView === view, self.transitioning else { return }
+                self.transitioning = false
                 self.applyFrame()
             }
+            if let tc = pageHost.transitionCoordinator, tc.isAnimated {
+                _ = tc.animate(alongsideTransition: nil) { _ in reveal() }
+            }
+            // 🔴 兜底：首帧常拿不到 transitionCoordinator；交互式取消 / completion
+            //    不回调时也不能让大图永久隐藏。0.42s 略长于标准 push(0.35s)。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) { reveal() }
         }
 
         func applyFrame() {
@@ -1186,21 +1194,21 @@ private struct ArtistHeroLayer: UIViewRepresentable {
             if let win = window, let parent = container {
                 origin = parent.convert(CGPoint.zero, from: win)
             }
-            view.frame.origin = CGPoint(x: origin.x, y: origin.y - scrolled)
+            // 🔴 转场期间 parent.convert 会带上转场位移，把大图推到屏幕右侧
+            //    （半屏错位）。此时大图本就隐藏，直接钉 x=0；转场结束恢复实测值。
+            view.frame.origin = CGPoint(x: transitioning ? 0 : origin.x,
+                                        y: origin.y - scrolled)
             // 与 SwiftUI 侧毛玻璃的渐入区间（collapseProgress 0.8→1）同步淡出，
             // 浮层在 bar 之下、SwiftUI 毛玻璃之上，不淡出会把渐入的材质压住。
             let fadeStart = hideThreshold * 0.8
-            // 🔴 淡入期间 alpha 由 UIView 动画独占，applyFrame 不覆盖。
-            if !entering {
-                if scrolled <= fadeStart {
-                    view.alpha = 1
-                } else {
-                    view.alpha = max(0, 1 - (scrolled - fadeStart) / max(1, hideThreshold - fadeStart))
-                }
+            if scrolled <= fadeStart {
+                view.alpha = 1
+            } else {
+                view.alpha = max(0, 1 - (scrolled - fadeStart) / max(1, hideThreshold - fadeStart))
             }
-            // 🔴 页面已不在栈顶（被 pop 回推荐页 / push 到别的页）也必须隐藏，
-            //    否则这块大图会一直浮在下一页内容之上。
-            view.isHidden = scrolled >= hideThreshold || !isHostOnTop
+            // 🔴 页面已不在栈顶（被 pop 回推荐页 / push 到别的页）也必须隐藏；
+            //    转场期间同样恒定隐藏，避免「浮层抢在页面滑入之前出现」。
+            view.isHidden = transitioning || scrolled >= hideThreshold || !isHostOnTop
         }
     }
 }
