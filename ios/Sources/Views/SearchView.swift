@@ -402,6 +402,7 @@ struct SearchView: View {
         let selected = results.songs.filter { selectedIDs.contains($0.id) }
         return HStack(spacing: 0) {
             actionButton(title: "播放", icon: "play.fill") {
+                store.setQueueOrigin(id: "search", title: "搜索结果")
                 store.play(selected)
                 Haptics.soft()
                 isSelecting = false
@@ -535,6 +536,7 @@ struct SearchView: View {
     private func play(_ song: Song) {
         let list = results.songs
         guard let index = list.firstIndex(where: { $0.id == song.id }) else { return }
+        store.setQueueOrigin(id: "search", title: "搜索结果")
         store.play(list, startAt: index)
         Haptics.soft()
     }

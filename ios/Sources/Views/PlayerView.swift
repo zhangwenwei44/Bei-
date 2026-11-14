@@ -3581,9 +3581,14 @@ struct KugouLyricsPage: View {
         }
     }
 
-    // MARK: 背景：封面全屏高斯模糊 + 冷蓝灰渐层（酷狗歌词页观感）
+    // MARK: 背景：封面全屏高斯模糊 + **封面取色**渐层
+    // 🔴 2026-11-15 第十六轮：原来是四条写死的冷蓝灰，进哪首歌都是同一个蓝灰
+    //    背景（用户截图）。改成复用 store.currentPalette（ArtworkPaletteEngine
+    //    从封面 OKLab 主色派生的亮/主/暗/近黑四段），与竖屏播放页同一套取色；
+    //    封面模糊层保留，四段色只做半透明染色，白字对比度靠末尾的压暗层。
     private func backdrop(size: CGSize) -> some View {
-        ZStack {
+        let palette = store.currentPalette
+        return ZStack {
             if let art = store.artwork {
                 Image(uiImage: art)
                     .resizable()
@@ -3607,15 +3612,22 @@ struct KugouLyricsPage: View {
                     .clipped()
                     .opacity(0.85)
             }
-            LinearGradient(colors: [Color(red: 0.42, green: 0.44, blue: 0.50).opacity(0.42),
-                                    Color(red: 0.27, green: 0.31, blue: 0.42).opacity(0.56),
-                                    Color(red: 0.12, green: 0.16, blue: 0.29).opacity(0.82),
-                                    Color(red: 0.07, green: 0.10, blue: 0.20).opacity(0.94)],
+            LinearGradient(colors: [palette.light.opacity(0.38),
+                                    palette.main.opacity(0.56),
+                                    palette.dark.opacity(0.82),
+                                    palette.near.opacity(0.94)],
+                           startPoint: .top, endPoint: .bottom)
+            // 底部再压一层暗，保证白色歌词在任何封面色上都有足够对比度。
+            LinearGradient(colors: [.clear, .clear,
+                                    Color.black.opacity(0.10),
+                                    Color.black.opacity(0.28)],
                            startPoint: .top, endPoint: .bottom)
         }
         .frame(width: size.width, height: size.height)
         .clipped()
         .allowsHitTesting(false)
+        // 换歌时取色平滑过渡（ArtworkPalette: Equatable）。
+        .animation(.easeInOut(duration: 0.45), value: store.currentPalette)
     }
 
     // MARK: 顶栏：∨ / 切换背景 · 分享

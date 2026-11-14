@@ -296,11 +296,12 @@ struct DiscoverView: View {
                 // 🔴 2026-11-13：登录态标识（绿点 + 已连接）放在名字上方（kugouAvatar 内部）
                 kugouAvatar
             }
-            // 🔴 2026-11-15 第十五轮：整块登录信息右移，贴近屏幕右边缘。
-            //    原 trailing 12 + 固定宽度里剩下的空白让它离右边缘约 70pt，
-            //    和下方横幅的右边缘明显不齐；去掉内边距再纯视觉右移 36pt。
+            // 🔴 2026-11-15 第十六轮：删掉第十五轮的 `.offset(x: 36)`。
+            //    offset 只是纯视觉位移、SwiftUI 仍按原宽度排布，直接把「未登录」时
+            //    较窄的登录按钮整块推出屏幕右边缘（真机截图只剩半个 K 图标）。
+            //    右移改由「去掉 trailing 内边距」在布局内完成：右边缘落在 toolbar
+            //    自带的安全边距（约 12pt），与下方横幅基本对齐，且绝不越界。
             .padding(.trailing, 0)
-            .offset(x: 36)
         }
         .frame(height: 40)
     }
@@ -358,6 +359,8 @@ struct DiscoverView: View {
                             .font(.system(size: 13, weight: .medium))  // 12→13
                             .foregroundStyle(AppStyle.secondaryText)
                     }
+                    // 🔴 未登录态也固定宽度，登录/登出切换时整块宽度不跳，绿点不飘。
+                    .frame(width: 40, alignment: .leading)
                 }
             }
             .buttonStyle(.plain)
@@ -914,7 +917,7 @@ struct DiscoverView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 12) {
                         ForEach(newSongs) { song in
-                            slideSongCard(song, queue: newSongs, size: 108)
+                            slideSongCard(song, queue: newSongs, size: 108, sourceName: "新歌推荐")
                         }
                     }
                     .padding(.horizontal, 16)
@@ -925,9 +928,12 @@ struct DiscoverView: View {
     }
 
     /// 横滑歌曲卡：封面 + 歌名 + 歌手（「新歌推荐」用）。
-    private func slideSongCard(_ song: Song, queue: [Song], size: CGFloat) -> some View {
+    private func slideSongCard(_ song: Song, queue: [Song], size: CGFloat,
+                               sourceName: String) -> some View {
         Button {
             guard let start = queue.firstIndex(where: { $0.id == song.id }) else { return }
+            // 🔴 2026-11-15：横滑歌曲卡也登记来源名，播放列表不再写死「播放队列」。
+            store.setQueueOrigin(id: "feed:\(sourceName)", title: sourceName)
             store.play(queue, startAt: start)
             Haptics.soft()
         } label: {
@@ -1235,7 +1241,7 @@ struct DiscoverView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 12) {
                         ForEach(songs) { song in
-                            slideSongCard(song, queue: songs, size: 108)
+                            slideSongCard(song, queue: songs, size: 108, sourceName: title)
                         }
                     }
                     .padding(.horizontal, 16)
@@ -1572,7 +1578,7 @@ struct DiscoverView: View {
                     } else {
                         ForEach(Array(songs.prefix(3).enumerated()), id: \.element.id) { index, song in
                             Button {
-                                store.queueID = playlist.id
+                                store.setQueueOrigin(id: playlist.id, title: playlist.name)
                                 store.play(rankPreviewSongs[playlist.kugouRankID ?? ""] ?? [song], startAt: index)
                                 Haptics.soft()
                             } label: {
@@ -1751,14 +1757,14 @@ struct DiscoverView: View {
 
     private func playGuessAll() {
         guard !guessSongs.isEmpty else { return }
-        store.queueID = "guess"
+        store.setQueueOrigin(id: "guess", title: "猜你喜欢")
         store.play(guessSongs, startAt: 0)
         Haptics.soft()
     }
 
     private func playDailyAll() {
         guard !dailySongs.isEmpty else { return }
-        store.queueID = "daily"
+        store.setQueueOrigin(id: "daily", title: "每日推荐")
         store.play(dailySongs, startAt: 0)
         Haptics.soft()
     }
@@ -1772,6 +1778,7 @@ struct DiscoverView: View {
             defer { Task { @MainActor in playingArtistID = nil } }
             guard let songs = try? await KugouClient.shared.searchSongs(
                 keyword: artist.name, limit: 100), !songs.isEmpty else { return }
+            store.setQueueOrigin(id: "artist:\(artist.id)", title: artist.name)
             store.play(songs, startAt: 0)
         }
     }

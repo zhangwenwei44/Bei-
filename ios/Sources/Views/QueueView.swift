@@ -40,13 +40,17 @@ final class QueueSnapshot: ObservableObject {
     @Published private(set) var currentIndex: Int = -1
     @Published private(set) var isPlaying: Bool = false
     @Published private(set) var mode: PlaybackMode = .order
+    /// 🔴 2026-11-15 第十六轮：当前队列来源名（歌单名 / 推荐名 / 歌手名）。
+    @Published private(set) var title: String?
 
     /// 逐项比较 + 整体替换：值没变就不发布，别让 List 空转。
-    func update(songs: [Song], currentIndex: Int, isPlaying: Bool, mode: PlaybackMode) {
+    func update(songs: [Song], currentIndex: Int, isPlaying: Bool, mode: PlaybackMode,
+                title: String? = nil) {
         if songs != self.songs { self.songs = songs }
         if currentIndex != self.currentIndex { self.currentIndex = currentIndex }
         if isPlaying != self.isPlaying { self.isPlaying = isPlaying }
         if mode != self.mode { self.mode = mode }
+        if title != self.title { self.title = title }
     }
 }
 
@@ -224,10 +228,17 @@ struct QueueView: View {
     /// 🔴 2026-11-14 第十二轮：原「队列共 N 首 + 切模式」浅蓝信息条已按用户要求删除，
     ///    只保留这一行来源信息；切模式改由底部工具栏的「顺序 / 单曲 / 随机」承担。
 
+    /// 🔴 2026-11-15 第十六轮：来源名由 PlayerStore.setQueueOrigin 写入，
+    ///    没登记过来源（冷启动老会话 / 队列内追加）时仍回退「播放队列」。
+    private var queueOriginTitle: String {
+        let t = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return t.isEmpty ? "播放队列" : t
+    }
+
     /// 来源行：左侧「来自 / 已播」，右侧两个细线圆按钮（随机 / 清空）。
     private var sourceRow: some View {
         HStack(spacing: 8) {
-            Text("来自：播放队列  已播 \(playedCount)/\(max(1, snapshot.songs.count))")
+            Text("来自：\(queueOriginTitle)  已播 \(playedCount)/\(max(1, snapshot.songs.count))")
                 .font(.system(size: 12))
                 .foregroundStyle(AppStyle.tertiaryText)
                 .lineLimit(1)

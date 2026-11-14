@@ -31,6 +31,18 @@ final class PlayerStore: ObservableObject {
         }
     }
     @Published var queueID: String? = nil { didSet { scheduleSessionSave() } }
+    /// 🔴 2026-11-15 第十六轮：播放队列的「来源名称」（歌单名 / 推荐板块名 / 歌手名）。
+    ///    播放列表来源行不再写死「来自：播放队列」，而是显示这个名字。
+    @Published var queueTitle: String? = nil {
+        didSet { scheduleSessionSave(); syncQueueSnapshot() }
+    }
+
+    /// 设置队列来源。只在「整批替换队列」的入口调用；
+    /// 队列内切歌 / 插队 / 追加都不要调，来源应保持不变。
+    func setQueueOrigin(id: String?, title: String?) {
+        queueID = id
+        queueTitle = title
+    }
     @Published var mode: PlaybackMode = .order {
         didSet { scheduleSessionSave(); syncQueueSnapshot() }
     }
@@ -41,6 +53,7 @@ final class PlayerStore: ObservableObject {
         static let index = "aurora.session.index"
         static let mode = "aurora.session.mode"
         static let queueID = "aurora.session.queueID"
+        static let queueTitle = "aurora.session.queueTitle"
         static let position = "aurora.session.position"
     }
     /// 队列 / 索引 / 模式变化很密集（append、insertNext、拖动排序…），
@@ -374,12 +387,12 @@ final class PlayerStore: ObservableObject {
     /// 只写**另一个** ObservableObject，不改本类任何 @Published → 不会递归触发 didSet。
     /// 队列视图因此不用订阅 PlayerStore 的 30+ 个高频状态。
     private func syncQueueSnapshot() {
-        let s = queue, i = currentIndex, p = isPlaying, m = mode
+        let s = queue, i = currentIndex, p = isPlaying, m = mode, t = queueTitle
         if Thread.isMainThread {
-            QueueSnapshot.shared.update(songs: s, currentIndex: i, isPlaying: p, mode: m)
+            QueueSnapshot.shared.update(songs: s, currentIndex: i, isPlaying: p, mode: m, title: t)
         } else {
             DispatchQueue.main.async {
-                QueueSnapshot.shared.update(songs: s, currentIndex: i, isPlaying: p, mode: m)
+                QueueSnapshot.shared.update(songs: s, currentIndex: i, isPlaying: p, mode: m, title: t)
             }
         }
     }
@@ -402,6 +415,8 @@ final class PlayerStore: ObservableObject {
             defaults.set(mode.rawValue, forKey: SessionKey.mode)
             if let queueID { defaults.set(queueID, forKey: SessionKey.queueID) }
             else { defaults.removeObject(forKey: SessionKey.queueID) }
+            if let queueTitle { defaults.set(queueTitle, forKey: SessionKey.queueTitle) }
+            else { defaults.removeObject(forKey: SessionKey.queueTitle) }
         } catch {
             Log.error("播放", "保存播放队列失败：\(error.localizedDescription)")
         }
@@ -429,6 +444,7 @@ final class PlayerStore: ObservableObject {
         if let raw = defaults.object(forKey: SessionKey.mode) as? Int,
            let saved = PlaybackMode(rawValue: raw) { mode = saved }
         queueID = defaults.string(forKey: SessionKey.queueID)
+        queueTitle = defaults.string(forKey: SessionKey.queueTitle)
         pendingResumeTime = max(0, defaults.double(forKey: SessionKey.position))
         pendingResumeSongID = current?.id
         if let song = current {

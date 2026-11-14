@@ -172,23 +172,29 @@ struct BreathingBluetoothIcon: View {
 struct BreathingStatusDot: View {
     var size: CGFloat = 4
     var color: Color = Color(red: 0.16, green: 0.76, blue: 0.38)
+    @State private var breathing = false
 
     var body: some View {
-        // 🔴 2026-11-15：用户第二次反馈「主页顶栏绿点有时候还是会左右飘」。
-        //    上一轮只删了 scaleEffect、保留 repeatForever 的 opacity 动画，
-        //    但 SwiftUI 的隐式动画仍会沿着视图树影响父级 HStack 的布局插值，
-        //    音源健康状态轮询刷新时圆点就会横移。彻底静态化：
-        //    固定光晕 + 固定占位 frame + 零动画，位置永远锁死。
+        // 🔴 2026-11-15 第十六轮：恢复「呼吸」，但不重演左右飘。
+        //    第十五轮为了治飘把动画全删了，绿点变成死点。真正会推动布局的是
+        //    scaleEffect / frame 变化；这里只动 opacity 与光晕透明度，
+        //    `.frame(width:size, height:size)` 占位恒定 → 不参与任何布局插值。
+        //    父级 SourceStatusBadge 已固定 46pt 宽 + `.animation(nil, value: isRed)`，
+        //    昵称也固定 78pt，音源轮询再频繁都不会把圆点推得左右横移。
         ZStack {
             Circle()
-                .fill(color.opacity(0.30))
+                .fill(color.opacity(breathing ? 0.46 : 0.12))
                 .frame(width: size * 2.2, height: size * 2.2)
                 .blur(radius: 1.8)
             Circle()
-                .fill(color)
+                .fill(color.opacity(breathing ? 1.0 : 0.72))
                 .frame(width: size, height: size)
         }
         .frame(width: size, height: size)
+        .opacity(breathing ? 1.0 : 0.80)
+        .animation(.easeInOut(duration: 1.25).repeatForever(autoreverses: true),
+                   value: breathing)
+        .onAppear { breathing = true }
         .accessibilityHidden(true)
     }
 }

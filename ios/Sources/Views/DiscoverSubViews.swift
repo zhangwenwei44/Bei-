@@ -248,6 +248,7 @@ struct DownloadCenterView: View {
                                      trailing: nil,
                                      onPlay: {
                                          if let idx = history.firstIndex(where: { $0.id == song.id }) {
+                                             store.setQueueOrigin(id: "history", title: "最近播放")
                                              store.play(history, startAt: idx)
                                              Haptics.soft()
                                          }

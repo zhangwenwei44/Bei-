@@ -295,17 +295,28 @@ private struct KugouProfileCard: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                     if activated {
-                        // 🔴 2026-11-15 第十五轮：金色徽标直接压在花花绿绿的海贼王
-                        //    背景上仍看不清（真机截图）。垫一块半透明深色小胶囊 +
-                        //    细白描边、字号再放大一档，任何背景上都清晰。
+                        // 🔴 2026-11-15 第十六轮：第十五轮的半透明黑胶囊真机上显脏
+                        //    （用户截图「VIP 标签黑色背景不好看」）。改成香槟金渐变
+                        //    胶囊 + 细金描边：徽标本身是金钻+金字，浅金底压得住
+                        //    花花绿绿的背景，整体像一枚干净的 VIP 徽章。
                         Image("VipBadge")
                             .resizable()
                             .scaledToFit()
                             .frame(height: 14)
-                            .padding(.horizontal, 5)
+                            .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Capsule().fill(Color.black.opacity(0.62)))
-                            .overlay(Capsule().stroke(Color.white.opacity(0.38), lineWidth: 0.6))
+                            .background(
+                                Capsule().fill(
+                                    LinearGradient(colors: [
+                                        Color(red: 1.00, green: 0.98, blue: 0.91),
+                                        Color(red: 1.00, green: 0.91, blue: 0.70)
+                                    ], startPoint: .top, endPoint: .bottom)
+                                )
+                            )
+                            .overlay(Capsule().stroke(
+                                Color(red: 0.85, green: 0.68, blue: 0.32).opacity(0.85),
+                                lineWidth: 0.8))
+                            .shadow(color: Color.black.opacity(0.22), radius: 2, y: 1)
                             .accessibilityLabel("VIP")
                     }
                 }
@@ -419,7 +430,8 @@ private struct DownloadsList: View {
                 // 三者点击区域互不重叠 → 彻底杜绝误触整行播放。
                 Button {
                     guard let index = library.downloads.firstIndex(where: { $0.id == song.id }) else { return }
-                    store.play(library.downloads, startAt: index); Haptics.soft()
+                    store.setQueueOrigin(id: "downloads", title: "下载歌曲")
+        store.play(library.downloads, startAt: index); Haptics.soft()
                 } label: {
                     HStack(spacing: 12) {
                         CoverImage(url: song.artworkURL,
@@ -1209,7 +1221,7 @@ struct KugouPlaylistDetail: View {
             ImmersivePlayAllButton(count: displaySongs.count) {
                 guard !displaySongs.isEmpty else { return }
                 Haptics.soft()
-                store.queueID = "kugou-list:\(listid)"
+                store.setQueueOrigin(id: "kugou-list:\(listid)", title: name)
                 store.play(displaySongs, startAt: 0)
             }
             Spacer(minLength: 0)
@@ -1249,7 +1261,7 @@ struct KugouPlaylistDetail: View {
         let selected = displaySongs.filter { selectedIDs.contains($0.id) }
         return HStack(spacing: 0) {
             Button {
-                store.queueID = "kugou-list:\(listid)"
+                store.setQueueOrigin(id: "kugou-list:\(listid)", title: name)
                 store.play(selected); Haptics.soft()
                 isSelecting = false; selectedIDs.removeAll()
             } label: {
@@ -1355,7 +1367,7 @@ struct KugouPlaylistDetail: View {
                                         if isSelecting {
                                             if selected { selectedIDs.remove(song.id) } else { selectedIDs.insert(song.id) }
                                         } else {
-                                            store.queueID = "kugou-list:\(listid)"
+                                            store.setQueueOrigin(id: "kugou-list:\(listid)", title: name)
                                             store.play(displaySongs, startAt: index); Haptics.soft()
                                         }
                                     })

@@ -64,6 +64,7 @@ struct SongListView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
+                    store.setQueueOrigin(id: "list:\(title)", title: title)
                     store.play(songs)
                 } label: {
                     Image(systemName: "play.fill")
@@ -75,6 +76,7 @@ struct SongListView: View {
 
     private func play(_ song: Song) {
         guard let index = songs.firstIndex(where: { $0.id == song.id }) else { return }
+        store.setQueueOrigin(id: "list:\(title)", title: title)
         store.play(songs, startAt: index)
         Haptics.soft()
     }
@@ -250,6 +252,7 @@ struct PlaylistDetailView: View {
                 let selected = displaySongs.filter { selectedIDs.contains($0.id) }
                 HStack(spacing: 0) {
                     Button {
+                        store.setQueueOrigin(id: playlist.id, title: playlist.name)
                         store.play(selected); Haptics.soft()
                         isSelecting = false; selectedIDs.removeAll()
                     } label: {
@@ -389,6 +392,7 @@ struct PlaylistDetailView: View {
     private var actionBar: some View {
         HStack(spacing: 12) {
             ImmersivePlayAllButton(count: displaySongs.count) {
+                store.setQueueOrigin(id: playlist.id, title: playlist.name)
                 store.play(displaySongs)
                 Haptics.light()
             }
@@ -423,6 +427,7 @@ struct PlaylistDetailView: View {
 
     private func play(_ song: Song) {
         guard let index = displaySongs.firstIndex(where: { $0.id == song.id }) else { return }
+        store.setQueueOrigin(id: playlist.id, title: playlist.name)
         store.play(displaySongs, startAt: index)
         Haptics.soft()
     }
@@ -682,6 +687,7 @@ struct AlbumDetailView: View {
                 let selected = displaySongs.filter { selectedIDs.contains($0.id) }
                 HStack(spacing: 0) {
                     Button {
+                        store.setQueueOrigin(id: album.id, title: album.name)
                         store.play(selected); Haptics.soft()
                         isSelecting = false; selectedIDs.removeAll()
                     } label: {
@@ -751,6 +757,7 @@ struct AlbumDetailView: View {
     private var actionBar: some View {
         HStack(spacing: 12) {
             ImmersivePlayAllButton(count: displaySongs.count) {
+                store.setQueueOrigin(id: album.id, title: album.name)
                 store.play(displaySongs)
                 Haptics.light()
             }
@@ -785,6 +792,7 @@ struct AlbumDetailView: View {
 
     private func play(_ song: Song) {
         guard let index = displaySongs.firstIndex(where: { $0.id == song.id }) else { return }
+        store.setQueueOrigin(id: album.id, title: album.name)
         store.play(displaySongs, startAt: index)
         Haptics.soft()
     }

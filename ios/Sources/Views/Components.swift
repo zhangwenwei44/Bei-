@@ -838,7 +838,9 @@ struct CoverImage: View {
 ///
 /// 这里改成自己算：`scale = max(w/iw, h/ih)` 必定放大到覆盖整个画框，
 /// 再按 alignment 摆放（`.top` = 头顶齐平，露头部不裁顶），最后裁切。
-private struct CoverFillLayer: View {
+/// 🔴 2026-11-15 第十六轮：去掉 fileprivate，歌手主页大图（写真）也要复用
+///    这套「按比例铺满 + .top 对齐」的绘制，避免重踩 aspectRatio(.fill) 对齐无效的坑。
+struct CoverFillLayer: View {
     let image: UIImage
     let width: CGFloat
     let height: CGFloat

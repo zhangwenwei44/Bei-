@@ -42,6 +42,10 @@ struct ArtistDetailView: View {
     /// 用来给滚动内容预留占位，使列表从吸顶头下方开始。
     @State private var stickyHeaderHeight: CGFloat = 100
 
+    /// 🔴 2026-11-15 第十六轮：歌手主页大图改用酷狗官方写真（750×1333 竖版）。
+    ///    取到前仍显示原来的 softhead 头像大图，绝不留白 / 不闪黑。
+    @State private var heroPhoto: UIImage?
+
     // 歌曲分页
     @State private var songPage = 1
     @State private var hasMoreSongs = true
@@ -63,6 +67,29 @@ struct ArtistDetailView: View {
             s = s.replacingOccurrences(of: "simg/\(sz)/", with: "simg/400/")
         }
         return URL(string: s)
+    }
+
+    /// 🔴 2026-11-15 第十六轮：根治「歌手主页大图模糊」。
+    /// `hiResCoverURL` 只是把 singer/list 的 softhead 头像从 200px 升到 400px，
+    /// 铺满整屏（≈1125px@3x）必然发糊；400 档还常常 404，回退成缓存小图更糊。
+    /// 酷狗官方写真（KugouClient.singerPhotoURLs）是 750×1333 竖版大图，
+    /// 歌词页一直在用。这里复用同一份 ArtistPhotoCache（播放时预取过就直接命中），
+    /// 否则取图库第一张按 1600px 解码；取不到就什么都不做，大图仍是原头像。
+    private func loadHeroPhoto() async {
+        let name = artist.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        if let cached = ArtistPhotoCache.shared.images(for: name).first {
+            await MainActor.run { heroPhoto = cached }
+            return
+        }
+        let gallery = await KugouClient.shared.singerPhotoURLs(name: name)
+        var url = gallery.first
+        if url == nil {
+            url = await KugouClient.shared.artistPhotoStrict(name: name, title: "")
+        }
+        guard let url,
+              let image = await CoverLoader.downloadPhoto(url, maxPixelSize: 1600) else { return }
+        await MainActor.run { heroPhoto = image }
     }
 
     var body: some View {
@@ -114,6 +141,9 @@ struct ArtistDetailView: View {
             ArtistHeroLayer(scrolled: headerScroll,
                             headerHeight: headerBaseHeight,
                             hideThreshold: headerBaseHeight - topInset,
+                            // 🔴 写真异步到位时 key 变一次 → 浮层换 rootView；
+                            //    滚动时 key 不变，只改 frame，不重建 SwiftUI 树。
+                            heroKey: heroPhoto == nil ? "avatar:" + artist.id : "photo:" + artist.id,
                             hero: AnyView(heroImageContent))
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
@@ -235,6 +265,8 @@ struct ArtistDetailView: View {
                 guard !intro.isEmpty else { return }
                 await applyArtistIntro(intro)
             }
+            // 🔴 写真加载只发起不等待，不拖住歌曲列表，也不会随 .task 消失被取消。
+            Task { await loadHeroPhoto() }
             await loadSongs()
         }
         .sheet(isPresented: $showIntroSheet) {
@@ -401,25 +433,33 @@ struct ArtistDetailView: View {
             ImmersiveStyle.heroFallback
                 .frame(width: screenW, height: headerBaseHeight)
 
-            // 🔴 大图：.fill 铺满整框（不露白边/白顶）；.top 顶部对齐把歌手头部顶到导航栏，
-            // 既盖住顶栏不露白，又避免居中填充把头部裁掉（用户最早反馈"图片显示不全"的根因）。
-            // fallbackColor 同步深色，图未加载瞬间也不露白。
-            CoverImage(
-                url: hiResCoverURL,
-                fallbackKeys: [artist.id],
-                seed: artist.name,
-                size: max(screenW, 800),
-                corner: 0,
-                displayWidth: screenW,
-                displayHeight: headerBaseHeight,
-                contentMode: .fill,
-                imageAlignment: .top,
-                fallbackColor: ImmersiveStyle.heroFallback,
-                // 🔴 首帧先用列表里已缓存的歌手图顶上，高清到位后无感替换。
-                prefillCached: true
-            )
-            .frame(width: screenW, height: headerBaseHeight)
-            .clipped()
+            // 🔴 2026-11-15 第十六轮：softhead 头像最多 400px，铺满整屏必糊
+            //    （用户真机截图）。优先用 750×1333 的官方写真，复用
+            //    CoverFillLayer 的「按比例铺满 + .top 对齐」，头部不会被居中裁掉。
+            //    写真没到 / 取不到时仍走原头像大图，页面不留白、不闪黑。
+            if let photo = heroPhoto {
+                CoverFillLayer(image: photo, width: screenW,
+                               height: headerBaseHeight, alignment: .top)
+                    .frame(width: screenW, height: headerBaseHeight)
+                    .clipped()
+            } else {
+                CoverImage(
+                    url: hiResCoverURL,
+                    fallbackKeys: [artist.id],
+                    seed: artist.name,
+                    size: max(screenW, 800),
+                    corner: 0,
+                    displayWidth: screenW,
+                    displayHeight: headerBaseHeight,
+                    contentMode: .fill,
+                    imageAlignment: .top,
+                    fallbackColor: ImmersiveStyle.heroFallback,
+                    // 🔴 首帧先用列表里已缓存的歌手图顶上，高清到位后无感替换。
+                    prefillCached: true
+                )
+                .frame(width: screenW, height: headerBaseHeight)
+                .clipped()
+            }
 
             LinearGradient(colors: [.clear, Color.black.opacity(0.05), Color.black.opacity(0.72)],
                            startPoint: .top, endPoint: .bottom)
@@ -563,7 +603,7 @@ struct ArtistDetailView: View {
             Button {
                 guard !songs.isEmpty else { return }
                 Haptics.soft()
-                store.queueID = "artist:\(artist.id)"
+                store.setQueueOrigin(id: "artist:\(artist.id)", title: artist.name)
                 store.play(songs, startAt: 0)
             } label: {
                 HStack(spacing: 8) {
@@ -636,7 +676,7 @@ struct ArtistDetailView: View {
                             }
                             ArtistSongRow(song: song, index: index + 1) {
                                 Haptics.soft()
-                                store.queueID = "artist:\(artist.id)"
+                                store.setQueueOrigin(id: "artist:\(artist.id)", title: artist.name)
                                 store.play(songs, startAt: songs.firstIndex(where: { $0.id == song.id }) ?? 0)
                             }
                             .padding(.leading, isSelecting ? 0 : 4)
@@ -996,25 +1036,25 @@ private struct ArtistHeroLayer: UIViewRepresentable {
     let scrolled: CGFloat
     let headerHeight: CGFloat
     let hideThreshold: CGFloat
+    /// 🔴 2026-11-15 第十六轮：浮层 rootView 是在 makeUIView 里首帧捕获的，
+    ///    写真异步到位后必须靠 key 变化主动换 rootView，否则大图永远停在头像。
+    ///    与共享容器 ImmersiveSongListContainer 同一套做法。
+    let heroKey: String
     let hero: AnyView
 
     func makeUIView(context: Context) -> AnchorView {
         let v = AnchorView()
         v.headerHeight = headerHeight
         v.hideThreshold = hideThreshold
-        v.buildHero = { [hero] in
-            let host = UIHostingController(rootView: hero)
-            let view = host.view!
-            view.backgroundColor = .clear
-            view.isUserInteractionEnabled = false
-            view.clipsToBounds = true
-            return (view, host)
-        }
+        v.updateHeroRoot(hero, key: heroKey)
         return v
     }
 
     func updateUIView(_ uiView: AnchorView, context: Context) {
         uiView.scrolled = scrolled
+        if uiView.heroKey != heroKey {
+            uiView.updateHeroRoot(hero, key: heroKey)
+        }
         uiView.applyFrame()
     }
 
@@ -1034,6 +1074,23 @@ private struct ArtistHeroLayer: UIViewRepresentable {
 
         private var heroView: UIView?
         private var hosting: UIHostingController<AnyView>?
+        /// 当前 rootView 的身份；只在它变化时才重建 / 替换 SwiftUI 树。
+        var heroKey: String = ""
+
+        /// 换大图内容：已装上的浮层直接替换 rootView；还没装上的更新构建闭包，
+        /// 保证 installIfNeeded 重试时用的是最新 hero（写真可能已在这期间到位）。
+        func updateHeroRoot(_ hero: AnyView, key: String) {
+            heroKey = key
+            hosting?.rootView = hero
+            buildHero = { [hero] in
+                let host = UIHostingController(rootView: hero)
+                let view = host.view!
+                view.backgroundColor = .clear
+                view.isUserInteractionEnabled = false
+                view.clipsToBounds = true
+                return (view, host)
+            }
+        }
         private weak var container: UIView?
         private weak var hostVC: UIViewController?
         /// 🔴 hostVC 是 weak，pop 后页面 VC 可能立刻被释放 → 变 nil。
