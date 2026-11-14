@@ -425,10 +425,10 @@ struct ArtistDetailView: View {
                 contentMode: .fill,
                 imageAlignment: .top,
                 fallbackColor: ImmersiveStyle.heroFallback,
-                // 🔴 首帧先用列表里已缓存的歌手图顶上，高清到位后无感替换。
-                prefillCached: true,
                 // 🔴 大图专用：按 1200px 解码，且不读/不写共享小图缓存。
-                hiRes: true
+                hiRes: true,
+                // 🔴 首帧先用列表里已缓存的歌手图顶上，高清到位后无感替换。
+                prefillCached: true
             )
             .frame(width: screenW, height: headerBaseHeight)
             .clipped()
@@ -496,8 +496,8 @@ struct ArtistDetailView: View {
                 contentMode: .fill,
                 imageAlignment: .top,
                 fallbackColor: ImmersiveStyle.heroFallback,
-                prefillCached: true,
-                hiRes: true
+                hiRes: true,
+                prefillCached: true
             )
             .frame(width: screenW, height: headerBaseHeight)
             .clipped()
