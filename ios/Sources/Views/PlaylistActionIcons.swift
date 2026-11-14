@@ -365,17 +365,17 @@ final class PlaylistLetterIndexActive: ObservableObject {
     var isHoldingSelection: Bool { Date() < holdUntil }
 }
 
-// MARK: - 🔴 2026-11-14 定稿：非 A–Z 排序的「真滑动条」（纯 UIKit）
+// MARK: - 🔴 2026-11-14 定稿：非 A–Z 排序的「灰色滚动指示器」（纯 UIKit）
 
-/// 用户明确「我要的是滑动条不是数字」：右侧 = 一根细轨道 + 蓝色圆角滑块，
-///   · 滑块高度按「可视区 / 内容高度」比例（最短 32pt），位置按 contentOffset 实时跟随；
-///   · 按住 / 上下拖动直接改 UIScrollView.contentOffset，等价于拖着整份歌单快速定位；
-///   · 没有数字、没有字母、没有白色 Capsule 底板、没有放大气泡。
-/// 🔴 全程只改 UIView.frame：不写 @Published、不重建 SwiftUI 树 —— 574 首大歌单
+/// 🔴 2026-11-14 第十一轮：用户明确「细轨道 + 蓝色滑块改成之前的统一一样的灰色的
+///    不滑动会隐藏的」—— 即 iOS 系统滚动指示器那种**一根灰色细条**：
+///   · 没有蓝色轨道、没有放大气泡、没有数字/字母、没有阴影；
+///   · 只在列表滚动 / 手指拖动时淡入，停手约 1.1s 后自动淡出隐藏；
+///   · 拖动仍然直接改 UIScrollView.contentOffset，可连续快速定位。
+/// 🔴 全程只改 UIView.frame + alpha：不写 @Published、不重建 SwiftUI 树 —— 574 首大歌单
 ///    滚动时不会触发整页 body 重算（项目「大歌单掉帧」红线）。
 final class PlaylistScrollSliderView: UIView {
 
-    private let track = UIView()
     private let thumb = UIView()
 
     private weak var scrollView: UIScrollView?
@@ -386,31 +386,29 @@ final class PlaylistScrollSliderView: UIView {
     /// 已绑定到「真正可滚动的长列表」：此后不再遍历视图树。
     private var locked = false
 
-    private let trackWidth: CGFloat = 3
-    private let thumbWidth: CGFloat = 9
+    private let thumbWidth: CGFloat = 3
     private let minThumbHeight: CGFloat = 32
     private let edgeY: CGFloat = 6
 
-    private static let blue = UIColor(red: 0.12, green: 0.53, blue: 0.96, alpha: 1)
+    private static let gray = UIColor(white: 0.55, alpha: 0.9)
+
+    /// 停止滚动后多久淡出（对齐系统滚动指示器手感）。
+    private let idleSeconds: TimeInterval = 1.1
+    private var hideWorkItem: DispatchWorkItem?
+    private var lastOffsetY: CGFloat?
+    private var visible = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
         clipsToBounds = true
         isMultipleTouchEnabled = false
+        // 🔴 静止状态完全隐藏，别在列表右侧留一根常驻蓝条。
+        alpha = 0
 
-        track.backgroundColor = PlaylistScrollSliderView.blue.withAlphaComponent(0.16)
-        track.layer.cornerRadius = trackWidth / 2
-        track.isUserInteractionEnabled = false
-        addSubview(track)
-
-        thumb.backgroundColor = PlaylistScrollSliderView.blue
+        thumb.backgroundColor = PlaylistScrollSliderView.gray
         thumb.layer.cornerRadius = thumbWidth / 2
         thumb.isUserInteractionEnabled = false
-        thumb.layer.shadowColor = PlaylistScrollSliderView.blue.withAlphaComponent(0.45).cgColor
-        thumb.layer.shadowRadius = 3
-        thumb.layer.shadowOpacity = 0.5
-        thumb.layer.shadowOffset = .zero
         addSubview(thumb)
     }
 
@@ -418,9 +416,37 @@ final class PlaylistScrollSliderView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let usable = max(0, bounds.height - edgeY * 2)
-        track.frame = CGRect(x: (bounds.width - trackWidth) / 2,
-                             y: edgeY, width: trackWidth, height: usable)
+        syncThumb()
+    }
+
+    /// 滚动 / 拖动时淡入，并重置「静止后淡出」计时。
+    private func flash() {
+        hideWorkItem?.cancel()
+        if !visible {
+            visible = true
+            UIView.animate(withDuration: 0.12, delay: 0,
+                           options: [.beginFromCurrentState, .allowUserInteraction]) {
+                self.alpha = 1
+            }
+        }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.visible = false
+            UIView.animate(withDuration: 0.35, delay: 0,
+                           options: [.beginFromCurrentState, .allowUserInteraction]) {
+                self.alpha = 0
+            }
+        }
+        hideWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + idleSeconds, execute: work)
+    }
+
+    /// 🔴 只有 contentOffset **真的变了**才 flash。
+    ///    Anchor 的 0.15s 轮询也会调 attachIfNeeded→syncThumb，如果在这里无脑淡入，
+    ///    灰条就会常驻不消失（等于没做「不滑动会隐藏」）。
+    private func handleScroll(_ offsetY: CGFloat) {
+        if let last = lastOffsetY, abs(last - offsetY) > 0.5 { flash() }
+        lastOffsetY = offsetY
         syncThumb()
     }
 
@@ -459,8 +485,8 @@ final class PlaylistScrollSliderView: UIView {
             offsetObservation?.invalidate()
             sizeObservation?.invalidate()
             scrollView = sv
-            offsetObservation = sv.observe(\.contentOffset, options: [.initial, .new]) { [weak self] _, _ in
-                self?.syncThumb()
+            offsetObservation = sv.observe(\.contentOffset, options: [.initial, .new]) { [weak self] sv, _ in
+                self?.handleScroll(sv.contentOffset.y)
             }
             sizeObservation = sv.observe(\.contentSize, options: [.initial, .new]) { [weak self] _, _ in
                 self?.syncThumb()
@@ -523,13 +549,14 @@ final class PlaylistScrollSliderView: UIView {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let t = touches.first else { return }
         dragging = true
-        thumb.backgroundColor = PlaylistScrollSliderView.blue.withAlphaComponent(0.82)
+        flash()
         Haptics.light()
         seek(toY: t.location(in: self).y)
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let t = touches.first else { return }
+        flash()
         seek(toY: t.location(in: self).y)
     }
 
@@ -538,16 +565,22 @@ final class PlaylistScrollSliderView: UIView {
 
     private func finish() {
         dragging = false
-        thumb.backgroundColor = PlaylistScrollSliderView.blue
         syncThumb()
+        // 松手后重新计时，静止 1.1s 淡出。
+        flash()
     }
 
     func detach() {
+        hideWorkItem?.cancel()
+        hideWorkItem = nil
         offsetObservation?.invalidate()
         sizeObservation?.invalidate()
         offsetObservation = nil
         sizeObservation = nil
         scrollView = nil
+        visible = false
+        layer.removeAllAnimations()
+        alpha = 0
     }
 }
 

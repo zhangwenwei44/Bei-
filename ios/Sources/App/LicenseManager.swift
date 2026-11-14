@@ -22,6 +22,17 @@ final class LicenseManager: ObservableObject {
     /// 设备 ID（大写 UUID）。锁屏展示给用户，用来换取授权码。
     private(set) var deviceID: String = ""
 
+    /// 🔴 2026-11-14：卡片上展示的【6 位数字专属 ID】。
+    ///    由完整设备码经 SHA256 派生：同一个设备码永远得到同一个 6 位数，换设备必变，
+    ///    且无法从 6 位数反推完整设备码。只用于界面展示，
+    ///    **授权码仍按完整 deviceID 计算**，两者互不影响（复制仍复制完整设备码）。
+    var displayDeviceID: String {
+        let digest = SHA256.hash(data: Data(deviceID.uppercased().utf8))
+        var acc: UInt64 = 0
+        for byte in digest.prefix(8) { acc = (acc << 8) | UInt64(byte) }
+        return String(100_000 + Int(acc % 900_000))
+    }
+
     private let activatedKey = "aurora.license.activated"
     private let savedCodeKey = "aurora.license.code"
     private let deviceIDDefaultsKey = "aurora.license.deviceID"

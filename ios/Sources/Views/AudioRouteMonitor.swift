@@ -139,6 +139,31 @@ struct BluetoothBadgeIcon: View {
     }
 }
 
+/// 🔴 2026-11-14 第十一轮：卡片左下角蓝牙图标的**呼吸效果**。
+///    光晕 + 轻微缩放循环，只有图标本体在动，旁边的设备名保持稳定不跟着跳。
+///    用固定 RGB 默认色（不引用 dynamic UIColor），避免 toolbar colorScheme 切换时变色。
+struct BreathingBluetoothIcon: View {
+    var size: CGFloat = 15
+    var color: Color = Color(red: 0.239, green: 0.239, blue: 0.267)
+    @State private var breathing = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(color.opacity(breathing ? 0.26 : 0.04))
+                .frame(width: size * 1.9, height: size * 1.9)
+                .blur(radius: 2.0)
+            BluetoothBadgeIcon(size: size, color: color)
+        }
+        .scaleEffect(breathing ? 1.12 : 1.0)
+        .opacity(breathing ? 1.0 : 0.72)
+        .animation(.easeInOut(duration: 1.3).repeatForever(autoreverses: true),
+                   value: breathing)
+        .onAppear { breathing = true }
+        .accessibilityHidden(true)
+    }
+}
+
 // MARK: - 呼吸发光圆点（主页顶栏状态标识前面用）
 //
 // 🔴 2026-11-13 第七轮：用户要求「发光圈再改小点」——圆点 5→4pt，

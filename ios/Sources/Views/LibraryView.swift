@@ -229,11 +229,12 @@ private struct KugouProfileCard: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(onImage ? Color.white.opacity(0.30) : AppStyle.accent.opacity(0.15), lineWidth: 1)
         )
-        // 🔴 蓝牙设备条放卡片右下角浮层：不挤占顶部内容、卡片尺寸也不变。
-        .overlay(alignment: .bottomTrailing) {
+        // 🔴 2026-11-14 第十一轮：蓝牙设备条按用户要求移到【卡片左下角】浮层。
+        //    不挤占顶部内容、卡片尺寸不变；设备ID 状态在分隔线下方，左下不会压住它。
+        .overlay(alignment: .bottomLeading) {
             if audioRoute.isBluetoothConnected {
                 bluetoothChip
-                    .padding(.trailing, 14)
+                    .padding(.leading, 14)
                     .padding(.bottom, 12)
             }
         }
@@ -245,7 +246,8 @@ private struct KugouProfileCard: View {
     ///    名字后面的「笔」已移除；点整条仍可改名（隐藏入口，不占视觉）。
     private var bluetoothChip: some View {
         HStack(spacing: 6) {
-            BluetoothBadgeIcon(size: 15, color: iconColor)
+            // 🔴 2026-11-14 第十一轮：蓝牙图标改成呼吸发光效果（只动图标，文字不跳）。
+            BreathingBluetoothIcon(size: 15, color: iconColor)
             Text(audioRoute.deviceName)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(chipText)
@@ -265,8 +267,9 @@ private struct KugouProfileCard: View {
     }
 
     /// 🔴 2026-11-14：设备ID + 激活状态（放在原「8 首 / 10 分」的位置）。
-    /// 🔴 同日第二轮：文案由「设备码」改为「设备ID」，已激活 / 未激活状态保留不变。
-    /// 设备ID完整显示、等宽小字；点一下把完整设备ID复制到剪贴板（换授权码时要用）。
+    /// 🔴 第十一轮：后面的完整设备码改成由它派生的【6 位数字专属 ID】，
+    ///    「已激活」后补「· 永久」（授权本来就是永久有效）。
+    ///    点一下仍复制**完整设备码** —— 换授权码必须用完整码，6 位数只是展示用。
     /// 文字颜色跟随卡片（自定义背景图=白字，普通背景=深色字），状态点固定绿/红便于辨识。
     private var deviceStatus: some View {
         let activated = license.isActivated
@@ -277,14 +280,14 @@ private struct KugouProfileCard: View {
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(activated ? (onImage ? Color.white : dot) : dot)
             VStack(alignment: .leading, spacing: 3) {
-                Text("设备ID \(license.deviceID)")
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                Text("设备ID \(license.displayDeviceID)")
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundStyle(subtitleColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
                 HStack(spacing: 4) {
                     Circle().fill(dot).frame(width: 5, height: 5)
-                    Text(activated ? "已激活" : "未激活")
+                    Text(activated ? "已激活 · 永久" : "未激活")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(titleColor)
                 }

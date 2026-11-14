@@ -1012,6 +1012,14 @@ private struct ArtistHeroLayer: UIViewRepresentable {
         uiView.applyFrame()
     }
 
+    /// 🔴 2026-11-14：与 ImmersiveHeroLayer 同款 —— SwiftUI 把 Representable 移出
+    ///    视图树时【立刻】拆掉 UIKit 浮层。歌手页原来只靠 didMoveToWindow(window==nil)，
+    ///    pop 返回后 SwiftUI 可能隔几秒才真正释放 destination 视图 → 周杰伦大图会一直
+    ///    盖在推荐页的歌手头像横排上（用户实测截图「退出后还显示」）。
+    static func dismantleUIView(_ uiView: AnchorView, coordinator: Void) {
+        uiView.removeHeroLayer()
+    }
+
     final class AnchorView: UIView {
         var scrolled: CGFloat = 0
         var headerHeight: CGFloat = 350
@@ -1021,37 +1029,80 @@ private struct ArtistHeroLayer: UIViewRepresentable {
         private var heroView: UIView?
         private var hosting: UIHostingController<AnyView>?
         private weak var container: UIView?
+        private weak var hostVC: UIViewController?
+        /// 🔴 hostVC 是 weak，pop 后页面 VC 可能立刻被释放 → 变 nil。
+        ///    必须另外记住导航控制器本身（它随整条栈存活），否则栈顶判断会漏掉。
+        private weak var navController: UINavigationController?
         private var retry = 0
+        private var monitoring = false
+        /// 已拆除（页面 pop / Representable 被移除）：重试闭包不得再把大图装回来。
+        private var tornDown = false
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
             if window == nil {
-                heroView?.removeFromSuperview()
-                heroView = nil
-                hosting = nil
-                container = nil
+                removeHeroLayer()
                 return
             }
             installIfNeeded()
+            startVisibilityMonitoring()
         }
 
-        /// 沿响应链找本页所在的导航控制器，拿到它的 navigationBar。
-        private func resolveBar() -> UINavigationBar? {
+        /// 沿响应链找本页所在的导航控制器，同时记住页面 VC（用于栈顶判断）。
+        private func resolveNavContext() -> (UINavigationBar, UIViewController)? {
             var node: UIResponder? = self
             while let cur = node {
                 if let vc = cur as? UIViewController, let nav = vc.navigationController {
-                    return nav.navigationBar
+                    return (nav.navigationBar, vc)
                 }
                 node = cur.next
             }
             return nil
         }
 
+        /// 🔴 本页是否仍是导航栈顶。浮层挂在 UINavigationController.view 上（整条栈共用），
+        ///    pop / push 到别的页时必须立刻隐藏，否则旧歌手大图会一直盖在下一页内容上。
+        private var isHostOnTop: Bool {
+            guard let nav = navController else { return true }
+            if let host = hostVC, nav.viewControllers.contains(where: { $0 === host }),
+               nav.topViewController === host { return true }
+            guard let topView = nav.topViewController?.view else { return true }
+            return isDescendant(of: topView)
+        }
+
+        /// 低频轮询（0.12s）：pop 转场期间就把旧大图藏掉，用户完全看不到残留。
+        private func startVisibilityMonitoring() {
+            guard !monitoring, !tornDown else { return }
+            monitoring = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+                guard let anchor = self, anchor.window != nil, !anchor.tornDown else {
+                    self?.monitoring = false
+                    return
+                }
+                let target = anchor
+                if let view = target.heroView {
+                    view.isHidden = target.scrolled >= target.hideThreshold || !target.isHostOnTop
+                }
+                target.monitoring = false
+                target.startVisibilityMonitoring()
+            }
+        }
+
+        /// 立即从 nav.view 上摘掉大图（页面被 pop / SwiftUI 视图销毁时调用）。
+        func removeHeroLayer() {
+            tornDown = true
+            heroView?.removeFromSuperview()
+            heroView = nil
+            hosting = nil
+            container = nil
+            hostVC = nil
+        }
+
         private func installIfNeeded() {
-            guard heroView == nil, let build = buildHero else { return }
+            guard !tornDown, heroView == nil, let build = buildHero else { return }
             // 🔴 绝不 fallback 到 rootView.addSubview —— 那会把大图盖在返回/收藏按钮上。
             //    首帧响应链可能还没连到导航控制器，稍后重试即可。
-            guard let bar = resolveBar(), let parent = bar.superview else {
+            guard let (bar, pageHost) = resolveNavContext(), let parent = bar.superview else {
                 if retry < 6 {
                     retry += 1
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
@@ -1064,6 +1115,8 @@ private struct ArtistHeroLayer: UIViewRepresentable {
             hosting = host
             heroView = view
             container = parent
+            hostVC = pageHost
+            navController = pageHost.navigationController
             view.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: headerHeight)
             parent.insertSubview(view, belowSubview: bar)
             applyFrame()
@@ -1085,7 +1138,9 @@ private struct ArtistHeroLayer: UIViewRepresentable {
             } else {
                 view.alpha = max(0, 1 - (scrolled - fadeStart) / max(1, hideThreshold - fadeStart))
             }
-            view.isHidden = scrolled >= hideThreshold
+            // 🔴 页面已不在栈顶（被 pop 回推荐页 / push 到别的页）也必须隐藏，
+            //    否则这块大图会一直浮在下一页内容之上。
+            view.isHidden = scrolled >= hideThreshold || !isHostOnTop
         }
     }
 }
