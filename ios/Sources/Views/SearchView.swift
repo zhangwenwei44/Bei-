@@ -269,7 +269,7 @@ struct SearchView: View {
                         }
 
                         Divider()
-                            .padding(.leading, 78)
+                            .padding(.leading, 80)
                             .padding(.trailing, 28)
                     }
                     // 底部加载指示器

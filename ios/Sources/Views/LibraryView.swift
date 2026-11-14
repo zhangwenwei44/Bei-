@@ -295,12 +295,17 @@ private struct KugouProfileCard: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                     if activated {
-                        // 🔴 2026-11-15：换成用户给的「豪华 VIP」金色钻石图（透明底），
-                        //    高度 10→12pt，小字才看得清；1x/2x/3x 按 12pt 重新导出。
+                        // 🔴 2026-11-15 第十五轮：金色徽标直接压在花花绿绿的海贼王
+                        //    背景上仍看不清（真机截图）。垫一块半透明深色小胶囊 +
+                        //    细白描边、字号再放大一档，任何背景上都清晰。
                         Image("VipBadge")
                             .resizable()
                             .scaledToFit()
-                            .frame(height: 12)
+                            .frame(height: 14)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.black.opacity(0.62)))
+                            .overlay(Capsule().stroke(Color.white.opacity(0.38), lineWidth: 0.6))
                             .accessibilityLabel("VIP")
                     }
                 }
@@ -420,14 +425,14 @@ private struct DownloadsList: View {
                         CoverImage(url: song.artworkURL,
                                    fallbackKeys: song.coverFallbackKeys,
                                    seed: "\(song.artist)-\(song.title)",
-                                   size: 56)
+                                   size: 56, corner: 5)
                         // 🔴 2026-11-15：与播放队列一致的「封面压暗 + 白色三柱」播放动效。
                         .overlay {
                             if store.current?.id == song.id {
                                 NowPlayingCoverBars(isPlaying: store.isPlaying)
                             }
                         }
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
                         VStack(alignment: .leading, spacing: 5) {
                             HStack(spacing: 6) {
                                 Text(song.cleanTitle)

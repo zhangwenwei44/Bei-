@@ -34,8 +34,8 @@ final class BannerConfig: ObservableObject {
            let m = try? JSONDecoder().decode(Meta.self, from: data) {
             return m
         }
-        // 默认两张（对应最初的 BannerAd1/BannerAd2）
-        return Meta(custom: [false, false])
+        // 🔴 2026-11-15：用户要求「默认 2 移除，只保留 1」。
+        return Meta(custom: [false])
     }
 
     private func writeMeta(_ meta: Meta) {
@@ -79,7 +79,18 @@ final class BannerConfig: ObservableObject {
     }
 
     func reload() {
-        let meta = readMeta()
+        var meta = readMeta()
+        // 🔴 2026-11-15：老版本默认两张。第 2 张仍是内置默认图（没自定义）
+        //    → 直接移除该位置，实验室里只剩「横幅广告 1」。用户自己换过图的
+        //    第 2 张保留、不丢数据；迁移只跑一次。
+        let migratedKey = "aurora.banner.singleDefault.v1"
+        if !UserDefaults.standard.bool(forKey: migratedKey) {
+            if meta.custom.count == 2, !meta.custom[1] {
+                meta.custom = Array(meta.custom.prefix(1))
+                writeMeta(meta)
+            }
+            UserDefaults.standard.set(true, forKey: migratedKey)
+        }
         var imgs: [UIImage?] = []
         for i in 0..<meta.custom.count {
             imgs.append(meta.custom[i] ? Self.thumbnail(from: imageURL(i)) : nil)
@@ -282,7 +293,7 @@ struct DownloadCenterView: View {
             CoverImage(url: item.song.artworkURL,
                        fallbackKeys: item.song.coverFallbackKeys,
                        seed: "\(item.song.artist)-\(item.song.title)",
-                       size: 48, corner: 8)
+                       size: 48, corner: 5)
             VStack(alignment: .leading, spacing: 5) {
                 Text(item.song.cleanTitle)
                     .font(.system(size: 14, weight: .medium))

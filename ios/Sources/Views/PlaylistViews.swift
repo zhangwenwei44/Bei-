@@ -217,6 +217,15 @@ struct PlaylistDetailView: View {
                             ) {
                                 row
                             }
+                            // 🔴 2026-11-15：新歌推荐 / 每日推荐 / 猜你喜欢 / 经典推荐
+                            //    这些「更多」列表之前完全没有下划线，与「我的音乐」
+                            //    的歌单列表不一致。统一成左侧避开封面(80)、右侧
+                            //    给索引/滑动条留 28pt 的短分隔线。
+                            if song.id != displaySongs.last?.id {
+                                Divider()
+                                    .padding(.leading, 80)
+                                    .padding(.trailing, 28)
+                            }
                         }
                     }
                 }
@@ -585,6 +594,11 @@ struct AlbumDetailView: View {
                                     // 🔴 A–Z 字母条常显占 24pt：行尾按钮保持 32pt 让位不动；
                                     //    其余排序只有滚动时才淡入的 3pt 灰条，无需让位 → 按钮右移到 16pt。
                                     .padding(.trailing, PlaylistLetterIndex.isSlider(sortMode) ? 16 : 32)
+                            }
+                            if song.id != displaySongs.last?.id {
+                                Divider()
+                                    .padding(.leading, 80)
+                                    .padding(.trailing, 28)
                             }
                         }
                     }

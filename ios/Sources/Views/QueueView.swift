@@ -213,7 +213,7 @@ struct QueueView: View {
                     ForEach(entries) { entry in
                         queueRow(entry)
                             .id(entry.id)
-                        Divider().padding(.leading, 78).padding(.trailing, 28)
+                        Divider().padding(.leading, 80).padding(.trailing, 28)
                     }
                 }
             }
@@ -367,7 +367,7 @@ struct QueueView: View {
                                 store.play(songs, startAt: item.index)
                                 dismiss()
                             }
-                            Divider().padding(.leading, 78).padding(.trailing, 28)
+                            Divider().padding(.leading, 80).padding(.trailing, 28)
                         }
                     }
                 }
@@ -457,7 +457,7 @@ struct QueueView: View {
                                 store.play(item.songs, startAt: 0)
                                 dismiss()
                             }
-                            Divider().padding(.leading, 78).padding(.trailing, 28)
+                            Divider().padding(.leading, 80).padding(.trailing, 28)
                         }
                     }
                 }

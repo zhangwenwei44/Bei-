@@ -651,12 +651,56 @@ struct CoverImage: View {
     /// 🔴 大图（沉浸式歌单头图等）专用：跳过共享小图缓存、按大尺寸解码。
     /// 默认 false，列表 / 头像等所有既有调用点行为完全不变。
     var hiRes: Bool = false
+    /// 🔴 只开启「首帧用缓存图顶上」，不改变下载链路（歌手页大图用，
+    /// 它本来走共享缓存，只是 URL 升过尺寸、缓存里躺的是小尺寸版本）。
+    var prefillCached: Bool = false
 
     @State private var image: UIImage?
     @State private var resolved: URL?
 
     private var effectiveURL: URL? {
         url ?? resolved ?? CoverResolver.shared.firstAvailable(fallbackKeys)
+    }
+
+    /// 🔴 2026-11-15：沉浸式头图首帧「黑色闪屏」的根因是 hiRes 请求既不读也不写
+    ///    共享小图缓存，进页面必定先画一帧深色兜底再等下载。
+    ///    这里把所有「已经拿到的同图」都找出来先顶上：高清缓存 → 小图缓存 →
+    ///    登记表 URL → 尺寸变体（400↔200 / 800↔480）的缓存，高清到位后无感替换。
+    private var cachedPlaceholder: UIImage? {
+        guard hiRes || prefillCached else { return nil }
+        let maxPixel = min(size * 3, 1200)
+        for u in cachedImageCandidates() {
+            if let hit = CoverLoader.cachedHiRes(u, maxPixelSize: maxPixel) { return hit }
+            if let hit = CoverCache.shared.image(for: u) { return hit }
+        }
+        return nil
+    }
+
+    private func cachedImageCandidates() -> [URL] {
+        var base: [URL] = []
+        if let url { base.append(url) }
+        if let resolved { base.append(resolved) }
+        if let viaKey = CoverResolver.shared.firstAvailable(fallbackKeys) { base.append(viaKey) }
+        let sizes = ["/90/", "/100/", "/120/", "/150/", "/200/", "/240/",
+                     "/300/", "/400/", "/480/", "/500/", "/800/"]
+        var variants: [URL] = []
+        for u in base {
+            let raw = u.absoluteString
+            for token in sizes where raw.contains(token) {
+                for alt in sizes where alt != token {
+                    if let v = URL(string: raw.replacingOccurrences(of: token, with: alt)) {
+                        variants.append(v)
+                    }
+                }
+                break
+            }
+        }
+        return base + variants
+    }
+
+    /// 真正绘制的图：高清请求完成前，大图先用缓存图顶上（见 cachedPlaceholder）。
+    private var displayImage: UIImage? {
+        image ?? ((hiRes || prefillCached) ? cachedPlaceholder : nil)
     }
 
     private var w: CGFloat { displayWidth ?? size }
@@ -675,18 +719,21 @@ struct CoverImage: View {
                                startPoint: .topLeading,
                                endPoint: .bottomTrailing)
             }
-            if let image {
+            // 🔴 大图先显示已有缓存图，避免进页面先过一帧「黑色图片」。
+            if let shown = displayImage {
                 if contentMode == .fit {
-                    Image(uiImage: image)
+                    Image(uiImage: shown)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(width: w, height: h, alignment: imageAlignment)
                         .clipped()
                 } else {
                     // 🔴 铺满 + 指定对齐：手动算缩放与偏移（见 CoverFillLayer 注释）。
-                    CoverFillLayer(image: image, width: w, height: h, alignment: imageAlignment)
+                    CoverFillLayer(image: shown, width: w, height: h, alignment: imageAlignment)
                 }
-            } else {
+            } else if fallbackColor == nil {
+                // 沉浸式大图（传了深色 fallbackColor）没有缓存图时只显示纯色底，
+                // 不再叠一个巨大的白色音符 —— 那个组合就是用户说的「黑色图片」。
                 Image(systemName: "music.note")
                     .font(.system(size: min(w, h) * 0.32, weight: .medium))
                     .foregroundStyle(.white.opacity(0.5))
@@ -842,6 +889,24 @@ enum CoverLoader {
     // 直接调用会产生编译器警告（CI 零警告即失败）。
     private static let inflight = InflightTasks()
 
+    /// 🔴 2026-11-15：高清大图单独一份小容量缓存。
+    ///    downloadHiRes 的 useCache:false 之前「既不读也不写」缓存，导致每次进
+    ///    歌单/歌手页都要重新下载 → 首帧必定是深色兜底（用户说的黑色图片）。
+    ///    不写回 CoverCache 是为了不让 4MB 大图挤掉列表的 200 张小图。
+    private static let hiResCache: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        c.countLimit = 16
+        return c
+    }()
+
+    private static func hiResKey(_ url: URL, _ maxPixelSize: CGFloat) -> NSString {
+        "\(url.absoluteString)#\(Int(maxPixelSize))" as NSString
+    }
+
+    static func cachedHiRes(_ url: URL, maxPixelSize: CGFloat) -> UIImage? {
+        hiResCache.object(forKey: hiResKey(url, maxPixelSize))
+    }
+
     static func download(_ url: URL, maxPixelSize: CGFloat = 300) async -> UIImage? {
         await request(url, maxPixelSize: maxPixelSize)
     }
@@ -851,13 +916,19 @@ enum CoverLoader {
     /// 375pt 宽的大图放大成糊图（2026-11-14「歌单顶部图片模糊」真机截图实锤）。
     /// 高清图不回写缓存，免得把小图挤掉后列表又得重新下载。
     static func downloadHiRes(_ url: URL, maxPixelSize: CGFloat = 900) async -> UIImage? {
+        let key = hiResKey(url, maxPixelSize)
+        if let hit = hiResCache.object(forKey: key) { return hit }
         // 先试一次 CDN 的更大尺寸变体（只认明确的尺寸目录段，404 会立刻回退），
         // 拿不到就老老实实用原地址，绝不因为升级失败让大图空白。
-        if let bigger = largerVariant(of: url),
-           let image = await request(bigger, maxPixelSize: maxPixelSize, useCache: false) {
-            return image
+        var result: UIImage?
+        if let bigger = largerVariant(of: url) {
+            result = await request(bigger, maxPixelSize: maxPixelSize, useCache: false)
         }
-        return await request(url, maxPixelSize: maxPixelSize, useCache: false)
+        if result == nil {
+            result = await request(url, maxPixelSize: maxPixelSize, useCache: false)
+        }
+        if let result { hiResCache.setObject(result, forKey: key) }
+        return result
     }
 
     /// 只替换 URL 里的「尺寸目录段」（/480/ → /800/）。
@@ -1446,7 +1517,7 @@ struct SongRow: View {
                 CoverImage(url: song.artworkURL,
                            fallbackKeys: song.coverFallbackKeys,
                            seed: "\(song.artist)-\(song.title)",
-                           size: 50)
+                           size: 50, corner: 5)
                 .overlay {
                     // 🔴 2026-11-15：蓝色圆点角标 → 与播放队列一致的「整张封面压暗 + 白色三柱」。
                     //    只有当前播放的这首歌显示；暂停时柱子静止、仍保留标识。
@@ -1454,7 +1525,7 @@ struct SongRow: View {
                         NowPlayingCoverBars(isPlaying: isPlaying)
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             }
 
             VStack(alignment: .leading, spacing: 4) {

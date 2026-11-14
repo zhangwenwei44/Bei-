@@ -396,9 +396,9 @@ struct ArtistDetailView: View {
     private var heroImageContent: some View {
         let screenW = UIScreen.main.bounds.width
         return ZStack(alignment: .bottom) {
-            // 🔴 深色兜底背板：CoverImage 的 .fill 兜底是浅灰近白，图未加载时会露白；
-            // 垫一层深色，任何情况下顶部（含导航栏区域）都不会是白色。
-            Color(red: 0.07, green: 0.07, blue: 0.09)
+            // 🔴 深蓝灰兜底背板（不再是近黑色）：图未加载时不露白，
+            // 也不会出现「先过一下黑色图片」的闪屏。
+            ImmersiveStyle.heroFallback
                 .frame(width: screenW, height: headerBaseHeight)
 
             // 🔴 大图：.fill 铺满整框（不露白边/白顶）；.top 顶部对齐把歌手头部顶到导航栏，
@@ -414,7 +414,9 @@ struct ArtistDetailView: View {
                 displayHeight: headerBaseHeight,
                 contentMode: .fill,
                 imageAlignment: .top,
-                fallbackColor: Color(red: 0.07, green: 0.07, blue: 0.09)
+                fallbackColor: ImmersiveStyle.heroFallback,
+                // 🔴 首帧先用列表里已缓存的歌手图顶上，高清到位后无感替换。
+                prefillCached: true
             )
             .frame(width: screenW, height: headerBaseHeight)
             .clipped()
@@ -442,7 +444,8 @@ struct ArtistDetailView: View {
                         fallbackKeys: [artist.id],
                         seed: artist.name,
                         size: 40,
-                        corner: 20
+                        corner: 20,
+                        prefillCached: true
                     )
                     .frame(width: 40, height: 40)
                     .clipShape(Circle())
@@ -478,7 +481,8 @@ struct ArtistDetailView: View {
                 displayHeight: headerBaseHeight,
                 contentMode: .fill,
                 imageAlignment: .top,
-                fallbackColor: Color(red: 0.07, green: 0.07, blue: 0.09)
+                fallbackColor: ImmersiveStyle.heroFallback,
+                prefillCached: true
             )
             .frame(width: screenW, height: headerBaseHeight)
             .clipped()
@@ -886,10 +890,10 @@ private struct ArtistSongRow: View {
                         fallbackKeys: song.kugouHash.isEmpty ? [] : ["kg:\(song.kugouHash)"],
                         seed: song.id,
                         size: 44,
-                        corner: 6
+                        corner: 5
                     )
                     .frame(width: 44, height: 44)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(song.title)

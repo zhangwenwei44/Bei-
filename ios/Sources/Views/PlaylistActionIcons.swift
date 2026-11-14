@@ -394,6 +394,13 @@ final class PlaylistScrollSliderView: UIView {
     ///    灰条就会「一下跳到上面、一下又在中间」。这里用「只增、明显变少才重置」
     ///    的稳定内容高度，拖动与松手也共用同一基准。
     private var stableContentHeight: CGFloat = 0
+    /// 🔴 2026-11-15 第十五轮：灰条不能盖到沉浸式大图上。
+    ///    列表可视区顶边随大图收起从 y≈432 连续移到 y≈176；这里记住首帧静止
+    ///    contentOffset，用它算滚动量，避免每次都拿 adjustedContentInset 猜基准。
+    private var restOffsetY: CGFloat?
+    /// 拖动期间冻结「列表可视区顶边」：否则 setContentOffset 改了滚动量 →
+    /// 顶边连续上移 → 下一次 touchesMoved 又映射到更远的 progress，形成正反馈跳动。
+    private var draggingTrackTop: CGFloat?
 
     private static let gray = UIColor(white: 0.55, alpha: 0.9)
 
@@ -450,6 +457,7 @@ final class PlaylistScrollSliderView: UIView {
     ///    Anchor 的 0.15s 轮询也会调 attachIfNeeded→syncThumb，如果在这里无脑淡入，
     ///    灰条就会常驻不消失（等于没做「不滑动会隐藏」）。
     private func handleScroll(_ offsetY: CGFloat) {
+        if restOffsetY == nil { restOffsetY = offsetY }
         if let last = lastOffsetY, abs(last - offsetY) > 0.5 { flash() }
         lastOffsetY = offsetY
         syncThumb()
@@ -491,6 +499,7 @@ final class PlaylistScrollSliderView: UIView {
             sizeObservation?.invalidate()
             scrollView = sv
             stableContentHeight = 0   // 换了列表（切歌单 / 排序）重新建立稳定基准
+            restOffsetY = nil
             offsetObservation = sv.observe(\.contentOffset, options: [.initial, .new]) { [weak self] sv, _ in
                 self?.handleScroll(sv.contentOffset.y)
             }
@@ -503,10 +512,11 @@ final class PlaylistScrollSliderView: UIView {
     }
 
     private func metrics() -> (minY: CGFloat, maxY: CGFloat, progress: CGFloat,
-                               thumbHeight: CGFloat, usable: CGFloat) {
+                               thumbHeight: CGFloat, trackTop: CGFloat, travel: CGFloat) {
         let usable = max(1, bounds.height - edgeY * 2)
         guard let sv = scrollView else {
-            return (0, 1, 0, min(usable, minThumbHeight), usable)
+            return (0, 1, 0, min(usable, minThumbHeight), edgeY,
+                    max(1, usable - minThumbHeight))
         }
         let ins = sv.adjustedContentInset
         let raw = sv.contentSize.height
@@ -524,7 +534,20 @@ final class PlaylistScrollSliderView: UIView {
         let progress = min(1, max(0, (sv.contentOffset.y - minY) / span))
         let ratio: CGFloat = min(1, sv.bounds.height / contentHeight)
         let thumbHeight = min(usable, max(min(usable, minThumbHeight), usable * ratio))
-        return (minY, maxY, progress, thumbHeight, usable)
+
+        // 🔴 2026-11-15 第十五轮：浮层高度恒定在 y=176（绝不随吸顶阈值跳变），
+        //    但大图展开时列表可视区其实从 y≈432 才开始 —— 滑块按整根轨道算
+        //    就会画在大图上（真机截图右侧那条灰线实锤）。
+        //    这里把「列表可视区顶边」按滚动量连续地从 432 收到 176，
+        //    滑块只在这条线以下移动，全程连续、没有任何阈值切换。
+        let base = restOffsetY ?? -ins.top
+        let scrolled = max(0, sv.contentOffset.y - base)
+        let heroRange: CGFloat = 432 - 176
+        let remain = max(0, heroRange - min(scrolled, heroRange))
+        let computedTop = edgeY + remain
+        let trackTop = dragging ? (draggingTrackTop ?? computedTop) : computedTop
+        let travel = max(1, bounds.height - edgeY - trackTop - thumbHeight)
+        return (minY, maxY, progress, thumbHeight, trackTop, travel)
     }
 
     private func setThumb(y: CGFloat, height: CGFloat) {
@@ -543,17 +566,16 @@ final class PlaylistScrollSliderView: UIView {
     private func syncThumb() {
         guard !dragging else { return }
         let m = metrics()
-        let travel = max(1, m.usable - m.thumbHeight)
-        setThumb(y: edgeY + travel * m.progress, height: m.thumbHeight)
+        setThumb(y: m.trackTop + m.travel * m.progress, height: m.thumbHeight)
     }
 
-    /// 手指位置 → 列表位置。
+    /// 手指位置 → 列表位置。与 syncThumb 共用同一条「列表可视区轨道」，
+    /// 否则大图展开时手指点在轨道顶会被换算成很大的 progress，列表乱跳。
     private func seek(toY: CGFloat) {
         guard let sv = scrollView else { return }
         let m = metrics()
-        let travel = max(1, m.usable - m.thumbHeight)
-        let p = min(1, max(0, (toY - edgeY - m.thumbHeight / 2) / travel))
-        setThumb(y: edgeY + travel * p, height: m.thumbHeight)
+        let p = min(1, max(0, (toY - m.trackTop - m.thumbHeight / 2) / m.travel))
+        setThumb(y: m.trackTop + m.travel * p, height: m.thumbHeight)
         let targetY = m.minY + p * (m.maxY - m.minY)
         if abs(sv.contentOffset.y - targetY) > 0.5 {
             sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: targetY), animated: false)
@@ -563,6 +585,7 @@ final class PlaylistScrollSliderView: UIView {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let t = touches.first else { return }
         dragging = true
+        draggingTrackTop = metrics().trackTop   // 冻结整段拖动期间的映射
         flash()
         Haptics.light()
         seek(toY: t.location(in: self).y)
@@ -579,6 +602,7 @@ final class PlaylistScrollSliderView: UIView {
 
     private func finish() {
         dragging = false
+        draggingTrackTop = nil
         syncThumb()
         // 松手后重新计时，静止 1.1s 淡出。
         flash()
@@ -592,6 +616,9 @@ final class PlaylistScrollSliderView: UIView {
         offsetObservation = nil
         sizeObservation = nil
         scrollView = nil
+        restOffsetY = nil
+        draggingTrackTop = nil
+        stableContentHeight = 0
         visible = false
         layer.removeAllAnimations()
         alpha = 0
@@ -823,6 +850,8 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
             //    progress 映射被整体重算 → 灰条「一下跳到上面、一下又在中间」，
             //    同时还会触发列表视觉层反复刷新（用户说的滑到顶部抖几下）。
             //    固定成吸顶态的 176（避开「播放全部 / 多选」那一行）即可根治。
+            //    ⚠️ 滑块本身再由 PlaylistScrollSliderView.metrics() 按连续滚动量
+            //       限制在「列表可视区顶边」以下，大图展开时不会画到图片上。
             let topReserved: CGFloat = isSlider ? 176 : (expanded ? 92 : 432)
             let maxH = screen.height - bottomReserved - topReserved
             // 字母条在缩起态挤不下会糊成一团才隐藏；滑动条是滚动指示器，

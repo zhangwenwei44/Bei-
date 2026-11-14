@@ -296,7 +296,11 @@ struct DiscoverView: View {
                 // 🔴 2026-11-13：登录态标识（绿点 + 已连接）放在名字上方（kugouAvatar 内部）
                 kugouAvatar
             }
-            .padding(.trailing, 12)
+            // 🔴 2026-11-15 第十五轮：整块登录信息右移，贴近屏幕右边缘。
+            //    原 trailing 12 + 固定宽度里剩下的空白让它离右边缘约 70pt，
+            //    和下方横幅的右边缘明显不齐；去掉内边距再纯视觉右移 36pt。
+            .padding(.trailing, 0)
+            .offset(x: 36)
         }
         .frame(height: 40)
     }
@@ -2251,8 +2255,9 @@ private struct AdBannerCarousel: View {
     private let adTimer = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
 
     var body: some View {
+        // 🔴 2026-11-15：默认只保留 1 张横幅（实验室可自行「添加」更多）。
         let imgs: [UIImage?] = bannerConfig.effectiveImages.isEmpty
-            ? [nil, nil] : bannerConfig.effectiveImages
+            ? [nil] : bannerConfig.effectiveImages
         let count = imgs.count
         let h = (UIScreen.main.bounds.width - 32) * 7 / 16 // 16:7
         return TabView(selection: $adIndex) {
@@ -2459,7 +2464,7 @@ struct FeedSongRow: View {
                        fallbackKeys: song.coverFallbackKeys,
                        seed: "\(song.artist)-\(song.title)",
                        size: 56,
-                       corner: 8)
+                       corner: 5)
             VStack(alignment: .leading, spacing: 6) {
                 Text(song.title)
                     .font(.system(size: 16, weight: .semibold))

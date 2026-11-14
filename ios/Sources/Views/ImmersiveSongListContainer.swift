@@ -25,8 +25,10 @@ import UIKit
 // MARK: - 共享样式
 
 enum ImmersiveStyle {
-    /// 大图兜底深色：图未加载 / 加载失败时顶部（含状态栏）也绝不露白。
-    static let heroFallback = Color(red: 0.07, green: 0.07, blue: 0.09)
+    /// 🔴 2026-11-15：大图兜底改成「深蓝灰」而不是近黑色。
+    ///    近黑底 + 白色音符占位在真机上就是「先过一下黑色图片」；
+    ///    现在配合 CoverImage 的缓存首帧图，过渡看起来是一次正常的淡入。
+    static let heroFallback = Color(red: 0.20, green: 0.22, blue: 0.27)
     /// 列表底部留白：迷你播放条 + TabBar 的高度，保证最后一首能滚到播放条上方。
     static let listBottomInset: CGFloat = 96
 }
@@ -109,7 +111,11 @@ final class ImmersiveHeaderState: ObservableObject {
 
     /// 🔴 顶栏毛玻璃/文字色用的**低频阶梯值**（0.05 一档）。
     ///    整个收起过程最多发布 21 次，取代原来的每 0.5pt 一次（约 520 次）。
+    ///    ⚠️ 2026-11-15：这 21 次发布仍然会让页面 body（含整棵 LazyVStack）
+    ///    反复重算 —— 滑回顶部时连发就是「列表抖几下」。现在改成滚动停止后
+    ///    才对齐一次（见 scheduleNavAppearance），滚动中一次都不发布。
     @Published var navFrostOpacity: CGFloat = 0
+    private var navAppearanceWork: DispatchWorkItem?
 
     /// 🔴 2026-11-12 第三轮：字母索引的展开态单独成一个只发 Bool 的对象。
     let letterIndexMode = PlaylistLetterIndexMode()
@@ -163,7 +169,10 @@ final class ImmersiveHeaderState: ObservableObject {
     ///      实测值会 ±1pt 抖，直接改变 `listPlaceholder` 高度 → 整个列表上下跳；
     ///      现在只有真正的大变化（旋转 / 安全区改变）才允许更新。
     func apply(_ m: ImmersiveMetrics) {
-        if m.scrolled < 1 {
+        // 🔴 2026-11-15：滚动中绝不改写内容原点。
+        //    探针实测值会随 contentOffset 有 ±1~2pt 抖动，改写它就会改
+        //    listPlaceholder → 整张列表上下跳。只在「静止 + 入页收敛期」才量。
+        if m.scrolled < 1, !m.interacting {
             let measured = (m.contentOriginYRest * 2).rounded() / 2
             let now = Date.timeIntervalSinceReferenceDate
             if originSettleDeadline == 0 { originSettleDeadline = now + 0.8 }
@@ -180,7 +189,12 @@ final class ImmersiveHeaderState: ObservableObject {
 
         let raw = frostOpacity(for: q)
         let step = (raw * 20).rounded() / 20
-        if abs(navFrostOpacity - step) > 0.001 { navFrostOpacity = step }
+        // 🔴 2026-11-15 第十五轮：滚动过程中不发布顶栏配色。
+        //    每级台阶都会让页面 body 重算（含整棵歌曲列表树），滑回顶部时
+        //    21 级台阶连发 → 列表「抖几下」。毛玻璃视觉层仍逐帧平滑渐入
+        //    （ImmersiveVisualChrome 直接用 frostOpacity(for:) 连续算），
+        //    顶栏文字 / 状态栏配色只在停止滚动 0.12s 后一次性对齐。
+        scheduleNavAppearance(step)
 
         // 字母条只在跨过阈值那一次写 @Published，滚动全程零刷新。
         // 🔴 2026-11-15：加滞回（进 0.92 / 出 0.78）——旧版单一阈值在
@@ -197,6 +211,22 @@ final class ImmersiveHeaderState: ObservableObject {
         let contentY = topInset + stickyHeight - max(0, contentOriginYRest) + q
         letterIndexMode.syncVisible(contentY: contentY, listStart: listPlaceholder)
     }
+
+    /// 滚动一停才把顶栏配色对齐到最终值；连续滚动时不断取消上一个任务，
+    /// 因此整个收起/展开过程只有「停手」那一次 @Published 写入。
+    private func scheduleNavAppearance(_ step: CGFloat) {
+        navAppearanceWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            if abs(self.navFrostOpacity - step) > 0.001 {
+                self.navFrostOpacity = step
+            }
+        }
+        navAppearanceWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+    }
+
+    deinit { navAppearanceWork?.cancel() }
 }
 
 // MARK: - 容器
@@ -621,9 +651,9 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             asyncRetryScheduled = false
             let heroHost = UIHostingController(rootView: root)
             let view = heroHost.view!
-            // 🔴 深色兜底：万一 SwiftUI 头图首帧还没画出来，至少不会露出刺眼白块
-            //    （与 ImmersiveStyle.heroFallback 同色）。
-            view.backgroundColor = UIColor(red: 0.07, green: 0.07, blue: 0.09, alpha: 1)
+            // 🔴 SwiftUI 头图首帧还没画出来时的兜底：与 ImmersiveStyle.heroFallback
+            //    同色的深蓝灰（不再是近黑色，避免进页面先闪一张「黑图」）。
+            view.backgroundColor = UIColor(red: 0.20, green: 0.22, blue: 0.27, alpha: 1)
             view.isUserInteractionEnabled = false
             view.clipsToBounds = true
             hosting = heroHost
@@ -662,6 +692,8 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
 struct ImmersiveMetrics: Equatable {
     var scrolled: CGFloat = 0
     var contentOriginYRest: CGFloat = 0
+    /// 🔴 手势 / 惯性滚动中不允许改写 listPlaceholder（见 ImmersiveHeaderState.apply）。
+    var interacting: Bool = false
 }
 
 private struct ImmersiveScrollTracker: UIViewRepresentable {
@@ -750,7 +782,9 @@ private struct ImmersiveScrollTracker: UIViewRepresentable {
             }
             let scrolled = max(0, offsetY - (restOffsetY ?? offsetY))
             let trackerY = convert(CGPoint.zero, to: nil).y
-            let m = ImmersiveMetrics(scrolled: scrolled, contentOriginYRest: trackerY + scrolled)
+            let m = ImmersiveMetrics(scrolled: scrolled,
+                                     contentOriginYRest: trackerY + scrolled,
+                                     interacting: sv.isDragging || sv.isDecelerating)
             guard m != last else { return }
             last = m
             onMetricsChange?(m)
