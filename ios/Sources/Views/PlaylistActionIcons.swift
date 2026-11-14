@@ -800,7 +800,12 @@ private struct PlaylistLetterIndexHost: UIViewRepresentable {
             // 🔴 2026-11-13：修「刚打开歌单、英文排序缩起时字母显示在图片上」。
             //    缩起态（大图展开）把字母条整条压进【大图 350 + 吸顶头 74 + 8】
             //    以下的列表区域，绝不再浮到沉浸式大图上；吸顶后恢复原 92pt 上限。
-            let topReserved: CGFloat = expanded ? 92 : 432
+            // 🔴 2026-11-14 第十二轮：滑动条在吸顶态原来从 y=92 起，正好压在
+            //    「播放全部 / 排序 / 多选」那一行右侧（用户截图：滑动条显示在多选按钮那里）。
+            //    下移到「导航栏 92 + 吸顶头 74 + 余量」之下；字母索引条保持原值不动。
+            let topReserved: CGFloat = isSlider
+                ? (expanded ? 176 : 432)
+                : (expanded ? 92 : 432)
             let maxH = screen.height - bottomReserved - topReserved
             // 字母条在缩起态挤不下会糊成一团才隐藏；滑动条是滚动指示器，
             // 只要还留得下一根轨道就必须常显（小屏大图展开时也别整条消失）。

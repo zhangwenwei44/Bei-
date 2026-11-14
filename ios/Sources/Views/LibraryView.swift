@@ -137,6 +137,9 @@ private struct KugouProfileCard: View {
     private var chipText: Color { onImage ? .white : AppStyle.accent }
 
     private var cardLabel: some View {
+        // 🔴 2026-11-14 第十二轮：设备ID / 激活状态 / 蓝牙统一放进「底部一行」，
+        //    三者垂直居中齐平；原来 deviceStatus 是上下两行、蓝牙又浮在左下角，
+        //    胶囊正好压住「已激活 · 永久」（真机截图实锤）。
         VStack(alignment: .leading, spacing: 12) {
             // 头像 + 昵称 + VIP + 副标题 + 箭头
             HStack(spacing: 12) {
@@ -181,16 +184,10 @@ private struct KugouProfileCard: View {
                     .modifier(CardTextShadow(onImage: onImage))
             }
 
-            // 🔴 2026-11-14：原「今日 N 首 / N 分」统计整块移除，
-            //    左侧改成本机设备ID + 激活状态；点一下复制完整设备ID（换授权码时要用）。
-            //    设备ID与酷狗账号无关，未登录也常显。
-            Divider()
-                .background(onImage ? Color.white.opacity(0.45) : Color.clear)
-            HStack(spacing: 10) {
-                deviceStatus
-                Spacer(minLength: 0)
-                if kugouAuth.isVip { tagChip("会员") }
-            }
+            // 🔴 2026-11-14：原「今日 N 首 / N 分」统计整块移除；
+            //    原来的分隔线 + deviceStatus 上下两行也一并删掉，改由底部
+            //    `cardBottomBar` 一行承载设备ID / 激活状态 / 蓝牙（见下方 overlay）。
+            //    这里只留一个 Spacer 把顶部账号信息顶上去，底部一行由浮层绘制。
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
@@ -229,78 +226,73 @@ private struct KugouProfileCard: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(onImage ? Color.white.opacity(0.30) : AppStyle.accent.opacity(0.15), lineWidth: 1)
         )
-        // 🔴 2026-11-14 第十一轮：蓝牙设备条按用户要求移到【卡片左下角】浮层。
-        //    不挤占顶部内容、卡片尺寸不变；设备ID 状态在分隔线下方，左下不会压住它。
+        // 🔴 2026-11-14 第十二轮：设备ID / 激活状态 / 蓝牙统一成【底部一行】。
+        //    · 三项都在同一 HStack 里，天然垂直居中齐平；
+        //    · 蓝牙胶囊背景整块删掉，不再压住「已激活 · 永久」；
+        //    · bottom padding 12 → 6，整行再往下移一点（用户要求）。
         .overlay(alignment: .bottomLeading) {
-            if audioRoute.isBluetoothConnected {
-                bluetoothChip
-                    .padding(.leading, 14)
-                    .padding(.bottom, 12)
-            }
+            cardBottomBar
+                .padding(.leading, 14)
+                .padding(.bottom, 6)
         }
         .contentShape(Rectangle())
     }
 
-    /// 🔴 2026-11-14 第八轮：蓝牙图标去掉浅灰方块底板，只留符号本体；
-    ///    颜色跟随卡片文字（自定义背景图上白色 / 普通背景主题蓝）。
-    ///    名字后面的「笔」已移除；点整条仍可改名（隐藏入口，不占视觉）。
-    private var bluetoothChip: some View {
-        HStack(spacing: 6) {
-            // 🔴 2026-11-14 第十一轮：蓝牙图标改成呼吸发光效果（只动图标，文字不跳）。
-            BreathingBluetoothIcon(size: 15, color: iconColor)
-            Text(audioRoute.deviceName)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(chipText)
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
-        .background(chipFill, in: Capsule())
-        .modifier(CardTextShadow(onImage: onImage))
-        .contentShape(Capsule())
-        // 🔴 整张卡片是 NavigationLink / Button 的 label，嵌套 Button 会和外链抢点击。
-        //    这里用高优先级手势，只让「改名」生效，不会顺带 push 账号中心。
-        .highPriorityGesture(TapGesture().onEnded {
-            deviceNameDraft = audioRoute.deviceName
-            showDeviceRename = true
-        })
-    }
-
-    /// 🔴 2026-11-14：设备ID + 激活状态（放在原「8 首 / 10 分」的位置）。
-    /// 🔴 第十一轮：后面的完整设备码改成由它派生的【6 位数字专属 ID】，
-    ///    「已激活」后补「· 永久」（授权本来就是永久有效）。
-    ///    点一下仍复制**完整设备码** —— 换授权码必须用完整码，6 位数只是展示用。
-    /// 文字颜色跟随卡片（自定义背景图=白字，普通背景=深色字），状态点固定绿/红便于辨识。
-    private var deviceStatus: some View {
+    /// 🔴 2026-11-14 第十二轮定稿：卡片底部信息行（全部齐平、无胶囊）。
+    /// 蓝牙只在连接时出现在最左（仍是左下），后面依次是设备ID 与激活状态；
+    /// 已有手势：蓝牙点按改名、设备ID 点按复制完整设备码（换授权码要用完整码）。
+    private var cardBottomBar: some View {
         let activated = license.isActivated
         let dot = activated ? Color(red: 0.16, green: 0.76, blue: 0.38)
                             : Color(red: 1.0, green: 0.36, blue: 0.36)
-        return HStack(spacing: 7) {
-            Image(systemName: "shield.fill")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(activated ? (onImage ? Color.white : dot) : dot)
-            VStack(alignment: .leading, spacing: 3) {
+        return HStack(alignment: .center, spacing: 8) {
+            if audioRoute.isBluetoothConnected {
+                HStack(spacing: 5) {
+                    // 呼吸图标只动绘制层（固定 frame），不会把同一行的文字推来推去。
+                    BreathingBluetoothIcon(size: 14, color: iconColor)
+                    Text(audioRoute.deviceName)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(chipText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .frame(maxWidth: 84, alignment: .leading)
+                }
+                .contentShape(Rectangle())
+                // 整张卡片是 NavigationLink / Button 的 label，嵌套 Button 会和外链抢点击。
+                .highPriorityGesture(TapGesture().onEnded {
+                    deviceNameDraft = audioRoute.deviceName
+                    showDeviceRename = true
+                })
+                Text("·")
+                    .font(.system(size: 10))
+                    .foregroundStyle(faintColor)
+            }
+            HStack(spacing: 5) {
+                Image(systemName: "shield.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(activated ? (onImage ? Color.white : dot) : dot)
                 Text("设备ID \(license.displayDeviceID)")
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(subtitleColor)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-                HStack(spacing: 4) {
-                    Circle().fill(dot).frame(width: 5, height: 5)
-                    Text(activated ? "已激活 · 永久" : "未激活")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(titleColor)
-                }
+                    .minimumScaleFactor(0.75)
+                Circle().fill(dot).frame(width: 5, height: 5)
+                Text(activated ? "已激活 · 永久" : "未激活")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(titleColor)
+                    .lineLimit(1)
             }
+            .contentShape(Rectangle())
+            .highPriorityGesture(TapGesture().onEnded {
+                UIPasteboard.general.string = license.deviceID
+                Haptics.light()
+            })
+            Spacer(minLength: 0)
+            // 原来「会员」标签在 deviceStatus 那行右侧，底栏合并后跟着挪到行尾。
+            if kugouAuth.isVip { tagChip("会员") }
         }
         .modifier(CardTextShadow(onImage: onImage))
-        .contentShape(Rectangle())
-        // 整张卡片是 NavigationLink / Button 的 label：用高优先级手势复制，
-        // 既不会和外链抢点击，也不嵌套 Button（iOS 15 上嵌套按钮容易失效）。
-        .highPriorityGesture(TapGesture().onEnded {
-            UIPasteboard.general.string = license.deviceID
-            Haptics.light()
-        })
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func tagChip(_ text: String) -> some View {

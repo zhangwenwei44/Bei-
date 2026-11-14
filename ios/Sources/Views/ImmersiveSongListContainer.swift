@@ -455,6 +455,11 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
     func updateUIView(_ uiView: AnchorView, context: Context) {
         uiView.scrolled = scrolled
         uiView.updateHero(key: heroKey, root: hero)
+        // 🔴 2026-11-14 第十二轮：SwiftUI 偶尔会短暂把 Representable 拆掉又更新同一个
+        //    UIView（列表刷新 / heroKey 变化）。若此时已被 dismantle 且不允许复活，
+        //    大图会永久消失 → 顶部露出一大块白（用户截图「有时候会成空白」）。
+        //    只要视图还在窗口里、本页仍是栈顶，就允许补装回来。
+        uiView.reviveIfNeeded()
         uiView.applyFrame()
     }
 
@@ -489,7 +494,8 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
         /// 🔴 2026-11-14：hostVC 是 weak，pop 后页面 VC 可能立刻被释放 → 变 nil。
         ///    必须另外记住导航控制器本身（它随整条栈存活），否则判断会漏掉。
         private weak var navController: UINavigationController?
-        private var retry = 0
+        /// 防止「首帧没连上导航控制器」时轮询与自身重试叠加挂出一串延迟闭包。
+        private var asyncRetryScheduled = false
         private var monitoring = false
         /// 已拆除（页面 pop / Representable 被移除）：重试闭包不得再装回大图。
         private var tornDown = false
@@ -519,13 +525,17 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
         ///    push 到普通白底页时若不隐藏，旧大图会一直盖在下一页内容上。
         private var isHostOnTop: Bool {
             guard let nav = navController else { return true }
-            // host 仍在栈里且就是栈顶：保持旧行为（最快、最稳）。
-            if let host = hostVC, nav.viewControllers.contains(where: { $0 === host }),
-               nav.topViewController === host { return true }
-            // 🔴 2026-11-14：其余一律看「本视图是否仍属于当前栈顶页」。
-            //    pop 之后 hostVC 可能已被释放（weak 变 nil），只有 nav 还在；
-            //    AnchorView 属于被移除的旧页，不再是 topVC.view 的后代 → 立刻隐藏。
-            //    旧逻辑在这里无条件 return true，正是「退出歌单后大图残留几秒」的根因。
+            if let host = hostVC {
+                // 🔴 pop 完成时 UINavigationController 会立刻把旧页移出 viewControllers，
+                //    这一条优先判掉（上一轮「退出后还显示几秒」的修复不能回退）。
+                guard nav.viewControllers.contains(where: { $0 === host }) else { return false }
+                if nav.topViewController === host { return true }
+                // push 到下一页的转场期间 topViewController 可能仍是本页之外的值，
+                //    但本页还在栈里 → 不能误判成「已离开」，否则首帧把大图隐藏后
+                //    没人再刷 isHidden，顶部就留下一大块白。
+                return nav.transitionCoordinator != nil
+            }
+            // hostVC 已释放（weak 置 nil）：只能看本视图是否仍属于当前栈顶页。
             guard let topView = nav.topViewController?.view else { return true }
             return isDescendant(of: topView)
         }
@@ -537,6 +547,12 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             // 🔴 0.12s：pop 转场期间就把旧大图藏掉，用户完全看不到残留。
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
                 guard let self, self.window != nil else { return }
+                // 🔴 2026-11-14：浮层没装上（首帧导航上下文未连、或 SwiftUI 短暂拆装）
+                //    且本页仍在栈顶 → 持续补装。以前 installIfNeeded 只重试 6 次就放弃，
+                //    一旦 1.2s 内没连上，整页顶部就永久是一片白。
+                if !self.tornDown, self.isHostOnTop, self.heroView == nil {
+                    self.installIfNeeded()
+                }
                 if let view = self.heroView {
                     // 🔴 2026-11-11：排序弹窗打开期间临时隐藏大图浮层。
                     //    浮层挂在 nav.view 上、层级高于 SwiftUI 内容层，不隐藏会盖住
@@ -553,6 +569,7 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
         /// 立即从 nav.view 上摘掉大图（页面被 pop / SwiftUI 视图销毁时调用）。
         func removeHeroLayer() {
             tornDown = true
+            asyncRetryScheduled = false
             heroView?.removeFromSuperview()
             heroView = nil
             hosting = nil
@@ -560,21 +577,35 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             hostVC = nil
         }
 
+        /// 🔴 SwiftUI 把 Representable 拆掉后又用同一个 UIView 继续更新时，允许复活。
+        ///    pop 返回后本页已不在栈顶 → isHostOnTop=false，不会把大图装回去。
+        func reviveIfNeeded() {
+            guard tornDown, window != nil, isHostOnTop else { return }
+            tornDown = false
+            installIfNeeded()
+        }
+
         private func installIfNeeded() {
             guard !tornDown, heroView == nil, let root = heroRoot else { return }
             // 🔴 绝不 fallback 到 rootView.addSubview —— 那会把大图盖在返回/收藏按钮上。
             guard let (bar, pageHost) = resolveNavContext(), let parent = bar.superview else {
-                if retry < 6 {
-                    retry += 1
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-                        self?.installIfNeeded()
-                    }
+                // 不设次数上限：0.12s 可见性轮询会一直补装。只用一个标志去重复调度。
+                guard !asyncRetryScheduled else { return }
+                asyncRetryScheduled = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                    guard let self else { return }
+                    self.asyncRetryScheduled = false
+                    guard !self.tornDown, self.window != nil else { return }
+                    self.installIfNeeded()
                 }
                 return
             }
+            asyncRetryScheduled = false
             let heroHost = UIHostingController(rootView: root)
             let view = heroHost.view!
-            view.backgroundColor = .clear
+            // 🔴 深色兜底：万一 SwiftUI 头图首帧还没画出来，至少不会露出刺眼白块
+            //    （与 ImmersiveStyle.heroFallback 同色）。
+            view.backgroundColor = UIColor(red: 0.07, green: 0.07, blue: 0.09, alpha: 1)
             view.isUserInteractionEnabled = false
             view.clipsToBounds = true
             hosting = heroHost

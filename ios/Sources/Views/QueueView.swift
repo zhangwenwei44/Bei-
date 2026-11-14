@@ -200,12 +200,11 @@ struct QueueView: View {
     private var playingList: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                promoCard
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
+                // 🔴 2026-11-14 第十二轮：用户要求删掉「队列共 N 首」那栏，
+                //    只保留下面这一行来源信息（来自：播放队列 / 随机 / 清空）。
                 sourceRow
                     .padding(.horizontal, 16)
-                    .padding(.top, 12)
+                    .padding(.top, 14)
                     .padding(.bottom, 6)
                 if snapshot.songs.isEmpty {
                     EmptyStateView(icon: "music.note.list", title: "播放列表是空的")
@@ -222,39 +221,8 @@ struct QueueView: View {
         }
     }
 
-    /// 截图里的浅蓝运营条。项目里没有会员广告，这里改成**真实可用**的队列信息条：
-    /// 左侧统计 + 右侧「切模式」直接循环播放模式，不做点了没反应的假按钮。
-    private var promoCard: some View {
-        HStack(spacing: 10) {
-            ZStack {
-                Circle().fill(AppStyle.accent)
-                Image(systemName: "music.note")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 22, height: 22)
-            Text("队列共 \(snapshot.songs.count) 首 · 已播 \(playedCount)/\(max(1, snapshot.songs.count))")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(AppStyle.primaryText)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-            Spacer(minLength: 4)
-            Button {
-                cycleMode()
-            } label: {
-                Text("切模式")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
-                    .background(AppStyle.accent, in: Capsule())
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(AppStyle.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
-    }
+    /// 🔴 2026-11-14 第十二轮：原「队列共 N 首 + 切模式」浅蓝信息条已按用户要求删除，
+    ///    只保留这一行来源信息；切模式改由底部工具栏的「顺序 / 单曲 / 随机」承担。
 
     /// 来源行：左侧「来自 / 已播」，右侧两个细线圆按钮（随机 / 清空）。
     private var sourceRow: some View {
@@ -290,7 +258,11 @@ struct QueueView: View {
             //    不然 SwiftUI 的父级 onTapGesture 会和子 Button 抢点击（iOS 15 上尤其明显）。
             HStack(spacing: 12) {
                 ZStack {
+                    // 🔴 2026-11-14：必须传 coverFallbackKeys —— 队列里的 Song 常常只带
+                    //    一个失效的 artworkURL，没 fallback 时 CoverImage.load() 会直接
+                    //    `guard !fallbackKeys.isEmpty else { return }`，封面永远是灰音符。
                     CoverImage(url: entry.song.artworkURL,
+                               fallbackKeys: entry.song.coverFallbackKeys,
                                seed: entry.song.title,
                                size: 52, corner: 5)
                     if current && snapshot.isPlaying {
@@ -405,7 +377,9 @@ struct QueueView: View {
 
     private func footprintSongRow(_ song: Song, onPlay: @escaping () -> Void) -> some View {
         HStack(spacing: 12) {
-            CoverImage(url: song.artworkURL, seed: song.title, size: 52, corner: 5)
+            CoverImage(url: song.artworkURL,
+                       fallbackKeys: song.coverFallbackKeys,
+                       seed: song.title, size: 52, corner: 5)
                 .frame(width: 52, height: 52)
                 .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             VStack(alignment: .leading, spacing: 5) {
@@ -461,6 +435,7 @@ struct QueueView: View {
                         ForEach(items) { item in
                             HStack(spacing: 12) {
                                 CoverImage(url: item.songs.first?.artworkURL,
+                                           fallbackKeys: item.songs.first?.coverFallbackKeys ?? [],
                                            seed: item.name, size: 52, corner: 5)
                                     .frame(width: 52, height: 52)
                                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))

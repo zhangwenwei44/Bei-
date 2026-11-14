@@ -155,7 +155,8 @@ struct BreathingBluetoothIcon: View {
                 .blur(radius: 2.0)
             BluetoothBadgeIcon(size: size, color: color)
         }
-        .scaleEffect(breathing ? 1.12 : 1.0)
+        // 🔴 同 BreathingStatusDot：只动 opacity + 固定占位，卡片底栏三项才真正齐平。
+        .frame(width: size, height: size)
         .opacity(breathing ? 1.0 : 0.72)
         .animation(.easeInOut(duration: 1.3).repeatForever(autoreverses: true),
                    value: breathing)
@@ -174,6 +175,10 @@ struct BreathingStatusDot: View {
     @State private var breathing = false
 
     var body: some View {
+        // 🔴 2026-11-14 第十二轮：删掉 `.scaleEffect` —— 它作用在一个参与
+        //    HStack 布局的视图上，动画期间几何插值会让绿点（以及它右边的
+        //    「已连接」）看起来左右飘。改为只动 opacity + 固定占位 frame，
+        //    呼吸感保留，布局尺寸恒定不变。
         Circle()
             .fill(color)
             .frame(width: size, height: size)
@@ -183,7 +188,8 @@ struct BreathingStatusDot: View {
                     .frame(width: size * 2.2, height: size * 2.2)
                     .blur(radius: 1.8)
             }
-            .scaleEffect(breathing ? 1.10 : 1.0)
+            .frame(width: size, height: size)
+            .opacity(breathing ? 1.0 : 0.76)
             .animation(.easeInOut(duration: 1.25).repeatForever(autoreverses: true),
                        value: breathing)
             .onAppear { breathing = true }

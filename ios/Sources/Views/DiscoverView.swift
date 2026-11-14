@@ -2770,5 +2770,9 @@ private struct SourceStatusBadge: View {
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(textColor)
         }
+        // 🔴 2026-11-14 第十二轮：音源健康状态轮询会频繁重算这一小块，
+        //    若宽度随文字/状态变化，右侧整块（含绿点）会被 Spacer 推得左右飘。
+        //    固定宽度 + 呼吸只动 opacity（见 BreathingStatusDot），位置彻底锁死。
+        .frame(width: 46, alignment: .leading)
     }
 }
