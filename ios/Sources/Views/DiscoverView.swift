@@ -238,7 +238,9 @@ struct DiscoverView: View {
             //    也不隐藏导航栏（不影响 push 出去的二级页）。
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    tabBar.background(AppStyle.pageGradientTop)
+                    // 🔴 第十八轮：固定色，不受沉浸式页残留的 dark trait 影响
+                    //    （与 UINavigationBar 的 appearance 代理严格同值）。
+                    tabBar.background(AppStyle.pinnedTabBarColor)
                 }
             }
             // 🔴 底部留白已由 RootView 的 .safeAreaInset(edge:.bottom) 统一处理
@@ -296,14 +298,13 @@ struct DiscoverView: View {
                 // 🔴 2026-11-13：登录态标识（绿点 + 已连接）放在名字上方（kugouAvatar 内部）
                 kugouAvatar
             }
-            // 🔴 2026-11-15 第十七轮：
-            //    · 上移：用户要求「登录酷狗按钮往上移一点」→ `.offset(y: -4)`
-            //      只改绘制位置、不参与布局，不会把内容推出屏幕。
-            //    · 右移：用户要求「头像 / 已连接 / 名字再往右移点」→ 用**负 trailing
-            //      padding** 在布局内右移 6pt。第十六轮已实锤 `.offset(x: 36)`
-            //      会把未登录的窄按钮推出右边缘，x 方向绝不再用 offset；
-            //      toolbar 自带约 16pt 安全边距，-6 后仍有 10pt，不会越界。
-            .padding(.trailing, -6)
+            // 🔴 2026-11-15 第十八轮：用户要求「登录后的头像 / 已连接 / 名字继续往右移」。
+            //    · 登录态 -6 → -14（再右移 8pt，工具栏自带约 16pt 安全边距，
+            //      负 padding 是**布局内**右移，仍留约 2pt，不会越界）；
+            //    · 未登录态保持 -6：窄「登录」按钮再往右就贴近边缘，第十六轮
+            //      `.offset(x: 36)` 把它整块推出屏幕的教训不能重演；
+            //    · 上移 `.offset(y: -4)` 保持不变（y 方向不参与布局，安全）。
+            .padding(.trailing, kugouAuth.isLoggedIn ? -14 : -6)
             .offset(y: -4)
         }
         .frame(height: 40)

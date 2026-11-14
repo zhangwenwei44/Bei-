@@ -195,6 +195,9 @@ private struct BreathingDotLayer: UIViewRepresentable {
         let v = BreathingDotUIView()
         v.backgroundColor = .clear
         v.isUserInteractionEnabled = false
+        // 🔴 光晕要画到 4pt 圆点之外，绝不能裁剪。
+        v.clipsToBounds = false
+        v.layer.masksToBounds = false
         v.configure(size: size, color: color)
         return v
     }
@@ -207,17 +210,37 @@ private struct BreathingDotLayer: UIViewRepresentable {
 
 private final class BreathingDotUIView: UIView {
     private let core = CALayer()
+    /// 🔴 2026-11-15 第十八轮：用户要求「绿色呼吸加入发光」。
+    ///    第十七轮只有 core.shadow（半径 3.6pt、opacity 0.55），真机上几乎看不见，
+    ///    而且 4pt 的 view bounds 很容易被裁。这里加一层独立的**径向渐变光晕**：
+    ///    CAGradientLayer(.radial) 从中心半透明绿 → 边缘全透明，尺寸是圆点的 6 倍，
+    ///    只跑 CALayer 的 opacity / transform.scale 动画 —— 与 SwiftUI 布局零交互，
+    ///    所以既明显发光，又不会重演「绿点左右飘」。
+    private let halo = CAGradientLayer()
     private var installed = false
 
     func configure(size: CGFloat, color: UIColor) {
         core.frame = CGRect(x: 0, y: 0, width: size, height: size)
         core.cornerRadius = size / 2
         core.backgroundColor = color.cgColor
-        // 柔和光晕用 layer 自带的 shadow（等价于旧版 SwiftUI 的 .blur），
-        // 它随 layer.opacity 一起呼吸，不需要第二个硬边圆 layer。
         core.shadowColor = color.cgColor
-        core.shadowRadius = size * 0.9
+        core.shadowRadius = size * 1.1
         core.shadowOffset = .zero
+
+        let haloSize = size * 4.2
+        halo.frame = CGRect(x: (size - haloSize) / 2, y: (size - haloSize) / 2,
+                            width: haloSize, height: haloSize)
+        halo.type = .radial
+        halo.colors = [color.withAlphaComponent(0.55).cgColor,
+                       color.withAlphaComponent(0.22).cgColor,
+                       color.withAlphaComponent(0.0).cgColor]
+        halo.locations = [0, 0.35, 1] as [NSNumber]
+        halo.startPoint = CGPoint(x: 0.5, y: 0.5)
+        halo.endPoint = CGPoint(x: 1, y: 1)
+        halo.masksToBounds = false
+
+        // halo 在 core 之下；颜色每次刷新（绿↔红）都要更新，动画不重启。
+        if halo.superlayer == nil { layer.insertSublayer(halo, at: 0) }
         if core.superlayer == nil { layer.addSublayer(core) }
         guard !installed else { return }
         installed = true
@@ -232,13 +255,32 @@ private final class BreathingDotUIView: UIView {
         fade.timingFunction = timing
         core.add(fade, forKey: "breath")
 
-        let glow = CABasicAnimation(keyPath: "shadowOpacity")
-        glow.fromValue = 0.12
-        glow.toValue = 0.55
-        glow.duration = 1.25
-        glow.autoreverses = true
-        glow.repeatCount = .infinity
-        glow.timingFunction = timing
-        core.add(glow, forKey: "glow")
+        let nearGlow = CABasicAnimation(keyPath: "shadowOpacity")
+        nearGlow.fromValue = 0.25
+        nearGlow.toValue = 0.9
+        nearGlow.duration = 1.25
+        nearGlow.autoreverses = true
+        nearGlow.repeatCount = .infinity
+        nearGlow.timingFunction = timing
+        core.add(nearGlow, forKey: "glow")
+
+        let haloFade = CABasicAnimation(keyPath: "opacity")
+        haloFade.fromValue = 0.30
+        haloFade.toValue = 1.0
+        haloFade.duration = 1.25
+        haloFade.autoreverses = true
+        haloFade.repeatCount = .infinity
+        haloFade.timingFunction = timing
+        halo.add(haloFade, forKey: "haloFade")
+
+        // 纯 layer transform：发光扩散感，不影响任何 SwiftUI 布局。
+        let haloPulse = CABasicAnimation(keyPath: "transform.scale")
+        haloPulse.fromValue = 0.82
+        haloPulse.toValue = 1.18
+        haloPulse.duration = 1.25
+        haloPulse.autoreverses = true
+        haloPulse.repeatCount = .infinity
+        haloPulse.timingFunction = timing
+        halo.add(haloPulse, forKey: "haloPulse")
     }
 }

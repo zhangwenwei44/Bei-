@@ -404,9 +404,16 @@ struct ArtistDetailView: View {
     private var heroImageContent: some View {
         let screenW = UIScreen.main.bounds.width
         return ZStack(alignment: .bottom) {
-            // 🔴 深蓝灰兜底背板（不再是近黑色）：图未加载时不露白，
-            // 也不会出现「先过一下黑色图片」的闪屏。
-            ImmersiveStyle.heroFallback
+            // 🔴 2026-11-15 第十八轮：用户反馈「进歌手页有时候图片还会过一下黑色」。
+            //    原来是一整块纯深蓝灰 ImmersiveStyle.heroFallback(0.20/0.22/0.27)，
+            //    在真机上就是一张近黑图。改成上亮下暗的蓝灰渐变，即使高清图
+            //    还没下载到，首帧也是正常的占位渐变而非黑块；配合下面的
+            //    `fallbackColor: .clear` 与浮层转场淡入，转场中间态不再有黑色。
+            LinearGradient(colors: [
+                Color(red: 0.38, green: 0.45, blue: 0.57),
+                Color(red: 0.27, green: 0.32, blue: 0.42),
+                Color(red: 0.17, green: 0.20, blue: 0.27)
+            ], startPoint: .top, endPoint: .bottom)
                 .frame(width: screenW, height: headerBaseHeight)
 
             // 🔴 2026-11-15 第十七轮：用户要求「改回以前的歌手头像，不要用写真」。
@@ -424,7 +431,8 @@ struct ArtistDetailView: View {
                 displayHeight: headerBaseHeight,
                 contentMode: .fill,
                 imageAlignment: .top,
-                fallbackColor: ImmersiveStyle.heroFallback,
+                // 🔴 透明兜底：让上面的蓝灰渐变背板透出来，不再叠一层纯深色块。
+                fallbackColor: Color.clear,
                 // 🔴 大图专用：按 1200px 解码，且不读/不写共享小图缓存。
                 hiRes: true,
                 // 🔴 首帧先用列表里已缓存的歌手图顶上，高清到位后无感替换。
@@ -649,7 +657,9 @@ struct ArtistDetailView: View {
                                 }
                                 .buttonStyle(.plain)
                             }
-                            ArtistSongRow(song: song, index: index + 1) {
+                            ArtistSongRow(song: song, index: index + 1,
+                                         isCurrent: store.current?.id == song.id,
+                                         isPlaying: store.isPlaying) {
                                 Haptics.soft()
                                 store.setQueueOrigin(id: "artist:\(artist.id)", title: artist.name)
                                 store.play(songs, startAt: songs.firstIndex(where: { $0.id == song.id }) ?? 0)
@@ -892,6 +902,9 @@ struct ArtistDetailView: View {
 private struct ArtistSongRow: View {
     let song: Song
     let index: Int
+    /// 🔴 2026-11-15 第十八轮：歌手页歌曲列表也要和播放队列一样有播放动效。
+    var isCurrent: Bool = false
+    var isPlaying: Bool = false
     let onPlay: () -> Void
     @ObservedObject private var library = LibraryStore.shared
 
@@ -907,13 +920,18 @@ private struct ArtistSongRow: View {
                         size: 44,
                         corner: 5
                     )
+                    .overlay {
+                        if isCurrent {
+                            NowPlayingCoverBars(isPlaying: isPlaying)
+                        }
+                    }
                     .frame(width: 44, height: 44)
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(song.title)
                             .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(AppStyle.primaryText)
+                            .foregroundStyle(isCurrent ? AppStyle.accent : AppStyle.primaryText)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         HStack(spacing: 5) {
@@ -1056,6 +1074,13 @@ private struct ArtistHeroLayer: UIViewRepresentable {
         private weak var navController: UINavigationController?
         private var retry = 0
         private var monitoring = false
+        /// 🔴 2026-11-15 第十八轮：push 转场期间大图淡入。
+        ///    浮层挂在 UINavigationController.view 上、**不参与系统 push 动画**，
+        ///    原来一进页面就以全屏 frame 突然出现，转场中间帧就会看到
+        ///    一大块纯色盖住正在从右滑入的列表（用户截图 IMG_2595 的错位）。
+        ///    现在安装后先 alpha=0，用 0.32s 与 push 同步淡入；期间 applyFrame
+        ///    不得覆盖 alpha，淡入结束再恢复滚动淡出逻辑。
+        private var entering = false
         /// 已拆除（页面 pop / Representable 被移除）：重试闭包不得再把大图装回来。
         private var tornDown = false
 
@@ -1140,7 +1165,18 @@ private struct ArtistHeroLayer: UIViewRepresentable {
             navController = pageHost.navigationController
             view.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: headerHeight)
             parent.insertSubview(view, belowSubview: bar)
+            // 🔴 转场淡入：与系统 push 时长对齐，避免纯色大图盖住滑入中的页面。
+            entering = true
+            view.alpha = 0
             applyFrame()
+            UIView.animate(withDuration: 0.32, delay: 0.06,
+                           options: [.curveEaseOut, .allowUserInteraction]) {
+                view.alpha = 1
+            } completion: { [weak self, weak view] _ in
+                guard let self, let view, !self.tornDown, self.heroView === view else { return }
+                self.entering = false
+                self.applyFrame()
+            }
         }
 
         func applyFrame() {
@@ -1154,10 +1190,13 @@ private struct ArtistHeroLayer: UIViewRepresentable {
             // 与 SwiftUI 侧毛玻璃的渐入区间（collapseProgress 0.8→1）同步淡出，
             // 浮层在 bar 之下、SwiftUI 毛玻璃之上，不淡出会把渐入的材质压住。
             let fadeStart = hideThreshold * 0.8
-            if scrolled <= fadeStart {
-                view.alpha = 1
-            } else {
-                view.alpha = max(0, 1 - (scrolled - fadeStart) / max(1, hideThreshold - fadeStart))
+            // 🔴 淡入期间 alpha 由 UIView 动画独占，applyFrame 不覆盖。
+            if !entering {
+                if scrolled <= fadeStart {
+                    view.alpha = 1
+                } else {
+                    view.alpha = max(0, 1 - (scrolled - fadeStart) / max(1, hideThreshold - fadeStart))
+                }
             }
             // 🔴 页面已不在栈顶（被 pop 回推荐页 / push 到别的页）也必须隐藏，
             //    否则这块大图会一直浮在下一页内容之上。
