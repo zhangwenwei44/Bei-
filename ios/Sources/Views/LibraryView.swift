@@ -16,22 +16,34 @@ final class ProfileCardBackground: ObservableObject {
         return dir.appendingPathComponent("profile_card_bg.jpg")
     }()
 
+    /// 🔴 2026-11-14 第十三轮：卡片默认背景改成用户指定的那张图（随包内置）。
+    ///    没换过背景 / 点「恢复默认」都用它；用户从相册选的图仍只存本机 Documents。
+    static var bundledDefault: UIImage? { UIImage(named: "CardDefaultBg") }
+
     private init() {
+        // 🔴 一次性迁移：换成这张新默认背景时，清掉可能残留的旧自定义图，
+        //    保证覆盖安装后用户也能直接看到新默认（之后用户再自己选图不会被清）。
+        let flagKey = "aurora.cardBg.defaultOnepieceV1"
+        if !UserDefaults.standard.bool(forKey: flagKey) {
+            try? FileManager.default.removeItem(at: fileURL)
+            UserDefaults.standard.set(true, forKey: flagKey)
+        }
         // 🔴 只解限尺寸缩略图：卡片实际只有 358×156pt，
         //    整张解 1400px JPEG 会在主线程白占几 MB（推荐页 / 我的音乐偶发卡顿）。
-        image = BannerConfig.thumbnail(from: fileURL, maxPixel: 900)
+        image = BannerConfig.thumbnail(from: fileURL, maxPixel: 900) ?? Self.bundledDefault
     }
 
     func set(_ picked: UIImage) {
         let scaled = Self.scaled(picked, maxSide: 1400)
         guard let data = scaled.jpegData(compressionQuality: 0.82) else { return }
         try? data.write(to: fileURL, options: .atomic)
-        image = BannerConfig.thumbnail(from: fileURL, maxPixel: 900) ?? UIImage(data: data)
+        image = BannerConfig.thumbnail(from: fileURL, maxPixel: 900)
+                ?? UIImage(data: data) ?? Self.bundledDefault
     }
 
     func clear() {
         try? FileManager.default.removeItem(at: fileURL)
-        image = nil
+        image = Self.bundledDefault
     }
 
     /// 缩到 1400px 长边再落盘，避免 4000×3000 原图解码后占几十 MB 内存。
@@ -137,9 +149,9 @@ private struct KugouProfileCard: View {
     private var chipText: Color { onImage ? .white : AppStyle.accent }
 
     private var cardLabel: some View {
-        // 🔴 2026-11-14 第十二轮：设备ID / 激活状态 / 蓝牙统一放进「底部一行」，
-        //    三者垂直居中齐平；原来 deviceStatus 是上下两行、蓝牙又浮在左下角，
-        //    胶囊正好压住「已激活 · 永久」（真机截图实锤）。
+        // 🔴 2026-11-14 第十三轮：按用户纠正，设备ID / 已激活【改回原来的位置】
+        //    （分隔线下方、卡片左侧，上下两行左对齐），不是全部挤在底部那一行。
+        //    蓝牙仍在左下、左边缘与上面两行对齐（x=14），胶囊背景已移除。
         VStack(alignment: .leading, spacing: 12) {
             // 头像 + 昵称 + VIP + 副标题 + 箭头
             HStack(spacing: 12) {
@@ -184,10 +196,15 @@ private struct KugouProfileCard: View {
                     .modifier(CardTextShadow(onImage: onImage))
             }
 
-            // 🔴 2026-11-14：原「今日 N 首 / N 分」统计整块移除；
-            //    原来的分隔线 + deviceStatus 上下两行也一并删掉，改由底部
-            //    `cardBottomBar` 一行承载设备ID / 激活状态 / 蓝牙（见下方 overlay）。
-            //    这里只留一个 Spacer 把顶部账号信息顶上去，底部一行由浮层绘制。
+            // 🔴 原「今日 N 首 / N 分」统计整块移除，左侧改成本机设备ID + 激活状态。
+            //    设备ID与酷狗账号无关，未登录也常显；恢复成分隔线下方的左对齐两行。
+            Divider()
+                .background(onImage ? Color.white.opacity(0.45) : Color.clear)
+            HStack(spacing: 10) {
+                deviceStatus
+                Spacer(minLength: 0)
+                if kugouAuth.isVip { tagChip("会员") }
+            }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
@@ -226,73 +243,82 @@ private struct KugouProfileCard: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(onImage ? Color.white.opacity(0.30) : AppStyle.accent.opacity(0.15), lineWidth: 1)
         )
-        // 🔴 2026-11-14 第十二轮：设备ID / 激活状态 / 蓝牙统一成【底部一行】。
-        //    · 三项都在同一 HStack 里，天然垂直居中齐平；
-        //    · 蓝牙胶囊背景整块删掉，不再压住「已激活 · 永久」；
-        //    · bottom padding 12 → 6，整行再往下移一点（用户要求）。
+        // 🔴 蓝牙单独放左下：左边缘 x=14 与上方设备ID / 已激活左对齐，
+        //    位置更靠下（bottom 6），且已去掉胶囊底板，不会再压住「已激活 · 永久」。
         .overlay(alignment: .bottomLeading) {
-            cardBottomBar
-                .padding(.leading, 14)
-                .padding(.bottom, 6)
+            if audioRoute.isBluetoothConnected {
+                bluetoothChip
+                    .padding(.leading, 14)
+                    .padding(.bottom, 6)
+            }
         }
         .contentShape(Rectangle())
     }
 
-    /// 🔴 2026-11-14 第十二轮定稿：卡片底部信息行（全部齐平、无胶囊）。
-    /// 蓝牙只在连接时出现在最左（仍是左下），后面依次是设备ID 与激活状态；
-    /// 已有手势：蓝牙点按改名、设备ID 点按复制完整设备码（换授权码要用完整码）。
-    private var cardBottomBar: some View {
+    /// 🔴 蓝牙设备条（卡片左下角浮层，左边缘与上方设备ID 对齐）。
+    /// 胶囊底板已整块移除，只剩呼吸蓝牙图标 + 设备名；点整条仍可改名。
+    private var bluetoothChip: some View {
+        HStack(spacing: 6) {
+            // 呼吸图标只动绘制层（固定 frame），不会把文字推来推去。
+            BreathingBluetoothIcon(size: 15, color: iconColor)
+            Text(audioRoute.deviceName)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(chipText)
+                .lineLimit(1)
+        }
+        .modifier(CardTextShadow(onImage: onImage))
+        .contentShape(Rectangle())
+        // 整张卡片是 NavigationLink / Button 的 label，嵌套 Button 会和外链抢点击。
+        .highPriorityGesture(TapGesture().onEnded {
+            deviceNameDraft = audioRoute.deviceName
+            showDeviceRename = true
+        })
+    }
+
+    /// 🔴 设备ID + 激活状态（分隔线下方，卡片左侧，上下两行左对齐）。
+    /// · 6 位数字专属 ID 由完整设备码稳定派生；「已激活 · 永久」为授权状态。
+    /// · 已激活的设备在设备ID后面显示内置 VIP 标识（金色豪华 VIP，透明底）。
+    /// · 点一下仍复制**完整设备码** —— 换授权码必须用完整码，6 位数只是展示。
+    private var deviceStatus: some View {
         let activated = license.isActivated
         let dot = activated ? Color(red: 0.16, green: 0.76, blue: 0.38)
                             : Color(red: 1.0, green: 0.36, blue: 0.36)
-        return HStack(alignment: .center, spacing: 8) {
-            if audioRoute.isBluetoothConnected {
+        return HStack(spacing: 7) {
+            Image(systemName: "shield.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(activated ? (onImage ? Color.white : dot) : dot)
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 5) {
-                    // 呼吸图标只动绘制层（固定 frame），不会把同一行的文字推来推去。
-                    BreathingBluetoothIcon(size: 14, color: iconColor)
-                    Text(audioRoute.deviceName)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(chipText)
+                    Text("设备ID \(license.displayDeviceID)")
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(subtitleColor)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .frame(maxWidth: 84, alignment: .leading)
+                        .minimumScaleFactor(0.72)
+                    if activated {
+                        Image("VipBadge")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(height: 10)
+                            .accessibilityLabel("VIP")
+                    }
                 }
-                .contentShape(Rectangle())
-                // 整张卡片是 NavigationLink / Button 的 label，嵌套 Button 会和外链抢点击。
-                .highPriorityGesture(TapGesture().onEnded {
-                    deviceNameDraft = audioRoute.deviceName
-                    showDeviceRename = true
-                })
-                Text("·")
-                    .font(.system(size: 10))
-                    .foregroundStyle(faintColor)
+                HStack(spacing: 4) {
+                    Circle().fill(dot).frame(width: 5, height: 5)
+                    Text(activated ? "已激活 · 永久" : "未激活")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(titleColor)
+                        .lineLimit(1)
+                }
             }
-            HStack(spacing: 5) {
-                Image(systemName: "shield.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(activated ? (onImage ? Color.white : dot) : dot)
-                Text("设备ID \(license.displayDeviceID)")
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(subtitleColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                Circle().fill(dot).frame(width: 5, height: 5)
-                Text(activated ? "已激活 · 永久" : "未激活")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(titleColor)
-                    .lineLimit(1)
-            }
-            .contentShape(Rectangle())
-            .highPriorityGesture(TapGesture().onEnded {
-                UIPasteboard.general.string = license.deviceID
-                Haptics.light()
-            })
-            Spacer(minLength: 0)
-            // 原来「会员」标签在 deviceStatus 那行右侧，底栏合并后跟着挪到行尾。
-            if kugouAuth.isVip { tagChip("会员") }
         }
         .modifier(CardTextShadow(onImage: onImage))
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        // 整张卡片是 NavigationLink / Button 的 label：用高优先级手势复制，
+        // 既不会和外链抢点击，也不嵌套 Button（iOS 15 上嵌套按钮容易失效）。
+        .highPriorityGesture(TapGesture().onEnded {
+            UIPasteboard.general.string = license.deviceID
+            Haptics.light()
+        })
     }
 
     private func tagChip(_ text: String) -> some View {
@@ -1338,7 +1364,7 @@ struct KugouPlaylistDetail: View {
                     .padding(.leading, 16)
                     // 🔴 2026-11-12：A–Z 排序时右侧字母条占 24pt，
                     //    行尾「收藏 / 更多」左移，避免贴着字母被挡住。
-                    .padding(.trailing, PlaylistLetterIndex.isActive(sortMode) ? 32 : 16)
+                    .padding(.trailing, PlaylistLetterIndex.isSlider(sortMode) ? 16 : 32)
                     // 长按也可以移出歌单
                     .contextMenu {
                         Button(role: .destructive) {
@@ -1348,7 +1374,10 @@ struct KugouPlaylistDetail: View {
                         }
                     }
                     if index < displaySongs.count - 1 {
-                        Divider().padding(.leading, 16 + 48 + 12 + 44)
+                        // 🔴 2026-11-14 第十三轮：用户要求分隔线往左移。
+                        //    原来 16+48+12+44=120pt（按多选态算）起点太靠右，
+                        //    改成与列表左边缘齐平（16pt），不再从歌名中间才起线。
+                        Divider().padding(.leading, 16)
                     }
                 }
                 // 🔴 底部留白：让最后一首歌能滚到迷你播放条上方（与其它沉浸式列表一致）。

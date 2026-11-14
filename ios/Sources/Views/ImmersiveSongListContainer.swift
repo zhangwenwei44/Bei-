@@ -346,7 +346,10 @@ struct ImmersiveCoverHero: View {
                 displayHeight: headerHeight,
                 contentMode: .fill,
                 imageAlignment: .top,
-                fallbackColor: ImmersiveStyle.heroFallback
+                fallbackColor: ImmersiveStyle.heroFallback,
+                // 🔴 2026-11-14：头图绝不复用列表页缓存的 150px 小图，
+                //    否则 480px 歌单封面会被放大成糊图（用户真机截图）。
+                hiRes: true
             )
             .frame(width: screenW, height: headerHeight)
             .clipped()

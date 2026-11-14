@@ -189,8 +189,9 @@ struct PlaylistDetailView: View {
                                     .equatable()
                                     .songMenu(song)
                                     .padding(.leading, 16)
-                                    // 🔴 A–Z 排序时给右侧字母条让位，行尾按钮左移。
-                                    .padding(.trailing, PlaylistLetterIndex.isActive(sortMode) ? 32 : 16)
+                                    // 🔴 A–Z 字母条常显占 24pt：行尾按钮保持 32pt 让位不动；
+                                    //    其余排序只有滚动时才淡入的 3pt 灰条，无需让位 → 按钮右移到 16pt。
+                                    .padding(.trailing, PlaylistLetterIndex.isSlider(sortMode) ? 16 : 32)
                                     .contextMenu {
                                         if let localPlaylist {
                                             Button(role: .destructive) {
@@ -581,8 +582,9 @@ struct AlbumDetailView: View {
                                     .equatable()
                                     .songMenu(song)
                                     .padding(.leading, 16)
-                                    // 🔴 A–Z 排序时给右侧字母条让位，行尾按钮左移。
-                                    .padding(.trailing, PlaylistLetterIndex.isActive(sortMode) ? 32 : 16)
+                                    // 🔴 A–Z 字母条常显占 24pt：行尾按钮保持 32pt 让位不动；
+                                    //    其余排序只有滚动时才淡入的 3pt 灰条，无需让位 → 按钮右移到 16pt。
+                                    .padding(.trailing, PlaylistLetterIndex.isSlider(sortMode) ? 16 : 32)
                             }
                         }
                     }

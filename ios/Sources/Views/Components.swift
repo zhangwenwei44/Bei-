@@ -648,6 +648,9 @@ struct CoverImage: View {
     /// 🔴 .fill 模式的兜底底色（图未加载时显示）。默认浅灰渐变；
     /// 歌手大图传入深色，避免透明导航栏区域在图加载前闪现白块。
     var fallbackColor: Color? = nil
+    /// 🔴 大图（沉浸式歌单头图等）专用：跳过共享小图缓存、按大尺寸解码。
+    /// 默认 false，列表 / 头像等所有既有调用点行为完全不变。
+    var hiRes: Bool = false
 
     @State private var image: UIImage?
     @State private var resolved: URL?
@@ -726,11 +729,14 @@ struct CoverImage: View {
     }
 
     private func loadFrom(_ target: URL) async -> Bool {
+        // 大图解码上限 1200px：375pt@3x 约需 1125px，够清晰又不至于
+        // 解出 2400px 的巨型位图（项目「大图限尺寸解码」红线）。
+        let maxPixel: CGFloat = hiRes ? min(size * 3, 1200) : size * 3
         if target.isFileURL, let data = try? Data(contentsOf: target) {
-            image = Self.decodeImageData(data, maxPixelSize: size * 3)
+            image = Self.decodeImageData(data, maxPixelSize: maxPixel)
             return image != nil
         }
-        if let loaded = await CoverLoader.download(target, maxPixelSize: size * 3) {
+        if let loaded = await fetch(target, maxPixelSize: maxPixel) {
             image = loaded
             return true
         }
@@ -739,11 +745,18 @@ struct CoverImage: View {
         //    隔 0.6s 补一次重试；CoverLoader 内部有候选 URL 与内存缓存，代价很小。
         try? await Task.sleep(nanoseconds: 600_000_000)
         guard !Task.isCancelled else { return false }
-        if let retry = await CoverLoader.download(target, maxPixelSize: size * 3) {
+        if let retry = await fetch(target, maxPixelSize: maxPixel) {
             image = retry
             return true
         }
         return false
+    }
+
+    private func fetch(_ target: URL, maxPixelSize: CGFloat) async -> UIImage? {
+        if hiRes {
+            return await CoverLoader.downloadHiRes(target, maxPixelSize: maxPixelSize)
+        }
+        return await CoverLoader.download(target, maxPixelSize: maxPixelSize)
     }
 
     /// 在后台线程用 ImageIO 解码图片数据，避免主线程解码阻塞 120Hz。
@@ -833,12 +846,30 @@ enum CoverLoader {
         await request(url, maxPixelSize: maxPixelSize)
     }
 
-    /// 🔴 播放页大封面专用（v2.5.41）：按 900px 解码 + **跳过共享缓存**。
-    /// 共享缓存里通常躺的是列表页存的 180/300px 小图，直接复用会把 ~320pt 的
-    /// 大封面放大成糊图（用户反馈"专辑图片模糊"）。高清图不回写缓存，
-    /// 免得把小图挤掉后列表又得重新下载。
-    static func downloadHiRes(_ url: URL) async -> UIImage? {
-        await request(url, maxPixelSize: 900, useCache: false)
+    /// 🔴 播放页大封面 / 沉浸式歌单头图专用：按大尺寸解码 + **跳过共享缓存**。
+    /// 共享缓存里通常躺的是列表页存的 150/180/300px 小图，直接复用会把
+    /// 375pt 宽的大图放大成糊图（2026-11-14「歌单顶部图片模糊」真机截图实锤）。
+    /// 高清图不回写缓存，免得把小图挤掉后列表又得重新下载。
+    static func downloadHiRes(_ url: URL, maxPixelSize: CGFloat = 900) async -> UIImage? {
+        // 先试一次 CDN 的更大尺寸变体（只认明确的尺寸目录段，404 会立刻回退），
+        // 拿不到就老老实实用原地址，绝不因为升级失败让大图空白。
+        if let bigger = largerVariant(of: url),
+           let image = await request(bigger, maxPixelSize: maxPixelSize, useCache: false) {
+            return image
+        }
+        return await request(url, maxPixelSize: maxPixelSize, useCache: false)
+    }
+
+    /// 只替换 URL 里的「尺寸目录段」（/480/ → /800/）。
+    /// 🔴 文件名里恰好带 480 的地址（如 `...480001.jpg`）一律不动，
+    ///    避免改成 CDN 上不存在的路径、反而让头图空白。
+    private static func largerVariant(of url: URL) -> URL? {
+        let raw = url.absoluteString
+        for token in ["/480/", "/400/", "/300/"] {
+            guard raw.contains(token) else { continue }
+            return URL(string: raw.replacingOccurrences(of: token, with: "/800/"))
+        }
+        return nil
     }
 
     /// 🔴 v2.6.9：歌词页写真专用 —— 按原图分辨率解码，且**不写共享缓存**。
@@ -853,7 +884,9 @@ enum CoverLoader {
         if useCache, let cached = CoverCache.shared.image(for: target) {
             return cached
         }
-        let key = target.absoluteString
+        // 🔴 在途合并必须把「解码尺寸 + 是否读缓存」算进 key：
+        //    否则大图请求可能被合并进列表页同一 URL 的 150px 任务，拿到小图又糊掉。
+        let key = target.absoluteString + "#\(Int(maxPixelSize))#\(useCache ? "c" : "n")"
         if let existing = inflight.existing(key) {
             return await existing.value
         }
