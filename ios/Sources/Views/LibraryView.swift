@@ -295,16 +295,15 @@ private struct KugouProfileCard: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                     if activated {
-                        // 🔴 2026-11-15 第十六轮：第十五轮的半透明黑胶囊真机上显脏
-                        //    （用户截图「VIP 标签黑色背景不好看」）。改成香槟金渐变
-                        //    胶囊 + 细金描边：徽标本身是金钻+金字，浅金底压得住
-                        //    花花绿绿的背景，整体像一枚干净的 VIP 徽章。
+                        // 🔴 2026-11-15 第十七轮：用户要求「VIP 标签改小点」。
+                        //    保留第十六轮的香槟金徽章观感，整体缩一档：
+                        //    徽标高 14→10、内边距 6/2→4/1、描边/投影同步收细。
                         Image("VipBadge")
                             .resizable()
                             .scaledToFit()
-                            .frame(height: 14)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .frame(height: 10)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
                             .background(
                                 Capsule().fill(
                                     LinearGradient(colors: [
@@ -315,8 +314,8 @@ private struct KugouProfileCard: View {
                             )
                             .overlay(Capsule().stroke(
                                 Color(red: 0.85, green: 0.68, blue: 0.32).opacity(0.85),
-                                lineWidth: 0.8))
-                            .shadow(color: Color.black.opacity(0.22), radius: 2, y: 1)
+                                lineWidth: 0.6))
+                            .shadow(color: Color.black.opacity(0.18), radius: 1.5, y: 1)
                             .accessibilityLabel("VIP")
                     }
                 }

@@ -155,7 +155,7 @@ struct BreathingBluetoothIcon: View {
                 .blur(radius: 2.0)
             BluetoothBadgeIcon(size: size, color: color)
         }
-        // 🔴 同 BreathingStatusDot：只动 opacity + 固定占位，卡片底栏三项才真正齐平。
+        // 🔴 只动 opacity + 固定占位，卡片底栏三项才真正齐平（顶栏绿点已改用 CALayer）。
         .frame(width: size, height: size)
         .opacity(breathing ? 1.0 : 0.72)
         .animation(.easeInOut(duration: 1.3).repeatForever(autoreverses: true),
@@ -167,34 +167,78 @@ struct BreathingBluetoothIcon: View {
 
 // MARK: - 呼吸发光圆点（主页顶栏状态标识前面用）
 //
-// 🔴 2026-11-13 第七轮：用户要求「发光圈再改小点」——圆点 5→4pt，
-//    光晕 3 倍→2.2 倍、blur 3→1.8；并支持传颜色（音源绿=绿、红=红）。
+// 🔴 2026-11-15 第十七轮：绿点「左右飘」第三次反馈的**彻底**解法。
+//    第十四轮删光动画 → 变成死点；第十六轮只动 opacity → 仍飘。根因是只要
+//    `.animation(_:value:)` / `.onAppear` 的 @State 还在 SwiftUI 视图树里，
+//    这个持续运行的动画事务就会在 SourceHealth / SourceStore 轮询刷新时
+//    把父级 HStack 的布局插值一起带进来，圆点被 Spacer 推得左右横移。
+//    这里把呼吸**完全搬到 CALayer 的 CABasicAnimation**：SwiftUI 侧只剩一个
+//    固定 frame 的 UIViewRepresentable，零 @State、零 SwiftUI 动画、零布局参与，
+//    圆点位置绝对锁死；音源状态刷新只改 layer 颜色，不会重启也不会位移。
 struct BreathingStatusDot: View {
     var size: CGFloat = 4
     var color: Color = Color(red: 0.16, green: 0.76, blue: 0.38)
-    @State private var breathing = false
 
     var body: some View {
-        // 🔴 2026-11-15 第十六轮：恢复「呼吸」，但不重演左右飘。
-        //    第十五轮为了治飘把动画全删了，绿点变成死点。真正会推动布局的是
-        //    scaleEffect / frame 变化；这里只动 opacity 与光晕透明度，
-        //    `.frame(width:size, height:size)` 占位恒定 → 不参与任何布局插值。
-        //    父级 SourceStatusBadge 已固定 46pt 宽 + `.animation(nil, value: isRed)`，
-        //    昵称也固定 78pt，音源轮询再频繁都不会把圆点推得左右横移。
-        ZStack {
-            Circle()
-                .fill(color.opacity(breathing ? 0.46 : 0.12))
-                .frame(width: size * 2.2, height: size * 2.2)
-                .blur(radius: 1.8)
-            Circle()
-                .fill(color.opacity(breathing ? 1.0 : 0.72))
-                .frame(width: size, height: size)
-        }
-        .frame(width: size, height: size)
-        .opacity(breathing ? 1.0 : 0.80)
-        .animation(.easeInOut(duration: 1.25).repeatForever(autoreverses: true),
-                   value: breathing)
-        .onAppear { breathing = true }
-        .accessibilityHidden(true)
+        BreathingDotLayer(size: size, color: UIColor(color))
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
+    }
+}
+
+/// UIKit 层：SwiftUI 只负责给它一个固定 frame，呼吸由 layer 自己跑。
+private struct BreathingDotLayer: UIViewRepresentable {
+    let size: CGFloat
+    let color: UIColor
+
+    func makeUIView(context: Context) -> BreathingDotUIView {
+        let v = BreathingDotUIView()
+        v.backgroundColor = .clear
+        v.isUserInteractionEnabled = false
+        v.configure(size: size, color: color)
+        return v
+    }
+
+    func updateUIView(_ uiView: BreathingDotUIView, context: Context) {
+        // 音源绿↔红切换时只换颜色，动画不重启、frame 不变。
+        uiView.configure(size: size, color: color)
+    }
+}
+
+private final class BreathingDotUIView: UIView {
+    private let core = CALayer()
+    private var installed = false
+
+    func configure(size: CGFloat, color: UIColor) {
+        core.frame = CGRect(x: 0, y: 0, width: size, height: size)
+        core.cornerRadius = size / 2
+        core.backgroundColor = color.cgColor
+        // 柔和光晕用 layer 自带的 shadow（等价于旧版 SwiftUI 的 .blur），
+        // 它随 layer.opacity 一起呼吸，不需要第二个硬边圆 layer。
+        core.shadowColor = color.cgColor
+        core.shadowRadius = size * 0.9
+        core.shadowOffset = .zero
+        if core.superlayer == nil { layer.addSublayer(core) }
+        guard !installed else { return }
+        installed = true
+
+        let timing = CAMediaTimingFunction(name: .easeInEaseOut)
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0.72
+        fade.toValue = 1.0
+        fade.duration = 1.25
+        fade.autoreverses = true
+        fade.repeatCount = .infinity
+        fade.timingFunction = timing
+        core.add(fade, forKey: "breath")
+
+        let glow = CABasicAnimation(keyPath: "shadowOpacity")
+        glow.fromValue = 0.12
+        glow.toValue = 0.55
+        glow.duration = 1.25
+        glow.autoreverses = true
+        glow.repeatCount = .infinity
+        glow.timingFunction = timing
+        core.add(glow, forKey: "glow")
     }
 }

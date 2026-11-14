@@ -296,12 +296,15 @@ struct DiscoverView: View {
                 // 🔴 2026-11-13：登录态标识（绿点 + 已连接）放在名字上方（kugouAvatar 内部）
                 kugouAvatar
             }
-            // 🔴 2026-11-15 第十六轮：删掉第十五轮的 `.offset(x: 36)`。
-            //    offset 只是纯视觉位移、SwiftUI 仍按原宽度排布，直接把「未登录」时
-            //    较窄的登录按钮整块推出屏幕右边缘（真机截图只剩半个 K 图标）。
-            //    右移改由「去掉 trailing 内边距」在布局内完成：右边缘落在 toolbar
-            //    自带的安全边距（约 12pt），与下方横幅基本对齐，且绝不越界。
-            .padding(.trailing, 0)
+            // 🔴 2026-11-15 第十七轮：
+            //    · 上移：用户要求「登录酷狗按钮往上移一点」→ `.offset(y: -4)`
+            //      只改绘制位置、不参与布局，不会把内容推出屏幕。
+            //    · 右移：用户要求「头像 / 已连接 / 名字再往右移点」→ 用**负 trailing
+            //      padding** 在布局内右移 6pt。第十六轮已实锤 `.offset(x: 36)`
+            //      会把未登录的窄按钮推出右边缘，x 方向绝不再用 offset；
+            //      toolbar 自带约 16pt 安全边距，-6 后仍有 10pt，不会越界。
+            .padding(.trailing, -6)
+            .offset(y: -4)
         }
         .frame(height: 40)
     }
@@ -2786,9 +2789,10 @@ private struct SourceStatusBadge: View {
                 .foregroundStyle(textColor)
                 .frame(width: 30, alignment: .leading)
         }
-        // 🔴 2026-11-15：绿点 / 文字 / 整块都固定宽度，且禁用状态切换的隐式动画；
-        //    音源健康轮询再频繁刷新，绿点也不会被 Spacer 推得左右飘。
+        // 🔴 2026-11-15 第十七轮：绿点 / 文字 / 整块都固定宽度，且**无条件**
+        //    禁用整棵子树的 SwiftUI 隐式动画（第十六轮只禁了 isRed，其它状态
+        //    刷新仍可能带进布局插值）。呼吸效果已搬到 CALayer，不依赖 SwiftUI。
         .frame(width: 46, alignment: .leading)
-        .animation(nil, value: isRed)
+        .animation(nil)
     }
 }
