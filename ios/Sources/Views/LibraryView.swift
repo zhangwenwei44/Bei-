@@ -1080,7 +1080,7 @@ struct KugouPlaylistDetail: View {
         .navigationBarTitleDisplayMode(.inline)
         // 🔴 系统返回按钮的 chevron 取全局 tintColor，逐页改不了色 → 隐藏后自绘。
         .navigationBarBackButtonHidden(true)
-        .compatToolbarDynamicScheme(dark: headerState.navFrostOpacity < 0.5)
+        .compatToolbarDynamicScheme(dark: headerState.navIsDark)
         .kugouNavigationBarBackground(.clear, transparent: true)
         .task { await load() }
         .sheet(isPresented: $showKugouPicker) {

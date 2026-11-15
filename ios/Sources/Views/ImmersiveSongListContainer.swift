@@ -115,6 +115,12 @@ final class ImmersiveHeaderState: ObservableObject {
     ///    反复重算 —— 滑回顶部时连发就是「列表抖几下」。现在改成滚动停止后
     ///    才对齐一次（见 scheduleNavAppearance），滚动中一次都不发布。
     @Published var navFrostOpacity: CGFloat = 0
+    /// 🔴 2026-11-15 第二十二轮：**不去抖**的深浅判定。
+    ///    毛玻璃背景用连续 `frostOpacity(for:)` 逐帧渐入，但顶栏文字 / 状态栏
+    ///    原来读去抖 0.12s 的 navFrostOpacity → 背景已经白、文字还是白字
+    ///    （用户截图 789d3075「顶栏变色有点慢」）。这里跨 0.5 阈值那一次
+    ///    立刻发布，整个收起过程最多 2 次，不会像连续值那样引发列表抖。
+    @Published var navIsDark: Bool = true
     private var navAppearanceWork: DispatchWorkItem?
 
     /// 🔴 2026-11-12 第三轮：字母索引的展开态单独成一个只发 Bool 的对象。
@@ -148,10 +154,10 @@ final class ImmersiveHeaderState: ObservableObject {
     /// 吸顶头相对 ZStack 顶部的偏移：静止时贴大图底边，收起后钉在导航栏下沿。
     func stickyY(for s: CGFloat) -> CGFloat { max(0, maxDrag - s) }
 
-    /// 顶栏文字/图标色：展开纯白（深色大图）、收起纯黑（浅色毛玻璃），与毛玻璃同步。
-    var navContentColor: Color {
-        Color(uiColor: UIColor(white: 1 - navFrostOpacity, alpha: 1))
-    }
+    /// 顶栏文字/图标色：展开纯白（深色大图）、收起纯黑（浅色毛玻璃）。
+    /// 🔴 第二十二轮：改用即时 `navIsDark` 二值，与状态栏白/黑字同一时刻切换，
+    ///    不再等 0.12s 去抖。`navFrostOpacity` 仍只管标题渐显这类连续动效。
+    var navContentColor: Color { navIsDark ? .white : .black }
 
     /// 列表顶部占位：列表静止时屏幕 y = 大图底边 + 吸顶头高。
     var listPlaceholder: CGFloat {
@@ -188,6 +194,12 @@ final class ImmersiveHeaderState: ObservableObject {
         if abs(scrollProgress.scrolled - q) >= 0.5 { scrollProgress.scrolled = q }
 
         let raw = frostOpacity(for: q)
+        // 🔴 第二十二轮：深浅判定**立即**发布（不走去抖），但只在跨阈值那一次写。
+        let wantsDark = raw < 0.5
+        if navIsDark != wantsDark {
+            if Thread.isMainThread { navIsDark = wantsDark }
+            else { DispatchQueue.main.async { [weak self] in self?.navIsDark = wantsDark } }
+        }
         let step = (raw * 20).rounded() / 20
         // 🔴 2026-11-15 第十五轮：滚动过程中不发布顶栏配色。
         //    每级台阶都会让页面 body 重算（含整棵歌曲列表树），滑回顶部时
@@ -223,7 +235,7 @@ final class ImmersiveHeaderState: ObservableObject {
             }
         }
         navAppearanceWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
     }
 
     deinit { navAppearanceWork?.cancel() }
@@ -297,11 +309,19 @@ struct ImmersiveSongListContainer<Hero: View, Sticky: View, Content: View>: View
     }
 }
 
+/// 🔴 2026-11-15 第二十二轮：pop 返回转场期间的顶栏补色状态。
+///    只发 Bool（整个转场最多 2 次），不参与滚动，不会让歌曲列表 body 重算。
+private final class ImmersivePopState: ObservableObject {
+    static let shared = ImmersivePopState()
+    @Published var popping = false
+}
+
 /// 🔴 2026-11-13：把「大图浮层 / 毛玻璃 / 吸顶头」从容器 body 里拆出来。
 ///    容器 body 不再订阅高频滚动量，歌曲列表就不会随滚动逐帧重建。
 private struct ImmersiveVisualChrome: View {
     @ObservedObject var state: ImmersiveHeaderState
     @ObservedObject var progress: ImmersiveScrollProgress
+    @ObservedObject private var popState = ImmersivePopState.shared
     let heroKey: String
     let hero: AnyView
     let sticky: AnyView
@@ -327,10 +347,22 @@ private struct ImmersiveVisualChrome: View {
                 .allowsHitTesting(false)
 
             // ③ 毛玻璃顶栏：大图滚走后渐入。用连续进度，视觉上不台阶化。
-            frostedBar
-                .offset(y: -state.topInset)
-                .allowsHitTesting(false)
-                .opacity(state.frostOpacity(for: s))
+            // 🔴 第二十二轮：pop 返回转场期间，这块**白色材质属于页面内容**，会随
+            //    旧页一起滑到右半边，和左侧淡蓝顶栏拼成一个突兀的白方块
+            //    （用户截图 5003bf28「顶栏哪里有个口」）。转场期间换成与全局
+            //    导航栏严格同源的实色，左右两截连成一条顶栏，白口消失。
+            if popState.popping {
+                Rectangle()
+                    .fill(AppStyle.pinnedTabBarColor)
+                    .frame(width: UIScreen.main.bounds.width, height: state.topInset)
+                    .offset(y: -state.topInset)
+                    .allowsHitTesting(false)
+            } else {
+                frostedBar
+                    .offset(y: -state.topInset)
+                    .allowsHitTesting(false)
+                    .opacity(state.frostOpacity(for: s))
+            }
 
             // ④ 吸顶头：大图未收起时贴着大图底边走，收起后钉在顶栏正下方。
             sticky
@@ -577,6 +609,23 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             return nil
         }
 
+        /// 🔴 第二十二轮：是否正在 pop（本页仍在栈里但已不是栈顶）。
+        ///    `transitionCoordinator` 必须由导航控制器取，页面 VC 自己的常常为 nil。
+        private var isPoppingTransition: Bool {
+            guard let nav = navController, let host = hostVC,
+                  nav.transitionCoordinator != nil,
+                  nav.viewControllers.contains(where: { $0 === host }),
+                  nav.topViewController !== host else { return false }
+            return true
+        }
+
+        private func syncPopState() {
+            let popping = isPoppingTransition
+            if ImmersivePopState.shared.popping != popping {
+                ImmersivePopState.shared.popping = popping
+            }
+        }
+
         /// 🔴 本页是否仍是导航栈顶。浮层挂在 UINavigationController.view 上（整条栈共用），
         ///    push 到普通白底页时若不隐藏，旧大图会一直盖在下一页内容上。
         private var isHostOnTop: Bool {
@@ -600,9 +649,11 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
         private func startVisibilityMonitoring() {
             guard !monitoring, !tornDown else { return }
             monitoring = true
-            // 🔴 0.12s：pop 转场期间就把旧大图藏掉，用户完全看不到残留。
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+            // 🔴 第二十二轮：0.05s（原 0.12s）——pop 只有 0.35s，补色层必须在
+            //    头几帧就换上，否则白方块会先露出来。只是读几个属性，开销可忽略。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
                 guard let self, self.window != nil else { return }
+                self.syncPopState()
                 // 🔴 2026-11-14：浮层没装上（首帧导航上下文未连、或 SwiftUI 短暂拆装）
                 //    且本页仍在栈顶 → 持续补装。以前 installIfNeeded 只重试 6 次就放弃，
                 //    一旦 1.2s 内没连上，整页顶部就永久是一片白。
@@ -627,6 +678,7 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
         func removeHeroLayer() {
             tornDown = true
             transitioning = false
+            ImmersivePopState.shared.popping = false
             asyncRetryScheduled = false
             heroView?.removeFromSuperview()
             heroView = nil
