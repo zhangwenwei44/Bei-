@@ -145,3 +145,69 @@ enum FolderPicker {
         }
     }
 }
+
+// MARK: - 导出备份（🔴 2026-11-16：系统原生「选择保存位置」）
+
+/// `forOpeningContentTypes: [.folder]` 在部分 iOS 16 版本上选目录时「打开」不回调，
+/// 备份链路已改为：本机先生成 zip，再用 **`forExporting`** 让用户选目标文件夹保存。
+/// 这是「导出 / 存储」语义，系统原生支持选目录，不依赖 `UTType.folder`。
+enum BackupExportPicker {
+    @MainActor
+    static func pick(file: URL,
+                     onSave: @escaping (URL) -> Void,
+                     onCancel: (() -> Void)? = nil) {
+        var presenter: UIViewController?
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            let window = windowScene.keyWindow
+                ?? windowScene.windows.first { $0.isKeyWindow }
+                ?? windowScene.windows.first
+            if let root = window?.rootViewController {
+                presenter = root
+                break
+            }
+        }
+        while let presented = presenter?.presentedViewController {
+            presenter = presented
+        }
+        guard let presenter else {
+            Log.error("备份导出", "找不到可用的根视图控制器")
+            onCancel?()
+            return
+        }
+
+        let controller = UIDocumentPickerViewController(forExporting: [file], asCopy: true)
+        controller.allowsMultipleSelection = false
+        let coordinator = Coordinator(onSave: onSave, onCancel: onCancel)
+        controller.delegate = coordinator
+        objc_setAssociatedObject(controller, &Coordinator.associationKey,
+                                 coordinator, .OBJC_ASSOCIATION_RETAIN)
+        presenter.present(controller, animated: true)
+    }
+
+    private final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        static var associationKey: UInt8 = 0
+        private let onSave: (URL) -> Void
+        private let onCancel: (() -> Void)?
+
+        init(onSave: @escaping (URL) -> Void, onCancel: (() -> Void)?) {
+            self.onSave = onSave
+            self.onCancel = onCancel
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController,
+                            didPickDocumentsAt urls: [URL]) {
+            Log.info("备份导出", "已保存到 \(urls.first?.lastPathComponent ?? "?")")
+            if let url = urls.first {
+                onSave(url)
+            } else {
+                onCancel?()
+            }
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            Log.info("备份导出", "用户取消")
+            onCancel?()
+        }
+    }
+}

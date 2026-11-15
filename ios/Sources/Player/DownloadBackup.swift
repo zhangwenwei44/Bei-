@@ -13,6 +13,16 @@ import Foundation
 /// 索引 json 离线重建歌曲（歌名 / 歌手 / hash），只拷音频不拷索引，
 /// 恢复后歌会「文件在但列表里看不到」。
 enum DownloadBackup {
+    enum BackupError: LocalizedError {
+        case nothingToBackup
+
+        var errorDescription: String? {
+            switch self {
+            case .nothingToBackup: return "当前没有可备份的歌曲。"
+            }
+        }
+    }
+
     struct Summary {
         var files = 0
         var songs = 0
@@ -99,6 +109,74 @@ enum DownloadBackup {
                                      countSongs: false, overwrite: true, onlyAudio: false))
         }
         return summary
+    }
+
+    // MARK: - 打包 / 导出（🔴 2026-11-16：不再依赖「选择文件夹」）
+
+    /// App 的 Documents/Backups。`UIFileSharingEnabled = true`，用户在「文件」App 里
+    /// 能直接看到这里，哪怕取消导出，备份也已经在本机，绝不会「备份不了」。
+    static func localBackupDirectory() -> URL {
+        let documents = FileManager.default.urls(for: .documentDirectory,
+                                                in: .userDomainMask)[0]
+        return documents.appendingPathComponent("Backups", isDirectory: true)
+    }
+
+    /// 先在本机生成完整备份目录，再打包成**单个 zip**。
+    /// 单文件才能用系统原生的「导出 / 存储到文件」让用户选目标文件夹，
+    /// 这是绕开 `UTType.folder` 文档选择器在部分 iOS 版本上不回调的关键。
+    static func createArchive() throws -> (archive: URL, summary: Summary) {
+        let fm = FileManager.default
+        let local = localBackupDirectory()
+        try fm.createDirectory(at: local, withIntermediateDirectories: true)
+
+        let (folder, summary) = try backup(to: local)
+        guard !summary.isEmpty else {
+            try? fm.removeItem(at: folder)
+            throw BackupError.nothingToBackup
+        }
+
+        var files: [(relativePath: String, url: URL)] = []
+        if let enumerator = fm.enumerator(at: folder, includingPropertiesForKeys: nil) {
+            for case let file as URL in enumerator {
+                var isDirectory: ObjCBool = false
+                guard fm.fileExists(atPath: file.path, isDirectory: &isDirectory),
+                      !isDirectory.boolValue else { continue }
+                let prefix = folder.path + "/"
+                let relative = file.path.hasPrefix(prefix)
+                    ? String(file.path.dropFirst(prefix.count))
+                    : file.lastPathComponent
+                files.append((relativePath: relative, url: file))
+            }
+        }
+
+        let archive = local.appendingPathComponent(folder.lastPathComponent + ".zip")
+        try BackupArchive.create(files: files, to: archive)
+        return (archive, summary)
+    }
+
+    /// 从 zip 备份恢复：解压到临时目录 → 复用目录恢复逻辑 → 清理临时目录。
+    /// 调用方随后需 `DownloadManager.bootstrap()` 重建列表。
+    static func restore(fromArchive archive: URL) throws -> Summary {
+        let fm = FileManager.default
+        let temp = fm.temporaryDirectory
+            .appendingPathComponent("AuroraRestore-" + UUID().uuidString, isDirectory: true)
+        try fm.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: temp) }
+
+        try BackupArchive.extract(archive, to: temp)
+
+        // 兼容「zip 里再套一层备份文件夹」和「zip 直接是备份根」两种结构。
+        var root = temp
+        if let names = try? fm.contentsOfDirectory(atPath: temp.path), names.count == 1,
+           let first = names.first {
+            let candidate = temp.appendingPathComponent(first, isDirectory: true)
+            var isDirectory: ObjCBool = false
+            if fm.fileExists(atPath: candidate.path, isDirectory: &isDirectory),
+               isDirectory.boolValue {
+                root = candidate
+            }
+        }
+        return try restore(from: root)
     }
 
     // MARK: - 工具

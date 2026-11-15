@@ -1,6 +1,8 @@
 import SwiftUI
 import UIKit
 import ImageIO
+// 🔴 2026-11-16：从备份恢复改为选 .zip 备份文件（FilePicker 的 asCopy 通道最可靠）。
+import UniformTypeIdentifiers
 
 // MARK: - 横幅广告配置（🔴 2026-11-13：纯本机，不读写服务器）
 
@@ -229,17 +231,19 @@ struct DownloadCenterView: View {
     @ObservedObject private var library = LibraryStore.shared
 
     // 🔴 2026-11-15：备份 / 从备份恢复 / 多选删除
-    private enum FolderMode { case backup, restore }
-
     /// 后台 IO 完成后的返回值（显式 Sendable，避免并发检查告警）。
     private struct FolderOutcome: Sendable {
         var text: String
         var needsBootstrap: Bool
     }
 
-    @State private var folderMode: FolderMode = .backup
-    /// 🔴 2026-11-16：不再用 @State 驱动 SwiftUI `.fileImporter`（iOS 16 回调被吞），
-    ///    改由 `FolderPicker.pick()` 直接 present UIKit 文档选择器。
+    /// 备份结果：只回传字符串路径，跨线程不传 URL。
+    private struct BackupOutcome: Sendable {
+        var text: String
+        var archivePath: String?
+        var succeeded: Bool
+    }
+
     @State private var isEditing = false
     @State private var selectedIDs: Set<String> = []
     @State private var isWorking = false
@@ -364,8 +368,7 @@ struct DownloadCenterView: View {
             } else {
                 // 顶栏三个独立按钮：备份 / 从备份恢复 / 多选。
                 Button {
-                    folderMode = .backup
-                    presentFolderPicker()
+                    startBackup()
                 } label: {
                     BackupDocumentPlusIcon()
                 }
@@ -373,12 +376,11 @@ struct DownloadCenterView: View {
                 .disabled(library.downloads.isEmpty && downloads.items.isEmpty)
 
                 Button {
-                    folderMode = .restore
-                    presentFolderPicker()
+                    startRestore()
                 } label: {
                     ExportFolderArrowIcon()
                 }
-                .accessibilityLabel("从备份恢复")
+                .accessibilityLabel("从备份恢复（选择 zip 备份文件）")
 
                 Button("多选") {
                     withAnimation(.easeInOut(duration: 0.2)) { isEditing = true }
@@ -511,40 +513,71 @@ struct DownloadCenterView: View {
         exitEditing()
     }
 
-    // 🔴 2026-11-16：改用 UIKit 直接 present 的文件夹选择器（FolderPicker）。
-    //    SwiftUI `.fileImporter(allowedContentTypes: [.folder])` 在 iOS 16 上
-    //    回调被静默吞掉，用户点「打开」没有任何反应＝「选择不了文件夹」。
-    private func presentFolderPicker() {
-        FolderPicker.pick { url in
-            self.performFolderTask(url)
+    // MARK: 备份 / 恢复
+    //
+    // 🔴 2026-11-16：彻底放弃「选文件夹」这条链路。
+    //    SwiftUI `.fileImporter([.folder])` 与 UIKit `forOpeningContentTypes:[.folder]`
+    //    在这台设备上都不回调，用户侧就是「点打开没反应 / 备份不了」。
+    //    现在：备份 = 本机先生成 zip（必定成功）→ `forExporting` 让用户选目标文件夹；
+    //          恢复 = 走已验证可靠的 `FilePicker`（asCopy）选 .zip 备份文件。
+    //    两条路都不再碰 `UTType.folder`，也不依赖 security-scoped 目录写权限。
+
+    private func startBackup() {
+        isWorking = true
+        Task { @MainActor in
+            let outcome = await Task.detached(priority: .userInitiated) { () -> BackupOutcome in
+                do {
+                    let (archive, summary) = try DownloadBackup.createArchive()
+                    let text = "已生成备份：\(summary.songs) 首歌、\(summary.files) 个文件（\(summary.sizeText)）。"
+                    return BackupOutcome(text: text, archivePath: archive.path, succeeded: true)
+                } catch {
+                    return BackupOutcome(text: "备份失败：\(error.localizedDescription)",
+                                         archivePath: nil, succeeded: false)
+                }
+            }.value
+
+            self.isWorking = false
+            guard outcome.succeeded, let path = outcome.archivePath else {
+                self.noticeText = outcome.text
+                self.showNotice = true
+                return
+            }
+
+            // 备份文件已经在本机了，导出取消也只是「没拷到指定文件夹」而已。
+            let archive = URL(fileURLWithPath: path)
+            BackupExportPicker.pick(file: archive) { saved in
+                self.noticeText = "已导出到「\(saved.deletingLastPathComponent().lastPathComponent)」。\n"
+                    + "本机副本仍在 文件 App → 我的 iPhone → AuroraMusic → Backups。"
+                self.showNotice = true
+            } onCancel: {
+                self.noticeText = "备份已保存在 文件 App → 我的 iPhone → AuroraMusic → Backups，可稍后再导出。"
+                self.showNotice = true
+            }
         }
     }
 
-    /// 备份 / 恢复都是大量文件 IO，放后台执行，完成后回主线程刷新。
-    /// 🔴 选中的是用户目录的**安全作用域 URL**：整个 IO 期间必须持有访问权，
-    ///    否则 createDirectory / copyItem 会报「无权限」。
-    private func performFolderTask(_ url: URL) {
+    private func startRestore() {
+        let zipType = UTType(filenameExtension: "zip") ?? .data
+        FilePicker.pick(types: [zipType], multiple: false) { urls in
+            guard let archive = urls.first else { return }
+            self.performRestore(archive)
+        }
+    }
+
+    private func performRestore(_ archive: URL) {
         isWorking = true
-        let isBackup = folderMode == .backup
-        let secured = url.startAccessingSecurityScopedResource()
-        Task {
+        let archivePath = archive.path
+        Task { @MainActor in
             let outcome = await Task.detached(priority: .userInitiated) { () -> FolderOutcome in
                 do {
-                    if isBackup {
-                        let (folder, summary) = try DownloadBackup.backup(to: url)
-                        let text = summary.isEmpty
-                            ? "当前没有可备份的歌曲。"
-                            : "已备份 \(summary.songs) 首歌、\(summary.files) 个文件（\(summary.sizeText)）到「\(folder.lastPathComponent)」。"
-                        return FolderOutcome(text: text, needsBootstrap: false)
-                    } else {
-                        let summary = try DownloadBackup.restore(from: url)
-                        let text = summary.isEmpty
-                            ? "这个文件夹里没有找到可恢复的歌曲。"
-                            : "已恢复 \(summary.songs) 首歌、\(summary.files) 个文件。"
-                        return FolderOutcome(text: text, needsBootstrap: true)
-                    }
+                    let source = URL(fileURLWithPath: archivePath)
+                    let summary = try DownloadBackup.restore(fromArchive: source)
+                    let text = summary.isEmpty
+                        ? "这个备份里没有找到可恢复的歌曲。"
+                        : "已恢复 \(summary.songs) 首歌、\(summary.files) 个文件。"
+                    return FolderOutcome(text: text, needsBootstrap: !summary.isEmpty)
                 } catch {
-                    return FolderOutcome(text: "操作失败：\(error.localizedDescription)",
+                    return FolderOutcome(text: "恢复失败：\(error.localizedDescription)",
                                          needsBootstrap: false)
                 }
             }.value
@@ -553,10 +586,9 @@ struct DownloadCenterView: View {
                 // 恢复后按磁盘索引重建下载列表（会同步 LibraryStore.downloads）。
                 DownloadManager.shared.bootstrap()
             }
-            if secured { url.stopAccessingSecurityScopedResource() }
-            noticeText = outcome.text
-            isWorking = false
-            showNotice = true
+            self.noticeText = outcome.text
+            self.isWorking = false
+            self.showNotice = true
         }
     }
 
