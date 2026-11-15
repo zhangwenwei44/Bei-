@@ -1056,7 +1056,9 @@ private struct ArtistHeroLayer: UIViewRepresentable {
     ///    pop 返回后 SwiftUI 可能隔几秒才真正释放 destination 视图 → 周杰伦大图会一直
     ///    盖在推荐页的歌手头像横排上（用户实测截图「退出后还显示」）。
     static func dismantleUIView(_ uiView: AnchorView, coordinator: Void) {
-        uiView.removeHeroLayer()
+        // 🔴 第二十五轮：与 ImmersiveHeroLayer 同步 —— pop 转场期间让大图随页滑出，
+        //    否则右半屏整块白。coordinator 可能下一帧才挂上，给一个短接管窗口。
+        uiView.schedulePopHandoff()
     }
 
     final class AnchorView: UIView {
@@ -1083,15 +1085,74 @@ private struct ArtistHeroLayer: UIViewRepresentable {
         private var transitioning = false
         /// 已拆除（页面 pop / Representable 被移除）：重试闭包不得再把大图装回来。
         private var tornDown = false
+        /// 🔴 第二十五轮：pop 横滑期间 alongside 动画独占大图的 x / 可见性。
+        private var popSliding = false
+        private var dismantleScheduled = false
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
             if window == nil {
-                removeHeroLayer()
+                schedulePopHandoff()
                 return
             }
             installIfNeeded()
             startVisibilityMonitoring()
+        }
+
+        /// 等待转场 coordinator 的短窗口：期间先隐藏大图（绝不盖住滑入的上一页），
+        /// 一旦 pop 横滑接管就恢复可见并随页滑出；超时按普通销毁处理。
+        func schedulePopHandoff() {
+            if startPopSlideIfNeeded() || popSliding || tornDown { return }
+            guard !dismantleScheduled else { return }
+            dismantleScheduled = true
+            heroView?.isHidden = true
+            let hero = heroView
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self, hero] in
+                guard let self else { hero?.removeFromSuperview(); return }
+                self.dismantleScheduled = false
+                if self.startPopSlideIfNeeded() || self.popSliding { return }
+                if self.window != nil && self.isHostOnTop { self.applyFrame(); return }
+                self.removeHeroLayer()
+            }
+        }
+
+        /// 🔴 第二十五轮：只在确认是「本页被 pop」时接管，push 时 from VC 仍在
+        ///    `nav.viewControllers` 里（不会误滑），从更深页面 pop 回本页时
+        ///    `isHostOnTop` 为 true（不该滑）。
+        func startPopSlideIfNeeded() -> Bool {
+            guard !popSliding, !tornDown, let view = heroView,
+                  let nav = navController, scrolled < hideThreshold else { return false }
+            let active = nav.transitionCoordinator ?? hostVC?.transitionCoordinator
+            guard let coord = active, coord.isAnimated,
+                  let from = coord.viewController(forKey: .from),
+                  !nav.viewControllers.contains(where: { $0 === from }),
+                  !isHostOnTop else { return false }
+            popSliding = true
+            transitioning = false
+            view.isHidden = false
+            view.alpha = 1
+            let startX = view.frame.origin.x
+            let width = UIScreen.main.bounds.width
+            let hero = view
+            _ = coord.animate(alongsideTransition: { _ in
+                hero.frame.origin.x = startX + width
+            }, completion: { [weak self] ctx in
+                if ctx.isCancelled {
+                    self?.popSliding = false
+                    hero.frame.origin.x = startX
+                    self?.applyFrame()
+                } else {
+                    hero.removeFromSuperview()
+                    self?.removeHeroLayer()
+                }
+            })
+            // 兜底：系统偶发吞掉 completion，不许把浮层永久留在 nav.view 上。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                guard let self, self.popSliding else { return }
+                hero.removeFromSuperview()
+                self.removeHeroLayer()
+            }
+            return true
         }
 
         /// 沿响应链找本页所在的导航控制器，同时记住页面 VC（用于栈顶判断）。
@@ -1126,7 +1187,10 @@ private struct ArtistHeroLayer: UIViewRepresentable {
                     return
                 }
                 let target = anchor
-                if let view = target.heroView {
+                // 🔴 第二十五轮：dismantle 没抢到 coordinator 时这里补一次 pop 接管，
+                //    必须放在隐藏逻辑之前，否则右半屏会先白一帧。
+                target.startPopSlideIfNeeded()
+                if let view = target.heroView, !target.popSliding {
                     // 🔴 转场期间恒定隐藏，轮询不得把它提前放出来。
                     view.isHidden = target.transitioning || target.scrolled >= target.hideThreshold
                                     || !target.isHostOnTop
@@ -1139,6 +1203,7 @@ private struct ArtistHeroLayer: UIViewRepresentable {
         /// 立即从 nav.view 上摘掉大图（页面被 pop / SwiftUI 视图销毁时调用）。
         func removeHeroLayer() {
             tornDown = true
+            popSliding = false
             heroView?.removeFromSuperview()
             heroView = nil
             hosting = nil
@@ -1189,6 +1254,9 @@ private struct ArtistHeroLayer: UIViewRepresentable {
 
         func applyFrame() {
             guard let view = heroView else { return }
+            // 🔴 pop 横滑期间整个 frame / alpha / isHidden 交给 alongside 动画，
+            //    SwiftUI 一次都不要碰，否则会打断正在跑的 UIView 动画。
+            guard !popSliding else { return }
             // window 原点换算到容器坐标，容器不是全屏时也不会错位。
             var origin = CGPoint.zero
             if let win = window, let parent = container {

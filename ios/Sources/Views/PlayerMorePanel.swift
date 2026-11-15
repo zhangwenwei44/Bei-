@@ -112,7 +112,7 @@ struct PlayerMorePanel: View {
                 .ignoresSafeArea()
                 .onTapGesture { onClose() }
 
-            VStack(spacing: 11) {
+            VStack(spacing: 8) {
                 songBar
                 actionCard
                 Button {
@@ -204,10 +204,12 @@ struct PlayerMorePanel: View {
             }
             .padding(.horizontal, 12)
             .padding(.top, 18)
-            .padding(.bottom, 4)
+            .padding(.bottom, 10)
 
-            // 🔴 第二十四轮：音量条整体下移 12pt，别贴着第二行图标
-            //    （用户截图「音量条下移一点」）。
+            // 🔴 第二十五轮：音量条继续下移。第二十四轮只加了 12pt 上间距，
+            //    真机上滑块仍贴着第二行文字（用户截图 9b9f1503）。
+            //    这次把上方留白加到 28pt，同时把下方留白从 16pt 收到 10pt，
+            //    让滑杆在卡片内整体更靠下、与图标明显拉开。
             HStack(spacing: 12) {
                 Image(systemName: "speaker.wave.1")
                     .font(.system(size: 16))
@@ -219,8 +221,8 @@ struct PlayerMorePanel: View {
                     .foregroundStyle(Color.black.opacity(0.62))
             }
             .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 16)
+            .padding(.top, 28)
+            .padding(.bottom, 10)
         }
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.white))
     }
