@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - iOS 15 兼容层
 // deploymentTarget=15.0 —— 所有 iOS 16+ API 都必须用 if #available 包裹
@@ -46,13 +47,134 @@ extension View {
         } else { self }
     }
 
-    /// 🔴 v2.9.7(二)：状态栏内容颜色**动态**切换 —— 歌手页收起前大图在顶（白字），
-    /// 收起后白底导航栏（黑字）。@State 驱动，重渲染时自动生效。
+    /// 🔴 v2.9.7(二) / 2026-11-15 第二十一轮：状态栏内容颜色**动态**切换 ——
+    /// 沉浸式页展开时大图在顶（白字），收起后白底毛玻璃导航栏（黑字）。
+    ///
+    /// ⚠️ 只靠 `toolbarColorScheme(.dark)` **不够**：这些页面还用
+    /// `kugouNavigationBarBackground(.clear, transparent:)` 逐项覆盖
+    /// `UINavigationBarAppearance`，SwiftUI 于是不再接管状态栏样式。
+    /// 真机上 toolbar 的返回/三点按钮是白的，状态栏时间/信号/电量却还是黑的
+    /// （用户 6 张截图：歌手页、猜你喜欢、经典推荐、新歌推荐、我喜欢、默认收藏）。
+    ///
+    /// 补一个纯 UIKit 锚点：把 `navigationBar.barStyle` 切到 `.black`
+    /// （`UINavigationController.preferredStatusBarStyle` 跟随它）并请求刷新。
+    /// 它不画任何东西、只在 dark 值变化时写一次；页面消失时恢复 `.default`，
+    /// pop 回主页面不会残留。toolbarColorScheme 仍保留 —— 它负责 toolbar items 的白。
     @ViewBuilder
     func compatToolbarDynamicScheme(dark: Bool) -> some View {
         if #available(iOS 16.0, *) {
-            toolbarColorScheme(dark ? .dark : .light, for: .navigationBar)
-        } else { self }
+            self.toolbarColorScheme(dark ? .dark : .light, for: .navigationBar)
+                .background(ImmersiveStatusBarAnchor(lightContent: dark))
+        } else {
+            self.background(ImmersiveStatusBarAnchor(lightContent: dark))
+        }
+    }
+}
+
+// MARK: - 🔴 沉浸式页状态栏白字（UIKit 锚点，2026-11-15 第二十一轮）
+
+/// 0 尺寸、不可交互、不参与绘制；唯一职责是把本页所在导航栈的
+/// `navigationBar.barStyle` 与状态栏样式对齐到「顶栏内容是否浅色」。
+private struct ImmersiveStatusBarAnchor: UIViewControllerRepresentable {
+    let lightContent: Bool
+
+    func makeUIViewController(context: Context) -> Controller {
+        Controller(lightContent: lightContent)
+    }
+
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.set(lightContent)
+    }
+
+    final class Controller: UIViewController {
+        private var lightContent: Bool
+        /// 上次真正写进 UINavigationBar 的值：SwiftUI 每次刷新都别触发 UIKit 重排
+        /// （导航栏重排 → SwiftUI 重渲染 → 又刷新，是本项目踩过的死循环）。
+        private var applied: Bool?
+        private weak var attachedNav: UINavigationController?
+
+        init(lightContent: Bool) {
+            self.lightContent = lightContent
+            super.init(nibName: nil, bundle: nil)
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            view.isUserInteractionEnabled = false
+            view.backgroundColor = .clear
+            applyIfPossible()
+        }
+
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            applyIfPossible(force: true)
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            // push 转场结束后 topViewController 才稳定，这里补一次。
+            applyIfPossible(force: true)
+        }
+
+        override func didMove(toParent parent: UIViewController?) {
+            super.didMove(toParent: parent)
+            DispatchQueue.main.async { [weak self] in self?.applyIfPossible(force: true) }
+        }
+
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            restore()
+        }
+
+        func set(_ value: Bool) {
+            guard lightContent != value else { return }
+            lightContent = value
+            applyIfPossible()
+        }
+
+        /// 与 `NavigationBarItemAppearance` 同款：沿父链找本页那个导航栈，
+        /// 并且只在「本页确实是栈顶」时改，绝不误伤兄弟页面。
+        private func resolveContext() -> (UINavigationController, UIViewController)? {
+            var candidate: UIViewController? = parent
+            while let cur = candidate {
+                if let nav = cur.navigationController,
+                   nav.viewControllers.contains(where: { $0 === cur }) {
+                    return (nav, cur)
+                }
+                candidate = cur.parent
+            }
+            return nil
+        }
+
+        private func applyIfPossible(force: Bool = false) {
+            guard let (nav, host) = resolveContext(), nav.topViewController === host else { return }
+            attachedNav = nav
+            if !force, applied == lightContent { return }
+            applied = lightContent
+            let bar = nav.navigationBar
+            // 两条路径一起上：老系统看 barStyle，SwiftUI/UIKit 新路径看导航栏 trait。
+            // 只设其中一条在真机上都可能被逐项 UINavigationBarAppearance 覆盖掉。
+            bar.barStyle = lightContent ? .black : .default
+            bar.overrideUserInterfaceStyle = lightContent ? .dark : .unspecified
+            nav.setNeedsStatusBarAppearanceUpdate()
+            host.setNeedsStatusBarAppearanceUpdate()
+        }
+
+        private func restore() {
+            guard applied != nil else { return }
+            applied = nil
+            let bar = attachedNav?.navigationBar
+            bar?.barStyle = .default
+            bar?.overrideUserInterfaceStyle = .unspecified
+            attachedNav?.setNeedsStatusBarAppearanceUpdate()
+        }
+
+        // ⚠️ 刻意不写 deinit 兜底：push 到下一个沉浸式页时旧 VC 才释放，
+        //    那时无条件恢复 .default 反而会把新页的白字改回黑字。
+        //    viewWillDisappear（pop / push 都会调）已足够，交互式取消时
+        //    viewWillAppear(force:true) 会重新设回来。
     }
 }
 
