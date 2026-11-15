@@ -71,6 +71,27 @@ extension View {
     }
 }
 
+// MARK: - 🔴 第二十九轮：pop 第一帧钩子（2026-11-15）
+//
+// 「返回闪一下顶栏」的根因不是大图缺失，而是**所有修复都比转场晚一帧**：
+//   · `UINavigationBar` 在 pop 第一帧就把两页 UINavigationBarAppearance 交叉淡化，
+//     从状态栏底部到导航栏底部画一条半透明灰白背景，还叠着两页 toolbar 文字；
+//   · 大图浮层插在 `belowSubview: bar`，这一帧正好被灰带盖住；
+//   · 本锚点 `viewWillDisappear` 也在第一帧把 barStyle 恢复 .default → 深色大图上
+//     瞬间出现黑字状态栏。
+// 而 `dismantleUIView` / `didMoveToWindow(nil)` 要晚得多才触发，第二十七/二十八轮
+// 的「首帧提层」其实根本赶不上第一帧。
+//
+// 这里改用 UIKit 保证在 pop 第一帧同步调用的 `viewWillDisappear`：
+//   ① 广播通知 → 两套大图浮层立刻提到 UINavigationBar 之上，用封面深色盖掉灰带+叠字；
+//   ② 状态栏恢复推迟到转场 completion，深色大图还在的 0.35s 里保持白字。
+// 判据用「本页 VC 已从 nav.viewControllers 移除」：pop 时成立，push / 切 tab 时不成立，
+// 不会误伤下一页，也不写任何 SwiftUI 状态（第二十三轮 AttributeGraph 重入红线）。
+extension Notification.Name {
+    static let auroraImmersivePopWillBegin = Notification.Name("auroraImmersivePopWillBegin")
+    static let auroraImmersivePopDidCancel = Notification.Name("auroraImmersivePopDidCancel")
+}
+
 // MARK: - 🔴 沉浸式页状态栏白字（UIKit 锚点，2026-11-15 第二十一轮）
 
 /// 0 尺寸、不可交互、不参与绘制；唯一职责是把本页所在导航栈的
@@ -92,6 +113,11 @@ private struct ImmersiveStatusBarAnchor: UIViewControllerRepresentable {
         /// （导航栏重排 → SwiftUI 重渲染 → 又刷新，是本项目踩过的死循环）。
         private var applied: Bool?
         private weak var attachedNav: UINavigationController?
+        /// 🔴 第二十九轮：记住本页在导航栈里的那个 VC，viewWillDisappear 时用它
+        ///    区分「pop 离开本页」与「push 到下一页 / 切 tab」（两者都会调 willDisappear）。
+        private weak var attachedHost: UIViewController?
+        private var popNotified = false
+        private var restoreScheduled = false
         /// 🔴 第二十三轮：页面可见期间的收敛校验。状态栏黑字回归的根因不是配色逻辑，
         ///    而是「写进去的时机」——push 开始时旧页 `viewWillDisappear` 会 restore
         ///    成 .default，可能晚于新页 anchor 的 viewWillAppear；`navIsDark` 又只在
@@ -117,6 +143,15 @@ private struct ImmersiveStatusBarAnchor: UIViewControllerRepresentable {
         override func viewWillAppear(_ animated: Bool) {
             super.viewWillAppear(animated)
             visible = true
+            // 🔴 第二十九轮：交互式返回滑到一半松手回弹 —— 第一帧提到 bar 之上的
+            //    大图必须还原层级，否则会一直盖住本页的返回 / 收藏按钮。
+            if popNotified {
+                popNotified = false
+                restoreScheduled = false
+                if let nav = attachedNav {
+                    NotificationCenter.default.post(name: .auroraImmersivePopDidCancel, object: nav)
+                }
+            }
             applyIfPossible(force: true)
             startVerifying()
         }
@@ -137,11 +172,68 @@ private struct ImmersiveStatusBarAnchor: UIViewControllerRepresentable {
         override func viewDidDisappear(_ animated: Bool) {
             super.viewDidDisappear(animated)
             visible = false
+            // 🔴 第二十九轮：pop 转场结束的 UIKit 确定性时机。状态栏恢复不依赖
+            //    偶尔被吞掉的 coordinator completion；交互式取消不会走到这里。
+            if popNotified {
+                popNotified = false
+                restoreScheduled = false
+                restore()
+            }
         }
 
         override func viewWillDisappear(_ animated: Bool) {
             super.viewWillDisappear(animated)
-            restore()
+            // 🔴 第二十九轮：UIKit 保证在 pop 第一帧同步调用这里，比 dismantleUIView /
+            //    didMoveToWindow(nil) 早得多，正好赶在导航栏画 crossfade 灰带之前。
+            if let nav = attachedNav, let host = attachedHost,
+               !nav.viewControllers.contains(where: { $0 === host }) {
+                beginPopHandoff(nav: nav)
+                return
+            }
+            // ⚠️ UINavigationController 更新 `viewControllers` 与转发 viewWillDisappear
+            //    的先后顺序在 SwiftUI 的 child VC 上并不稳定。下一帧复查一次：
+            //    真的被移出栈 → 补发（最多晚 1 帧）；push / 切 tab 不成立 → 按老路径
+            //    恢复状态栏，绝不会误伤下一页（新页有 0.04s 起的密集补刷兜底）。
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.popNotified else { return }
+                if let nav = self.attachedNav, let host = self.attachedHost,
+                   !nav.viewControllers.contains(where: { $0 === host }) {
+                    self.beginPopHandoff(nav: nav)
+                } else {
+                    self.restore()
+                }
+            }
+        }
+
+        private func beginPopHandoff(nav: UINavigationController) {
+            guard !popNotified else { return }
+            popNotified = true
+            NotificationCenter.default.post(name: .auroraImmersivePopWillBegin, object: nav)
+            scheduleRestoreAfterTransition()
+        }
+
+        /// pop 转场期间保持沉浸式页的白字状态栏（深色大图还在），转场结束再恢复默认。
+        /// 绝不把 restore 挂进 deinit：push 到下一页时旧 VC 释放会把新页白字改回黑字。
+        private func scheduleRestoreAfterTransition() {
+            guard !restoreScheduled else { return }
+            restoreScheduled = true
+            let coord = attachedNav?.transitionCoordinator ?? transitionCoordinator
+            if let coord, coord.isAnimated {
+                _ = coord.animate(alongsideTransition: nil) { [weak self] ctx in
+                    guard let self else { return }
+                    self.restoreScheduled = false
+                    if ctx.isCancelled { self.applyIfPossible(force: true) }
+                    else { self.restore() }
+                }
+            }
+            // 🔴 兜底：系统偶发吞掉 completion / 交互式转场被打断，0.42s 后
+            //    只要本页没重新变可见就强制恢复，绝不留白字状态栏在主页上。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) { [weak self] in
+                guard let self, self.restoreScheduled else { return }
+                self.restoreScheduled = false
+                if self.visible { self.applyIfPossible(force: true) }
+                else { self.restore() }
+            }
         }
 
         /// SwiftUI 每次刷新都走这里：不再因「值没变」而早退，会被 UIKit 实际状态
@@ -204,6 +296,7 @@ private struct ImmersiveStatusBarAnchor: UIViewControllerRepresentable {
         private func applyIfPossible(force: Bool = false) {
             guard let (nav, host) = resolveContext(), nav.topViewController === host else { return }
             attachedNav = nav
+            attachedHost = host
             let bar = nav.navigationBar
             let wantsStyle: UIBarStyle = lightContent ? .black : .default
             let wantsTrait: UIUserInterfaceStyle = lightContent ? .dark : .unspecified

@@ -592,6 +592,16 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
         var popSliding = false
         /// 等待转场 coordinator 出现的短窗口，避免重复排队。
         private var dismantleScheduled = false
+        /// 🔴 第二十九轮：pop 第一帧由 `auroraImmersivePopWillBegin` 置位。
+        ///    这段窗口里大图已被提到 UINavigationBar 之上、必须保持可见且不改 frame，
+        ///    直到 `startPopSlideIfNeeded()` 接管横滑（popSliding）或浮层被销毁。
+        ///    否则 0.05s 轮询的 `!isHostOnTop` 会把它重新隐藏，灰白带又露出来。
+        private var popCovering = false
+        private var popObservers: [NSObjectProtocol] = []
+
+        deinit {
+            popObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        }
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -618,6 +628,38 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             view.superview?.bringSubviewToFront(view)
         }
 
+        /// 🔴 第二十九轮：pop 第一帧的 UIKit 钩子（早于 dismantleUIView）。
+        ///    只做纯 UIKit 的提层 + 尝试接管横滑，绝不写任何 SwiftUI 状态。
+        private func registerPopNotifications() {
+            guard popObservers.isEmpty else { return }
+            let center = NotificationCenter.default
+            let willBegin = center.addObserver(forName: .auroraImmersivePopWillBegin,
+                                               object: nil, queue: .main) { [weak self] note in
+                guard let self, let nav = note.object as? UINavigationController,
+                      nav === self.navController, !self.tornDown, !self.popSliding else { return }
+                self.popCovering = true
+                self.transitioning = false
+                self.raiseHeroAboveBar()
+                // coordinator 此刻可能还没挂上；失败也没关系，popCovering 会保持
+                // 提层，高频轮询 / schedulePopHandoff 会继续尝试接管横滑。
+                _ = self.startPopSlideIfNeeded()
+            }
+            let didCancel = center.addObserver(forName: .auroraImmersivePopDidCancel,
+                                               object: nil, queue: .main) { [weak self] note in
+                guard let self, let nav = note.object as? UINavigationController,
+                      nav === self.navController, !self.tornDown, !self.popSliding else { return }
+                self.popCovering = false
+                self.restoreHeroBelowBar()
+                self.applyFrame()
+            }
+            popObservers = [willBegin, didCancel]
+        }
+
+        private func unregisterPopNotifications() {
+            popObservers.forEach { NotificationCenter.default.removeObserver($0) }
+            popObservers.removeAll()
+        }
+
         /// 交互式取消 / 判定并非 pop 时把层级放回 bar 之下，别盖住返回、收藏按钮。
         func restoreHeroBelowBar() {
             guard let view = heroView, let parent = view.superview,
@@ -637,7 +679,8 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             //    的，被无条件放出来后就没有人再拆 → 返回完成后整块深色浮层
             //    （高度正好 headerHeight）盖在主页上半部分（用户截图 d72175f1）。
             //    只有「本页确实已不是栈顶」才是离开场景，才需要提层遮灰白。
-            if !isHostOnTop { raiseHeroAboveBar() }
+            // 横滑已接管时别再动层级，避免多余的重排干扰 alongside 动画。
+            if !isHostOnTop, !popSliding { raiseHeroAboveBar() }
             // 🔴 第二十八轮终极兜底：无论上面走哪条路径（横滑 completion 被吞、
             //    交互式 cancelled 误报、轮询复活误判），0.6s 后只要锚点已不在
             //    当前栈顶页面视图树里，就强制摘掉浮层。正常显示中的页面不受影响。
@@ -731,6 +774,9 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
                   let view = heroView,
                   scrolled < hideThreshold else { return false }
             popSliding = true
+            // 🔴 第二十九轮：横滑已接管，改由 popSliding 独占大图的 frame / 可见性，
+            //    popCovering 这段「第一帧保护」功成身退（避免状态残留卡住还原逻辑）。
+            popCovering = false
             transitioning = false
             view.isHidden = false
             view.alpha = 1
@@ -789,31 +835,39 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
         private func startVisibilityMonitoring() {
             guard !monitoring, !tornDown else { return }
             monitoring = true
-            // 🔴 0.05s：pop 只有 0.35s，非栈顶那一刻必须尽快把大图藏起来，
-            //    否则它会静止盖在滑入的主页上。只读几个属性，开销可忽略。
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                guard let self, self.window != nil else { return }
+            // 🔴 第二十九轮：pop 第一帧起改成每帧轮询（0.016s），让横滑尽快接管；
+            //    平时仍 0.05s，只有几个属性读取，开销可忽略。
+            let interval: TimeInterval = (popCovering || popSliding) ? 0.016 : 0.05
+            DispatchQueue.main.asyncAfter(deadline: .now() + interval) { [weak self] in
+                guard let anchor = self, anchor.window != nil, !anchor.tornDown else {
+                    self?.monitoring = false
+                    return
+                }
+                let target = anchor
                 // 🔴 第二十五轮：dismantle 没抢到 coordinator 时，这里补一次 pop 接管。
                 //    必须放在隐藏逻辑之前，否则会先白一帧。
-                self.startPopSlideIfNeeded()
+                target.startPopSlideIfNeeded()
                 // 🔴 2026-11-14：浮层没装上（首帧导航上下文未连、或 SwiftUI 短暂拆装）
                 //    且本页仍在栈顶 → 持续补装。以前 installIfNeeded 只重试 6 次就放弃，
                 //    一旦 1.2s 内没连上，整页顶部就永久是一片白。
-                if !self.tornDown, !self.popSliding, self.isHostOnTop, self.heroView == nil {
-                    self.installIfNeeded()
+                if !target.tornDown, !target.popSliding, target.isHostOnTop, target.heroView == nil {
+                    target.installIfNeeded()
                 }
-                if let view = self.heroView, !self.popSliding {
+                // 🔴 第二十九轮：popCovering 期间大图必须保持可见且停在 bar 之上。
+                //    轮询里 `!isHostOnTop` 的常规隐藏会把提层撤掉，导航栏那条
+                //    半透明 crossfade 灰带立刻重新露出来 = 用户说的「闪一下顶栏」。
+                if let view = target.heroView, !target.popSliding, !target.popCovering {
                     // 🔴 2026-11-11：排序弹窗打开期间临时隐藏大图浮层。
                     //    浮层挂在 nav.view 上、层级高于 SwiftUI 内容层，不隐藏会盖住
-                    //    从底部升起的弹窗标题区。轮询 0.2s 自动恢复，只影响弹窗期间。
+                    //    从底部升起的弹窗标题区。轮询自动恢复，只影响弹窗期间。
                     // 🔴 `!isHostOnTop` 保证 push 到下一页时立刻隐藏，绝不让浮层
-                    //    静止留在屏幕上「带出来一会」。pop 横滑期间由动画独占可见性。
-                    view.isHidden = self.transitioning || self.scrolled >= self.hideThreshold
-                        || !self.isHostOnTop
+                    //    静止留在屏幕上「带出来一会」。
+                    view.isHidden = target.transitioning || target.scrolled >= target.hideThreshold
+                        || !target.isHostOnTop
                         || PlaylistSortOverlayState.shared.isPresented
                 }
-                self.monitoring = false
-                self.startVisibilityMonitoring()
+                target.monitoring = false
+                target.startVisibilityMonitoring()
             }
         }
 
@@ -822,7 +876,9 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             tornDown = true
             transitioning = false
             popSliding = false
+            popCovering = false
             asyncRetryScheduled = false
+            unregisterPopNotifications()
             heroView?.removeFromSuperview()
             heroView = nil
             hosting = nil
@@ -879,6 +935,9 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             navController = pageHost.navigationController
             view.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: headerHeight)
             parent.insertSubview(view, belowSubview: bar)
+            // 🔴 第二十九轮：浮层一装上就监听 pop 第一帧通知，
+            //    保证返回时提层不晚于 UINavigationBar 画 crossfade 灰带。
+            registerPopNotifications()
 
             // 🔴 第二十轮：push 转场期间一律隐藏，转场结束后一次性显示（**不做 alpha 淡入**，
             //    淡入挡不住 —— 0.32s 没走完 alpha 已接近 1，中间帧照样盖住列表）。
@@ -918,7 +977,9 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             // 🔴 pop 横滑期间大图的 frame / alpha / isHidden 全部由 alongside 动画独占。
             //    连 frame.origin 的其他分量都不写 —— 在 UIView 动画进行中重设 frame
             //    可能把正在跑的动画打断，让大图瞬间跳到屏外（右侧又变白）。
-            guard !popSliding else { return }
+            //    🔴 第二十九轮：popCovering（第一帧提层、横滑尚未接管）同样不许改，
+            //    否则末尾的 `!isHostOnTop` 会把刚提到 bar 之上的大图重新隐藏。
+            guard !popSliding, !popCovering else { return }
             var origin = CGPoint.zero
             if let win = window, let parent = container {
                 origin = parent.convert(CGPoint.zero, from: win)
