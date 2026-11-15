@@ -65,8 +65,6 @@ struct PlayerView: View {
     /// 音质切换弹层
     /// 「更多」弹层：音质档位 / 完整歌词 / 歌词翻译
     @State private var showMoreMenu = false
-    /// 🔴 v2.5.45：动作行「音质」按钮专用弹层（原「评论」位置改为音质）
-    @State private var showQualityMenu = false
     /// 🔴 动作行「音效」按钮专用面板（三频段音效预设）
     @State private var showSoundEffectPanel = false
     /// 🔴 v2.5.44：横屏播放器内嵌的「播放队列」面板（不再单独弹一页 sheet）
@@ -81,6 +79,8 @@ struct PlayerView: View {
     @AppStorage("aurora.playerPageTheme") private var playerPageTheme: PlayerPageTheme = .immersiveCover
     @AppStorage("aurora.playerThemeDefaultV3") private var themeDefaultMigrated = false
     @State private var showThemePicker = false
+    /// 🔴 第二十三轮：更多面板里 6 个二级页共用的单个 sheet（iOS 15 链式 sheet 只认最后一个）。
+    @State private var moreSheet: PlayerMoreSheet?
 
     /// 参数顺序必须与属性声明顺序一致：playback / lyricState 在 isExpanded 之前。
     init(playback: PlaybackProgress, lyricState: LyricState, isExpanded: Binding<Bool>) {
@@ -258,10 +258,12 @@ struct PlayerView: View {
         // 🔴 播放列表 sheet：必须挂在播放页自己身上。此前只挂在 RootView 迷你条上，
         // 它在播放页 fullScreenCover 之下 —— 播放页打开时 sheet 弹不出来（点了没反应）。
         .queueSheet()
-        // 分享弹层（顶栏右上角分享按钮）
-        .sheet(isPresented: Binding(get: { shareItems != nil },
-                                    set: { presented in if !presented { shareItems = nil } })) {
-            ShareSheet(items: shareItems ?? [])
+        // 🔴 第二十三轮：分享 + 更多面板的所有二级页 + 音质页统一走**同一个**
+        //    `.sheet(item:)`。iOS 15 链式多个 .sheet 只有最后一个生效（项目既有红线），
+        //    以前「分享」「音质」各挂一个，新增更多面板后会互相顶掉。
+        .sheet(item: $moreSheet) { sheet in
+            PlayerMoreSheetView(item: sheet, shareItems: shareItems ?? [])
+                .environmentObject(PlayerStore.shared)
         }
         // 🔴 2026-11-10：主题选择从系统 confirmationDialog 文字列表改成酷狗同款
         //    「我的播放器」横向卡片预览面板。用自定义 overlay 而不是 sheet：
@@ -379,6 +381,8 @@ struct PlayerView: View {
         }
         if let artwork = store.artwork { items.append(artwork) }
         shareItems = items
+        // 🔴 第二十三轮：分享也走统一的 sheet(item:)，不再单独挂 .sheet。
+        moreSheet = .share
         Haptics.light()
     }
 
@@ -411,7 +415,7 @@ struct PlayerView: View {
                 }
                 // 🔴 v2.9.16：音质胶囊改成**可点击**（点击换音质），
                 // 音质入口从动作行挪到这里。档位名由 QualityPill 自己订阅 SourceStore。
-                QualityPill(statusText: qualityStatusText) { showQualityMenu = true }
+                QualityPill(statusText: qualityStatusText) { moreSheet = .quality }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -564,13 +568,8 @@ struct PlayerView: View {
             classicActionButton(glyph: .more) { showMoreMenu = true }
         }
         .frame(maxWidth: .infinity)
-        // 🔴 v2.7.5：原来这里是 confirmationDialog 弹出的系统菜单（用户反馈"音质列表没改到"，
-        // 弹出来的还是老式 action sheet）。现在改成弹出整页的酷狗风格音质页。
-        .sheet(isPresented: $showQualityMenu) {
-            CompatNavigationStack {
-                QualitySettingsView()
-            }
-        }
+        // 🔴 第二十三轮：音质页已收口到 `moreSheet`（同一个 sheet(item:)），
+        //    这里不再单独挂 .sheet —— iOS 15 链式 sheet 会互相顶掉。
         // 🔴 v2.9.26：音效页改为全屏呈现（用户要求全屏显示，匹配蝰蛇音效参考页）
         .fullScreenCover(isPresented: $showSoundEffectPanel) {
             SoundEffectPanel()
@@ -1459,29 +1458,17 @@ struct PlayerView: View {
         }
     }
 
-    /// 更多面板的动作分发：已有能力直接调用，未实现的格子给统一提示，不弹空页。
+    /// 🔴 第二十三轮：8 个格子全部接真实能力，不再有「敬请期待」。
     private func handleMoreAction(_ action: PlayerMoreAction) {
         switch action {
-        case .share:        shareCurrentSong()
-        case .download:     download()
-        case .quality:      showQualityMenu = true
-        case .soundEffect:  showSoundEffectPanel = true
-        case .lyricSettings:
-            store.showTranslation.toggle()
-            show(store.showTranslation ? "已开启歌词翻译" : "已关闭歌词翻译")
-        case .playSettings:
-            store.resetLyricOffset()
-            show("歌词对齐已重置")
-        case .speedPitch:
-            store.adjustLyricOffset(by: 0.5)
-            show("已延后 0.5 秒")
-        case .songTransition:
-            store.adjustLyricOffset(by: -0.5)
-            show("已提前 0.5 秒")
-        case .landscape:
-            show("横屏播放器请在歌词页打开")
-        default:
-            show("\(action.title) 敬请期待")
+        case .addToPlaylist: moreSheet = .addToPlaylist
+        case .sleepTimer:    moreSheet = .sleepTimer
+        case .download:      download()
+        case .playerStyle:   showThemePicker = true
+        case .cast:          moreSheet = .cast
+        case .speedPitch:    moreSheet = .speedPitch
+        case .quality:       moreSheet = .quality
+        case .soundEffect:   showSoundEffectPanel = true
         }
         showMoreMenu = false
         Haptics.light()
@@ -3484,11 +3471,6 @@ private struct PlayerThemeThumbnail: View {
 // 只有 .immersiveCover 主题会走到这里；经典封面 / 歌手写真仍用 LyricsPageView。
 // 全部图标用确定存在的 SF Symbol 或自绘 Shape，不赌不存在的符号名（项目红线）。
 
-private enum KugouLyricsSheet: String, Identifiable {
-    case share
-    var id: String { rawValue }
-}
-
 struct KugouLyricsPage: View {
     @EnvironmentObject private var store: PlayerStore
     @ObservedObject private var lyricState = PlayerStore.shared.lyricState
@@ -3501,7 +3483,8 @@ struct KugouLyricsPage: View {
     @State private var chromeHidden = false
     /// 歌词页是否叠歌手写真（默认关 = 酷狗的模糊纯色背景）；只在本页生效，不影响其它主题。
     @State private var showPhoto = false
-    @State private var activeSheet: KugouLyricsSheet?
+    /// 🔴 第二十三轮：歌词页所有弹出页（分享 + 更多面板的二级页）共用同一个 sheet(item:)。
+    @State private var activeSheet: PlayerMoreSheet?
     @State private var shareItems: [Any] = []
     @State private var showMore = false
     /// 音效面板（与竖屏播放器动作行一致，点音效图标全屏打开）
@@ -3583,8 +3566,9 @@ struct KugouLyricsPage: View {
         .animation(.easeInOut(duration: 0.22), value: chromeHidden)
         .animation(.easeInOut(duration: 0.22), value: notice)
         .modifier(LyricsStatusBarHider(hidden: chromeHidden))
-        .sheet(item: $activeSheet) { _ in
-            ShareSheet(items: shareItems)
+        .sheet(item: $activeSheet) { sheet in
+            PlayerMoreSheetView(item: sheet, shareItems: shareItems)
+                .environmentObject(PlayerStore.shared)
         }
         .overlay { lyricsMoreOverlay }
         .animation(.easeInOut(duration: 0.24), value: showMore)
@@ -3888,25 +3872,17 @@ struct KugouLyricsPage: View {
         shareItems = items
     }
 
+    /// 🔴 第二十三轮：与竖屏播放页保持一致，8 个格子全部接真实能力。
     private func handleMoreAction(_ action: PlayerMoreAction) {
         switch action {
-        case .share:        prepareShare(); activeSheet = .share
-        case .download:     downloadCurrent()
-        case .landscape:    onEnterLandscape?()
-        case .soundEffect:  showSoundEffectPanel = true
-        case .lyricSettings:
-            store.showTranslation.toggle()
-            flash(store.showTranslation ? "已开启歌词翻译" : "已关闭歌词翻译")
-        case .playSettings:
-            store.resetLyricOffset(); flash("歌词对齐已重置")
-        case .speedPitch:
-            store.adjustLyricOffset(by: 0.5); flash("已延后 0.5 秒")
-        case .songTransition:
-            store.adjustLyricOffset(by: -0.5); flash("已提前 0.5 秒")
-        case .quality:
-            flash("音质设置请在播放页打开")
-        default:
-            flash("\(action.title) 敬请期待")
+        case .addToPlaylist: activeSheet = .addToPlaylist
+        case .sleepTimer:    activeSheet = .sleepTimer
+        case .download:      downloadCurrent()
+        case .playerStyle:   activeSheet = .playerStyle
+        case .cast:          activeSheet = .cast
+        case .speedPitch:    activeSheet = .speedPitch
+        case .quality:       activeSheet = .quality
+        case .soundEffect:   showSoundEffectPanel = true
         }
         showMore = false
         Haptics.light()

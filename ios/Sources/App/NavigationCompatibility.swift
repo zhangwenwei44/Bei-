@@ -92,6 +92,13 @@ private struct ImmersiveStatusBarAnchor: UIViewControllerRepresentable {
         /// （导航栏重排 → SwiftUI 重渲染 → 又刷新，是本项目踩过的死循环）。
         private var applied: Bool?
         private weak var attachedNav: UINavigationController?
+        /// 🔴 第二十三轮：页面可见期间的收敛校验。状态栏黑字回归的根因不是配色逻辑，
+        ///    而是「写进去的时机」——push 开始时旧页 `viewWillDisappear` 会 restore
+        ///    成 .default，可能晚于新页 anchor 的 viewWillAppear；`navIsDark` 又只在
+        ///    跨阈值时发布一次，值没变就没有第二次补写机会，于是整页一直是黑字。
+        private var visible = false
+        private var verifyScheduled = false
+        private var didInitialBurst = false
 
         init(lightContent: Bool) {
             self.lightContent = lightContent
@@ -109,13 +116,17 @@ private struct ImmersiveStatusBarAnchor: UIViewControllerRepresentable {
 
         override func viewWillAppear(_ animated: Bool) {
             super.viewWillAppear(animated)
+            visible = true
             applyIfPossible(force: true)
+            startVerifying()
         }
 
         override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
             // push 转场结束后 topViewController 才稳定，这里补一次。
+            visible = true
             applyIfPossible(force: true)
+            startVerifying()
         }
 
         override func didMove(toParent parent: UIViewController?) {
@@ -123,15 +134,44 @@ private struct ImmersiveStatusBarAnchor: UIViewControllerRepresentable {
             DispatchQueue.main.async { [weak self] in self?.applyIfPossible(force: true) }
         }
 
+        override func viewDidDisappear(_ animated: Bool) {
+            super.viewDidDisappear(animated)
+            visible = false
+        }
+
         override func viewWillDisappear(_ animated: Bool) {
             super.viewWillDisappear(animated)
             restore()
         }
 
+        /// SwiftUI 每次刷新都走这里：不再因「值没变」而早退，会被 UIKit 实际状态
+        /// 拦住，所以不会引发重排死循环，但能顺手把外部覆盖修回来。
         func set(_ value: Bool) {
-            guard lightContent != value else { return }
             lightContent = value
             applyIfPossible()
+        }
+
+        /// 入页后密集补刷 4 次，覆盖 push 转场（0.35s）与旧页 restore 的交错时序；
+        /// 之后 0.3s 一次低频收敛，只写 UIKit 属性、不碰任何 SwiftUI 状态。
+        private func startVerifying() {
+            guard !verifyScheduled else { return }
+            verifyScheduled = true
+            if !didInitialBurst {
+                didInitialBurst = true
+                for delay in [0.04, 0.15, 0.32, 0.55] as [TimeInterval] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                        guard let self, self.visible else { return }
+                        self.applyIfPossible(force: true)
+                    }
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self else { return }
+                self.verifyScheduled = false
+                guard self.visible, self.view.window != nil else { return }
+                self.applyIfPossible()
+                self.startVerifying()
+            }
         }
 
         /// 与 `NavigationBarItemAppearance` 同款：沿父链找本页那个导航栈，
@@ -145,19 +185,39 @@ private struct ImmersiveStatusBarAnchor: UIViewControllerRepresentable {
                 }
                 candidate = cur.parent
             }
+            // 🔴 第二十三轮兜底：`UIViewControllerRepresentable` 作为 child VC 时，
+            //    SwiftUI 转发 viewWillAppear / didMove(toParent:) 的时序并不保证，
+            //    父链可能还没接上就错过了唯一一次 apply，状态栏于是整页黑字。
+            //    改从本视图自己的响应链往上找导航栈，并用视图归属确认本页就是栈顶
+            //    （转场期间 top 仍是旧页时返回 nil，由低频校验在下一拍补上）。
+            var node: UIResponder? = view
+            while let cur = node {
+                if let vc = cur as? UIViewController, let nav = vc.navigationController,
+                   let top = nav.topViewController, view.isDescendant(of: top.view) {
+                    return (nav, top)
+                }
+                node = cur.next
+            }
             return nil
         }
 
         private func applyIfPossible(force: Bool = false) {
             guard let (nav, host) = resolveContext(), nav.topViewController === host else { return }
             attachedNav = nav
-            if !force, applied == lightContent { return }
-            applied = lightContent
             let bar = nav.navigationBar
-            // 两条路径一起上：老系统看 barStyle，SwiftUI/UIKit 新路径看导航栏 trait。
-            // 只设其中一条在真机上都可能被逐项 UINavigationBarAppearance 覆盖掉。
-            bar.barStyle = lightContent ? .black : .default
-            bar.overrideUserInterfaceStyle = lightContent ? .dark : .unspecified
+            let wantsStyle: UIBarStyle = lightContent ? .black : .default
+            let wantsTrait: UIUserInterfaceStyle = lightContent ? .dark : .unspecified
+            // 🔴 比较 UIKit **实际值**，而不是只比较 SwiftUI 传进来的 Bool：
+            //    旧页 restore / 逐项 appearance 刷新都可能把导航栏改回 .default。
+            let changed = bar.barStyle != wantsStyle || bar.overrideUserInterfaceStyle != wantsTrait
+            if !force, !changed, applied == lightContent { return }
+            applied = lightContent
+            if changed {
+                // 两条路径一起上：老系统看 barStyle，SwiftUI/UIKit 新路径看导航栏 trait。
+                // 只设其中一条在真机上都可能被逐项 UINavigationBarAppearance 覆盖掉。
+                bar.barStyle = wantsStyle
+                bar.overrideUserInterfaceStyle = wantsTrait
+            }
             nav.setNeedsStatusBarAppearanceUpdate()
             host.setNeedsStatusBarAppearanceUpdate()
         }

@@ -1,18 +1,18 @@
 import SwiftUI
 import UIKit
 import MediaPlayer
-import AVFoundation
 
-// MARK: - 🔴 2026-11-15 第二十二轮：播放器「更多」面板（酷狗 20.8.4 同款 4 列网格）
+// MARK: - 🔴 2026-11-15 第二十三轮：播放器「更多」面板
+//
+// 用户按酷狗 20.8.4 参考图纠偏：
+//  ① 只保留「歌曲信息条 + 8 宫格 + 音量条」，红圈圈起的 20 宫格卡片整体删掉；
+//  ② 弹窗容器顶部两角要圆角（原来是一整块方角背景）；
+//  ③ 音量条右侧是喇叭图标，不是数字；
+//  ④ 留下来的每个按钮都必须有真实功能（分发见 PlayerView / PlayerMoreSheets.swift）。
 
 enum PlayerMoreAction: String, CaseIterable, Identifiable {
     case addToPlaylist, sleepTimer, download, playerStyle
     case cast, speedPitch, quality, soundEffect
-    case landscape, heatSong, speakerBoost, mv
-    case share, lyricSettings, playSettings, flowerMode
-    case fishMode, songTransition, aiSing, ringtone
-    case accompany, karaoke, segmentLoop, landscapeKTV
-    case danmaku, magicColor, humming, likeSong
 
     var id: String { rawValue }
 
@@ -26,26 +26,6 @@ enum PlayerMoreAction: String, CaseIterable, Identifiable {
         case .speedPitch:     return "调速·升降调"
         case .quality:        return "音质选择"
         case .soundEffect:    return "音效"
-        case .landscape:      return "横屏"
-        case .heatSong:       return "歌曲加热"
-        case .speakerBoost:   return "外放增强"
-        case .mv:             return "MV"
-        case .share:          return "分享"
-        case .lyricSettings:  return "歌词设置"
-        case .playSettings:   return "播放设置"
-        case .flowerMode:     return "养花模式"
-        case .fishMode:       return "养鱼模式"
-        case .songTransition: return "歌曲过渡"
-        case .aiSing:         return "AI帮唱"
-        case .ringtone:       return "设为铃声"
-        case .accompany:      return "伴唱"
-        case .karaoke:        return "K歌"
-        case .segmentLoop:    return "片段循环"
-        case .landscapeKTV:   return "横屏KTV"
-        case .danmaku:        return "弹幕"
-        case .magicColor:     return "炫彩特效"
-        case .humming:        return "哼唱识曲"
-        case .likeSong:       return "喜欢"
         }
     }
 
@@ -60,27 +40,25 @@ enum PlayerMoreAction: String, CaseIterable, Identifiable {
         case .speedPitch:     return "slider.horizontal.3"
         case .quality:        return "waveform"
         case .soundEffect:    return "speaker.wave.2"
-        case .landscape:      return "rectangle.on.rectangle"
-        case .heatSong:       return "flame"
-        case .speakerBoost:   return "speaker.wave.3"
-        case .mv:             return "play.rectangle"
-        case .share:          return "square.and.arrow.up"
-        case .lyricSettings:  return "text.bubble"
-        case .playSettings:   return "gearshape"
-        case .flowerMode:     return "leaf"
-        case .fishMode:       return "drop"
-        case .songTransition: return "shuffle"
-        case .aiSing:         return "waveform.circle"
-        case .ringtone:       return "bell"
-        case .accompany:      return "music.note"
-        case .karaoke:        return "mic"
-        case .segmentLoop:    return "repeat"
-        case .landscapeKTV:   return "tv"
-        case .danmaku:        return "message"
-        case .magicColor:     return "sparkles"
-        case .humming:        return "music.note.list"
-        case .likeSong:       return "heart"
         }
+    }
+}
+
+/// 只圆上面两个角：底部弹出面板的下半部分要一直贴到屏幕底边。
+private struct PlayerMoreTopCorners: Shape {
+    let radius: CGFloat
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
+        p.addQuadCurve(to: CGPoint(x: rect.minX + radius, y: rect.minY),
+                       control: CGPoint(x: rect.minX, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.minY))
+        p.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY + radius),
+                       control: CGPoint(x: rect.maxX, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        p.closeSubpath()
+        return p
     }
 }
 
@@ -95,7 +73,7 @@ private struct SystemVolumeSlider: UIViewRepresentable {
     func updateUIView(_ uiView: MPVolumeView, context: Context) {}
 }
 
-/// 半透明遮罩 + 歌曲信息条 + 两块白色圆角网格卡 + 关闭。
+/// 半透明遮罩 + 歌曲信息条 + 一块白色圆角网格卡（含音量条）+ 关闭。
 /// 🔴 用 overlay 而不是 sheet：iOS 15 的 sheet 背景不透明，透不出后面的播放页。
 struct PlayerMorePanel: View {
     let title: String
@@ -105,9 +83,6 @@ struct PlayerMorePanel: View {
     let onClose: () -> Void
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 4)
-    private let topItems = Array(PlayerMoreAction.allCases.prefix(8))
-    private let bottomItems = Array(PlayerMoreAction.allCases.dropFirst(8))
-    @State private var volumePercent: Int = Int(AVAudioSession.sharedInstance().outputVolume * 100)
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -117,8 +92,7 @@ struct PlayerMorePanel: View {
 
             VStack(spacing: 10) {
                 songBar
-                card(items: topItems, withVolume: true)
-                card(items: bottomItems, withVolume: false)
+                actionCard
                 Button {
                     onClose()
                 } label: {
@@ -134,6 +108,7 @@ struct PlayerMorePanel: View {
             .padding(.top, 14)
             .padding(.bottom, 14)
             .background(Color(red: 0.96, green: 0.96, blue: 0.97))
+            .clipShape(PlayerMoreTopCorners(radius: 20))
         }
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
@@ -159,6 +134,7 @@ struct PlayerMorePanel: View {
             Spacer(minLength: 0)
             Button {
                 UIPasteboard.general.string = "\(title) - \(artist)"
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
             } label: {
                 Text("复制")
                     .font(.system(size: 11))
@@ -174,10 +150,10 @@ struct PlayerMorePanel: View {
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
     }
 
-    private func card(items: [PlayerMoreAction], withVolume: Bool) -> some View {
+    private var actionCard: some View {
         VStack(spacing: 0) {
             LazyVGrid(columns: columns, spacing: 16) {
-                ForEach(items) { item in
+                ForEach(PlayerMoreAction.allCases) { item in
                     Button {
                         onSelect(item)
                     } label: {
@@ -200,23 +176,20 @@ struct PlayerMorePanel: View {
             }
             .padding(.horizontal, 12)
             .padding(.top, 18)
-            .padding(.bottom, withVolume ? 8 : 18)
+            .padding(.bottom, 8)
 
-            if withVolume {
-                HStack(spacing: 12) {
-                    Image(systemName: "speaker.wave.1")
-                        .font(.system(size: 17))
-                        .foregroundStyle(Color.black.opacity(0.7))
-                    SystemVolumeSlider()
-                        .frame(height: 30)
-                    Text("\(volumePercent)")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color.black.opacity(0.6))
-                        .frame(width: 28, alignment: .trailing)
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 14)
+            HStack(spacing: 12) {
+                Image(systemName: "speaker.wave.1")
+                    .font(.system(size: 17))
+                    .foregroundStyle(Color.black.opacity(0.7))
+                SystemVolumeSlider()
+                    .frame(height: 30)
+                Image(systemName: "speaker.wave.3")
+                    .font(.system(size: 17))
+                    .foregroundStyle(Color.black.opacity(0.7))
             }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 14)
         }
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
     }

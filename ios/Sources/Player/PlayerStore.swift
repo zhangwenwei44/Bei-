@@ -207,6 +207,9 @@ final class PlayerStore: ObservableObject {
     ///    sheet 绑定，iOS 27 上会与全屏播放页的呈现动画撞车导致卡死 / 退回推荐页。
     /// 睡眠定时结束时间，nil 表示未设置。
     @Published var sleepTimerEnd: Date?
+    /// 🔴 2026-11-15 第二十三轮：「调速·升降调」的真实倍速。
+    ///    AVPlayer.rate 会同时改变播放速度与音调，切歌后由 play()/prepare() 重新套用。
+    @Published var playbackRate: Float = 1.0
 
     private let player = AVPlayer()
     private var timeObserver: Any?
@@ -860,6 +863,7 @@ final class PlayerStore: ObservableObject {
 
         if autoplay {
             player.play()
+            player.rate = playbackRate
             isPlaying = true
         } else {
             player.pause()
@@ -957,6 +961,7 @@ final class PlayerStore: ObservableObject {
             return
         }
         player.play()
+        player.rate = playbackRate
         isPlaying = true
         // 🔴 乐观清掉缓冲态：真实缺数据会由上面的 KVO 立刻重新置位，
         // 但不会再出现"暂停留下的旧 buffering 一直挂着"的情况。
@@ -1042,6 +1047,17 @@ final class PlayerStore: ObservableObject {
         } else {
             sleepTimerEnd = Date().addingTimeInterval(TimeInterval(minutes * 60))
         }
+    }
+
+    /// 🔴 第二十三轮：播放器「更多 → 调速·升降调」的真实倍速控制。
+    ///    只在 0.5~2.0 之间取值（AVPlayer 对普通音频可支持该区间）。
+    func setPlaybackRate(_ rate: Float) {
+        let clamped = min(2.0, max(0.5, rate))
+        playbackRate = clamped
+        if isPlaying, player.currentItem != nil {
+            player.rate = clamped
+        }
+        updateNowPlaying()
     }
 
     // MARK: - 歌词

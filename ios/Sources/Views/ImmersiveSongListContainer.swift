@@ -309,19 +309,22 @@ struct ImmersiveSongListContainer<Hero: View, Sticky: View, Content: View>: View
     }
 }
 
-/// 🔴 2026-11-15 第二十二轮：pop 返回转场期间的顶栏补色状态。
-///    只发 Bool（整个转场最多 2 次），不参与滚动，不会让歌曲列表 body 重算。
-private final class ImmersivePopState: ObservableObject {
-    static let shared = ImmersivePopState()
-    @Published var popping = false
-}
+/// 🔴 2026-11-15 第二十三轮：撤销第二十二轮的 `ImmersivePopState`。
+///
+///    那个单例 `@Published` 会在 `dismantleUIView` / `didMoveToWindow` 里被写 ——
+///    也就是「SwiftUI 正在拆视图树的同时发布变更」，真机上会触发
+///    AttributeGraph 重入崩溃（用户反馈「返回时闪退」）。而且它的 pop 判定
+///    要求 `nav.viewControllers.contains(host)`，但 pop 一开始旧页就被移出栈，
+///    条件永远不成立 → 白口根本没修掉。
+///
+///    现在改成纯 UIKit 方案：大图浮层随 push/pop **横向一起滑动**，既不隐藏、
+///    也不需要任何 SwiftUI 状态在转场期间发布（见 ImmersiveHeroLayer.AnchorView）。
 
 /// 🔴 2026-11-13：把「大图浮层 / 毛玻璃 / 吸顶头」从容器 body 里拆出来。
 ///    容器 body 不再订阅高频滚动量，歌曲列表就不会随滚动逐帧重建。
 private struct ImmersiveVisualChrome: View {
     @ObservedObject var state: ImmersiveHeaderState
     @ObservedObject var progress: ImmersiveScrollProgress
-    @ObservedObject private var popState = ImmersivePopState.shared
     let heroKey: String
     let hero: AnyView
     let sticky: AnyView
@@ -347,22 +350,13 @@ private struct ImmersiveVisualChrome: View {
                 .allowsHitTesting(false)
 
             // ③ 毛玻璃顶栏：大图滚走后渐入。用连续进度，视觉上不台阶化。
-            // 🔴 第二十二轮：pop 返回转场期间，这块**白色材质属于页面内容**，会随
-            //    旧页一起滑到右半边，和左侧淡蓝顶栏拼成一个突兀的白方块
-            //    （用户截图 5003bf28「顶栏哪里有个口」）。转场期间换成与全局
-            //    导航栏严格同源的实色，左右两截连成一条顶栏，白口消失。
-            if popState.popping {
-                Rectangle()
-                    .fill(AppStyle.pinnedTabBarColor)
-                    .frame(width: UIScreen.main.bounds.width, height: state.topInset)
-                    .offset(y: -state.topInset)
-                    .allowsHitTesting(false)
-            } else {
-                frostedBar
-                    .offset(y: -state.topInset)
-                    .allowsHitTesting(false)
-                    .opacity(state.frostOpacity(for: s))
-            }
+            // 🔴 第二十三轮：不再用 SwiftUI 状态给转场「补色」。大图浮层现在会
+            //    随页面一起横向滑进/滑出（UIKit 层），转场中间帧顶部始终是封面，
+            //    不会露出整块白；这里保持原样即可。
+            frostedBar
+                .offset(y: -state.topInset)
+                .allowsHitTesting(false)
+                .opacity(state.frostOpacity(for: s))
 
             // ④ 吸顶头：大图未收起时贴着大图底边走，收起后钉在顶栏正下方。
             sticky
@@ -579,18 +573,25 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
         private var monitoring = false
         /// 已拆除（页面 pop / Representable 被移除）：重试闭包不得再装回大图。
         private var tornDown = false
-        /// 🔴 2026-11-15 第二十轮：push 转场期间大图**完全隐藏**（歌手页第十九轮同款）。
-        ///    浮层挂在 nav.view 上、不参与系统 push 转场，中间帧只要画出来就会
-        ///    半屏盖住正在滑入的列表、并与旧页顶栏叠字（用户截图 bfbe2c5b「猜你喜欢」）。
-        ///    所有推荐「更多」页 / 歌单 / 专辑都走这个共享容器，必须在这里也修掉。
+        /// 🔴 第二十三轮：转场期间大图不再「原地隐藏」，而是跟着页面横向滑动。
+        ///    `slidingX = true` 时 x 由 UIView 动画独占，`applyFrame()` / 轮询都不许改它，
+        ///    也不许改 `isHidden`（否则中间帧又变成整块白）。
+        private var slidingX = false
+        /// 首帧没拿到 coordinator 时的老兜底：先隐藏，0.42s 后放行。
         private var transitioning = false
-        /// 首次放行完成后，SwiftUI 短暂拆装 / revive 重装时若无转场就立即显示，
-        /// 不再白等 0.42s（否则大图会无故消失一下）。
         private var didRevealOnce = false
+        /// pop 滑出动画只启动一次。
+        private var popSlideStarted = false
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
             if window == nil {
+                // 🔴 第二十三轮：SwiftUI 在 pop 开头就可能把锚点摘出 window，
+                //    低频轮询随之停掉 —— 这里必须再抢一次接管机会，否则大图
+                //    在第一帧就被拆掉，右半屏立刻整块白（用户截图 a4cad30a）。
+                syncLeavingTransition()
+                // 滑出动画已接管时交还给它，由 completion / 兜底定时器清理。
+                if slidingX { return }
                 removeHeroLayer()
                 return
             }
@@ -609,20 +610,54 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             return nil
         }
 
-        /// 🔴 第二十二轮：是否正在 pop（本页仍在栈里但已不是栈顶）。
-        ///    `transitionCoordinator` 必须由导航控制器取，页面 VC 自己的常常为 nil。
-        private var isPoppingTransition: Bool {
-            guard let nav = navController, let host = hostVC,
-                  nav.transitionCoordinator != nil,
-                  nav.viewControllers.contains(where: { $0 === host }),
-                  nav.topViewController !== host else { return false }
-            return true
-        }
-
-        private func syncPopState() {
-            let popping = isPoppingTransition
-            if ImmersivePopState.shared.popping != popping {
-                ImmersivePopState.shared.popping = popping
+        /// 🔴 2026-11-15 第二十三轮：pop 转场期间接管大图，让它随旧页一起横向滑出。
+        ///
+        ///    白口的真正原因：pop 一开始 `topViewController` 就变成上一页、旧页被移出
+        ///    `viewControllers`，于是 `isHostOnTop` 立刻为 false → `applyFrame()` 把
+        ///    大图 `isHidden = true` → 右半屏在最开始几帧就露出整块白
+        ///    （用户截图 a4cad30a）。第二十二轮用 SwiftUI 单例给顶栏「补色」既没
+        ///    盖住大图区域，又在拆视图树时写 @Published 引发返回闪退。
+        ///
+        ///    这里改成纯 UIKit：用系统转场的同一条时间曲线 alongside 动画推走大图，
+        ///    期间不隐藏、不改 x、不写任何 SwiftUI 状态；交互式取消则原样复位。
+        private func syncLeavingTransition() {
+            // 🔴 不比对 `coord.viewController(forKey: .from) === hostVC`：SwiftUI
+            //    里 hostVC 常是内层 child hosting VC，不在 nav.viewControllers 中，
+            //    那个条件永远不成立。改用「本页已不是栈顶 + 正在动画转场」——
+            //    push 期间 isHostOnTop 为 true，不会误触发；pop / 锚点脱离 window
+            //    时为 false，正是需要接管的时刻。
+            guard !popSlideStarted, !tornDown, let view = heroView,
+                  let nav = navController, let coord = nav.transitionCoordinator,
+                  coord.isAnimated, !isHostOnTop else { return }
+            popSlideStarted = true
+            slidingX = true
+            transitioning = false
+            view.isHidden = false
+            view.alpha = 1
+            let width = UIScreen.main.bounds.width
+            let startX = view.frame.origin.x
+            _ = coord.animate(alongsideTransition: { _ in
+                view.frame.origin.x = startX + width
+            }, completion: { [weak self] ctx in
+                guard let self else { return }
+                if ctx.isCancelled {
+                    // 交互式返回滑到一半松手回弹：大图必须留在原地，否则页面回来是白顶。
+                    // 若锚点已被彻底摘出 window（页面真的销毁了），别把浮层留在 nav.view 上。
+                    guard self.window != nil else { self.removeHeroLayer(); return }
+                    self.slidingX = false
+                    self.popSlideStarted = false
+                    self.transitioning = false
+                    view.frame.origin.x = 0
+                    self.applyFrame()
+                } else {
+                    self.removeHeroLayer()
+                }
+            })
+            // 兜底：极端情况下系统吞掉 completion（例如连点返回），不许把浮层永久
+            // 留在 nav.view 上盖住下一页。0.8s 明显长于 0.35s 标准转场。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                guard let self, self.slidingX, self.window == nil else { return }
+                self.removeHeroLayer()
             }
         }
 
@@ -653,18 +688,21 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             //    头几帧就换上，否则白方块会先露出来。只是读几个属性，开销可忽略。
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
                 guard let self, self.window != nil else { return }
-                self.syncPopState()
+                // 🔴 0.05s 轮询里尽早认出 pop 转场并接管大图（alongside 动画即使
+                //    在转场中途加入也会跟随剩余时长，视觉上仍然同步）。
+                self.syncLeavingTransition()
                 // 🔴 2026-11-14：浮层没装上（首帧导航上下文未连、或 SwiftUI 短暂拆装）
                 //    且本页仍在栈顶 → 持续补装。以前 installIfNeeded 只重试 6 次就放弃，
                 //    一旦 1.2s 内没连上，整页顶部就永久是一片白。
                 if !self.tornDown, self.isHostOnTop, self.heroView == nil {
                     self.installIfNeeded()
                 }
-                if let view = self.heroView {
+                if let view = self.heroView, !self.slidingX {
                     // 🔴 2026-11-11：排序弹窗打开期间临时隐藏大图浮层。
                     //    浮层挂在 nav.view 上、层级高于 SwiftUI 内容层，不隐藏会盖住
                     //    从底部升起的弹窗标题区。轮询 0.2s 自动恢复，只影响弹窗期间。
-                    // 🔴 转场期间恒定隐藏，低频轮询不得提前把大图放出来。
+                    // 🔴 push 转场期间恒定隐藏；pop 滑出动画期间（slidingX）完全不碰
+                    //    isHidden，否则中间帧又变回整块白。
                     view.isHidden = self.transitioning || self.scrolled >= self.hideThreshold
                         || !self.isHostOnTop
                         || PlaylistSortOverlayState.shared.isPresented
@@ -678,7 +716,7 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
         func removeHeroLayer() {
             tornDown = true
             transitioning = false
-            ImmersivePopState.shared.popping = false
+            slidingX = false
             asyncRetryScheduled = false
             heroView?.removeFromSuperview()
             heroView = nil
@@ -693,6 +731,8 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             guard tornDown, window != nil, isHostOnTop else { return }
             tornDown = false
             transitioning = false
+            slidingX = false
+            popSlideStarted = false
             installIfNeeded()
         }
 
@@ -766,21 +806,29 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             if let win = window, let parent = container {
                 origin = parent.convert(CGPoint.zero, from: win)
             }
-            // 🔴 转场期间 parent.convert 会带上转场位移，把大图推到屏幕右侧（半屏错位）。
-            //    此时大图本就隐藏，x 钉 0；转场结束恢复实测值。
-            view.frame.origin = CGPoint(x: transitioning ? 0 : origin.x,
-                                        y: origin.y - scrolled)
+            // 🔴 push 转场期间 parent.convert 会带上转场位移，把大图推到屏幕右侧
+            //    （半屏错位）；此时大图本就隐藏，x 钉 0。
+            // 🔴 pop 滑出期间（slidingX）x 由 alongside 动画独占，这里必须原样保留，
+            //    否则每帧 SwiftUI 更新都会把正在滑走的大图拽回 x=0。
+            let x: CGFloat
+            if slidingX { x = view.frame.origin.x }
+            else if transitioning { x = 0 }
+            else { x = origin.x }
+            view.frame.origin = CGPoint(x: x, y: origin.y - scrolled)
             // 与 SwiftUI 侧毛玻璃渐入区间同步淡出，别把渐入的材质压住。
             let fadeStart = hideThreshold * 0.8
-            if scrolled <= fadeStart {
+            if slidingX || scrolled <= fadeStart {
                 view.alpha = 1
             } else {
                 view.alpha = max(0, 1 - (scrolled - fadeStart) / max(1, hideThreshold - fadeStart))
             }
             // 🔴 滚走后隐藏；页面已不在栈顶（被 push 到别的页）也必须隐藏，
             //    否则这块大图会一直浮在下一页内容之上。
-            // 🔴 转场期间恒定隐藏，避免「浮层抢在页面滑入之前出现」。
-            view.isHidden = transitioning || scrolled >= hideThreshold || !isHostOnTop
+            // 🔴 push 转场期间恒定隐藏，避免「浮层抢在页面滑入之前出现」；
+            //    pop 滑出期间恒定可见，右侧中间帧才不会露出整块白。
+            if !slidingX {
+                view.isHidden = transitioning || scrolled >= hideThreshold || !isHostOnTop
+            }
         }
     }
 }
