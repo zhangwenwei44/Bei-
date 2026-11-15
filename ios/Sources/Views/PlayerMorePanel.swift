@@ -112,7 +112,7 @@ struct PlayerMorePanel: View {
                 .ignoresSafeArea()
                 .onTapGesture { onClose() }
 
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 songBar
                 actionCard
                 Button {
@@ -122,7 +122,7 @@ struct PlayerMorePanel: View {
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(Color.black.opacity(0.78))
                         .frame(maxWidth: .infinity)
-                        .frame(height: 46)
+                        .frame(height: 44)
                         .background(RoundedRectangle(cornerRadius: 14).fill(Color.white))
                 }
                 .buttonStyle(.plain)
@@ -206,10 +206,14 @@ struct PlayerMorePanel: View {
             .padding(.top, 18)
             .padding(.bottom, 10)
 
-            // 🔴 第二十五轮：音量条继续下移。第二十四轮只加了 12pt 上间距，
-            //    真机上滑块仍贴着第二行文字（用户截图 9b9f1503）。
-            //    这次把上方留白加到 28pt，同时把下方留白从 16pt 收到 10pt，
-            //    让滑杆在卡片内整体更靠下、与图标明显拉开。
+            // 🔴 第二十六轮：前两轮「音量条下移」在真机上看着没动，是布局原理搞错了。
+            //    整个面板是 ZStack(alignment:.bottom) + VStack 贴底，卡片底边被
+            //    「关闭按钮 + VStack spacing」钉死；只加 `.padding(.top)` 会把网格
+            //    往上顶、把面板撑高，**音量条相对屏幕的 y 完全不变**。
+            //    音量条的绝对位置只由它「下方」的内容决定：卡片 bottom padding、
+            //    VStack spacing、关闭按钮高度。这次把 bottom 10→0、spacing 8→6、
+            //    关闭 46→44，音量条实打实下移约 13pt；再把 top 28→52，让它与
+            //    第二行文字拉开约 24pt，两处视觉都明显变化。
             HStack(spacing: 12) {
                 Image(systemName: "speaker.wave.1")
                     .font(.system(size: 16))
@@ -221,8 +225,8 @@ struct PlayerMorePanel: View {
                     .foregroundStyle(Color.black.opacity(0.62))
             }
             .padding(.horizontal, 16)
-            .padding(.top, 28)
-            .padding(.bottom, 10)
+            .padding(.top, 52)
+            .padding(.bottom, 0)
         }
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.white))
     }

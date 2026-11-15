@@ -690,6 +690,16 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             transitioning = false
             view.isHidden = false
             view.alpha = 1
+            // 🔴 2026-11-15 第二十六轮：右侧「白顶」的真正元凶。
+            //    pop 中间帧 UINavigationBar 会把两页的 appearance 交叉淡化，从状态栏
+            //    底部到导航栏底部画出一条半透明灰白背景（截图 37f836de 右侧
+            //    x≈440 起、y≈140~263 的灰白条，里面还叠着两页 toolbar 文字）。
+            //    大图浮层是 `insertSubview(view, belowSubview: bar)`，顶部恰好被这条
+            //    灰白盖住 —— 第二十五轮横滑其实生效了（深色大图确实滑到右侧），
+            //    但顶栏那一条依旧是白的。转场期间把大图提到 bar 之上，用封面自己的
+            //    深色盖掉它；浮层已在 alongside 动画里随页横滑，颜色/位置天然一致，
+            //    且 `isUserInteractionEnabled=false` 不会吞掉边缘返回手势。
+            view.superview?.bringSubviewToFront(view)
             let startX = view.frame.origin.x
             let width = UIScreen.main.bounds.width
             _ = coord.animate(alongsideTransition: { _ in
@@ -697,9 +707,15 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             }, completion: { [weak self, weak view] ctx in
                 guard let view else { return }
                 if ctx.isCancelled {
-                    // 交互式返回滑到一半松手回弹：大图必须回到页面顶部。
+                    // 交互式返回滑到一半松手回弹：大图回到页面顶部，层级也要放回
+                    // bar 之下，否则返回/收藏按钮会被盖住。
                     self?.popSliding = false
                     view.frame.origin.x = startX
+                    if let parent = view.superview,
+                       let bar = self?.navController?.navigationBar,
+                       bar.superview === parent {
+                        parent.insertSubview(view, belowSubview: bar)
+                    }
                     if self?.window != nil {
                         self?.applyFrame()
                     } else {

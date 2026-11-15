@@ -1131,6 +1131,10 @@ private struct ArtistHeroLayer: UIViewRepresentable {
             transitioning = false
             view.isHidden = false
             view.alpha = 1
+            // 🔴 第二十六轮：与 ImmersiveHeroLayer 同步 —— pop 中间帧导航栏
+            //    crossfade 出的半透明灰白背景会盖住插在 bar 之下的大图顶部。
+            //    转场期间提到 bar 之上，用封面深色盖掉这条「白顶」。
+            view.superview?.bringSubviewToFront(view)
             let startX = view.frame.origin.x
             let width = UIScreen.main.bounds.width
             let hero = view
@@ -1140,6 +1144,10 @@ private struct ArtistHeroLayer: UIViewRepresentable {
                 if ctx.isCancelled {
                     self?.popSliding = false
                     hero.frame.origin.x = startX
+                    // 回弹后层级放回 bar 之下，别盖住返回/收藏按钮。
+                    if let parent = hero.superview, nav.navigationBar.superview === parent {
+                        parent.insertSubview(hero, belowSubview: nav.navigationBar)
+                    }
                     self?.applyFrame()
                 } else {
                     hero.removeFromSuperview()
