@@ -290,7 +290,9 @@ struct DiscoverView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.leading, 12)
+            // 🔴 2026-11-16：与横幅广告左边缘对齐。principal 工具栏自带约 16pt
+            //    左右边距，这里再垫 12pt 会让「推荐」比横幅右移 12pt。
+            .padding(.leading, 0)
 
             Spacer(minLength: 0)
 

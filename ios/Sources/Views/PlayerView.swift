@@ -3807,56 +3807,12 @@ struct KugouLyricsPage: View {
         }
     }
 
-    // MARK: 进度条：细白线 + 常显定位点，时间文字在条【下方】两端
+    // MARK: 进度条（🔴 2026-11-16：与竖屏沉浸式播放页完全同款）
+    /// 直接复用 `ImmersiveCoverProgressBlock`：2pt 细线 + 单个呼吸播放点，
+    /// **缓冲末端的小圆点已移除**。以前歌词页自己画了一份（多一个缓冲圆点、
+    /// 播放点没有呼吸光晕），两处样式会不断漂移，现在统一到同一个组件。
     private var progressBlock: some View {
-        VStack(spacing: 4) {
-            GeometryReader { geo in
-                let w = geo.size.width
-                let pf = max(0, min(1, playback.progress))
-                let bf = max(0, min(1, playback.bufferedFraction))
-                let px = pf * w
-                ZStack(alignment: .leading) {
-                    // 🔴 2026-11-13：与主播放页「沉浸式封面」统一成酷狗细条（2pt）
-                    //    + 缓冲小点 + 当前位置白点，时间仍在条下方两端。
-                    Capsule().fill(.white.opacity(0.28)).frame(height: 2)
-                    Capsule().fill(.white.opacity(0.40)).frame(width: bf * w, height: 2)
-                    Capsule().fill(.white.opacity(0.95)).frame(width: px, height: 2)
-                    Circle().fill(.white.opacity(0.55))
-                        .frame(width: 4, height: 4)
-                        .offset(x: min(max(bf * w - 2, 0), max(w - 4, 0)))
-                    Circle().fill(.white)
-                        .frame(width: isScrubbing ? 11 : 7, height: isScrubbing ? 11 : 7)
-                        .offset(x: px - (isScrubbing ? 5.5 : 3.5))
-                        .shadow(color: .black.opacity(0.28), radius: 2)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 0)
-                    .onChanged { v in
-                        guard playback.duration > 0, w > 0 else { return }
-                        if !isScrubbing {
-                            isScrubbing = true
-                            scrubValue = playback.currentTime
-                        }
-                        scrubValue = min(1, max(0, v.location.x / w)) * playback.duration
-                    }
-                    .onEnded { _ in
-                        store.seek(to: scrubValue)
-                        isScrubbing = false
-                    })
-            }
-            .frame(height: 24)
-
-            HStack {
-                Text(displayTime.clockString)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.55))
-                Spacer(minLength: 0)
-                Text(playback.duration.clockString)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.55))
-            }
-        }
+        ImmersiveCoverProgressBlock(playback: playback)
     }
 
     private func prepareShare() {

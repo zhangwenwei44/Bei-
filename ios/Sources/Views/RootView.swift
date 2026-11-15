@@ -240,6 +240,9 @@ private struct MiniPlayerOverlay: View {
     @Binding var isExpanded: Bool
     /// 🔴 2026-11-12：排序弹窗打开期间收起播放条，避免压住弹窗最后一项。
     @State private var sortSheetPresented = false
+    /// 🔴 2026-11-16：下载页「多选」编辑态要露出底部的「全选 / 删除已选」条，
+    ///    播放条挂在导航栈外层、层级更高会整条盖住它 → 编辑期间同样收起。
+    @State private var editingSuppressed = false
 
     init(store: PlayerStore, isExpanded: Binding<Bool>) {
         self.store = store
@@ -250,7 +253,7 @@ private struct MiniPlayerOverlay: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if mini.isVisible && !sortSheetPresented {
+            if mini.isVisible && !sortSheetPresented && !editingSuppressed {
                 MiniPlayer(mini: mini, playback: playback, store: store, isExpanded: $isExpanded)
                     .padding(.horizontal, 10)
                     // 🔴 底边贴住 TabBar 上沿（用户明确要求的形态）。
@@ -267,6 +270,12 @@ private struct MiniPlayerOverlay: View {
             let presented = (note.userInfo?["presented"] as? Bool) ?? false
             if sortSheetPresented != presented {
                 withAnimation(.easeInOut(duration: 0.2)) { sortSheetPresented = presented }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .auroraMiniPlayerSuppressed)) { note in
+            let suppressed = (note.userInfo?["suppressed"] as? Bool) ?? false
+            if editingSuppressed != suppressed {
+                withAnimation(.easeInOut(duration: 0.2)) { editingSuppressed = suppressed }
             }
         }
         // 🔴 2026-11-13：这里原来还挂了一份 `.queueSheet()`，与播放页那份共用

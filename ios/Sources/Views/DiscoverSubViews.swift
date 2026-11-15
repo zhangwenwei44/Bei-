@@ -1,8 +1,6 @@
 import SwiftUI
 import UIKit
 import ImageIO
-// 🔴 2026-11-15：下载页「备份 / 恢复」要选文件夹（UTType.folder）。
-import UniformTypeIdentifiers
 
 // MARK: - 横幅广告配置（🔴 2026-11-13：纯本机，不读写服务器）
 
@@ -141,6 +139,50 @@ final class BannerConfig: ObservableObject {
         writeMeta(meta)
     }
 
+    /// 🔴 2026-11-16：移除某个横幅位（添加多张之后要能删掉）。
+    /// 图片文件按索引命名（aurora_banner_N.jpg/png），删掉中间一项后
+    /// 必须把后续文件整体前移一位，否则下一张自定义图会串到错误位置。
+    /// 始终至少保留 1 个横幅位。
+    func remove(at index: Int) {
+        guard images.count > 1, images.indices.contains(index) else { return }
+        let fm = FileManager.default
+        let dir = Self.dir()
+
+        // ① 先把 index 之后的图片搬到临时名，避免重命名时互相覆盖。
+        var staged: [(tmp: URL, dst: URL)] = []
+        for i in (index + 1)..<images.count {
+            let jpg = dir.appendingPathComponent("\(prefix)\(i).jpg")
+            let png = dir.appendingPathComponent("\(prefix)\(i).png")
+            let src = fm.fileExists(atPath: jpg.path) ? jpg : png
+            guard fm.fileExists(atPath: src.path) else { continue }
+            let ext = src.pathExtension
+            let tmp = dir.appendingPathComponent("\(prefix)tmp_\(i).\(ext)")
+            try? fm.removeItem(at: tmp)
+            do {
+                try fm.moveItem(at: src, to: tmp)
+                staged.append((tmp, dir.appendingPathComponent("\(prefix)\(i - 1).\(ext)")))
+            } catch {
+                continue
+            }
+        }
+
+        // ② 清掉旧位置残留（含被移除那张），再把暂存文件落到新索引。
+        for i in index..<images.count {
+            try? fm.removeItem(at: dir.appendingPathComponent("\(prefix)\(i).jpg"))
+            try? fm.removeItem(at: dir.appendingPathComponent("\(prefix)\(i).png"))
+        }
+        for pair in staged {
+            try? fm.moveItem(at: pair.tmp, to: pair.dst)
+        }
+
+        var meta = readMeta()
+        if meta.custom.indices.contains(index) { meta.custom.remove(at: index) }
+        var next = images
+        next.remove(at: index)
+        images = next                 // 🔴 @Published 必须整体替换
+        writeMeta(meta)
+    }
+
     // MARK: - 展示
 
     /// 🔴 只用本机自定义图，不再读写云端；元素为 nil 表示该位置用 App 内置默认图。
@@ -196,7 +238,8 @@ struct DownloadCenterView: View {
     }
 
     @State private var folderMode: FolderMode = .backup
-    @State private var showFolderPicker = false
+    /// 🔴 2026-11-16：不再用 @State 驱动 SwiftUI `.fileImporter`（iOS 16 回调被吞），
+    ///    改由 `FolderPicker.pick()` 直接 present UIKit 文档选择器。
     @State private var isEditing = false
     @State private var selectedIDs: Set<String> = []
     @State private var isWorking = false
@@ -280,12 +323,19 @@ struct DownloadCenterView: View {
             .navigationBarTitleDisplayMode(.inline)
             .kugouNavigationBarBackground()
             .toolbar { downloadToolbar }
-            .fileImporter(isPresented: $showFolderPicker,
-                          allowedContentTypes: [.folder],
-                          allowsMultipleSelection: false) { result in
-                handleFolderPick(result)
-            }
             .overlay(alignment: .bottom) { editingBar }
+            // 🔴 2026-11-16：多选编辑态收起迷你播放条。播放条挂在导航栈【外层】的
+            //    safeAreaInset，层级高于本页 overlay，会把「全选 / 删除已选」整条盖住。
+            .onChange(of: isEditing) { editing in
+                NotificationCenter.default.post(name: .auroraMiniPlayerSuppressed,
+                                                object: nil,
+                                                userInfo: ["suppressed": editing])
+            }
+            .onDisappear {
+                NotificationCenter.default.post(name: .auroraMiniPlayerSuppressed,
+                                                object: nil,
+                                                userInfo: ["suppressed": false])
+            }
             .confirmationDialog("删除已选歌曲？",
                                 isPresented: $showDeleteConfirm,
                                 titleVisibility: .visible) {
@@ -315,18 +365,18 @@ struct DownloadCenterView: View {
                 // 顶栏三个独立按钮：备份 / 从备份恢复 / 多选。
                 Button {
                     folderMode = .backup
-                    showFolderPicker = true
+                    presentFolderPicker()
                 } label: {
-                    Image(systemName: "square.and.arrow.up")
+                    BackupDocumentPlusIcon()
                 }
                 .accessibilityLabel("备份下载歌曲")
                 .disabled(library.downloads.isEmpty && downloads.items.isEmpty)
 
                 Button {
                     folderMode = .restore
-                    showFolderPicker = true
+                    presentFolderPicker()
                 } label: {
-                    Image(systemName: "square.and.arrow.down")
+                    ExportFolderArrowIcon()
                 }
                 .accessibilityLabel("从备份恢复")
 
@@ -461,21 +511,22 @@ struct DownloadCenterView: View {
         exitEditing()
     }
 
-    private func handleFolderPick(_ result: Result<[URL], Error>) {
-        switch result {
-        case .failure(let error):
-            noticeText = "没有选择文件夹：\(error.localizedDescription)"
-            showNotice = true
-        case .success(let urls):
-            guard let url = urls.first else { return }
-            performFolderTask(url)
+    // 🔴 2026-11-16：改用 UIKit 直接 present 的文件夹选择器（FolderPicker）。
+    //    SwiftUI `.fileImporter(allowedContentTypes: [.folder])` 在 iOS 16 上
+    //    回调被静默吞掉，用户点「打开」没有任何反应＝「选择不了文件夹」。
+    private func presentFolderPicker() {
+        FolderPicker.pick { url in
+            self.performFolderTask(url)
         }
     }
 
     /// 备份 / 恢复都是大量文件 IO，放后台执行，完成后回主线程刷新。
+    /// 🔴 选中的是用户目录的**安全作用域 URL**：整个 IO 期间必须持有访问权，
+    ///    否则 createDirectory / copyItem 会报「无权限」。
     private func performFolderTask(_ url: URL) {
         isWorking = true
         let isBackup = folderMode == .backup
+        let secured = url.startAccessingSecurityScopedResource()
         Task {
             let outcome = await Task.detached(priority: .userInitiated) { () -> FolderOutcome in
                 do {
@@ -502,6 +553,7 @@ struct DownloadCenterView: View {
                 // 恢复后按磁盘索引重建下载列表（会同步 LibraryStore.downloads）。
                 DownloadManager.shared.bootstrap()
             }
+            if secured { url.stopAccessingSecurityScopedResource() }
             noticeText = outcome.text
             isWorking = false
             showNotice = true
@@ -728,7 +780,7 @@ struct LabView: View {
             ForEach(Array(0..<banner.images.count), id: \.self) { index in
                 bannerRow(index: index)
             }
-            Text("选择图片后即时生效，只保存在本机；恢复默认即使用 App 内置图。点「添加」可增加更多横幅位。")
+            Text("选择图片后即时生效，只保存在本机；恢复默认即使用 App 内置图。点「添加」可增加更多横幅位，点「移除」可删掉多余横幅位。")
                 .font(.system(size: 11))
                 .foregroundStyle(AppStyle.tertiaryText)
         }
@@ -825,6 +877,16 @@ struct LabView: View {
                         Text("恢复默认").font(.system(size: 13, weight: .medium)).foregroundStyle(AppStyle.tertiaryText)
                     }
                     .buttonStyle(.plain)
+                    // 🔴 2026-11-16：添加多张后要能删掉；只剩 1 张时隐藏，避免横幅空白。
+                    if banner.images.count > 1 {
+                        Button {
+                            banner.remove(at: index)
+                            Haptics.light()
+                        } label: {
+                            Text("移除").font(.system(size: 13, weight: .medium)).foregroundStyle(.red)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
             Spacer(minLength: 0)

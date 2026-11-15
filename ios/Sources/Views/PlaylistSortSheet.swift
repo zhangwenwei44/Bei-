@@ -308,6 +308,11 @@ final class PlaylistSortOverlayState: @unchecked Sendable {
 extension Notification.Name {
     static let auroraPlaylistSortSheetVisibility =
         Notification.Name("aurora.playlistSortSheetVisibility")
+
+    /// 🔴 2026-11-16：任何页面需要临时收起迷你播放条时发这个通知
+    ///    （下载页「多选」编辑态要露出底部操作条）。userInfo["suppressed"] = Bool。
+    static let auroraMiniPlayerSuppressed =
+        Notification.Name("aurora.miniPlayerSuppressed")
 }
 
 // MARK: - 吸顶行图标
