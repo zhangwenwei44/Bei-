@@ -320,7 +320,10 @@ struct MiniPlayer: View {
                        song.source == .local || downloads.item(for: song)?.isDone == true {
                         LocalTag()
                     }
-                    if !mini.qualityName.isEmpty {
+                    // 🔴 2026-11-15：已下载 / 本地歌曲的 `qualityName` 本身就是「本地」
+                    //   （PlayerStore 里 outcome.label = "本地"），上面已经画了 LocalTag，
+                    //   再画 QualityTag 就会出现「本地 本地」两个标签。这里只保留一个。
+                    if !mini.qualityName.isEmpty && mini.qualityName != "本地" {
                         // 🔴 用户要求：迷你条音质标签文字改灰白、跟歌手名同色（secondaryText）。
                         QualityTag(title: mini.qualityName, tint: AppStyle.secondaryText)
                     }

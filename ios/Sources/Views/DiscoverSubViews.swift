@@ -1,6 +1,8 @@
 import SwiftUI
 import UIKit
 import ImageIO
+// 🔴 2026-11-15：下载页「备份 / 恢复」要选文件夹（UTType.folder）。
+import UniformTypeIdentifiers
 
 // MARK: - 横幅广告配置（🔴 2026-11-13：纯本机，不读写服务器）
 
@@ -184,6 +186,24 @@ struct DownloadCenterView: View {
     @ObservedObject private var downloads = DownloadManager.shared
     @ObservedObject private var library = LibraryStore.shared
 
+    // 🔴 2026-11-15：备份 / 从备份恢复 / 多选删除
+    private enum FolderMode { case backup, restore }
+
+    /// 后台 IO 完成后的返回值（显式 Sendable，避免并发检查告警）。
+    private struct FolderOutcome: Sendable {
+        var text: String
+        var needsBootstrap: Bool
+    }
+
+    @State private var folderMode: FolderMode = .backup
+    @State private var showFolderPicker = false
+    @State private var isEditing = false
+    @State private var selectedIDs: Set<String> = []
+    @State private var isWorking = false
+    @State private var noticeText = ""
+    @State private var showNotice = false
+    @State private var showDeleteConfirm = false
+
     var body: some View {
         CompatNavigationStack {
             ScrollView {
@@ -242,25 +262,7 @@ struct DownloadCenterView: View {
                     if !history.isEmpty {
                         sectionTitle("下载历史")
                         ForEach(history) { song in
-                            SongRow(song: song,
-                                     isCurrent: store.current?.id == song.id,
-                                     isPlaying: store.isPlaying,
-                                     trailing: nil,
-                                     onPlay: {
-                                         if let idx = history.firstIndex(where: { $0.id == song.id }) {
-                                             store.setQueueOrigin(id: "history", title: "最近播放")
-                                             store.play(history, startAt: idx)
-                                             Haptics.soft()
-                                         }
-                                     })
-                                .equatable()
-                                .songMenu(song)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 3)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .fill(AppStyle.surface)
-                                )
+                            historyRow(song, history: history)
                         }
                     }
 
@@ -274,9 +276,237 @@ struct DownloadCenterView: View {
                 .padding(.bottom, 110)
             }
             .background(AppStyle.background)
-            .navigationTitle("下载")
+            .navigationTitle(isEditing ? "已选 \(selectedIDs.count) 项" : "下载")
             .navigationBarTitleDisplayMode(.inline)
             .kugouNavigationBarBackground()
+            .toolbar { downloadToolbar }
+            .fileImporter(isPresented: $showFolderPicker,
+                          allowedContentTypes: [.folder],
+                          allowsMultipleSelection: false) { result in
+                handleFolderPick(result)
+            }
+            .overlay(alignment: .bottom) { editingBar }
+            .confirmationDialog("删除已选歌曲？",
+                                isPresented: $showDeleteConfirm,
+                                titleVisibility: .visible) {
+                Button("删除 \(selectedIDs.count) 首", role: .destructive) { deleteSelected() }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("会删除这些歌曲在本机的下载文件，删除后无法恢复。")
+            }
+            .alert("提示", isPresented: $showNotice) {
+                Button("好", role: .cancel) {}
+            } message: {
+                Text(noticeText)
+            }
+        }
+    }
+
+    // MARK: 顶栏：备份 / 恢复 / 多选
+
+    @ToolbarContentBuilder
+    private var downloadToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            if isWorking {
+                ProgressView()
+            } else if isEditing {
+                Button("完成") { exitEditing() }
+            } else {
+                Menu {
+                    Button {
+                        folderMode = .backup
+                        showFolderPicker = true
+                    } label: {
+                        Label("备份到文件夹…", systemImage: "square.and.arrow.up")
+                    }
+                    // 没下载就没什么可备份；但「从备份恢复」要始终可选（换机恢复）。
+                    .disabled(library.downloads.isEmpty && downloads.items.isEmpty)
+                    Button {
+                        folderMode = .restore
+                        showFolderPicker = true
+                    } label: {
+                        Label("从备份恢复…", systemImage: "square.and.arrow.down")
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down.circle")
+                }
+                .accessibilityLabel("备份与恢复")
+
+                Button("多选") {
+                    withAnimation(.easeInOut(duration: 0.2)) { isEditing = true }
+                    Haptics.light()
+                }
+                .disabled(library.downloads.isEmpty)
+            }
+        }
+    }
+
+    // MARK: 底部：全选 / 删除
+
+    @ViewBuilder
+    private var editingBar: some View {
+        if isEditing {
+            HStack(spacing: 12) {
+                Button {
+                    toggleSelectAll()
+                } label: {
+                    Text(selectedIDs.count == library.downloads.count ? "取消全选" : "全选")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(AppStyle.primaryText)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 9)
+                        .background(AppStyle.surface, in: Capsule())
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    showDeleteConfirm = true
+                } label: {
+                    Label("删除已选 \(selectedIDs.count)", systemImage: "trash")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 9)
+                        .background(selectedIDs.isEmpty ? Color.gray.opacity(0.45) : Color.red,
+                                    in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(selectedIDs.isEmpty)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial, in: Capsule())
+            .padding(.bottom, 12)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    // MARK: 历史行（编辑态带勾选圈）
+
+    @ViewBuilder
+    private func historyRow(_ song: Song, history: [Song]) -> some View {
+        HStack(spacing: 8) {
+            if isEditing {
+                Image(systemName: selectedIDs.contains(song.id) ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 20))
+                    .foregroundStyle(selectedIDs.contains(song.id) ? AppStyle.accent : AppStyle.tertiaryText)
+                    .transition(.scale.combined(with: .opacity))
+            }
+            SongRow(song: song,
+                    isCurrent: store.current?.id == song.id,
+                    isPlaying: store.isPlaying,
+                    trailing: nil,
+                    onPlay: {
+                        if let idx = history.firstIndex(where: { $0.id == song.id }) {
+                            store.setQueueOrigin(id: "history", title: "最近播放")
+                            store.play(history, startAt: idx)
+                            Haptics.soft()
+                        }
+                    })
+                .equatable()
+                .songMenu(song)
+                // 编辑态整行只响应「切换选中」，不触发播放 / 菜单。
+                .allowsHitTesting(!isEditing)
+        }
+        .padding(.leading, isEditing ? 4 : 0)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard isEditing else { return }
+            toggleSelection(song)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 3)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(isEditing && selectedIDs.contains(song.id)
+                      ? AppStyle.accent.opacity(0.12)
+                      : AppStyle.surface)
+        )
+    }
+
+    // MARK: 交互
+
+    private func exitEditing() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isEditing = false
+            selectedIDs.removeAll()
+        }
+    }
+
+    private func toggleSelection(_ song: Song) {
+        if selectedIDs.contains(song.id) {
+            selectedIDs.remove(song.id)
+        } else {
+            selectedIDs.insert(song.id)
+        }
+        Haptics.light()
+    }
+
+    private func toggleSelectAll() {
+        if selectedIDs.count == library.downloads.count {
+            selectedIDs.removeAll()
+        } else {
+            selectedIDs = Set(library.downloads.map(\.id))
+        }
+        Haptics.light()
+    }
+
+    private func deleteSelected() {
+        let targets = library.downloads.filter { selectedIDs.contains($0.id) }
+        guard !targets.isEmpty else { return }
+        for song in targets {
+            DownloadManager.shared.delete(song)
+        }
+        Haptics.success()
+        noticeText = "已删除 \(targets.count) 首歌曲。"
+        showNotice = true
+        exitEditing()
+    }
+
+    private func handleFolderPick(_ result: Result<[URL], Error>) {
+        switch result {
+        case .failure(let error):
+            noticeText = "没有选择文件夹：\(error.localizedDescription)"
+            showNotice = true
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            performFolderTask(url)
+        }
+    }
+
+    /// 备份 / 恢复都是大量文件 IO，放后台执行，完成后回主线程刷新。
+    private func performFolderTask(_ url: URL) {
+        isWorking = true
+        let isBackup = folderMode == .backup
+        Task {
+            let outcome = await Task.detached(priority: .userInitiated) { () -> FolderOutcome in
+                do {
+                    if isBackup {
+                        let (folder, summary) = try DownloadBackup.backup(to: url)
+                        let text = summary.isEmpty
+                            ? "当前没有可备份的歌曲。"
+                            : "已备份 \(summary.songs) 首歌、\(summary.files) 个文件（\(summary.sizeText)）到「\(folder.lastPathComponent)」。"
+                        return FolderOutcome(text: text, needsBootstrap: false)
+                    } else {
+                        let summary = try DownloadBackup.restore(from: url)
+                        let text = summary.isEmpty
+                            ? "这个文件夹里没有找到可恢复的歌曲。"
+                            : "已恢复 \(summary.songs) 首歌、\(summary.files) 个文件。"
+                        return FolderOutcome(text: text, needsBootstrap: true)
+                    }
+                } catch {
+                    return FolderOutcome(text: "操作失败：\(error.localizedDescription)",
+                                         needsBootstrap: false)
+                }
+            }.value
+
+            if outcome.needsBootstrap {
+                // 恢复后按磁盘索引重建下载列表（会同步 LibraryStore.downloads）。
+                DownloadManager.shared.bootstrap()
+            }
+            noticeText = outcome.text
+            isWorking = false
+            showNotice = true
         }
     }
 
