@@ -627,9 +627,26 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
         }
 
         /// 🔴 dismantle / 脱离 window 都走这里：coordinator 有可能下一帧才挂上。
-        ///    等待窗口内大图保持可见且已提到 bar 之上，灰白条一帧都不会露。
+        ///    真的是离开本页时，第一帧就提层遮住导航栏 crossfade 的灰白条；
+        ///    随后要么交给 pop 横滑，要么在 0.08s / 0.6s 两道兜底里销毁。
         func schedulePopHandoff() {
-            raiseHeroAboveBar()
+            // 🔴 2026-11-15 第二十八轮：绝不能无条件提层。
+            //    第二十七轮为消除灰白闪帧，在这里一律 `raiseHeroAboveBar()`
+            //    （把大图设为可见 + 提到导航栏之上）。但 SwiftUI 切 tab / 列表刷新
+            //    也会走 dismantle / didMoveToWindow(nil)，那些场景里大图本来是隐藏
+            //    的，被无条件放出来后就没有人再拆 → 返回完成后整块深色浮层
+            //    （高度正好 headerHeight）盖在主页上半部分（用户截图 d72175f1）。
+            //    只有「本页确实已不是栈顶」才是离开场景，才需要提层遮灰白。
+            if !isHostOnTop { raiseHeroAboveBar() }
+            // 🔴 第二十八轮终极兜底：无论上面走哪条路径（横滑 completion 被吞、
+            //    交互式 cancelled 误报、轮询复活误判），0.6s 后只要锚点已不在
+            //    当前栈顶页面视图树里，就强制摘掉浮层。正常显示中的页面不受影响。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                guard let self, self.heroView != nil, !self.popSliding else { return }
+                if self.window == nil || !self.isAnchorOnCurrentTopPage {
+                    self.removeHeroLayer()
+                }
+            }
             if startPopSlideIfNeeded() || popSliding || tornDown { return }
             guard !dismantleScheduled else { return }
             dismantleScheduled = true
@@ -638,10 +655,15 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
                 guard let self else { hero?.removeFromSuperview(); return }
                 self.dismantleScheduled = false
                 if self.startPopSlideIfNeeded() || self.popSliding { return }
-                // SwiftUI 偶尔只是短暂拆装同一个 UIView（列表刷新 / heroKey 变化）：
-                // 锚点已回到 window 且本页仍是栈顶时别误拆；层级也要还原，
-                // 否则大图会一直盖在返回/收藏按钮上。
-                if self.window != nil && self.isHostOnTop {
+                // 🔴 残留元凶：旧版只凭 `window != nil && isHostOnTop` 就 return 不拆。
+                //    pop 完成后 hostVC 常已释放，isHostOnTop 会回退到
+                //    isDescendant(of: topView)，navController 为 nil 时更直接返回
+                //    true → 大图永久留在 nav.view 上。改用强判据：hostVC 必须还在
+                //    导航栈里且确实是栈顶（= 只是 SwiftUI 短暂拆装），否则一律销毁。
+                if self.window != nil,
+                   let nav = self.navController, let host = self.hostVC,
+                   nav.viewControllers.contains(where: { $0 === host }),
+                   nav.topViewController === host {
                     self.restoreHeroBelowBar()
                     self.applyFrame()
                     return
@@ -730,13 +752,18 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             }, completion: { [weak self, weak view] ctx in
                 guard let view else { return }
                 if ctx.isCancelled {
-                    // 交互式返回滑到一半松手回弹：大图回到页面顶部，层级也要放回
-                    // bar 之下，否则返回/收藏按钮会被盖住。
+                    // 交互式返回滑到一半松手回弹：只有本页确实回到栈顶（hostVC
+                    // 仍在栈里且就是 top）才允许把大图复位保留；否则一律销毁。
+                    // 🔴 第二十八轮：旧版只判 `window != nil`，系统把已完成的
+                    //    pop 报成 cancelled 时大图就复位到 x=0 永久盖住主页。
                     self?.popSliding = false
                     view.frame.origin.x = startX
-                    self?.restoreHeroBelowBar()
-                    if self?.window != nil {
-                        self?.applyFrame()
+                    if let self = self, self.window != nil,
+                       let nav = self.navController, let host = self.hostVC,
+                       nav.viewControllers.contains(where: { $0 === host }),
+                       nav.topViewController === host {
+                        self.restoreHeroBelowBar()
+                        self.applyFrame()
                     } else {
                         view.removeFromSuperview()
                         self?.removeHeroLayer()
@@ -803,10 +830,20 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             hostVC = nil
         }
 
-        /// 🔴 SwiftUI 把 Representable 拆掉后又用同一个 UIView 继续更新时，允许复活。
-        ///    pop 返回后本页已不在栈顶 → isHostOnTop=false，不会把大图装回去。
+        /// 🔴 第二十八轮：只按「锚点是否还在当前栈顶页面的视图树里」判断能否复活。
+        ///    `isHostOnTop` 在 hostVC 被释放后会回退到 isDescendant(of:)，navController
+        ///    为 nil 时更直接返回 true —— 拿它当复活条件，pop 完成后会把大图重新
+        ///    装回主页（用户截图 d72175f1）。切 tab 回来 / 列表刷新短暂拆装时，
+        ///    锚点仍在栈顶页面视图树里 → 允许复活；页面真正 pop 掉后 SwiftUI 不会再
+        ///    updateUIView，且锚点已不在新栈顶视图树里 → 一律不复活。
+        private var isAnchorOnCurrentTopPage: Bool {
+            guard let nav = navController, let top = nav.topViewController else { return false }
+            return isDescendant(of: top.view)
+        }
+
+        /// SwiftUI 把 Representable 拆掉后又用同一个 UIView 继续更新时，允许复活。
         func reviveIfNeeded() {
-            guard tornDown, !popSliding, window != nil, isHostOnTop else { return }
+            guard tornDown, !popSliding, window != nil, isAnchorOnCurrentTopPage else { return }
             tornDown = false
             transitioning = false
             installIfNeeded()

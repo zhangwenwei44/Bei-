@@ -1118,7 +1118,18 @@ private struct ArtistHeroLayer: UIViewRepresentable {
         /// 等待转场 coordinator 的短窗口：期间大图保持可见且已在 bar 之上，
         /// 一旦 pop 横滑接管就随页滑出；超时按普通销毁处理。
         func schedulePopHandoff() {
-            raiseHeroAboveBar()
+            // 🔴 第二十八轮：与 ImmersiveHeroLayer 同步 —— 只在真的离开本页时
+            //    才提层，普通 SwiftUI 拆装里大图本来是隐藏的，无条件放出来
+            //    会盖在返回后的页面上半部分。
+            if !isHostOnTop { raiseHeroAboveBar() }
+            // 🔴 第二十八轮终极兜底：与 ImmersiveHeroLayer 同步，0.6s 后只要
+            //    锚点已不在当前栈顶页面里，强制摘掉浮层，杜绝返回后残留。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                guard let self, self.heroView != nil, !self.popSliding else { return }
+                if self.window == nil || !self.isAnchorOnCurrentTopPage {
+                    self.removeHeroLayer()
+                }
+            }
             if startPopSlideIfNeeded() || popSliding || tornDown { return }
             guard !dismantleScheduled else { return }
             dismantleScheduled = true
@@ -1127,7 +1138,12 @@ private struct ArtistHeroLayer: UIViewRepresentable {
                 guard let self else { hero?.removeFromSuperview(); return }
                 self.dismantleScheduled = false
                 if self.startPopSlideIfNeeded() || self.popSliding { return }
-                if self.window != nil && self.isHostOnTop {
+                // 🔴 强判据：hostVC 必须仍在栈里且确实是栈顶，否则一律销毁。
+                //    只凭 `window != nil && isHostOnTop` 会在 pop 后误复活。
+                if self.window != nil,
+                   let nav = self.navController, let host = self.hostVC,
+                   nav.viewControllers.contains(where: { $0 === host }),
+                   nav.topViewController === host {
                     self.restoreHeroBelowBar()
                     self.applyFrame()
                     return
@@ -1162,11 +1178,21 @@ private struct ArtistHeroLayer: UIViewRepresentable {
                 hero.frame.origin.x = startX + width
             }, completion: { [weak self] ctx in
                 if ctx.isCancelled {
+                    // 🔴 第二十八轮：只有本页确实仍是栈顶才复位保留；
+                    //    系统把已完成的 pop 报成 cancelled 时必须销毁，
+                    //    否则大图会停在 x=0 盖住返回后的页面。
                     self?.popSliding = false
                     hero.frame.origin.x = startX
-                    // 回弹后层级放回 bar 之下，别盖住返回/收藏按钮。
-                    self?.restoreHeroBelowBar()
-                    self?.applyFrame()
+                    if let self = self, self.window != nil,
+                       let nav = self.navController, let host = self.hostVC,
+                       nav.viewControllers.contains(where: { $0 === host }),
+                       nav.topViewController === host {
+                        self.restoreHeroBelowBar()
+                        self.applyFrame()
+                    } else {
+                        hero.removeFromSuperview()
+                        self?.removeHeroLayer()
+                    }
                 } else {
                     hero.removeFromSuperview()
                     self?.removeHeroLayer()
@@ -1201,6 +1227,13 @@ private struct ArtistHeroLayer: UIViewRepresentable {
                nav.topViewController === host { return true }
             guard let topView = nav.topViewController?.view else { return true }
             return isDescendant(of: topView)
+        }
+
+        /// 🔴 第二十八轮：只看锚点是否还在当前栈顶页面的视图树里，
+        ///    不依赖可能已释放的 hostVC，也不带 `return true` 的乐观兜底。
+        private var isAnchorOnCurrentTopPage: Bool {
+            guard let nav = navController, let top = nav.topViewController else { return false }
+            return isDescendant(of: top.view)
         }
 
         /// 低频轮询（0.12s）：pop 转场期间就把旧大图藏掉，用户完全看不到残留。
