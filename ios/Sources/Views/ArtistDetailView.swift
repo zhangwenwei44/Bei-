@@ -1099,19 +1099,39 @@ private struct ArtistHeroLayer: UIViewRepresentable {
             startVisibilityMonitoring()
         }
 
-        /// 等待转场 coordinator 的短窗口：期间先隐藏大图（绝不盖住滑入的上一页），
-        /// 一旦 pop 横滑接管就恢复可见并随页滑出；超时按普通销毁处理。
+        /// 🔴 第二十七轮：与 ImmersiveHeroLayer 同步 —— pop 第一帧就提层且不隐藏，
+        ///    coordinator 晚到 0.08s 的那几帧也不会露出导航栏 crossfade 灰白条。
+        private func raiseHeroAboveBar() {
+            guard let view = heroView, scrolled < hideThreshold else { return }
+            view.isHidden = false
+            view.superview?.bringSubviewToFront(view)
+        }
+
+        /// 交互式取消 / 判定并非 pop 时还原层级，别盖住返回、收藏按钮。
+        func restoreHeroBelowBar() {
+            guard let view = heroView, let parent = view.superview,
+                  let bar = navController?.navigationBar,
+                  bar.superview === parent else { return }
+            parent.insertSubview(view, belowSubview: bar)
+        }
+
+        /// 等待转场 coordinator 的短窗口：期间大图保持可见且已在 bar 之上，
+        /// 一旦 pop 横滑接管就随页滑出；超时按普通销毁处理。
         func schedulePopHandoff() {
+            raiseHeroAboveBar()
             if startPopSlideIfNeeded() || popSliding || tornDown { return }
             guard !dismantleScheduled else { return }
             dismantleScheduled = true
-            heroView?.isHidden = true
             let hero = heroView
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self, hero] in
                 guard let self else { hero?.removeFromSuperview(); return }
                 self.dismantleScheduled = false
                 if self.startPopSlideIfNeeded() || self.popSliding { return }
-                if self.window != nil && self.isHostOnTop { self.applyFrame(); return }
+                if self.window != nil && self.isHostOnTop {
+                    self.restoreHeroBelowBar()
+                    self.applyFrame()
+                    return
+                }
                 self.removeHeroLayer()
             }
         }
@@ -1131,10 +1151,10 @@ private struct ArtistHeroLayer: UIViewRepresentable {
             transitioning = false
             view.isHidden = false
             view.alpha = 1
-            // 🔴 第二十六轮：与 ImmersiveHeroLayer 同步 —— pop 中间帧导航栏
-            //    crossfade 出的半透明灰白背景会盖住插在 bar 之下的大图顶部。
-            //    转场期间提到 bar 之上，用封面深色盖掉这条「白顶」。
-            view.superview?.bringSubviewToFront(view)
+            // 🔴 第二十六/二十七轮：与 ImmersiveHeroLayer 同步 —— pop 中间帧
+            //    导航栏 crossfade 出的半透明灰白背景会盖住插在 bar 之下的大图顶部。
+            //    第一帧提层已在 schedulePopHandoff 做过，这里幂等补一次。
+            raiseHeroAboveBar()
             let startX = view.frame.origin.x
             let width = UIScreen.main.bounds.width
             let hero = view
@@ -1145,9 +1165,7 @@ private struct ArtistHeroLayer: UIViewRepresentable {
                     self?.popSliding = false
                     hero.frame.origin.x = startX
                     // 回弹后层级放回 bar 之下，别盖住返回/收藏按钮。
-                    if let parent = hero.superview, nav.navigationBar.superview === parent {
-                        parent.insertSubview(hero, belowSubview: nav.navigationBar)
-                    }
+                    self?.restoreHeroBelowBar()
                     self?.applyFrame()
                 } else {
                     hero.removeFromSuperview()

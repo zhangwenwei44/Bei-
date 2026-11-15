@@ -605,22 +605,44 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             startVisibilityMonitoring()
         }
 
+        /// 🔴 2026-11-15 第二十七轮：pop **第一帧**就把大图提到 UINavigationBar 之上。
+        ///    灰白条是导航栏把两页 appearance 交叉淡化画出来的背景，只要浮层还在
+        ///    bar 之下、或 isHidden=true，它就会露出来。第二十六轮只在 coordinator
+        ///    接管时提层，coordinator 晚到 0.08s → 用户看到「灰白闪一下就没了」。
+        ///    pop 刚起时旧页仍占满屏幕，大图静止在原位这 0.08s 完全不违和，
+        ///    不会重现「图片带出来一会」（那个问题是浮层迟迟不销毁、盖在返回后的
+        ///    主页上好几秒，不是这里的短窗口）。
+        private func raiseHeroAboveBar() {
+            guard let view = heroView, scrolled < hideThreshold else { return }
+            view.isHidden = false
+            view.superview?.bringSubviewToFront(view)
+        }
+
+        /// 交互式取消 / 判定并非 pop 时把层级放回 bar 之下，别盖住返回、收藏按钮。
+        func restoreHeroBelowBar() {
+            guard let view = heroView, let parent = view.superview,
+                  let bar = navController?.navigationBar,
+                  bar.superview === parent else { return }
+            parent.insertSubview(view, belowSubview: bar)
+        }
+
         /// 🔴 dismantle / 脱离 window 都走这里：coordinator 有可能下一帧才挂上。
-        ///    等待期间大图先隐藏（绝不能盖在已经滑入的主页上），一旦 pop 横滑接管
-        ///    就立刻恢复可见并随页滑出；0.08s 还没等到则按普通销毁处理。
+        ///    等待窗口内大图保持可见且已提到 bar 之上，灰白条一帧都不会露。
         func schedulePopHandoff() {
+            raiseHeroAboveBar()
             if startPopSlideIfNeeded() || popSliding || tornDown { return }
             guard !dismantleScheduled else { return }
             dismantleScheduled = true
-            heroView?.isHidden = true
             let hero = heroView
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self, hero] in
                 guard let self else { hero?.removeFromSuperview(); return }
                 self.dismantleScheduled = false
                 if self.startPopSlideIfNeeded() || self.popSliding { return }
                 // SwiftUI 偶尔只是短暂拆装同一个 UIView（列表刷新 / heroKey 变化）：
-                // 锚点已回到 window 且本页仍是栈顶时，别误拆，让它继续显示。
+                // 锚点已回到 window 且本页仍是栈顶时别误拆；层级也要还原，
+                // 否则大图会一直盖在返回/收藏按钮上。
                 if self.window != nil && self.isHostOnTop {
+                    self.restoreHeroBelowBar()
                     self.applyFrame()
                     return
                 }
@@ -699,7 +721,8 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             //    但顶栏那一条依旧是白的。转场期间把大图提到 bar 之上，用封面自己的
             //    深色盖掉它；浮层已在 alongside 动画里随页横滑，颜色/位置天然一致，
             //    且 `isUserInteractionEnabled=false` 不会吞掉边缘返回手势。
-            view.superview?.bringSubviewToFront(view)
+            //    🔴 第二十七轮：第一帧的提层已在 schedulePopHandoff 做过，这里幂等补一次。
+            raiseHeroAboveBar()
             let startX = view.frame.origin.x
             let width = UIScreen.main.bounds.width
             _ = coord.animate(alongsideTransition: { _ in
@@ -711,11 +734,7 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
                     // bar 之下，否则返回/收藏按钮会被盖住。
                     self?.popSliding = false
                     view.frame.origin.x = startX
-                    if let parent = view.superview,
-                       let bar = self?.navController?.navigationBar,
-                       bar.superview === parent {
-                        parent.insertSubview(view, belowSubview: bar)
-                    }
+                    self?.restoreHeroBelowBar()
                     if self?.window != nil {
                         self?.applyFrame()
                     } else {

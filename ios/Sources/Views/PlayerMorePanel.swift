@@ -112,7 +112,7 @@ struct PlayerMorePanel: View {
                 .ignoresSafeArea()
                 .onTapGesture { onClose() }
 
-            VStack(spacing: 6) {
+            VStack(spacing: 8) {
                 songBar
                 actionCard
                 Button {
@@ -122,7 +122,7 @@ struct PlayerMorePanel: View {
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(Color.black.opacity(0.78))
                         .frame(maxWidth: .infinity)
-                        .frame(height: 44)
+                        .frame(height: 46)
                         .background(RoundedRectangle(cornerRadius: 14).fill(Color.white))
                 }
                 .buttonStyle(.plain)
@@ -206,27 +206,29 @@ struct PlayerMorePanel: View {
             .padding(.top, 18)
             .padding(.bottom, 10)
 
-            // 🔴 第二十六轮：前两轮「音量条下移」在真机上看着没动，是布局原理搞错了。
-            //    整个面板是 ZStack(alignment:.bottom) + VStack 贴底，卡片底边被
-            //    「关闭按钮 + VStack spacing」钉死；只加 `.padding(.top)` 会把网格
-            //    往上顶、把面板撑高，**音量条相对屏幕的 y 完全不变**。
-            //    音量条的绝对位置只由它「下方」的内容决定：卡片 bottom padding、
-            //    VStack spacing、关闭按钮高度。这次把 bottom 10→0、spacing 8→6、
-            //    关闭 46→44，音量条实打实下移约 13pt；再把 top 28→52，让它与
-            //    第二行文字拉开约 24pt，两处视觉都明显变化。
+            // 🔴 第二十七轮：用户要的是「音量条回到上下两个按钮中间」，并且
+            //    **两边喇叭图标不动、只调中间的音量调节条**。
+            //    第二十六轮把整块下移过头（距第二行文字约 73pt、距「关闭」仅 28pt）。
+            //    面板贴底，绝对位置由「下方」量决定：bottom 0→16、spacing 6→8、
+            //    关闭 44→46 让整块上移约 20pt，再把 top 52→22 收掉多余空白，
+            //    使音量条到第二行文字 ≈47pt、到「关闭」中心 ≈47pt，正好居中。
+            //    两侧喇叭图标的字号/颜色/水平位置一律不改；只有中间 MPVolumeView
+            //    的轨道比图标中心高约 7pt，单独用 offset 下移对齐（纯视觉位移，
+            //    不参与布局，图标完全不动）。
             HStack(spacing: 12) {
                 Image(systemName: "speaker.wave.1")
                     .font(.system(size: 16))
                     .foregroundStyle(Color.black.opacity(0.62))
                 SystemVolumeSlider()
                     .frame(height: 30)
+                    .offset(y: 6)
                 Image(systemName: "speaker.wave.3")
                     .font(.system(size: 16))
                     .foregroundStyle(Color.black.opacity(0.62))
             }
             .padding(.horizontal, 16)
-            .padding(.top, 52)
-            .padding(.bottom, 0)
+            .padding(.top, 22)
+            .padding(.bottom, 16)
         }
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.white))
     }
