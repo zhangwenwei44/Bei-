@@ -312,25 +312,23 @@ struct DownloadCenterView: View {
             } else if isEditing {
                 Button("完成") { exitEditing() }
             } else {
-                Menu {
-                    Button {
-                        folderMode = .backup
-                        showFolderPicker = true
-                    } label: {
-                        Label("备份到文件夹…", systemImage: "square.and.arrow.up")
-                    }
-                    // 没下载就没什么可备份；但「从备份恢复」要始终可选（换机恢复）。
-                    .disabled(library.downloads.isEmpty && downloads.items.isEmpty)
-                    Button {
-                        folderMode = .restore
-                        showFolderPicker = true
-                    } label: {
-                        Label("从备份恢复…", systemImage: "square.and.arrow.down")
-                    }
+                // 顶栏三个独立按钮：备份 / 从备份恢复 / 多选。
+                Button {
+                    folderMode = .backup
+                    showFolderPicker = true
                 } label: {
-                    Image(systemName: "arrow.up.arrow.down.circle")
+                    Image(systemName: "square.and.arrow.up")
                 }
-                .accessibilityLabel("备份与恢复")
+                .accessibilityLabel("备份下载歌曲")
+                .disabled(library.downloads.isEmpty && downloads.items.isEmpty)
+
+                Button {
+                    folderMode = .restore
+                    showFolderPicker = true
+                } label: {
+                    Image(systemName: "square.and.arrow.down")
+                }
+                .accessibilityLabel("从备份恢复")
 
                 Button("多选") {
                     withAnimation(.easeInOut(duration: 0.2)) { isEditing = true }
