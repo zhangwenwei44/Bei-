@@ -547,6 +547,14 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
         private var monitoring = false
         /// 已拆除（页面 pop / Representable 被移除）：重试闭包不得再装回大图。
         private var tornDown = false
+        /// 🔴 2026-11-15 第二十轮：push 转场期间大图**完全隐藏**（歌手页第十九轮同款）。
+        ///    浮层挂在 nav.view 上、不参与系统 push 转场，中间帧只要画出来就会
+        ///    半屏盖住正在滑入的列表、并与旧页顶栏叠字（用户截图 bfbe2c5b「猜你喜欢」）。
+        ///    所有推荐「更多」页 / 歌单 / 专辑都走这个共享容器，必须在这里也修掉。
+        private var transitioning = false
+        /// 首次放行完成后，SwiftUI 短暂拆装 / revive 重装时若无转场就立即显示，
+        /// 不再白等 0.42s（否则大图会无故消失一下）。
+        private var didRevealOnce = false
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -605,7 +613,8 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
                     // 🔴 2026-11-11：排序弹窗打开期间临时隐藏大图浮层。
                     //    浮层挂在 nav.view 上、层级高于 SwiftUI 内容层，不隐藏会盖住
                     //    从底部升起的弹窗标题区。轮询 0.2s 自动恢复，只影响弹窗期间。
-                    view.isHidden = self.scrolled >= self.hideThreshold
+                    // 🔴 转场期间恒定隐藏，低频轮询不得提前把大图放出来。
+                    view.isHidden = self.transitioning || self.scrolled >= self.hideThreshold
                         || !self.isHostOnTop
                         || PlaylistSortOverlayState.shared.isPresented
                 }
@@ -617,6 +626,7 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
         /// 立即从 nav.view 上摘掉大图（页面被 pop / SwiftUI 视图销毁时调用）。
         func removeHeroLayer() {
             tornDown = true
+            transitioning = false
             asyncRetryScheduled = false
             heroView?.removeFromSuperview()
             heroView = nil
@@ -630,6 +640,7 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
         func reviveIfNeeded() {
             guard tornDown, window != nil, isHostOnTop else { return }
             tornDown = false
+            transitioning = false
             installIfNeeded()
         }
 
@@ -663,7 +674,38 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             navController = pageHost.navigationController
             view.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: headerHeight)
             parent.insertSubview(view, belowSubview: bar)
+
+            // 🔴 第二十轮：push 转场期间一律隐藏，转场结束后一次性显示（**不做 alpha 淡入**，
+            //    淡入挡不住 —— 0.32s 没走完 alpha 已接近 1，中间帧照样盖住列表）。
+            //    nav 的 coordinator 比 destination VC 的更可靠；两者都取不到时，
+            //    仅「本视图首次安装」仍保护一次（首帧响应链可能还没连上）。
+            let coord = navController?.transitionCoordinator ?? pageHost.transitionCoordinator
+            let inTransition = coord?.isAnimated == true
+            let shouldGuard = inTransition || !didRevealOnce
+            if shouldGuard {
+                transitioning = true
+                view.isHidden = true
+            }
             applyFrame()
+            if shouldGuard {
+                // 「只放行一次」：转场 completion 与兜底定时器谁先到都只生效一次。
+                let reveal = { [weak self, weak view] in
+                    guard let self, let view, !self.tornDown,
+                          self.heroView === view, self.transitioning else { return }
+                    self.transitioning = false
+                    self.didRevealOnce = true
+                    self.applyFrame()
+                }
+                // 用与歌手页完全相同的调用形态（已过 CI），避开 existential 类型推断差异。
+                if let tc = navController?.transitionCoordinator, tc.isAnimated {
+                    _ = tc.animate(alongsideTransition: nil) { _ in reveal() }
+                } else if let tc = pageHost.transitionCoordinator, tc.isAnimated {
+                    _ = tc.animate(alongsideTransition: nil) { _ in reveal() }
+                }
+                // 兜底：交互式取消 / completion 不回调 / 首帧没拿到 coordinator
+                // 都不能让大图永久隐藏。0.42s 略长于标准 push(0.35s)。
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) { reveal() }
+            }
         }
 
         func applyFrame() {
@@ -672,7 +714,10 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             if let win = window, let parent = container {
                 origin = parent.convert(CGPoint.zero, from: win)
             }
-            view.frame.origin = CGPoint(x: origin.x, y: origin.y - scrolled)
+            // 🔴 转场期间 parent.convert 会带上转场位移，把大图推到屏幕右侧（半屏错位）。
+            //    此时大图本就隐藏，x 钉 0；转场结束恢复实测值。
+            view.frame.origin = CGPoint(x: transitioning ? 0 : origin.x,
+                                        y: origin.y - scrolled)
             // 与 SwiftUI 侧毛玻璃渐入区间同步淡出，别把渐入的材质压住。
             let fadeStart = hideThreshold * 0.8
             if scrolled <= fadeStart {
@@ -682,7 +727,8 @@ private struct ImmersiveHeroLayer: UIViewRepresentable {
             }
             // 🔴 滚走后隐藏；页面已不在栈顶（被 push 到别的页）也必须隐藏，
             //    否则这块大图会一直浮在下一页内容之上。
-            view.isHidden = scrolled >= hideThreshold || !isHostOnTop
+            // 🔴 转场期间恒定隐藏，避免「浮层抢在页面滑入之前出现」。
+            view.isHidden = transitioning || scrolled >= hideThreshold || !isHostOnTop
         }
     }
 }
