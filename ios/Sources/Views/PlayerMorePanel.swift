@@ -62,12 +62,26 @@ private struct PlayerMoreTopCorners: Shape {
     }
 }
 
-/// 系统音量滑杆（MPVolumeView 自带细轨道 + 圆点，真机可直接拖动调音量）。
+/// 系统音量滑杆（MPVolumeView 自带细轨道，真机可直接拖动调音量）。
+/// 🔴 2026-11-15 第二十四轮：系统默认滑块是个约 30pt 的大白圆，真机上非常扎眼
+///    （用户截图 69d888f7「白色圆点小点」）。用 `setVolumeThumbImage` 换成
+///    11pt 小圆点，外面留一圈极细灰边，保证在浅灰轨道上仍然看得清。
 private struct SystemVolumeSlider: UIViewRepresentable {
+    private static let side: CGFloat = 11
+
     func makeUIView(context: Context) -> MPVolumeView {
         let view = MPVolumeView(frame: .zero)
         view.showsRouteButton = false
         view.tintColor = UIColor.black.withAlphaComponent(0.72)
+        let side = Self.side
+        let thumb = UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+            UIColor(white: 0.80, alpha: 1).setFill()
+            UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: side, height: side)).fill()
+            UIColor.white.setFill()
+            UIBezierPath(ovalIn: CGRect(x: 0.8, y: 0.8,
+                                        width: side - 1.6, height: side - 1.6)).fill()
+        }
+        view.setVolumeThumbImage(thumb, for: .normal)
         return view
     }
     func updateUIView(_ uiView: MPVolumeView, context: Context) {}
@@ -84,13 +98,21 @@ struct PlayerMorePanel: View {
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 4)
 
+    /// Home indicator 区域高度。面板要铺到屏幕底边，内容则必须避开它。
+    private var bottomSafeInset: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }?.safeAreaInsets.bottom ?? 0
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
-            Color.black.opacity(0.42)
+            Color.black.opacity(0.38)
                 .ignoresSafeArea()
                 .onTapGesture { onClose() }
 
-            VStack(spacing: 10) {
+            VStack(spacing: 11) {
                 songBar
                 actionCard
                 Button {
@@ -100,16 +122,22 @@ struct PlayerMorePanel: View {
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(Color.black.opacity(0.78))
                         .frame(maxWidth: .infinity)
-                        .frame(height: 44)
+                        .frame(height: 46)
+                        .background(RoundedRectangle(cornerRadius: 14).fill(Color.white))
                 }
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 12)
             .padding(.top, 14)
-            .padding(.bottom, 14)
+            // 🔴 第二十四轮：补足底部安全区，让浅灰面板一直铺到屏幕底边。
+            //    旧版只 padding 14，home indicator 区会露出播放页的深色背景，
+            //    形成一条突兀黑带（用户截图 69d888f7「底部黑色」）。
+            .padding(.bottom, 14 + bottomSafeInset)
             .background(Color(red: 0.96, green: 0.96, blue: 0.97))
             .clipShape(PlayerMoreTopCorners(radius: 20))
         }
+        // 让面板布局区扩展到屏幕底边，浅灰才不会被安全区截断。
+        .ignoresSafeArea(edges: .bottom)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
@@ -147,7 +175,7 @@ struct PlayerMorePanel: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.white))
     }
 
     private var actionCard: some View {
@@ -176,21 +204,24 @@ struct PlayerMorePanel: View {
             }
             .padding(.horizontal, 12)
             .padding(.top, 18)
-            .padding(.bottom, 8)
+            .padding(.bottom, 4)
 
+            // 🔴 第二十四轮：音量条整体下移 12pt，别贴着第二行图标
+            //    （用户截图「音量条下移一点」）。
             HStack(spacing: 12) {
                 Image(systemName: "speaker.wave.1")
-                    .font(.system(size: 17))
-                    .foregroundStyle(Color.black.opacity(0.7))
+                    .font(.system(size: 16))
+                    .foregroundStyle(Color.black.opacity(0.62))
                 SystemVolumeSlider()
                     .frame(height: 30)
                 Image(systemName: "speaker.wave.3")
-                    .font(.system(size: 17))
-                    .foregroundStyle(Color.black.opacity(0.7))
+                    .font(.system(size: 16))
+                    .foregroundStyle(Color.black.opacity(0.62))
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 16)
         }
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.white))
     }
 }
