@@ -1465,7 +1465,7 @@ struct PlayerView: View {
         case .sleepTimer:    moreSheet = .sleepTimer
         case .download:      download()
         case .playerStyle:   showThemePicker = true
-        case .cast:          moreSheet = .cast
+        case .lyricsFontSize: moreSheet = .lyricsFontSize
         case .speedPitch:    moreSheet = .speedPitch
         case .quality:       moreSheet = .quality
         case .soundEffect:   showSoundEffectPanel = true
@@ -2243,6 +2243,9 @@ private struct BigLyricsView: View {
     var isPlaying: Bool
     /// 精确播放头（AVPlayer 实时值）：逐帧直读，根治「逐字跟不上」。
     var liveTime: (() -> Double)? = nil
+    /// 🔴 2026-11-16：歌词字号（与「更多 → 歌词字号」共用同一个 AppStorage key）。
+    ///    放在最后且带默认值，不改变既有成员初始化器的参数顺序。
+    @AppStorage(LyricsFontScale.key) private var lyricsFontScale: Double = 1.0
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -2311,25 +2314,29 @@ private struct BigLyricsView: View {
         let activeIdx = currentIndex
         let isActive = activeIdx == idx
         let isNear = activeIdx != nil && abs(idx - activeIdx!) <= 1
+        // 🔴 2026-11-16：基准字号仍是 v2.7.0 的 22 / 15，乘上用户在
+        //    「更多 → 歌词字号」里选的缩放系数；翻译行同步缩放，避免主行变大后
+        //    译文比例失调。系数夹在 0.6~1.6，防止旧数据里出现离谱数值。
+        let scale = CGFloat(max(0.6, min(1.6, lyricsFontScale)))
         // 🔴 v2.7.0：行内间距 7→4，行距 4→2
         return VStack(spacing: 4) {
-            // 🔴 v2.7.0：字号再调小 —— 当前句 26→22，其他行 17→15
             if isActive {
                 // 🔴 v2.5.46：竖屏歌词页整行高亮（白、加粗），不再逐字卡拉OK填充
                 // （横屏歌词块保持逐字不变 —— 用户要求只改竖屏）
                 Text(line.text)
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: LyricsFontScale.activeBase * scale, weight: .bold))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
             } else {
                 Text(line.text)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: LyricsFontScale.inactiveBase * scale, weight: .medium))
                     .foregroundStyle(.white.opacity(isNear ? 0.45 : 0.28))
                     .multilineTextAlignment(.center)
             }
             if showsTranslation, let translation = line.translation, !translation.isEmpty {
                 Text(translation)
-                    .font(.system(size: isActive ? 12 : 10))
+                    .font(.system(size: (isActive ? LyricsFontScale.translationActiveBase
+                                                : LyricsFontScale.translationInactiveBase) * scale))
                     .foregroundStyle(isActive ? .white.opacity(0.78) : .white.opacity(0.3))
                     .multilineTextAlignment(.center)
             }
@@ -3835,7 +3842,7 @@ struct KugouLyricsPage: View {
         case .sleepTimer:    activeSheet = .sleepTimer
         case .download:      downloadCurrent()
         case .playerStyle:   activeSheet = .playerStyle
-        case .cast:          activeSheet = .cast
+        case .lyricsFontSize: activeSheet = .lyricsFontSize
         case .speedPitch:    activeSheet = .speedPitch
         case .quality:       activeSheet = .quality
         case .soundEffect:   showSoundEffectPanel = true

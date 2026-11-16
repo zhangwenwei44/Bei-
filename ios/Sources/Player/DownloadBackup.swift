@@ -135,6 +135,15 @@ enum DownloadBackup {
             throw BackupError.nothingToBackup
         }
 
+        // 🔴 2026-11-16：额外写一份完整歌曲清单。旧版备份只依赖 metadata 里的
+        //    索引 json，一旦索引缺失或与音频文件名对不上，`bootstrap()` 会把整批
+        //    歌过滤掉（提示恢复成功但列表显示「还没有下载」）。这份清单是权威兜底，
+        //    恢复时能还原歌名 / 歌手 / hash / 封面，也能给每个音频补写索引。
+        let songList = LibraryStore.shared.downloads
+        if let data = try? JSONEncoder().encode(songList) {
+            try? data.write(to: folder.appendingPathComponent("songs.json"), options: .atomic)
+        }
+
         var files: [(relativePath: String, url: URL)] = []
         if let enumerator = fm.enumerator(at: folder, includingPropertiesForKeys: nil) {
             for case let file as URL in enumerator {
@@ -176,7 +185,23 @@ enum DownloadBackup {
                 root = candidate
             }
         }
-        return try restore(from: root)
+        let summary = try restore(from: root)
+
+        // 🔴 2026-11-16：音频与元数据已拷回，但 `bootstrap()` 只认索引 json。
+        //    这里读备份清单，以磁盘上的音频文件为准把缺失索引全部补齐；
+        //    旧备份没有 songs.json 时清单为空，仍会按文件名兜底生成索引。
+        //    纯文件 IO，@Published 一律留给调用方在主线程 `bootstrap()` 里写。
+        var manifest: [Song] = []
+        for candidate in [root.appendingPathComponent("songs.json"),
+                          temp.appendingPathComponent("songs.json")] {
+            if let data = try? Data(contentsOf: candidate),
+               let songs = try? JSONDecoder().decode([Song].self, from: data) {
+                manifest = songs
+                break
+            }
+        }
+        DownloadManager.shared.rebuildIndexes(manifest: manifest)
+        return summary
     }
 
     // MARK: - 工具

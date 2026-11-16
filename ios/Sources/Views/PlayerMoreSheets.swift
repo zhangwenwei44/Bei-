@@ -10,7 +10,7 @@ import AVFoundation
 // 竖屏播放页与歌词页共用这套页面，行为完全一致。
 
 enum PlayerMoreSheet: String, Identifiable {
-    case addToPlaylist, sleepTimer, playerStyle, cast, speedPitch, quality, share
+    case addToPlaylist, sleepTimer, playerStyle, lyricsFontSize, speedPitch, quality, share
 
     var id: String { rawValue }
 
@@ -19,12 +19,25 @@ enum PlayerMoreSheet: String, Identifiable {
         case .addToPlaylist: return "添加到酷狗歌单"
         case .sleepTimer:    return "定时关闭"
         case .playerStyle:   return "播放器样式"
-        case .cast:          return "投播"
+        case .lyricsFontSize: return "歌词字号"
         case .speedPitch:    return "调速·升降调"
         case .quality:       return "音质选择"
         case .share:         return "分享"
         }
     }
+}
+
+/// 🔴 2026-11-16：歌词字号档位。用缩放系数而不是把字号写死在歌词页里，
+///    竖屏播放页的歌词模式与全屏歌词页共用同一份设置（都渲染 BigLyricsView）。
+enum LyricsFontScale {
+    static let key = "aurora.lyricsFontScale"
+    static let options: [(String, Double)] = [
+        ("小", 0.85), ("标准", 1.0), ("大", 1.18), ("超大", 1.35),
+    ]
+    static let activeBase: CGFloat = 22
+    static let inactiveBase: CGFloat = 15
+    static let translationActiveBase: CGFloat = 12
+    static let translationInactiveBase: CGFloat = 10
 }
 
 struct PlayerMoreSheetView: View {
@@ -35,7 +48,9 @@ struct PlayerMoreSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: PlayerStore
     @AppStorage("aurora.playerPageTheme") private var playerPageTheme: PlayerPageTheme = .immersiveCover
-    @State private var routeName: String = "本机扬声器"
+    /// 🔴 歌词字号：直接写 UserDefaults，歌词页的 BigLyricsView 用同一个 key 订阅，
+    ///    在设置页里改完返回就能立刻看到效果，不需要手动传值。
+    @AppStorage(LyricsFontScale.key) private var lyricsFontScale: Double = 1.0
 
     var body: some View {
         Group {
@@ -120,10 +135,6 @@ struct PlayerMoreSheetView: View {
                     Button("完成") { dismiss() }
                 }
             }
-            .onAppear { refreshRoute() }
-            .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { _ in
-                refreshRoute()
-            }
         }
     }
 
@@ -137,8 +148,8 @@ struct PlayerMoreSheetView: View {
             return "到时间后自动暂停播放，不影响已下载歌曲"
         case .speedPitch:
             return "变速会同时改变音调，切歌后依然生效；1.0× 为原速"
-        case .cast:
-            return "当前输出：\(routeName)。点下方按钮选择 AirPlay / 蓝牙设备"
+        case .lyricsFontSize:
+            return "调整歌词页当前句与其他行的文字大小，立即生效并记住选择"
         case .playerStyle:
             return "切换后竖屏播放页立即换样式，并记住你的选择"
         default:
@@ -181,25 +192,39 @@ struct PlayerMoreSheetView: View {
                 }
             }
 
-        case .cast:
-            HStack(spacing: 12) {
-                Image(systemName: "airplayaudio")
-                    .font(.system(size: 22))
-                    .foregroundStyle(AppStyle.accent)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("选择播放设备").font(.system(size: 15, weight: .medium))
-                    Text(routeName).font(.system(size: 12)).foregroundStyle(AppStyle.tertiaryText)
+        case .lyricsFontSize:
+            lyricsFontPreview
+                .padding(.horizontal, 14)
+                .padding(.vertical, 14)
+            divider
+            ForEach(Array(LyricsFontScale.options.enumerated()), id: \.offset) { index, option in
+                if index > 0 { divider }
+                optionRow(title: option.0,
+                          selected: abs(lyricsFontScale - option.1) < 0.001) {
+                    lyricsFontScale = option.1
+                    Haptics.light()
                 }
-                Spacer(minLength: 0)
-                AirPlayRouteButton()
-                    .frame(width: 44, height: 44)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
 
         default:
             EmptyView()
         }
+    }
+
+    /// 字号预览：跟着档位实时变化，不用返回歌词页就知道选多大。
+    private var lyricsFontPreview: some View {
+        let scale = CGFloat(max(0.6, min(1.6, lyricsFontScale)))
+        return VStack(spacing: 10) {
+            Text("曾梦想仗剑走天涯")
+                .font(.system(size: LyricsFontScale.activeBase * scale, weight: .bold))
+                .foregroundStyle(AppStyle.primaryText)
+            Text("看一看世界的繁华")
+                .font(.system(size: LyricsFontScale.inactiveBase * scale, weight: .medium))
+                .foregroundStyle(AppStyle.tertiaryText)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
+        .background(AppStyle.background, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var divider: some View {
@@ -229,20 +254,4 @@ struct PlayerMoreSheetView: View {
         .buttonStyle(.plain)
     }
 
-    private func refreshRoute() {
-        let session = AVAudioSession.sharedInstance()
-        routeName = session.currentRoute.outputs.first?.portName ?? "本机扬声器"
-    }
-}
-
-/// 系统 AirPlay / 蓝牙输出选择按钮（MPVolumeView 自带的 route button）。
-private struct AirPlayRouteButton: UIViewRepresentable {
-    func makeUIView(context: Context) -> MPVolumeView {
-        let view = MPVolumeView(frame: .zero)
-        view.showsVolumeSlider = false
-        view.showsRouteButton = true
-        view.tintColor = UIColor.systemBlue
-        return view
-    }
-    func updateUIView(_ uiView: MPVolumeView, context: Context) {}
 }

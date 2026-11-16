@@ -211,6 +211,69 @@ final class DownloadManager: NSObject, ObservableObject {
             .appendingPathComponent(DownloadManager.indexName(for: song.id)), options: .atomic)
     }
 
+    /// 🔴 2026-11-16：备份恢复后重建索引，修「提示已恢复 N 首，列表却还是空的」。
+    ///
+    /// `bootstrap()` 从 metadata 目录的 `<id>.json` 建 `fileIndex`，再用
+    /// `alive = merged.filter { fileName(for: $0.id) != nil }` 过滤。
+    /// 只要备份里缺索引（旧版本备份、用户先删歌再恢复导致 metadata 被清空、
+    /// 或索引与音频文件名对不上），音频文件虽然成功拷回来了，却没有 songID
+    /// 能进 `fileIndex`，于是整批被过滤掉 —— 页面就是「还没有下载」。
+    ///
+    /// 这里以**磁盘上的音频文件为准**：凡是没有索引指向它的，都补写一份。
+    /// 有备份清单时用清单里的歌名 / 歌手 / hash / albumID，没有就按文件名兜底解析，
+    /// 保证任何备份恢复完都能在列表里看到歌曲。纯文件 IO，不碰 @Published。
+    /// - Parameter manifest: 备份里带的完整歌曲清单，可为空（兼容旧备份）。
+    func rebuildIndexes(manifest: [Song]) {
+        let fm = FileManager.default
+        let audioDir = DownloadManager.directory()
+        let metaDir = DownloadManager.metadataDirectory()
+
+        // ① 现有索引已覆盖、且对应音频确实还在的文件名（不重复写）。
+        var covered = Set<String>()
+        for name in (try? fm.contentsOfDirectory(atPath: metaDir.path)) ?? []
+            where name.hasSuffix(".json") {
+            guard let data = try? Data(contentsOf: metaDir.appendingPathComponent(name)),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let file = object["file"] as? String,
+                  fm.fileExists(atPath: audioDir.appendingPathComponent(file).path) else { continue }
+            covered.insert(file)
+        }
+
+        // ② 备份清单：按音频文件名建立 Song 映射，恢复出真实歌名 / 歌手。
+        var byFile: [String: Song] = [:]
+        for song in manifest {
+            guard let file = song.url?.lastPathComponent, !file.isEmpty else { continue }
+            byFile[file] = song
+        }
+
+        // ③ 补写缺失索引。
+        guard let names = try? fm.contentsOfDirectory(atPath: audioDir.path) else { return }
+        for name in names where !name.hasPrefix(".") {
+            let ext = (name as NSString).pathExtension.lowercased()
+            guard DownloadManager.audioExtensions.contains(ext), !covered.contains(name) else { continue }
+
+            let song: Song
+            if let known = byFile[name] {
+                song = known
+            } else {
+                let base = (name as NSString).deletingPathExtension
+                var title = base
+                var artist = "本地文件"
+                for sep in [" - ", " – ", " — ", "_-_"] {
+                    guard let range = base.range(of: sep) else { continue }
+                    let a = String(base[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
+                    let t = String(base[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+                    if !a.isEmpty && !t.isEmpty { artist = a; title = t }
+                    break
+                }
+                song = Song(id: "local:import:\(name)", title: title, artist: artist,
+                            url: audioDir.appendingPathComponent(name),
+                            isLocal: true, source: .local)
+            }
+            writeIndex(song: song, file: name)
+        }
+    }
+
     // MARK: - 离线元数据侧车文件（🔴 v2.9.3）
 
     /// 下载时把「封面 / 歌词 / 歌手写真」一并落盘，保证断网后已下载歌曲仍能展示。

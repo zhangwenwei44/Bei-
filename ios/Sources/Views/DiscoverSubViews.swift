@@ -356,7 +356,12 @@ struct DownloadCenterView: View {
         }
     }
 
-    // MARK: 顶栏：备份 / 恢复 / 多选
+    // MARK: 顶栏：「更多」里收口备份 / 恢复 / 多选（🔴 2026-11-16）
+    //
+    // 原来顶栏直接摆两个图标 + 「多选」，挤占了标题区。按用户要求把三项
+    // 全部收进一个「更多」菜单，顶栏只留一个文字按钮；编辑态仍是「完成」。
+    // 菜单项一律用系统 SF Symbol（iOS 15 的 UIMenu 对自定义 SwiftUI 图标
+    // 支持不稳定，用系统符号保证文字与图标都稳定显示）。
 
     @ToolbarContentBuilder
     private var downloadToolbar: some ToolbarContent {
@@ -366,27 +371,32 @@ struct DownloadCenterView: View {
             } else if isEditing {
                 Button("完成") { exitEditing() }
             } else {
-                // 顶栏三个独立按钮：备份 / 从备份恢复 / 多选。
-                Button {
-                    startBackup()
-                } label: {
-                    BackupDocumentPlusIcon()
-                }
-                .accessibilityLabel("备份下载歌曲")
-                .disabled(library.downloads.isEmpty && downloads.items.isEmpty)
+                Menu {
+                    Button {
+                        startBackup()
+                    } label: {
+                        Label("备份下载歌曲", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(library.downloads.isEmpty && downloads.items.isEmpty)
 
-                Button {
-                    startRestore()
-                } label: {
-                    ExportFolderArrowIcon()
-                }
-                .accessibilityLabel("从备份恢复（选择 zip 备份文件）")
+                    Button {
+                        startRestore()
+                    } label: {
+                        Label("从备份恢复", systemImage: "square.and.arrow.down")
+                    }
 
-                Button("多选") {
-                    withAnimation(.easeInOut(duration: 0.2)) { isEditing = true }
-                    Haptics.light()
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { isEditing = true }
+                        Haptics.light()
+                    } label: {
+                        Label("多选删除", systemImage: "checkmark.circle")
+                    }
+                    .disabled(library.downloads.isEmpty)
+                } label: {
+                    Text("更多")
+                        .font(.system(size: 15))
                 }
-                .disabled(library.downloads.isEmpty)
+                .accessibilityLabel("更多操作")
             }
         }
     }
@@ -575,7 +585,9 @@ struct DownloadCenterView: View {
                     let text = summary.isEmpty
                         ? "这个备份里没有找到可恢复的歌曲。"
                         : "已恢复 \(summary.songs) 首歌、\(summary.files) 个文件。"
-                    return FolderOutcome(text: text, needsBootstrap: !summary.isEmpty)
+                    // 🔴 只要没抛错就必须 bootstrap：`restore(fromArchive:)` 已经
+                    //    按磁盘音频补齐索引，这一步才会把它们写进下载列表。
+                    return FolderOutcome(text: text, needsBootstrap: true)
                 } catch {
                     return FolderOutcome(text: "恢复失败：\(error.localizedDescription)",
                                          needsBootstrap: false)
@@ -583,10 +595,14 @@ struct DownloadCenterView: View {
             }.value
 
             if outcome.needsBootstrap {
-                // 恢复后按磁盘索引重建下载列表（会同步 LibraryStore.downloads）。
+                // 🔴 主线程重建：写 @Published 的 LibraryStore.downloads / DownloadManager.items。
                 DownloadManager.shared.bootstrap()
+                let count = LibraryStore.shared.downloads.count
+                // 提示里直接报列表结果，方便确认真的是「歌回来了」而不是只拷了文件。
+                self.noticeText = outcome.text + "\n当前下载列表共 \(count) 首。"
+            } else {
+                self.noticeText = outcome.text
             }
-            self.noticeText = outcome.text
             self.isWorking = false
             self.showNotice = true
         }
