@@ -597,6 +597,13 @@ struct DownloadCenterView: View {
             if outcome.needsBootstrap {
                 // 🔴 主线程重建：写 @Published 的 LibraryStore.downloads / DownloadManager.items。
                 DownloadManager.shared.bootstrap()
+                // 🔴 2026-11-16：旧备份 / 榜单歌当初没存图片/歌词侧车，恢复后歌在却没图没词。
+                //    按每首歌的 hash / albumID 联网补齐缺失的封面、歌词、写真；只补缺失的，
+                //    正常备份里已有的侧车会被跳过，不会重复下载。
+                await DownloadManager.shared.ensureSidecarsForDownloads()
+                // 侧车落盘后再 bootstrap 一次：让 Song.artworkURL 指向新封面，
+                // 并重写 @Published 列表让页面立即刷新出图片。
+                DownloadManager.shared.bootstrap()
                 let count = LibraryStore.shared.downloads.count
                 // 提示里直接报列表结果，方便确认真的是「歌回来了」而不是只拷了文件。
                 self.noticeText = outcome.text + "\n当前下载列表共 \(count) 首。"

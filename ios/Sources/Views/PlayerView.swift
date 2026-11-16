@@ -1486,7 +1486,10 @@ struct PlayerView: View {
                     onSelect: handleMoreAction,
                     onClose: { showMoreMenu = false }
                 )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                // 🔴 2026-11-16：不能对整个面板再套 move+opacity —— 那会让遮罩也
+                //    从底部滑上来，滑动中屏幕顶部没被遮罩盖住就露出底层 = 闪灰。
+                //    动画全交给 PlayerMorePanel 内部分层过渡（遮罩原地淡入 / 卡片滑入）。
+                .transition(.identity)
             }
         }
     }
@@ -3862,7 +3865,8 @@ struct KugouLyricsPage: View {
                     onSelect: handleMoreAction,
                     onClose: { showMore = false }
                 )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                // 🔴 2026-11-16：同竖屏页 —— 遮罩不能跟着整体从底部滑入，否则顶部闪灰。
+                .transition(.identity)
             }
         }
     }

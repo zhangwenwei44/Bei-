@@ -228,48 +228,73 @@ final class DownloadManager: NSObject, ObservableObject {
         let audioDir = DownloadManager.directory()
         let metaDir = DownloadManager.metadataDirectory()
 
-        // ① 现有索引已覆盖、且对应音频确实还在的文件名（不重复写）。
-        var covered = Set<String>()
-        for name in (try? fm.contentsOfDirectory(atPath: metaDir.path)) ?? []
-            where name.hasSuffix(".json") {
-            guard let data = try? Data(contentsOf: metaDir.appendingPathComponent(name)),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let file = object["file"] as? String,
-                  fm.fileExists(atPath: audioDir.appendingPathComponent(file).path) else { continue }
-            covered.insert(file)
-        }
-
-        // ② 备份清单：按音频文件名建立 Song 映射，恢复出真实歌名 / 歌手。
+        // ① 备份清单：按音频文件名建立 Song 映射，恢复出真实歌名 / 歌手 / hash / albumID。
+        //    🔴 2026-11-16：歌曲存进 LibraryStore 后 url 多半还是在线地址（甚至 nil），
+        //    `song.url?.lastPathComponent` 和磁盘上的「歌名-歌手.mp3」根本对不上，
+        //    于是旧版这里几乎总是落到 ③ 的 `local:import:` 兜底：hash / albumID 全丢。
+        //    没有 hash 就没有 kg:<hash> / al:<id> 封面回退键，也拿不到歌词 ——
+        //    用户看到的就是「恢复后歌在、但没图片没歌词」。
+        //    下载落盘名就是 sanitize("歌名-歌手.ext")（见 didFinishDownloadingTo），
+        //    这里按同一规则再建一组键，确保恢复出原始 Song 的 hash / albumID。
         var byFile: [String: Song] = [:]
         for song in manifest {
-            guard let file = song.url?.lastPathComponent, !file.isEmpty else { continue }
-            byFile[file] = song
+            if let file = song.url?.lastPathComponent, !file.isEmpty {
+                byFile[file] = song
+            }
+            for ext in DownloadManager.audioExtensions {
+                let expected = DownloadManager.sanitize("\(song.title)-\(song.artist).\(ext)")
+                byFile[expected] = song
+            }
         }
 
-        // ③ 补写缺失索引。
+        // ② 扫现有索引 json，按「指向的音频文件名」分组记下 (索引文件, songID)。
+        //    🔴 2026-11-16：以前只用 `covered` 集合判断「有索引就跳过」，于是备份里
+        //    若带着旧版 / 兜底的 `local:import:` 索引（没 hash / albumID），它会被当成
+        //    「已覆盖」保留下来，压过 songs.json 里的真实 Song —— 恢复后依旧没图没词。
+        //    现在改成：清单命中就用真实 Song 重写索引，并删掉指向同一音频的旧 id 索引，
+        //    既能补回 hash，也避免同一首歌出现两个 id（列表里变成重复两首）。
+        var indexesByFile: [String: [(url: URL, songID: String)]] = [:]
+        for name in (try? fm.contentsOfDirectory(atPath: metaDir.path)) ?? []
+            where name.hasSuffix(".json") {
+            let url = metaDir.appendingPathComponent(name)
+            guard let data = try? Data(contentsOf: url),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let file = object["file"] as? String,
+                  let songID = object["id"] as? String else { continue }
+            indexesByFile[file, default: []].append((url: url, songID: songID))
+        }
+
+        // ③ 以磁盘上的音频文件为准：补写缺失索引 / 用权威清单纠正过时索引。
         guard let names = try? fm.contentsOfDirectory(atPath: audioDir.path) else { return }
         for name in names where !name.hasPrefix(".") {
             let ext = (name as NSString).pathExtension.lowercased()
-            guard DownloadManager.audioExtensions.contains(ext), !covered.contains(name) else { continue }
+            guard DownloadManager.audioExtensions.contains(ext) else { continue }
 
-            let song: Song
-            if let known = byFile[name] {
-                song = known
-            } else {
-                let base = (name as NSString).deletingPathExtension
-                var title = base
-                var artist = "本地文件"
-                for sep in [" - ", " – ", " — ", "_-_"] {
-                    guard let range = base.range(of: sep) else { continue }
-                    let a = String(base[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
-                    let t = String(base[range.upperBound...]).trimmingCharacters(in: .whitespaces)
-                    if !a.isEmpty && !t.isEmpty { artist = a; title = t }
-                    break
+            if let real = byFile[name] {
+                // 清单命中：删掉指向同一音频、但 id 不同的旧索引（典型是 local:import 兜底），
+                // 再写一份带真实 hash / albumID 的索引。若旧索引 id 恰好相同则只覆盖、不删。
+                for old in indexesByFile[name] ?? [] where old.songID != real.id {
+                    try? fm.removeItem(at: old.url)
                 }
-                song = Song(id: "local:import:\(name)", title: title, artist: artist,
+                writeIndex(song: real, file: name)
+                continue
+            }
+
+            // 清单未命中（旧备份没有 songs.json）：已有任意索引指向它就不动，否则按文件名兜底。
+            if let existing = indexesByFile[name], !existing.isEmpty { continue }
+            let base = (name as NSString).deletingPathExtension
+            var title = base
+            var artist = "本地文件"
+            for sep in [" - ", " – ", " — ", "_-_"] {
+                guard let range = base.range(of: sep) else { continue }
+                let a = String(base[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
+                let t = String(base[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+                if !a.isEmpty && !t.isEmpty { artist = a; title = t }
+                break
+            }
+            let song = Song(id: "local:import:\(name)", title: title, artist: artist,
                             url: audioDir.appendingPathComponent(name),
                             isLocal: true, source: .local)
-            }
             writeIndex(song: song, file: name)
         }
     }
@@ -279,33 +304,57 @@ final class DownloadManager: NSObject, ObservableObject {
     /// 下载时把「封面 / 歌词 / 歌手写真」一并落盘，保证断网后已下载歌曲仍能展示。
     /// 命名规则：`<songID>.art.png` / `<songID>.lrc` / `<songID>.photo.png`。
     /// 全部尽力而为，失败静默跳过（不影响音频本身）。
-    private func saveSidecars(for song: Song) async {
+    ///
+    /// - Parameter onlyIfMissing: >true 只补缺失的侧车（恢复后回填用），已存在的
+    ///   不重新下载，避免每次恢复都把整批封面/歌词重拉一遍。
+    private func saveSidecars(for song: Song, onlyIfMissing: Bool = false) async {
+        let fm = FileManager.default
         let folder = DownloadManager.metadataDirectory()
         let base = DownloadManager.sanitize(song.id)
+        let artDest = folder.appendingPathComponent("\(base).art.png")
+        let lrcDest = folder.appendingPathComponent("\(base).lrc")
+        let photoDest = folder.appendingPathComponent("\(base).photo.png")
 
-        // ① 封面：歌曲本身带 artworkURL 时直接下载存盘（榜单类无地址的跳过，靠兜底）。
-        if let url = song.artworkURL,
-           let image = await CoverLoader.download(url) {
-            let dest = folder.appendingPathComponent("\(base).art.png")
-            _ = try? image.pngData()?.write(to: dest, options: .atomic)
+        // ① 封面：优先用歌曲自带 artworkURL；榜单歌曲没有地址时按
+        //    kg:<hash> / al:<albumID> 反查一张再存盘（以前整类榜单歌都缺封面侧车）。
+        if !onlyIfMissing || !fm.fileExists(atPath: artDest.path) {
+            var coverURL = song.artworkURL
+            if coverURL == nil {
+                coverURL = await CoverResolver.shared.resolveCover(for: song.coverFallbackKeys)
+            }
+            if let url = coverURL, let image = await CoverLoader.download(url) {
+                try? image.pngData()?.write(to: artDest, options: .atomic)
+            }
         }
 
         // ② 歌词：有酷狗 hash 才能取到 LRC。
-        if !song.kugouHash.isEmpty,
+        if (!onlyIfMissing || !fm.fileExists(atPath: lrcDest.path)),
+           !song.kugouHash.isEmpty,
            let lrc = await KugouClient.shared.lyric(hash: song.kugouHash, duration: song.duration),
            !lrc.isEmpty {
-            let dest = folder.appendingPathComponent("\(base).lrc")
-            _ = try? Data(lrc.utf8).write(to: dest, options: .atomic)
+            try? Data(lrc.utf8).write(to: lrcDest, options: .atomic)
         }
 
         // ③ 歌手写真：取主歌手精确匹配。
-        let lead = song.artist.components(separatedBy: CharacterSet(charactersIn: "、/&，,"))
-            .first?.trimmingCharacters(in: .whitespaces) ?? song.artist
-        if !lead.isEmpty,
-           let photoURL = await KugouClient.shared.artistPhoto(name: lead, title: song.title),
-           let image = await CoverLoader.download(photoURL) {
-            let dest = folder.appendingPathComponent("\(base).photo.png")
-            _ = try? image.pngData()?.write(to: dest, options: .atomic)
+        if !onlyIfMissing || !fm.fileExists(atPath: photoDest.path) {
+            let lead = song.artist.components(separatedBy: CharacterSet(charactersIn: "、/&，,"))
+                .first?.trimmingCharacters(in: .whitespaces) ?? song.artist
+            if !lead.isEmpty,
+               let photoURL = await KugouClient.shared.artistPhoto(name: lead, title: song.title),
+               let image = await CoverLoader.download(photoURL) {
+                try? image.pngData()?.write(to: photoDest, options: .atomic)
+            }
+        }
+    }
+
+    /// 🔴 2026-11-16：恢复后回填侧车。备份可能来自旧版本（metadata 里没有
+    /// 封面/歌词），或用户当初下载的是榜单歌（无 artworkURL → 没存封面侧车）。
+    /// 这里只补缺失的，不覆盖已有文件；纯 IO + 网络，成功后由调用方 bootstrap
+    /// 让 `artworkURL` 指向新落盘的封面，播放页/列表就能离线显示图片与歌词。
+    func ensureSidecarsForDownloads() async {
+        let songs = LibraryStore.shared.downloads
+        for song in songs {
+            await saveSidecars(for: song, onlyIfMissing: true)
         }
     }
 
@@ -386,8 +435,14 @@ final class DownloadManager: NSObject, ObservableObject {
 
     /// 下载一首歌；已下载直接返回本地地址。
     /// - Parameter quality: 指定音质；nil = 用「默认下载音质」（未设置时跟随播放音质）。
-    func download(_ song: Song, quality: MusicQuality? = nil) async throws -> URL {
-        if let local = localURL(for: song) { return local }
+    /// - Parameter force: true = 忽略「已下载」短路、强制按新音质重新拉取。
+    ///   🔴 2026-11-16：以前用户在音质弹窗里选更高档再点下载，
+    ///   `if let local = localURL(...)` 直接把旧的低码率文件返回，看起来就是
+    ///   「换音质下载还是 1MB」。显式选音质时必须走这条 force 通道真重下。
+    ///   注意：这里**不预先删旧文件** —— 让 `didFinishDownloadingTo` 只在
+    ///   新文件成功后才覆盖，重下失败也还有旧的能播。
+    func download(_ song: Song, quality: MusicQuality? = nil, force: Bool = false) async throws -> URL {
+        if !force, let local = localURL(for: song) { return local }
 
         let targetQuality = quality ?? effectiveDownloadQuality
         let resolved = await SourceResolver.resolve(song: song, quality: targetQuality)

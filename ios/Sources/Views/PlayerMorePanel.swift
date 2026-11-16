@@ -108,37 +108,52 @@ struct PlayerMorePanel: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
+            // 🔴 2026-11-16：遮罩层独立成一层，只做 opacity 淡入，**不跟随面板滑动**。
+            //    以前遮罩和卡片是同一个 ZStack、一起挂 .move(edge:.bottom)：
+            //    打开动画期间整块（含全屏黑遮罩）从底部滑上来，屏幕顶部短时间内
+            //    根本没有被遮罩盖住，浅灰面板底色(0.96)直接压在明亮的大图上，
+            //    看起来就是「弹窗打开时上面闪一下灰色」。分层后遮罩原地淡入，
+            //    顶部始终同步变暗，灰闪消失。
             Color.black.opacity(0.38)
                 .ignoresSafeArea()
                 .onTapGesture { onClose() }
+                .transition(.opacity)
 
-            VStack(spacing: 8) {
-                songBar
-                actionCard
-                Button {
-                    onClose()
-                } label: {
-                    Text("关闭")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(Color.black.opacity(0.78))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 46)
-                        .background(RoundedRectangle(cornerRadius: 14).fill(Color.white))
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 14)
-            // 🔴 第二十四轮：补足底部安全区，让浅灰面板一直铺到屏幕底边。
-            //    旧版只 padding 14，home indicator 区会露出播放页的深色背景，
-            //    形成一条突兀黑带（用户截图 69d888f7「底部黑色」）。
-            .padding(.bottom, 14 + bottomSafeInset)
-            .background(Color(red: 0.96, green: 0.96, blue: 0.97))
-            .clipShape(PlayerMoreTopCorners(radius: 20))
+            panelCard
         }
         // 让面板布局区扩展到屏幕底边，浅灰才不会被安全区截断。
         .ignoresSafeArea(edges: .bottom)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    /// 卡片本体：只从底部滑入，不叠加 opacity —— 半透明插值会让浅灰底色在
+    /// 圆角/顶部边缘透出一条灰带。compositingGroup 让 clipShape 先合成再动画，
+    /// 避免圆角在首帧没裁切干净的闪灰。
+    private var panelCard: some View {
+        VStack(spacing: 8) {
+            songBar
+            actionCard
+            Button {
+                onClose()
+            } label: {
+                Text("关闭")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Color.black.opacity(0.78))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 46)
+                    .background(RoundedRectangle(cornerRadius: 14).fill(Color.white))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 14)
+        // 🔴 第二十四轮：补足底部安全区，让浅灰面板一直铺到屏幕底边。
+        //    旧版只 padding 14，home indicator 区会露出播放页的深色背景，
+        //    形成一条突兀黑带（用户截图 69d888f7「底部黑色」）。
+        .padding(.bottom, 14 + bottomSafeInset)
+        .background(Color(red: 0.96, green: 0.96, blue: 0.97))
+        .clipShape(PlayerMoreTopCorners(radius: 20))
+        .compositingGroup()
+        .transition(.move(edge: .bottom))
     }
 
     private var songBar: some View {

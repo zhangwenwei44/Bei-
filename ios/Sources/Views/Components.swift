@@ -1744,7 +1744,10 @@ struct SongMoreMenu: View {
         .confirmationDialog("选择下载音质", isPresented: $showQualityPicker, titleVisibility: .visible) {
             ForEach(MusicQuality.allCases) { quality in
                 Button(quality.title) {
-                    Task { _ = try? await downloads.download(song, quality: quality) }
+                    // 🔴 2026-11-16：显式选了音质就要真按这个档位重下。
+                    //    download() 原本遇到「已下载」会直接返回旧文件，
+                    //    导致「换音质下载」后文件还是原来的 1MB。force 强制重拉。
+                    Task { _ = try? await downloads.download(song, quality: quality, force: true) }
                 }
             }
             Button("取消", role: .cancel) {}
