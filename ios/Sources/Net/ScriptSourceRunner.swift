@@ -837,7 +837,16 @@ final class ScriptSourceRunner: @unchecked Sendable {
             return nil
         }
         failureCounts[source.id] = 0
-        return ResolvedAudio(url: playable, sourceName: source.name, quality: quality, isThirdParty: true)
+        // 🔴 2026-11-17：脚本内部有 QUALITY_FALLBACK 静默降级链（选 flac24bit
+        //    可能只拿到 128k）。以前这里直接把「请求的档位」写成结果档位，
+        //    于是 UI 显示「至臻2.0」、磁盘却是 1.3MB 的 128k 文件，用户以为切档没生效。
+        //    现在脚本回传 { url, quality }，用实际档位回填；老脚本只返回字符串时
+        //    退回请求档位，保持兼容。
+        let actualQuality = Self.extractQuality(from: raw) ?? quality
+        if actualQuality != quality {
+            Log.warn("脚本音源", "「\(source.name)」请求 \(quality.sourceValue)，音源实际只提供 \(actualQuality.sourceValue)")
+        }
+        return ResolvedAudio(url: playable, sourceName: source.name, quality: actualQuality, isThirdParty: true)
     }
 
     // MARK: 熔断
@@ -992,12 +1001,30 @@ final class ScriptSourceRunner: @unchecked Sendable {
             "albumName": song.album,
             "interval": Int(song.duration),
             "source": song.source.code,
-            // 洛雪脚本会读 musicInfo.types 判断哪些音质位可用
+            // 🔴 2026-11-17：洛雪脚本读 musicInfo.types 判断音质位，且常按
+            //    types[type].hash 取该档位的音频 hash。以前这里塞的是 `true`，
+            //    脚本拿到布尔值取不到 hash，就判定「该档位不支持」直接降级到
+            //    128k —— 用户选至臻2.0 也只下到 1.3MB。现在按洛雪约定给
+            //    { size, hash } 结构，并把当前歌曲 hash 作为各档位的兜底 hash。
             "types": quality.lxTypes.reduce(into: [String: Any]()) { map, type in
-                map[type] = true
+                map[type] = ["size": "", "hash": songID]
             },
-            "meta": [String: Any](),
+            "_types": quality.lxTypes.reduce(into: [String: Any]()) { map, type in
+                map[type] = ["size": "", "hash": songID]
+            },
+            "meta": ["songId": songID, "hash": songID, "quality": quality.sourceValue],
         ]
+    }
+
+    /// 从脚本返回值里读「实际档位」。内置脚本返回 { url, quality }，
+    /// 第三方脚本多数仍返回纯字符串，此时返回 nil，由调用方回退到请求档位。
+    private static func extractQuality(from raw: Any) -> MusicQuality? {
+        guard let dict = raw as? [String: Any] else { return nil }
+        for key in ["quality", "type", "br", "level"] {
+            guard let text = dict[key] as? String else { continue }
+            if let match = MusicQuality.fromSourceValue(text) { return match }
+        }
+        return nil
     }
 
     /// 从脚本返回值里挖出播放地址。

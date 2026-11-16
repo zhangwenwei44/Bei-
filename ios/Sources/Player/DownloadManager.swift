@@ -41,11 +41,17 @@ final class DownloadManager: NSObject, ObservableObject {
 
     private final class Pending {
         let song: Song
+        /// 🔴 2026-11-17：本次**请求**的档位，落盘时写进索引供「换音质是否重下」判定。
+        ///    这里必须用请求档位而不是音源实际给的档位：第三方音源经常静默降级
+        ///    （选至臻2.0 只给 128k），若把实际档位写进索引，用户每次点下载都会
+        ///    发现「档位不符」而无限重下。实际档位只用于 UI 显示与日志。
+        let requestedQuality: MusicQuality
         let continuation: CheckedContinuation<URL, Error>
         var destination: URL?
 
-        init(song: Song, continuation: CheckedContinuation<URL, Error>) {
+        init(song: Song, requestedQuality: MusicQuality, continuation: CheckedContinuation<URL, Error>) {
             self.song = song
+            self.requestedQuality = requestedQuality
             self.continuation = continuation
         }
     }
@@ -202,13 +208,27 @@ final class DownloadManager: NSObject, ObservableObject {
         lock.unlock()
     }
 
-    private func writeIndex(song: Song, file: String) {
+    private func writeIndex(song: Song, file: String, quality: MusicQuality? = nil) {
         // 🔴 v2.9.3：多存 hash / albumID —— 离线重建歌曲时仍能走歌词/写真兜底逻辑。
-        let object: [String: Any] = ["id": song.id, "title": song.title, "artist": song.artist,
+        var object: [String: Any] = ["id": song.id, "title": song.title, "artist": song.artist,
                                      "file": file, "hash": song.kugouHash, "albumID": song.kugouAlbumID]
+        // 🔴 2026-11-17：记下这首文件实际是按哪一档下的。用户换音质再点下载时，
+        //    download() 靠这个字段判断「要不要真重下」，而不是无脑短路返回旧的 1.3MB 文件。
+        //    恢复/导入场景没有档位信息，传 nil 表示未知（保持旧行为）。
+        if let quality { object["quality"] = quality.rawValue }
         guard let data = try? JSONSerialization.data(withJSONObject: object) else { return }
         try? data.write(to: DownloadManager.metadataDirectory()
             .appendingPathComponent(DownloadManager.indexName(for: song.id)), options: .atomic)
+    }
+
+    /// 读索引里记录的下载档位；nil = 旧索引/恢复/导入，档位未知。
+    private func recordedQuality(for songID: String) -> MusicQuality? {
+        let url = DownloadManager.metadataDirectory()
+            .appendingPathComponent(DownloadManager.indexName(for: songID))
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = object["quality"] as? String else { return nil }
+        return MusicQuality(rawValue: raw)
     }
 
     /// 🔴 2026-11-16：备份恢复后重建索引，修「提示已恢复 N 首，列表却还是空的」。
@@ -442,11 +462,32 @@ final class DownloadManager: NSObject, ObservableObject {
     ///   注意：这里**不预先删旧文件** —— 让 `didFinishDownloadingTo` 只在
     ///   新文件成功后才覆盖，重下失败也还有旧的能播。
     func download(_ song: Song, quality: MusicQuality? = nil, force: Bool = false) async throws -> URL {
-        if !force, let local = localURL(for: song) { return local }
-
         let targetQuality = quality ?? effectiveDownloadQuality
+        if !force, let local = localURL(for: song) {
+            // 🔴 2026-11-17：以前只看「文件在不在」，换音质点下载一律返回旧的
+            //    低码率文件（用户看到的就是「换音质下载还是 1MB」）。现在比对索引档位：
+            //    · 老版本下的歌 / 恢复导入的歌没有档位字段 → 一律视为「高品音质(128k)」，
+            //      这样用户把音质切到更高档再点下载时，这些旧的 1.3MB 文件会真重下；
+            //      若目标档位本来就是 128k，则仍然复用，不会无故重下。
+            //    · 记了档位且 != 目标档位 → 按新档位真重下。
+            //    · 记了档位且 == 目标档位 → 复用。
+            let recorded = recordedQuality(for: song.id) ?? .standard
+            if recorded != targetQuality {
+                Log.info("下载", "「\(song.title)」已存 \(recorded.title)，改按 \(targetQuality.title) 重新下载")
+            } else {
+                return local
+            }
+        }
+
         let resolved = await SourceResolver.resolve(song: song, quality: targetQuality)
         guard let resolved else { throw DownloadError.unresolved }
+        // 🔴 脚本内部有 QUALITY_FALLBACK 静默降级链（选 flac24bit 可能只给 128k）。
+        //    resolved.quality 现在是脚本回传的真实档位，这里只用于如实提示，
+        //    **不写进索引** —— 否则用户选高档位、音源降级，每次点下载都会判定
+        //    「档位不符」陷入无限重下。索引记的是「用户要的档位」。
+        if resolved.quality != targetQuality {
+            Log.warn("下载", "「\(song.title)」请求 \(targetQuality.title)，音源实际只提供 \(resolved.quality.title)")
+        }
 
         // http→https 升级（和 PlayerStore 一样的逻辑）。
         // 下载用 URLSession 走 ATS 的策略如果是 Default，http 会被拦截。
@@ -478,7 +519,8 @@ final class DownloadManager: NSObject, ObservableObject {
 
         let task = session.downloadTask(with: request)
         let destination: URL = try await withCheckedThrowingContinuation { continuation in
-            setPending(Pending(song: song, continuation: continuation), for: task.taskIdentifier)
+            setPending(Pending(song: song, requestedQuality: targetQuality, continuation: continuation),
+                       for: task.taskIdentifier)
             putTask(task, for: song.id)
             apply(DownloadItem(song: song, progress: 0, state: .downloading))
             task.resume()
@@ -641,13 +683,24 @@ extension DownloadManager: URLSessionDownloadDelegate {
                                                 url: downloadTask.response?.url ?? location)
         let name = DownloadManager.sanitize("\(item.song.title)-\(item.song.artist).\(ext)")
         let destination = DownloadManager.directory().appendingPathComponent(name)
+        // 🔴 2026-11-17：换音质重下时扩展名可能变（.mp3 → .flac），新旧文件名不同，
+        //    只覆盖同名文件会让旧的 1.3MB 低码率文件残留成孤儿 —— 用户在「文件」App
+        //    里看到的还是那个小文件，以为换了音质没生效。成功后把旧文件删掉。
+        let previousName = fileName(for: item.song.id)
         do {
             if FileManager.default.fileExists(atPath: destination.path) {
                 try FileManager.default.removeItem(at: destination)
             }
             try FileManager.default.moveItem(at: location, to: destination)
+            if let previousName, previousName != name {
+                let old = DownloadManager.directory().appendingPathComponent(previousName)
+                if FileManager.default.fileExists(atPath: old.path) {
+                    try? FileManager.default.removeItem(at: old)
+                    Log.info("下载", "换音质重下：移除旧文件 \(previousName)")
+                }
+            }
             item.destination = destination
-            writeIndex(song: item.song, file: name)
+            writeIndex(song: item.song, file: name, quality: item.requestedQuality)
             putFile(name, for: item.song.id)
         } catch {
             _ = takePending(downloadTask.taskIdentifier)

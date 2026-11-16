@@ -23,10 +23,26 @@ enum SongSource: String, Codable, CaseIterable, Identifiable, Hashable {
     }
 }
 
-enum MusicQuality: String, Codable, CaseIterable, Identifiable {
+enum MusicQuality: String, Codable, CaseIterable, Identifiable, Sendable {
     case standard, higher, exHigh, lossless, hires
 
     var id: String { rawValue }
+
+    /// 🔴 2026-11-17：从音源脚本回传的档位字符串反查枚举。
+    ///    脚本内部有 `QUALITY_FALLBACK` 静默降级链（选 flac24bit 最终可能只给 128k），
+    ///    以前 App 拿不到这个结果、直接把「请求的档位」当成「实际档位」显示/入库，
+    ///    于是 UI 写着「至臻2.0」、磁盘上却是 1.3MB 的 128k 文件。
+    ///    现在脚本回传真实档位，用这里反查，让显示与下载记录都说实话。
+    static func fromSourceValue(_ raw: String) -> MusicQuality? {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "128k", "128", "standard": return .standard
+        case "192k", "192": return .higher
+        case "320k", "320", "higher", "exhigh": return .exHigh
+        case "flac", "lossless": return .lossless
+        case "flac24bit", "hires", "master", "jymaster", "atmos", "atmos_plus": return .hires
+        default: return nil
+        }
+    }
 
     /// 酷狗接口的音质档位。
     var level: String {

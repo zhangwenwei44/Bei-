@@ -1512,7 +1512,10 @@ const getMusicUrl = async (source, musicInfo, quality) => {
       const result = await raceApis(group, musicInfo, quality)
       if (result && result.url) {
         log.t('i', `✓ 成功! 来源:${result.name} -> ${result.url.substring(0, 80)}...`)
-        return result.url
+        // 🔴 2026-11-17：回传「实际拿到的档位」。以前只返回 URL 字符串，
+        //    App 端拿不到脚本内部 QUALITY_FALLBACK 的降级结果，只能把用户请求的
+        //    档位当成实际档位显示/入库 —— 选「至臻2.0」却显示至臻2.0、文件却是 1.3MB。
+        return { url: result.url, quality: quality }
       }
       log.t('w', `[音质${quality}] 组${gi+1} 全部失败`)
     }
@@ -1545,7 +1548,9 @@ const getMusicUrl = async (source, musicInfo, quality) => {
         if (currentQ !== quality) {
           log.t('w', `⚠ 用户请求 ${quality}，已降级到 ${currentQ}`)
         }
-        return result.url
+        // 🔴 2026-11-17：带上实际档位（currentQ 是降级链里真正成功的那一档），
+        //    App 端据此如实标记音质与下载索引，不再「请求高档位就假标高档位」。
+        return { url: result.url, quality: currentQ }
       }
 
       log.t('w', `[音质${currentQ}] 组${gi+1} 全部失败`)

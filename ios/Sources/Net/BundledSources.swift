@@ -115,18 +115,27 @@ enum BundledSources {
         let existing = Set(store.sources.map(\.name))
         var added = 0
         for preset in available {
-            guard !existing.contains(preset.displayName),
-                  let source = makeSource(preset) else { continue }
-            store.upsert(source)
-            added += 1
-        }
-        // 迁移：设备上已存的内置音源标记 isBundled（老版本没有这个字段，
-        // 否则列表里它们仍会显示脚本音乐名而非「默认音源」）。
-        for preset in available {
-            for index in store.sources.indices where store.sources[index].name == preset.displayName {
-                var marked = store.sources[index]
-                marked.isBundled = true
-                store.upsert(marked)
+            guard let fresh = makeSource(preset) else { continue }
+            if !existing.contains(preset.displayName) {
+                store.upsert(fresh)
+                added += 1
+                continue
+            }
+            // 🔴 2026-11-17：同名内置音源以前直接跳过，导致**包内脚本升级后，
+            //    老用户设备上仍跑旧脚本**（音质档位、types 结构等修复全部不生效）。
+            //    现在按脚本内容比对：内容变了就用包内新版覆盖，同时保留原来的 id、
+            //    开关状态和数组顺序，避免列表跳动或把用户关掉的源重新打开。
+            guard let index = store.sources.firstIndex(where: { $0.name == preset.displayName }) else { continue }
+            var installed = store.sources[index]
+            if installed.script != fresh.script || !installed.isBundled {
+                let changedScript = installed.script != fresh.script
+                installed.script = fresh.script
+                installed.kind = .script
+                installed.isBundled = true
+                store.upsert(installed)
+                if changedScript {
+                    Log.info("内置音源", "「\(preset.displayName)」脚本已更新为包内最新版")
+                }
             }
         }
         if added == 0, !existing.isEmpty {

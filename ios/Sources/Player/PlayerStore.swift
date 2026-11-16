@@ -236,11 +236,20 @@ final class PlayerStore: ObservableObject {
     private var preloadedItem: AVPlayerItem?
     private var preloadedForSongID: String?
     private var lastPreloadTriggerTime: Double = 0
-    /// 解析过的播放地址缓存（key = song.id, value = (url, thirdParty, timestamp)）。
+    /// 解析过的播放地址缓存（key = song.id, value = (url, thirdParty, timestamp, quality)）。
     /// 同一首歌在短时间内被 prepare 多次（AVPlayer stall 重试、SwiftUI body 重新计算等）
     /// 时直接用缓存，不再重复走 SourceResolver。
     /// 🔴 CDN URL token 过期策略：stall 恢复时强制清缓存，保证拿到新鲜地址
-    private struct ResolvedEntry { let url: URL; let thirdParty: Bool; let at: Date }
+    /// 🔴 2026-11-17：**缓存必须带音质维度**。以前只按 song.id 存，用户在音质页把
+    ///    「高品音质」切成「至臻2.0」后，installQualityMonitor 调 prepare() 重解析，
+    ///    却在这里命中了 15 分钟内的旧档位 URL 直接返回 —— 切换音质看起来完全没反应。
+    ///    现在命中时先比对档位，档位不同就当作未命中，重新走 SourceResolver。
+    private struct ResolvedEntry {
+        let url: URL
+        let thirdParty: Bool
+        let at: Date
+        let quality: MusicQuality
+    }
     private var resolvedURLCache: [String: ResolvedEntry] = [:]
     private let resolvedURLCacheTTL: TimeInterval = 15 * 60  // 15 分钟
     private var artworkTaskID: String?
@@ -357,10 +366,19 @@ final class PlayerStore: ObservableObject {
     private func installQualityMonitor() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            for await _ in SourceStore.shared.$quality.values {
+            var lastQuality = SourceStore.shared.quality
+            for await newQuality in SourceStore.shared.$quality.values {
                 // 跳过初始化时的第一次（和当前值相同）
-                // prepare() 里已经读了最新 quality，所以每次 prepare 都会用新音质
-                // 这里只需要处理 mid-playback 切换 —— 重新解析 URL 并保留 seek 位置
+                guard newQuality != lastQuality else { continue }
+                lastQuality = newQuality
+                // 🔴 2026-11-17：以前这里只调 prepare()，但 prepare 开头会命中
+                //    resolvedURLCache（按 song.id 存的旧档位 URL）直接 return，
+                //    重解析根本没发生 → 用户看到的就是「切换音质不生效」。
+                //    现在切档时先让全部解析缓存与预加载 item 失效，再重新解析。
+                self.resolvedURLCache.removeAll()
+                self.preloadedItem = nil
+                self.preloadedForSongID = nil
+                Log.info("播放", "音质切换 → \(newQuality.title)，清空解析缓存")
                 if self.current != nil, self.player.currentItem != nil, !self.isLoading {
                     Log.info("播放", "音质切换，重新解析当前歌曲 URL")
                     self.pendingQualitySwitchSeek = self.currentTime
@@ -619,6 +637,11 @@ final class PlayerStore: ObservableObject {
 
     private func prepare(autoplay: Bool) {
         guard let song = current else { return }
+        // 🔴 2026-11-17：把本次请求的音质冻结成 Sendable 局部值，供缓存判定、
+        //    detached 解析闭包、缓存写入三处共用。以前 detached 闭包里直接读
+        //    SourceStore.shared.effectiveQuality，既跨线程，又可能和缓存判定用的
+        //    档位不是同一个值（用户切档瞬间）。MusicQuality 已声明 Sendable。
+        let requestedQuality = SourceStore.shared.effectiveQuality
         preparingTask?.cancel()
         lastPrepareStart = Date().timeIntervalSince1970
 
@@ -648,10 +671,14 @@ final class PlayerStore: ObservableObject {
         }
 
         // 缓存命中 —— 短时间内切回来或 stall 后重试同一首歌，不再重新解析
+        // 🔴 2026-11-17：必须同时比对档位。切了音质后旧缓存直接作废，
+        //    否则「切换音质不生效」：prepare 被 installQualityMonitor 调起来，
+        //    却在这里命中旧档位 URL 直接 attach，SourceResolver 根本没跑。
         let now = Date()
         if let cached = resolvedURLCache[song.id],
+           cached.quality == requestedQuality,
            now.timeIntervalSince(cached.at) < resolvedURLCacheTTL {
-            Log.info("播放", "缓存命中，直接用上次解析的 URL（\(song.title.prefix(20))）")
+            Log.info("播放", "缓存命中（\(requestedQuality.title)），直接用上次解析的 URL（\(song.title.prefix(20))）")
             isLoading = false
             attach(url: cached.url, thirdParty: cached.thirdParty, autoplay: autoplay)
             return
@@ -682,7 +709,8 @@ final class PlayerStore: ObservableObject {
                 outcome = Outcome(url: local, name: "已下载", label: "本地", isThirdParty: false)
             } else if let audio = await SourceResolver.resolve(song: song,
                                                                  // 🔴 v2.7.4：蜂窝网络下按设置降档
-                                                                 quality: SourceStore.shared.effectiveQuality,
+                                                                 // 🔴 2026-11-17：用上面冻结的档位，不再在 detached 里读共享对象
+                                                                 quality: requestedQuality,
                                                                  excludedHosts: excluded) {
                 outcome = Outcome(url: audio.url,
                                   name: audio.sourceName,
@@ -726,7 +754,11 @@ final class PlayerStore: ObservableObject {
                 }
                 self.attach(url: url, thirdParty: outcome.isThirdParty, autoplay: autoplay)
                 // 解析成功，写入缓存（CDN 分时 token 15 分钟内不会过期）
-                self.resolvedURLCache[song.id] = ResolvedEntry(url: url, thirdParty: outcome.isThirdParty, at: Date())
+                // 🔴 2026-11-17：连同本次请求的档位一起存，供下次命中比对。
+                self.resolvedURLCache[song.id] = ResolvedEntry(url: url,
+                                                               thirdParty: outcome.isThirdParty,
+                                                               at: Date(),
+                                                               quality: requestedQuality)
                 // 缓存只留最近 10 条，防止内存泄漏
                 if self.resolvedURLCache.count > 10 {
                     let oldest = self.resolvedURLCache.sorted { $0.value.at < $1.value.at }.first?.key
@@ -904,7 +936,12 @@ final class PlayerStore: ObservableObject {
         lastPreloadTriggerTime = now
 
         // 有 URL 缓存直接用（CDN 分时 token 15 分钟内有效）
-        if let cached = resolvedURLCache[next.id] {
+        // 🔴 2026-11-17：切过音质后旧档位的预加载缓存必须作废，
+        //    否则下一首歌切过去时会直接用旧码率 URL，切档看起来又「不生效」。
+        let requestedQuality = SourceStore.shared.effectiveQuality
+        if let cached = resolvedURLCache[next.id],
+           cached.quality == requestedQuality,
+           Date().timeIntervalSince(cached.at) < resolvedURLCacheTTL {
             preloadedItem = AVPlayerItem(url: cached.url)
             preloadedItem?.preferredForwardBufferDuration = 30  // 跟 attach 里一致，让 AVAsset 预建足够连接
             preloadedItem?.audioMix = SoundEffectEngine.audioMix(for: SoundEffectSetting.shared.current)
@@ -912,6 +949,9 @@ final class PlayerStore: ObservableObject {
             Log.info("预加载", "命中缓存，下一首预热：\(next.title.prefix(20))")
             return
         }
+        // 档位已变（或缓存过期）：丢掉旧的预加载 item，按新档位重新预热
+        preloadedItem = nil
+        preloadedForSongID = nil
 
         // 没有缓存 → 异步解析。
         // 🔴 v2.9.8：高优先级 + 后台任务 —— 锁屏/后台时 iOS 会大幅降权甚至挂起低优先级网络请求，
@@ -928,7 +968,8 @@ final class PlayerStore: ObservableObject {
             guard let audio = await SourceResolver.resolve(
                 song: next,
                 // 🔴 v2.7.4：蜂窝网络下按设置降档
-                quality: SourceStore.shared.effectiveQuality,
+                // 🔴 2026-11-17：用外层冻结的档位，detached 闭包不读共享对象
+                quality: requestedQuality,
                 excludedHosts: self.failedHosts
             ) else {
                 Log.warn("预加载", "下一首 URL 解析失败：\(next.title.prefix(20))")
@@ -949,7 +990,10 @@ final class PlayerStore: ObservableObject {
                 self.preloadedItem?.audioMix = SoundEffectEngine.audioMix(for: SoundEffectSetting.shared.current)
                 self.preloadedForSongID = next.id
                 // 写入缓存方便下次 prepare/stall 恢复直接用
-                self.resolvedURLCache[next.id] = ResolvedEntry(url: assetURL, thirdParty: audio.isThirdParty, at: Date())
+                self.resolvedURLCache[next.id] = ResolvedEntry(url: assetURL,
+                                                               thirdParty: audio.isThirdParty,
+                                                               at: Date(),
+                                                               quality: requestedQuality)
                 Log.info("预加载", "下一首预热完成：\(next.title.prefix(20))")
             }
         }
