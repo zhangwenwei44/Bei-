@@ -247,6 +247,24 @@ final class SourceStore: ObservableObject {
         persist()
     }
 
+    /// 🔴 2026-11-17：新增内置音源时插到列表最前。
+    /// 音源是串行解析、第一个成功者胜出（`SourceResolver.thirdPartyURL`），所以
+    /// 真分档的核心源必须排在假分档的旧源前面，否则老设备上洛雪先返回假 flac
+    /// 就直接用了，新装的真无损源永远轮不到。已存在（按名字）则原地更新、不改顺序。
+    func insertBuiltinFront(_ source: ThirdPartySource) {
+        mutateSources { list in
+            if let index = list.firstIndex(where: { $0.name == source.name }) {
+                var updated = source
+                updated.id = list[index].id          // 保留原 id，避免丢开关状态
+                updated.enabled = list[index].enabled
+                list[index] = updated
+            } else {
+                list.insert(source, at: 0)
+            }
+        }
+        persist()
+    }
+
     /// 预先创建导入目录。
     ///
     /// App 开了 UIFileSharingEnabled，Documents 在「文件」App 里可见。

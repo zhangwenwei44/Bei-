@@ -30,6 +30,18 @@ enum BundledSources {
     /// 允许再分发，所以脚本本体随仓库走（`ios/BundledSources/luoxue.js`），
     /// CI 不再需要从 Release 资产拉 tarball。
     private static let known: [Preset] = [
+        // 🔴 2026-11-17：星澜聚合音源排第一（文件名 0_xinglan.js 保证 scriptURLs()
+        //    排序最前，串行解析时优先命中）。实测它是唯一「换音质真分档」的内置源：
+        //    同一首歌 128k≈4.1MB / 320k≈10.3MB / flac≈30MB，三档 MD5 全不同；
+        //    而旧洛雪脚本的酷狗接口（念心）对 128k 和 flac 返回的是同一份 1.6MB 假无损。
+        //    来源 https://github.com/pdone/lx-music-source，MIT 许可，v4.0.2。
+        Preset(scriptName: "0_xinglan",
+              displayName: "星澜聚合音源",
+              version: "4.0.2",
+              author: "星澜团队",
+              license: "MIT",
+              homepage: "https://github.com/pdone/lx-music-source",
+              notes: "多源聚合，酷狗/QQ真分档无损，支持母带/全景声"),
         Preset(scriptName: "luoxue",
               displayName: "洛雪音源6",
               version: "1.7.17",
@@ -114,10 +126,14 @@ enum BundledSources {
         }
         let existing = Set(store.sources.map(\.name))
         var added = 0
-        for preset in available {
+        // 🔴 2026-11-17：逆序遍历 available + 新增源插到最前。
+        // available 已按文件名排序（0_xinglan.js 在前 = 星澜优先），逆序后
+        // 逐个 insert(at: 0) 得到的最终顺序正好和 available 一致（星澜在前）。
+        // 串行解析「第一个成功者胜出」，真分档的星澜必须先于假分档的旧洛雪。
+        for preset in available.reversed() {
             guard let fresh = makeSource(preset) else { continue }
             if !existing.contains(preset.displayName) {
-                store.upsert(fresh)
+                store.insertBuiltinFront(fresh)
                 added += 1
                 continue
             }
