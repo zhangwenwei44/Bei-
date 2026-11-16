@@ -891,17 +891,23 @@ final class PlayerStore: ObservableObject {
                     }
                     // 🔴 2026-11-17：item 真正 ready 后探测**实测码率**，覆盖音源自称的档位。
                     //   第三方音源常「请求至臻2.0、实际只给 128k」，旧界面却显示用户选的高档位，
-                    //   导致「界面写至臻2.0、文件 1.3MB」的假象。这里读音频轨道真实码率，
-                    //   让迷你条/播放页如实显示。用 weak + 切歌校验，避免旧 item 结果串台。
-                    let asset = item.asset
-                    let isLocalFile = url.isFileURL
-                    let localURL = isLocalFile ? url : nil
+                    //   导致「界面写至臻2.0、文件 1.3MB」的假象。这里按「文件字节 / 时长」估算
+                    //   真实平均码率，让迷你条/播放页如实显示。weak + 切歌校验防串台。
+                    let probeURL = url
+                    let probeIsLocal = url.isFileURL
                     Task { @MainActor [weak self] in
                         guard let self, self.player.currentItem === item else { return }
-                        var bps = await AudioQualityProbe.bitrate(of: asset)
-                        // 本地文件轨道码率读不到时，用「文件大小 / 时长」兜底估算
-                        if bps == nil, let localURL {
-                            bps = AudioQualityProbe.bitrate(fileURL: localURL, duration: item.duration.seconds)
+                        // readyToPlay 瞬间 item.duration 可能还没就绪（尤其本地文件），
+                        // 回退用歌曲元数据里的时长，保证估算有有效分母。
+                        var duration = item.duration.seconds
+                        if !duration.isFinite || duration <= 0 {
+                            duration = self.current?.duration ?? 0
+                        }
+                        let bps: Int?
+                        if probeIsLocal {
+                            bps = AudioQualityProbe.bitrate(fileURL: probeURL, duration: duration)
+                        } else {
+                            bps = await AudioQualityProbe.bitrate(remote: probeURL, duration: duration)
                         }
                         guard let bps, self.player.currentItem === item else { return }
                         let text = AudioQualityProbe.label(bps: bps)
