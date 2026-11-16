@@ -14,6 +14,8 @@ import SwiftUI
 struct QualitySettingsView: View {
     @ObservedObject private var sourceStore = SourceStore.shared
     @ObservedObject private var network = NetworkStatus.shared
+    /// 🔴 2026-11-17：读取当前播放音频的**实测码率**，顶部卡片如实显示。
+    @ObservedObject private var player = PlayerStore.shared
 
     // 深色主题配色（不跟随系统，强制深色 —— 参考图的黑底金字）
     private let gold = Color(red: 1.0, green: 0.82, blue: 0.30)
@@ -166,15 +168,18 @@ struct QualitySettingsView: View {
                         Text(q.title)
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(gold)
-                        Text(q.sizeLabel)
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(textSecondary)
                         if q.isAdvanced {
                             Image(systemName: "diamond.fill")
                                 .font(.system(size: 10))
                                 .foregroundStyle(gold)
                         }
                     }
+                    // 🔴 2026-11-17：改成真实信息。以前这里显示 q.sizeLabel（写死的假体积），
+                    //   现在正在播放时显示音频**实测码率**；没在播放就如实说明。
+                    Text(player.bitrateLabel.isEmpty ? "未播放 · 上方选择期望音质" : "当前播放：\(player.bitrateLabel)")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(q.featureLine)
                         .font(.system(size: 12))
                         .foregroundStyle(textSecondary)
@@ -268,20 +273,23 @@ extension MusicQuality {
         switch self {
         case .standard: return "好音质省流最佳选择"
         case .higher: return "最高 320kbps 主流清晰纯享听感"
-        case .exHigh: return "最高 48kHz/24-bit CD 级无损保真"
-        case .lossless: return "音源支持时自动获取母带级音源"
-        case .hires: return "Hi-Res 高解析音质，细节更丰富"
+        case .exHigh: return "高码率 320 kbps，接近 CD 听感"
+        case .lossless: return "音源支持时获取 FLAC 无损音源"
+        case .hires: return "音源支持时获取 FLAC 24bit Hi-Res"
         }
     }
 
-    /// 列表里的体积标注（对应参考图里的 4.9M / 12.2M / 34.2M）
+    /// 🔴 2026-11-17：这里原来是写死的假体积（~4.9M/首 … ~150M/首），
+    ///   与实际文件（常为 128k、约 1MB）严重不符，误导用户。
+    ///   改成该档位**向音源请求的目标格式/码率**（= sourceValue），是客观事实；
+    ///   实际能否拿到取决于音源，页面底部说明已注明，播放页也显示实测码率。
     var sizeLabel: String {
         switch self {
-        case .standard: return "~4.9M/首"
-        case .higher: return "~12.2M/首"
-        case .exHigh: return "~34.2M/首"
-        case .lossless: return "~80M/首"
-        case .hires: return "~150M/首"
+        case .standard: return "128 kbps"
+        case .higher: return "320 kbps"
+        case .exHigh: return "320 kbps"
+        case .lossless: return "FLAC 无损"
+        case .hires: return "FLAC 24bit"
         }
     }
 
@@ -290,9 +298,9 @@ extension MusicQuality {
         switch self {
         case .standard: return "好音质省流最佳选择"
         case .higher: return "最高 320kbps 主流清晰纯享听感"
-        case .exHigh: return "最高 48kHz/24-bit CD 级无损保真"
-        case .lossless: return "无损母带音质，需要音源支持"
-        case .hires: return "Hi-Res 高解析音质，需要音源支持"
+        case .exHigh: return "高码率 320 kbps，接近 CD 听感"
+        case .lossless: return "FLAC 无损音质，需要音源支持"
+        case .hires: return "FLAC 24bit Hi-Res，需要音源支持"
         }
     }
 

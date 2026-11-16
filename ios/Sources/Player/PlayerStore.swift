@@ -889,6 +889,27 @@ final class PlayerStore: ObservableObject {
                         self.pendingQualitySwitchSeek = nil
                         Log.info("播放", "音质切换 seek 恢复到 \(pending)s")
                     }
+                    // 🔴 2026-11-17：item 真正 ready 后探测**实测码率**，覆盖音源自称的档位。
+                    //   第三方音源常「请求至臻2.0、实际只给 128k」，旧界面却显示用户选的高档位，
+                    //   导致「界面写至臻2.0、文件 1.3MB」的假象。这里读音频轨道真实码率，
+                    //   让迷你条/播放页如实显示。用 weak + 切歌校验，避免旧 item 结果串台。
+                    let asset = item.asset
+                    let isLocalFile = url.isFileURL
+                    let localURL = isLocalFile ? url : nil
+                    Task { @MainActor [weak self] in
+                        guard let self, self.player.currentItem === item else { return }
+                        var bps = await AudioQualityProbe.bitrate(of: asset)
+                        // 本地文件轨道码率读不到时，用「文件大小 / 时长」兜底估算
+                        if bps == nil, let localURL {
+                            bps = AudioQualityProbe.bitrate(fileURL: localURL, duration: item.duration.seconds)
+                        }
+                        guard let bps, self.player.currentItem === item else { return }
+                        let text = AudioQualityProbe.label(bps: bps)
+                        if !text.isEmpty {
+                            self.bitrateLabel = text
+                            Log.info("播放", "实测码率 \(bps) bps → \(text)（\(self.current?.title ?? "")）")
+                        }
+                    }
                 }
             }
         })

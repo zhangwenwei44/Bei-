@@ -1595,14 +1595,19 @@ private struct LandscapeIconShape: Shape {
 /// 刻意做成**独立子视图**并自己订阅 SourceStore —— PlayerView 本体不订阅它，
 /// 避免音源列表变化时整棵播放页树重建（与 playback/lyricState 的处理原则一致）。
 private struct QualityPill: View {
-    /// 播放状态提示（缓冲中/解析中/无法播放）；为空时显示当前音质档位
+    /// 播放状态提示（缓冲中/解析中/无法播放）；为空时显示**实测**码率档位
     var statusText: String = ""
     var onTap: () -> Void
 
     @ObservedObject private var sourceStore = SourceStore.shared
+    @ObservedObject private var player = PlayerStore.shared
 
     private var title: String {
-        statusText.isEmpty ? sourceStore.quality.title : statusText
+        if !statusText.isEmpty { return statusText }
+        // 🔴 2026-11-17：优先显示音频**实测码率**（如「实测 128 kbps」）；
+        //   探测不到时回退到用户选的档位。不再拿标称高档位冒充实际音质。
+        if !player.bitrateLabel.isEmpty { return player.bitrateLabel }
+        return sourceStore.quality.title
     }
 
     var body: some View {
@@ -3696,7 +3701,8 @@ struct KugouLyricsPage: View {
                     .foregroundStyle(.white.opacity(0.78))
                     .lineLimit(1)
                 tag("VIP")
-                tag(SourceStore.shared.quality.title)
+                // 🔴 2026-11-17：显示实测码率，探测不到才回退到标称档位
+                tag(store.bitrateLabel.isEmpty ? SourceStore.shared.quality.title : store.bitrateLabel)
                 if let current = store.current,
                    current.source == .local || DownloadManager.shared.item(for: current)?.isDone == true {
                     tag("本地")
