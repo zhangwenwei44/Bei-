@@ -233,13 +233,13 @@ enum AppStyle {
             trait.userInterfaceStyle == .dark ? hex(0x12141C) : hex(0xFFFFFF)
         }
 
-        // 顶部 1 物理像素 #EEEEEE 发丝分割线 —— 取代系统默认阴影/模糊。
-        // （直接用 shadowColor 在部分 iOS 版本不生效，故显式画一条 1px 线最稳。）
-        let sep = UIColor { trait in
-            trait.userInterfaceStyle == .dark ? hex(0x2A2A2E) : hex(0xEEEEEE)
-        }
-        appearance.shadowImage = hairlineImage(color: sep)
-        appearance.shadowColor = nil
+        // 🔴 2026-11-17：原来这里用 `hairlineImage(color: sep)` 画发丝线，
+        //    但 UIImage 不随 trait 重解析：即使 sep 是动态 UIColor，生成图片时
+        //    用的是浅色 trait，深色模式下就变成一条醒目的白线（用户截图实测）。
+        //    底线交给底色对比即可，直接清空样式；同时兼容 iOS 15 的 legacy 路径。
+        appearance.shadowImage = UIImage()
+        appearance.shadowColor = .clear
+        UITabBar.appearance().shadowImage = UIImage()
 
         let normalAttr: [NSAttributedString.Key: Any] = [
             .foregroundColor: UIColor { _ in hex(0x8892A0) },

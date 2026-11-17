@@ -481,8 +481,11 @@ struct PlayerView: View {
         if playerPageTheme == .classic {
             classicCoverArt(side: side)
         } else {
+            // 🔴 2026-11-17：写真主题按用户要求把歌名 / 歌词 / 动作行 / 进度 / 控件
+            //    整体上移。占位从整张封面高度缩到 96pt，仍保留手势命中区，
+            //    但不再把 deck 顶到屏幕下半部分。
             Color.clear
-                .frame(width: side, height: side)
+                .frame(width: side, height: min(side, 96))
                 .contentShape(Rectangle())
         }
     }
@@ -639,22 +642,30 @@ struct PlayerView: View {
         return max(12, (w - side) / 2)
     }
 
+    /// 🔴 2026-11-17：写真主题拉大各块上下间距；deck 底部留白同步加大，
+    ///    把整块（含播放控件）从贴底位置往上提。
+    private var deckSpacing: CGFloat { playerPageTheme == .artistPhoto ? 10 : 6 }
+    private var deckTitleBottom: CGFloat { playerPageTheme == .artistPhoto ? 16 : 10 }
+    private var deckLyricBottom: CGFloat { playerPageTheme == .artistPhoto ? 14 : 8 }
+    private var deckActionBottom: CGFloat { playerPageTheme == .artistPhoto ? 16 : 10 }
+    private var deckBottomPadding: CGFloat { playerPageTheme == .artistPhoto ? 30 : 8 }
+
     private var classicDeck: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: deckSpacing) {
             // 🔴 参考图版式：封面下方先放「大标题 + 歌手 + 徽标」（左对齐）
             classicTitleBlock
-                .padding(.bottom, 10)
+                .padding(.bottom, deckTitleBottom)
 
             // 歌词两行：当前句（卡拉OK逐字）+ 下一句（暗）
             // 🔴 主题只换背景、不改版式：三个主题的歌词都留在 deck 里歌名下方。
             lyricPill()
-                .padding(.bottom, 8)
+                .padding(.bottom, deckLyricBottom)
 
             // 动作行：喜欢 / 下载 / 音质 / 歌词 / ⋯（纯图标均分）
             // 🔴 v2.5.47：动作行左右间距再收窄 10pt（比封面更宽一档）
             classicActionRow
                 .padding(.horizontal, -10)
-                .padding(.bottom, 10)
+                .padding(.bottom, deckActionBottom)
 
             // 进度行：已播时间 —— 细白进度条 —— 总时长
             // 🔴 2026-11-11 用户要求「沉浸封面主题：歌名 / 歌手 / 歌词 / 动作行 / 进度条往上移点」：
@@ -697,7 +708,7 @@ struct PlayerView: View {
         .padding(.top, 2)
         // 🔴 classicBody 已在内容高度里扣除底部安全区（deck 底部正好落在 home 指示条上方），
         // 这里只留少量呼吸，不再重复加 safeBottom（否则内容会被 fixed height 裁掉 → 歌词被"移除"）。
-        .padding(.bottom, 8)
+        .padding(.bottom, deckBottomPadding)
     }
 
     /// 流光进度条 —— 已拆到独立子视图 ClassicProgressBlock（见其注释）：
@@ -1949,6 +1960,15 @@ struct LyricsPageView: View {
             .frame(width: sz.width, height: sz.height)
             .clipped()
             .ignoresSafeArea()
+            // 🔴 2026-11-17：写真主题顶部与系统状态栏交界偶尔露出一条浅色发丝线，
+            //    用与写真顶部遮罩同色的 2pt 深色条盖住，不影响正文排版。
+            .overlay(alignment: .top) {
+                if showArtistPhoto {
+                    Rectangle()
+                        .fill(Color.black.opacity(0.42))
+                        .frame(height: 2)
+                }
+            }
             // 🔴 已移除下滑关闭手势：用户要求只用左上角返回按钮关闭歌词页（横屏同理），
             // 下滑手势会和按钮 / 进度条抢手势且易误触。关闭统一由左上角 chevron.left 按钮完成。
 

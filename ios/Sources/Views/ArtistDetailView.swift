@@ -143,7 +143,7 @@ struct ArtistDetailView: View {
         //    隐藏它、改由 .topBarLeading 自绘「‹ 返回」，颜色才能跟右侧三点一起动态切换。
         .navigationBarBackButtonHidden(true)
         // 🔴 状态栏文字：大图在顶（深色）用白字；大图收起、毛玻璃浅底后改黑字。
-        .compatToolbarDynamicScheme(dark: navFrostOpacity < 0.5)
+        .compatToolbarDynamicScheme(dark: AppStyle.isDarkTheme || navFrostOpacity < 0.5)
         .kugouNavigationBarBackground(.clear, transparent: true)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -357,6 +357,9 @@ struct ArtistDetailView: View {
     /// 大图收起、毛玻璃（浅色）渐入后线性转黑，避免白字在浅底上看不见。
     /// 与 `navbarFrostedBackground` 共用 `navFrostOpacity`，颜色切换和底色切换严格同步。
     private var navBarContentColor: Color {
+        // 🔴 2026-11-17：深色主题下毛玻璃是深色，收起后仍应是白字，
+        //    不能按原来的白→黑线性插值把文字变成看不见的黑色。
+        if AppStyle.isDarkTheme { return .white }
         let whiteness = 1 - navFrostOpacity   // 0=纯黑（收起）/ 1=纯白（展开）
         return Color(uiColor: UIColor(white: whiteness, alpha: 1))
     }

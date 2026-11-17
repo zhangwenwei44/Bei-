@@ -1141,16 +1141,19 @@ final class PlayerStore: ObservableObject {
            let text = String(data: data, encoding: .utf8), !text.isEmpty {
             let result = LRCParser.parse(text, songTitle: song.cleanTitle, songArtist: song.artist)
             if !result.lines.isEmpty {
+                let lines = result.lines
+                let metadata = result.metadata
                 Task { [weak self] in
                     guard let self else { return }
                     await MainActor.run {
-                        self.lyrics = result.lines
-                        self.lyricMetadata = result.metadata
+                        self.lyrics = lines
+                        self.lyricMetadata = metadata
                         self.refreshLyric()
                     }
                 }
+                return
             }
-            return
+            // 侧车存在但解析不出有效行（备份恢复时可能拷到空文件）→ 继续走在线兜底。
         }
         guard !song.kugouHash.isEmpty else { return }
         Task { [weak self] in

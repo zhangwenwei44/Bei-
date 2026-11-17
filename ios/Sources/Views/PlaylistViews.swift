@@ -239,7 +239,7 @@ struct PlaylistDetailView: View {
         // 🔴 系统返回按钮的 chevron 是全局蓝色，改不了逐页颜色 → 隐藏后自绘。
         .navigationBarBackButtonHidden(true)
         // 🔴 大图在顶（深色）= 白字状态栏；收起后毛玻璃浅底 = 黑字状态栏。
-        .compatToolbarDynamicScheme(dark: headerState.navIsDark)
+        .compatToolbarDynamicScheme(dark: headerState.navUsesDarkChrome)
         .kugouNavigationBarBackground(.clear, transparent: true)
         .onChange(of: isSelecting) { newValue in
             withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
@@ -614,7 +614,7 @@ struct AlbumDetailView: View {
         )
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
-        .compatToolbarDynamicScheme(dark: headerState.navIsDark)
+        .compatToolbarDynamicScheme(dark: headerState.navUsesDarkChrome)
         .kugouNavigationBarBackground(.clear, transparent: true)
         .toolbar {
             ToolbarItem(placement: .principal) {

@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import UIKit
+import AVFoundation
 
 struct DownloadItem: Identifiable, Equatable {
     var id: String { song.id }
@@ -257,7 +258,9 @@ final class DownloadManager: NSObject, ObservableObject {
         //    下载落盘名就是 sanitize("歌名-歌手.ext")（见 didFinishDownloadingTo），
         //    这里按同一规则再建一组键，确保恢复出原始 Song 的 hash / albumID。
         var byFile: [String: Song] = [:]
+        var byID: [String: Song] = [:]
         for song in manifest {
+            byID[DownloadManager.sanitize(song.id)] = song
             if let file = song.url?.lastPathComponent, !file.isEmpty {
                 byFile[file] = song
             }
@@ -290,10 +293,18 @@ final class DownloadManager: NSObject, ObservableObject {
             let ext = (name as NSString).pathExtension.lowercased()
             guard DownloadManager.audioExtensions.contains(ext) else { continue }
 
-            if let real = byFile[name] {
-                // 清单命中：删掉指向同一音频、但 id 不同的旧索引（典型是 local:import 兜底），
-                // 再写一份带真实 hash / albumID 的索引。若旧索引 id 恰好相同则只覆盖、不删。
-                for old in indexesByFile[name] ?? [] where old.songID != real.id {
+            // 文件名对不上时（改名 / 带 -2 后缀）再用旧索引的 songID 找清单，
+            // 否则真实 Song 的 hash / albumID 会丢，恢复后没封面没歌词。
+            let existing = indexesByFile[name] ?? []
+            let real = byFile[name]
+                ?? existing.compactMap { byID[DownloadManager.sanitize($0.songID)] }.first
+            if let real {
+                // 清单命中：先把旧 id 名下的封面 / 歌词 / 写真侧车迁到真实 id，
+                // 再删掉指向同一音频、id 不同的旧索引，最后写带真实 hash 的索引。
+                // 🔴 不迁侧车的话，索引换成真实 id 后 sidecarURL 找不到旧文件，
+                //    用户看到的就是「歌回来了但没图没词」。
+                for old in existing where old.songID != real.id {
+                    Self.copySidecars(from: old.songID, to: real.id, in: metaDir)
                     try? fm.removeItem(at: old.url)
                 }
                 writeIndex(song: real, file: name)
@@ -301,7 +312,7 @@ final class DownloadManager: NSObject, ObservableObject {
             }
 
             // 清单未命中（旧备份没有 songs.json）：已有任意索引指向它就不动，否则按文件名兜底。
-            if let existing = indexesByFile[name], !existing.isEmpty { continue }
+            if !existing.isEmpty { continue }
             let base = (name as NSString).deletingPathExtension
             var title = base
             var artist = "本地文件"
@@ -316,6 +327,20 @@ final class DownloadManager: NSObject, ObservableObject {
                             url: audioDir.appendingPathComponent(name),
                             isLocal: true, source: .local)
             writeIndex(song: song, file: name)
+        }
+    }
+
+    /// 备份恢复时把旧 id 名下的侧车迁到新 id（纯 IO，不碰 @Published）。
+    private static func copySidecars(from oldID: String, to newID: String, in folder: URL) {
+        let fm = FileManager.default
+        let fromBase = sanitize(oldID)
+        let toBase = sanitize(newID)
+        guard fromBase != toBase else { return }
+        for ext in ["art.png", "lrc", "photo.png"] {
+            let from = folder.appendingPathComponent("\(fromBase).\(ext)")
+            let to = folder.appendingPathComponent("\(toBase).\(ext)")
+            guard fm.fileExists(atPath: from.path), !fm.fileExists(atPath: to.path) else { continue }
+            try? fm.copyItem(at: from, to: to)
         }
     }
 
@@ -374,8 +399,21 @@ final class DownloadManager: NSObject, ObservableObject {
     func ensureSidecarsForDownloads() async {
         let songs = LibraryStore.shared.downloads
         for song in songs {
-            await saveSidecars(for: song, onlyIfMissing: true)
+            // 备份清单里的 Song 常常没有时长，酷狗歌词接口会按 duration 匹配候选；
+            // 有本地文件就直接从 AVAsset 读一次真实时长，显著提高恢复后补歌词成功率。
+            var resolved = song
+            if resolved.duration <= 0, let file = localURL(for: song) {
+                resolved.duration = await Self.duration(of: file)
+            }
+            await saveSidecars(for: resolved, onlyIfMissing: true)
         }
+    }
+
+    private static func duration(of url: URL) async -> Double {
+        let asset = AVURLAsset(url: url)
+        guard let seconds = try? await asset.load(.duration).seconds,
+              seconds.isFinite, seconds > 0 else { return 0 }
+        return seconds
     }
 
     /// 侧车文件地址（存在才返回），供 PlayerStore 离线加载用。
@@ -598,6 +636,19 @@ final class DownloadManager: NSObject, ObservableObject {
         apply(DownloadItem(song: song, progress: 1, state: .done, fileName: name))
         let register = { LibraryStore.shared.registerDownload(song) }
         if Thread.isMainThread { register() } else { DispatchQueue.main.async(execute: register) }
+
+        // 🔴 2026-11-17：导入时顺手抽内嵌封面（没有就按歌名生成），存成和下载歌
+        //    同名的侧车。以前导入歌完全没有封面，重启也补不回来。
+        let songID = song.id
+        Task { @MainActor in
+            guard let art = await LocalArtwork.cover(for: destination, title: title),
+                  let data = try? Data(contentsOf: art) else { return }
+            let sidecar = DownloadManager.metadataDirectory()
+                .appendingPathComponent("\(DownloadManager.sanitize(songID)).art.png")
+            try? data.write(to: sidecar, options: .atomic)
+            // bootstrap 会用侧车重建 Song.artworkURL，列表 / 播放器立即有图。
+            DownloadManager.shared.bootstrap()
+        }
         return song
     }
 

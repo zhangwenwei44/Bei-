@@ -65,10 +65,12 @@ struct ImmersivePlayAllButton: View {
 
                 Text("播放全部")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.10, green: 0.11, blue: 0.13))
+                    // 🔴 2026-11-17：原来硬编码近黑色，深色模式下整个按钮文字
+                    //    和深色列表底融为一体（用户截图「播放全部」看不清）。
+                    .foregroundStyle(AppStyle.primaryText)
                 Text("\(count)")
                     .font(.system(size: 15, weight: .regular))
-                    .foregroundStyle(Color(red: 0.67, green: 0.69, blue: 0.72))
+                    .foregroundStyle(AppStyle.secondaryText)
             }
             .contentShape(Rectangle())
         }
@@ -157,7 +159,12 @@ final class ImmersiveHeaderState: ObservableObject {
     /// 顶栏文字/图标色：展开纯白（深色大图）、收起纯黑（浅色毛玻璃）。
     /// 🔴 第二十二轮：改用即时 `navIsDark` 二值，与状态栏白/黑字同一时刻切换，
     ///    不再等 0.12s 去抖。`navFrostOpacity` 仍只管标题渐显这类连续动效。
-    var navContentColor: Color { navIsDark ? .white : .black }
+    /// 🔴 2026-11-17：深色主题下毛玻璃底也是深色，收起后不能把文字切成黑色
+    ///    （用户反馈「上滑后顶栏字体颜色看不清」）。展开态保持白字。
+    var navContentColor: Color { navIsDark || AppStyle.isDarkTheme ? .white : .black }
+
+    /// 状态栏 / UIKit 锚点用的同一判据：展开态或深色主题都必须用白色内容。
+    var navUsesDarkChrome: Bool { navIsDark || AppStyle.isDarkTheme }
 
     /// 列表顶部占位：列表静止时屏幕 y = 大图底边 + 吸顶头高。
     var listPlaceholder: CGFloat {

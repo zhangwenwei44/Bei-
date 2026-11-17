@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import UIKit
+import UniformTypeIdentifiers
 
 // MARK: - 🔴 2026-11-13：我的音乐顶部卡片自定义背景图
 
@@ -361,6 +362,7 @@ private enum KugouSection: String, CaseIterable, Identifiable {
     case created = "自建歌单"
     case fav = "收藏歌单"
     case download = "下载歌曲"
+    case localImport = "本地导入"
     var id: String { rawValue }
     var title: String { rawValue }
 }
@@ -381,12 +383,21 @@ private struct DownloadsList: View {
 
     /// 外部传入已分好组的歌曲（由 KugouLibraryPage 计算，便于 A–Z 索引导航）。
     let groups: [SongGroup]
+    /// 播放时使用的完整队列。nil = 下载列表；本地导入页只播导入的歌。
+    var playQueue: [Song]?
+    var queueTitle: String = "下载歌曲"
     /// 🔴 2026-11-09：搜索无结果时不能用「还没有下载」这个文案。
     var emptyTitle: String = "还没有下载"
     var emptyMessage: String = "在歌曲菜单里选「下载」"
 
-    init(groups: [SongGroup], emptyTitle: String = "还没有下载", emptyMessage: String = "在歌曲菜单里选「下载」") {
+    init(groups: [SongGroup],
+         playQueue: [Song]? = nil,
+         queueTitle: String = "下载歌曲",
+         emptyTitle: String = "还没有下载",
+         emptyMessage: String = "在歌曲菜单里选「下载」") {
         self.groups = groups
+        self.playQueue = playQueue
+        self.queueTitle = queueTitle
         self.emptyTitle = emptyTitle
         self.emptyMessage = emptyMessage
     }
@@ -428,9 +439,9 @@ private struct DownloadsList: View {
                 // 收藏 / 三点作为兄弟按钮（不是嵌套在播放按钮里），
                 // 三者点击区域互不重叠 → 彻底杜绝误触整行播放。
                 Button {
-                    guard let index = library.downloads.firstIndex(where: { $0.id == song.id }) else { return }
-                    store.setQueueOrigin(id: "downloads", title: "下载歌曲")
-        store.play(library.downloads, startAt: index); Haptics.soft()
+                    guard let index = (playQueue ?? library.downloads).firstIndex(where: { $0.id == song.id }) else { return }
+                    store.setQueueOrigin(id: queueTitle == "本地导入" ? "local:import" : "downloads", title: queueTitle)
+        store.play(playQueue ?? library.downloads, startAt: index); Haptics.soft()
                 } label: {
                     HStack(spacing: 12) {
                         CoverImage(url: song.artworkURL,
@@ -604,9 +615,20 @@ private struct KugouLibraryPage: View {
     @AppStorage("aurora.downloadAlphabeticalSort") private var downloadAlphabeticalSort = true
     /// 🔴 2026-11-09：只搜索**当前下载列表**的关键词（不触发网络搜索、不影响其它板块）。
     @State private var downloadQuery = ""
+    /// 🔴 2026-11-17：「本地导入」独立板块自己的搜索词与导入提示。
+    @State private var localImportQuery = ""
+    @State private var localImportNotice: String?
+
+    private static let importContentTypes: [UTType] = {
+        var types: [UTType] = [.audio]
+        for ext in ["mp3", "m4a", "aac", "flac", "wav", "aiff", "aif", "caf", "ogg", "opus", "ape", "wma"] {
+            if let t = UTType(filenameExtension: ext) { types.append(t) }
+        }
+        return types
+    }()
 
     // 🔴 2026-11-10：本地歌曲导入入口已移到「设置」页（用户要求），
-    //    下载歌曲板块只保留搜索框 + 列表，不再放文件选择器。
+    //    本地导入板块另放一个入口，方便导完立刻看到。
 
     private var downloadSearchText: String {
         downloadQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -634,6 +656,29 @@ private struct KugouLibraryPage: View {
             return DownloadsList.makeGroups(source)
         }
         return [SongGroup(letter: "", songs: source)]
+    }
+
+    /// 从「文件」App 导入的歌曲（下载列表里带 local:import: 标记的条目）。
+    private var localImports: [Song] {
+        library.downloads.filter { $0.id.hasPrefix("local:import:") }
+    }
+
+    private var filteredLocalImports: [Song] {
+        let q = localImportQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return localImports }
+        return localImports.filter { song in
+            song.cleanTitle.localizedCaseInsensitiveContains(q)
+            || song.artist.localizedCaseInsensitiveContains(q)
+        }
+    }
+
+    private var localImportGroups: [SongGroup] {
+        let source = filteredLocalImports
+        guard !source.isEmpty else { return [] }
+        if !localImportQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return [SongGroup(letter: "", songs: source)]
+        }
+        return DownloadsList.makeGroups(source)
     }
 
     var body: some View {
@@ -683,9 +728,11 @@ private struct KugouLibraryPage: View {
                         // 🔴 下载列表右侧的 A–Z 快速索引（仅「下载歌曲」板块、开启字母排序、
                         //    且未在搜索时显示 —— 搜索结果是平铺的单组，没有字母可跳）。
                         .overlay(alignment: .trailing) {
-                            if section == .download && downloadAlphabeticalSort
-                                && downloadSearchText.isEmpty && !downloadGroups.isEmpty {
-                                DownloadIndex(letters: downloadGroups.map(\.letter), proxy: proxy)
+                            if (section == .download || section == .localImport)
+                                && downloadAlphabeticalSort
+                                && (section == .download ? downloadSearchText.isEmpty : localImportQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                && !(section == .download ? downloadGroups.isEmpty : localImportGroups.isEmpty) {
+                                DownloadIndex(letters: (section == .download ? downloadGroups : localImportGroups).map(\.letter), proxy: proxy)
                                     .padding(.trailing, 4)
                             }
                         }
@@ -773,6 +820,8 @@ private struct KugouLibraryPage: View {
                     favSection
                 case .download:
                     downloadSection
+                case .localImport:
+                    localImportSection
                 }
             }
             // 🔴 v2.7.7：底部留出迷你播放条的高度 —— 之前最后一行歌单被迷你播放条挡住
@@ -814,6 +863,82 @@ private struct KugouLibraryPage: View {
         DownloadsList(groups: downloadGroups,
                       emptyTitle: downloadSearchText.isEmpty ? "还没有下载" : "没有找到相关歌曲",
                       emptyMessage: downloadSearchText.isEmpty ? "在歌曲菜单里选「下载」" : "换个歌名或歌手试试")
+    }
+
+    /// 🔴 2026-11-17：「下载歌曲」后面新增的本地导入板块 —— 和下载列表分开，
+    ///    导入的歌只在这里播放 / 删除，不再混进下载队列。
+    @ViewBuilder
+    private var localImportSection: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14))
+                .foregroundStyle(AppStyle.tertiaryText)
+            TextField("搜索本地导入的歌曲", text: $localImportQuery)
+                .font(.system(size: 14))
+                .foregroundStyle(AppStyle.primaryText)
+                .submitLabel(.search)
+                .autocorrectionDisabled()
+            if !localImportQuery.isEmpty {
+                Button { localImportQuery = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 36)
+        .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+
+        Button {
+            FilePicker.pick(types: Self.importContentTypes, multiple: true) { urls in
+                let songs = urls.compactMap { DownloadManager.shared.importFile($0) }
+                localImportNotice = songs.isEmpty
+                    ? "没有导入可播放的音频文件"
+                    : "已导入 \(songs.count) 首，已加入本地导入列表"
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "square.and.arrow.down")
+                    .font(.system(size: 14, weight: .semibold))
+                Text("导入本地歌曲")
+                    .font(.system(size: 14, weight: .medium))
+                Spacer()
+            }
+            .foregroundStyle(AppStyle.accent)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(AppStyle.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+
+        if let notice = localImportNotice {
+            HStack(spacing: 8) {
+                Text(notice)
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppStyle.secondaryText)
+                Spacer(minLength: 0)
+                Button { localImportNotice = nil } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 6)
+        }
+
+        DownloadsList(groups: localImportGroups,
+                      playQueue: localImports,
+                      queueTitle: "本地导入",
+                      emptyTitle: localImportQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "还没有导入歌曲" : "没有找到相关歌曲",
+                      emptyMessage: localImportQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "点上方「导入本地歌曲」从「文件」App 挑选音频" : "换个歌名或歌手试试")
     }
 
     // MARK: 🔴 v2.8.3 三个板块
@@ -1080,7 +1205,7 @@ struct KugouPlaylistDetail: View {
         .navigationBarTitleDisplayMode(.inline)
         // 🔴 系统返回按钮的 chevron 取全局 tintColor，逐页改不了色 → 隐藏后自绘。
         .navigationBarBackButtonHidden(true)
-        .compatToolbarDynamicScheme(dark: headerState.navIsDark)
+        .compatToolbarDynamicScheme(dark: headerState.navUsesDarkChrome)
         .kugouNavigationBarBackground(.clear, transparent: true)
         .task { await load() }
         .sheet(isPresented: $showKugouPicker) {

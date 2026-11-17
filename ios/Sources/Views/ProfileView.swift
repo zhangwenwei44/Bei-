@@ -39,7 +39,6 @@ struct ProfileView: View {
     /// QQ 交流群弹层（v2.5.41：启动公告取消后，入口改为设置页这一行）
     @State private var showQQGroup = false
     // MARK: 🔴 2026-11-10 本地歌曲导入（入口从「我的音乐 → 下载歌曲」搬到设置页）
-    @State private var showFileImporter = false
     @State private var importNotice: String?
 
     /// `.audio` 覆盖系统已注册的格式，再按扩展名补上 flac / ape 等系统不一定认的类型。
@@ -304,13 +303,21 @@ struct ProfileView: View {
             // MARK: 🔴 2026-11-10 本地歌曲导入（原「我的音乐 → 下载歌曲」页的入口搬到这里）
             Section {
                 Button {
-                    showFileImporter = true
+                    // 🔴 2026-11-17：SwiftUI .fileImporter 在这台真机上「选中文件 → 打开」
+                    //    不回调（和之前音源导入踩过的坑完全一样）。统一走 FilePicker.pick，
+                    //    UIKit 文档选择器直接 present 在窗口根控制器上。
+                    FilePicker.pick(types: Self.importContentTypes, multiple: true) { urls in
+                        let songs = urls.compactMap { DownloadManager.shared.importFile($0) }
+                        importNotice = songs.isEmpty
+                            ? "没有导入可播放的音频文件"
+                            : "已导入 \(songs.count) 首歌曲，可在「我的音乐 → 下载歌曲 → 本地导入」查看"
+                    }
                 } label: {
                     HStack {
                         Label {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("导入本地歌曲")
-                                Text("从「文件」App 挑选音频，导入后在「我的音乐 → 下载歌曲」播放")
+                                Text("从「文件」App 挑选音频，导入后在「我的音乐 → 本地导入」播放")
                                     .font(.system(size: 11))
                                     .foregroundStyle(AppStyle.tertiaryText)
                             }
@@ -321,22 +328,6 @@ struct ProfileView: View {
                         LucideIcon(icon: .chevronRight, size: 12, color: AppStyle.tertiaryText)
                     }
                     .foregroundStyle(AppStyle.primaryText)
-                }
-                // 🔴 fileImporter 挂在这一行（而不是 List 外层），避开 iOS 15 链式
-                //    sheet / alert 只认最后一个的老坑；与下载歌曲页原实现一致。
-                .fileImporter(isPresented: $showFileImporter,
-                              allowedContentTypes: Self.importContentTypes,
-                              allowsMultipleSelection: true) { result in
-                    switch result {
-                    case .success(let urls):
-                        let songs = urls.compactMap { DownloadManager.shared.importFile($0) }
-                        importNotice = songs.isEmpty
-                            ? "没有导入可播放的音频文件"
-                            : "已导入 \(songs.count) 首歌曲，可在「我的音乐 → 下载歌曲」查看"
-                    case .failure(let error):
-                        importNotice = "导入失败：\(error.localizedDescription)"
-                    }
-                    Haptics.soft()
                 }
             } header: {
                 headerText("本地歌曲")
