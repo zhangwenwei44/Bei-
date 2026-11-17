@@ -697,10 +697,14 @@ struct PlayerView: View {
                 KugouControlsRow()
                     .frame(height: 66)
                     .padding(.horizontal, -10)
+                    // 🔴 2026-11-18：沉浸主题控件行单独下移一点（动作行/进度条不动）。
+                    .offset(y: 8)
             } else {
                 classicDeckControls
                     .frame(height: 54)
                     .padding(.horizontal, -10)
+                    // 🔴 2026-11-18：写真主题控件行跟沉浸主题一样下移一点；经典主题不动。
+                    .offset(y: playerPageTheme == .artistPhoto ? 8 : 0)
             }
         }
         // 🔴 v2.5.45：左右间距与专辑封面齐平（之前固定 15，导致信息区比专辑更宽）
@@ -758,6 +762,7 @@ struct PlayerView: View {
                 } else {
                     Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.white)
                         .offset(x: store.isPlaying ? 0 : 2)
                 }
             }
@@ -2146,6 +2151,8 @@ private struct LyricsBottomBar: View {
     @EnvironmentObject private var store: PlayerStore
     /// 直接订阅同一个 PlaybackProgress 实例，保证进度条随播放实时刷新
     @ObservedObject private var playback = PlayerStore.shared.playback
+    /// 🔴 2026-11-18：写真主题歌词页控件行跟沉浸主题一样下移一点；经典主题不动。
+    @AppStorage("aurora.playerPageTheme") private var playerPageTheme: PlayerPageTheme = .immersiveCover
     @State private var isScrubbing = false
     @State private var scrubValue: Double = 0
 
@@ -2279,6 +2286,8 @@ private struct LyricsBottomBar: View {
                 .buttonStyle(.plain)
             }
             .buttonStyle(.plain)
+            // 🔴 2026-11-18：写真主题歌词页控件行下移一点（进度条不受影响）。
+            .offset(y: playerPageTheme == .artistPhoto ? 8 : 0)
             }   // 🔴 v2.7.1：if !chromeHidden 结束（收起时整块不占位）
         }
         .foregroundStyle(.white)
@@ -3596,6 +3605,9 @@ struct KugouLyricsPage: View {
                         KugouControlsRow()
                             .padding(.horizontal, 24)
                             .padding(.top, 6)
+                            // 🔴 2026-11-18：沉浸主题歌词页控件行单独下移一点
+                            //    （动作行 / 进度条保持原位，只动这一排）。
+                            .offset(y: 8)
                     }
 
                     // 🔴 2026-11-10 用户要求「动作行、进度条、播放控件行往上移点」：

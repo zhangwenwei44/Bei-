@@ -1231,18 +1231,27 @@ final class PlayerStore: ObservableObject {
     }
 
     private func refreshArtwork(for song: Song) {
+        // 🔴 2026-11-18：修「切歌后封面卡住仍显示上一首」。
+        //    loadArtwork 是异步的，加载期间若不清空，界面会一直挂着上一首的图；
+        //    更糟的是新歌无封面时 loadArtwork 返回 nil，旧代码直接 return → 旧图永久残留。
+        //    这里在切到新歌（id 变化）的当场清空 artwork，加载失败也保持空（走兜底图），
+        //    只有真正加载成功才写回。同歌元数据刷新（id 未变）不清空，避免闪一下。
+        let isNewSong = artworkTaskID != song.id
         artworkTaskID = song.id
         let seed = "\(song.artist)-\(song.title)"
+        if isNewSong {
+            artwork = nil
+        }
         currentPalette = ArtworkPaletteEngine.palette(for: nil, seed: seed)
-        // 关键：每首歌必须加载自己的封面。之前这里有个早返回：
-        // if let current = artwork { ... return }
-        // 导致切歌时如果 artwork 已经有值（上一首歌的封面），
-        // 就永远不加载当前歌的封面——所有歌都显示同一张图。
         Task { [weak self] in
             let image = await Self.loadArtwork(for: song)
-            guard let image else { return }
             await MainActor.run { [weak self] in
                 guard let self, self.artworkTaskID == song.id else { return }
+                guard let image else {
+                    // 新歌确实拿不到封面：保持清空状态，绝不沿用上一首的图。
+                    self.artwork = nil
+                    return
+                }
                 self.artwork = image
                 withAnimation(.easeInOut(duration: 0.5)) {
                     self.currentPalette = ArtworkPaletteEngine.palette(for: image, seed: seed)

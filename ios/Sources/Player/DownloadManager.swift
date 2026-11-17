@@ -533,6 +533,8 @@ final class DownloadManager: NSObject, ObservableObject {
         items = restored
         // 🔴 2026-11-17：旧版本地导入歌的渐变兜底图一次性换成唱片图。
         migrateLocalImportArtworkIfNeeded()
+        // 🔴 2026-11-18：已在列表里的本地导入歌一次性补真实歌手 + 网络封面。
+        migrateLocalImportsOnlineIfNeeded()
     }
 
     // MARK: - 查询
@@ -648,6 +650,84 @@ final class DownloadManager: NSObject, ObservableObject {
         removeIDs(Set(items.map(\.id)))
     }
 
+    // MARK: - 🔴 2026-11-18 本地导入歌联网补全（真实歌手 + 网络封面 + 歌词）
+
+    /// 本地导入歌的文件名常常是「歌名-歌手」这类无空格写法，离线解析拆不开、
+    /// 也没有网络封面。这里用文件名（及按 `-`/`_` 拆出的片段）搜索酷狗，命中后
+    /// 把真实的歌名 / 歌手 / hash / 专辑 id 回填索引，并下载网络封面 + 歌词到侧车。
+    /// 结果：歌手名显示在歌名下方（不再是「本地文件」），列表/播放页用上网络封面。
+    /// 纯 IO + 网络，不碰 @Published；调用方负责回主线程 bootstrap。
+    private func enrichLocalImportFromNetwork(_ song: Song, file: String) async -> Song? {
+        guard song.id.hasPrefix("local:import:") else { return nil }
+        let base = (file as NSString).deletingPathExtension
+
+        var keywords: [String] = [song.cleanTitle, base]
+        for sep in [" - ", "-", " – ", "–", " — ", "—", "_-_", "_"] {
+            let parts = base.components(separatedBy: sep)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            for part in parts where !keywords.contains(part) { keywords.append(part) }
+        }
+        keywords = keywords.filter { !$0.isEmpty }
+        guard !keywords.isEmpty else { return nil }
+
+        let blob = base.lowercased()
+        var best: Song?
+        var bestScore = 0
+        for kw in keywords.prefix(6) {
+            guard let results = try? await KugouClient.shared.searchSongs(keyword: kw, limit: 10) else { continue }
+            for cand in results {
+                var score = 0
+                let ct = cand.cleanTitle.lowercased()
+                let ca = cand.artist.lowercased()
+                if !ct.isEmpty && blob.contains(ct) { score += 3 }
+                if !ca.isEmpty && blob.contains(ca) { score += 2 }
+                if !kw.isEmpty && ct.contains(kw.lowercased()) { score += 1 }
+                if score > bestScore { bestScore = score; best = cand }
+            }
+            if bestScore >= 4 { break }
+        }
+        guard let hit = best, bestScore >= 3 else { return nil }
+
+        // 保留本地身份（id / url / 本地标记），只回填网络元数据。
+        var resolved = song
+        resolved.title = hit.cleanTitle.isEmpty ? song.title : hit.cleanTitle
+        resolved.artist = hit.artist.isEmpty ? song.artist : hit.artist
+        resolved.kugouHash = hit.kugouHash
+        resolved.kugouAlbumID = hit.kugouAlbumID
+
+        // 网络封面覆盖兜底/内嵌图；下载失败则保留原侧车（唱片兜底图）。
+        let artDest = DownloadManager.metadataDirectory()
+            .appendingPathComponent("\(DownloadManager.sanitize(song.id)).art.png")
+        if let coverURL = hit.artworkURL,
+           let image = await CoverLoader.download(coverURL),
+           let data = image.pngData() {
+            try? data.write(to: artDest, options: .atomic)
+        }
+
+        // 歌词 / 歌手写真（只补缺失，不重复下载已有封面）。
+        await saveSidecars(for: resolved, onlyIfMissing: true)
+        writeIndex(song: resolved, file: file)
+        return resolved
+    }
+
+    /// 一次性迁移：给已经在列表里的本地导入歌补真实歌手 + 网络封面。
+    private static let localImportOnlineEnrichKey = "aurora.localImportOnlineEnrich.v1"
+
+    private func migrateLocalImportsOnlineIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: Self.localImportOnlineEnrichKey) else { return }
+        let targets = LibraryStore.shared.downloads.filter { $0.id.hasPrefix("local:import:") }
+        guard !targets.isEmpty else { return }
+        UserDefaults.standard.set(true, forKey: Self.localImportOnlineEnrichKey)
+        Task { @MainActor in
+            for song in targets {
+                guard let file = self.fileName(for: song.id) else { continue }
+                _ = await self.enrichLocalImportFromNetwork(song, file: file)
+            }
+            self.bootstrap()
+        }
+    }
+
     // MARK: - 🔴 2026-11-10 从「文件」App 导入
 
     /// 把用户在「文件」App 里选中的音频复制进共享下载目录，并登记成已下载歌曲。
@@ -679,6 +759,9 @@ final class DownloadManager: NSObject, ObservableObject {
         }
 
         // 「歌手 - 歌名」这类文件名尽量拆开；拆不了就整串当歌名。
+        // 🔴 2026-11-18：无空格 `-` 无法可靠判断「歌名-歌手」还是「歌手-歌名」
+        //    （如「你的抱抱-罗百吉」是前者，离线拆会拆反），所以只认带空格分隔符；
+        //    真实歌名 / 歌手统一交给 enrichLocalImportFromNetwork 联网校正。
         var title = base
         var artist = "本地文件"
         for sep in [" - ", " – ", " — ", "_-_"] {
@@ -700,6 +783,7 @@ final class DownloadManager: NSObject, ObservableObject {
 
         // 🔴 2026-11-17：导入时顺手抽内嵌封面（没有就按歌名生成），存成和下载歌
         //    同名的侧车。以前导入歌完全没有封面，重启也补不回来。
+        // 🔴 2026-11-18：紧接着联网补全真实歌手 / 网络封面 / 歌词（离线失败则保留兜底图）。
         let songID = song.id
         Task { @MainActor in
             guard let art = await LocalArtwork.cover(for: destination, title: title),
@@ -707,6 +791,7 @@ final class DownloadManager: NSObject, ObservableObject {
             let sidecar = DownloadManager.metadataDirectory()
                 .appendingPathComponent("\(DownloadManager.sanitize(songID)).art.png")
             try? data.write(to: sidecar, options: .atomic)
+            _ = await self.enrichLocalImportFromNetwork(song, file: name)
             // bootstrap 会用侧车重建 Song.artworkURL，列表 / 播放器立即有图。
             DownloadManager.shared.bootstrap()
         }

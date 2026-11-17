@@ -361,9 +361,11 @@ private struct CardTextShadow: ViewModifier {
 private enum KugouSection: String, CaseIterable, Identifiable {
     case created = "自建歌单"
     case fav = "收藏歌单"
+    // 🔴 2026-11-18：用户要求我的音乐页「下载歌曲」分段显示名改成「我的音乐」。
+    //    rawValue 仍保留 "下载歌曲" 作为 case 标识（内部判断不变），只改展示文案 title。
     case download = "下载歌曲"
     var id: String { rawValue }
-    var title: String { rawValue }
+    var title: String { self == .download ? "我的音乐" : rawValue }
 }
 
 // MARK: - 下载歌曲列表（🔴 v2.8.3：从独立页面改为可内嵌的列表，供「下载歌曲」板块直接展示）
