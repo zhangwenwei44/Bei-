@@ -310,14 +310,14 @@ struct ProfileView: View {
                         let songs = urls.compactMap { DownloadManager.shared.importFile($0) }
                         importNotice = songs.isEmpty
                             ? "没有导入可播放的音频文件"
-                            : "已导入 \(songs.count) 首歌曲，可在「我的音乐 → 下载歌曲 → 本地导入」查看"
+                            : "已导入 \(songs.count) 首歌曲，可在「我的音乐 → 下载歌曲」查看"
                     }
                 } label: {
                     HStack {
                         Label {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("导入本地歌曲")
-                                Text("从「文件」App 挑选音频，导入后在「我的音乐 → 本地导入」播放")
+                                Text("从「文件」App 挑选音频，导入后在「我的音乐 → 下载歌曲」播放")
                                     .font(.system(size: 11))
                                     .foregroundStyle(AppStyle.tertiaryText)
                             }
