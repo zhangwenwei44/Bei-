@@ -648,7 +648,7 @@ struct PlayerView: View {
     private var deckTitleBottom: CGFloat { playerPageTheme == .artistPhoto ? 16 : 10 }
     private var deckLyricBottom: CGFloat { playerPageTheme == .artistPhoto ? 14 : 8 }
     private var deckActionBottom: CGFloat { playerPageTheme == .artistPhoto ? 16 : 10 }
-    private var deckBottomPadding: CGFloat { playerPageTheme == .artistPhoto ? 30 : 8 }
+    private var deckBottomPadding: CGFloat { playerPageTheme == .artistPhoto ? 18 : 8 }
 
     private var classicDeck: some View {
         VStack(spacing: deckSpacing) {
@@ -733,11 +733,38 @@ struct PlayerView: View {
             // 中间三个：上一曲 / 播放暂停 / 下一曲
             HStack(spacing: 34) {
                 classicPrevNextButton(icon: "backward.end.fill") { store.step(-1) }
-                classicPlayPauseButton
+                if playerPageTheme == .artistPhoto {
+                    circledPlayPauseButton
+                } else {
+                    classicPlayPauseButton
+                }
                 classicPrevNextButton(icon: "forward.end.fill") { store.step(1) }
             }
         }
         .frame(maxWidth: .infinity, minHeight: 56)
+    }
+
+    /// 🔴 2026-11-17：歌手写真主题的播放/暂停与歌词页同款 —— 半透明白圆盘 + 描边。
+    ///    经典主题仍用无圆底的 classicPlayPauseButton（用户只要求写真主题改）。
+    private var circledPlayPauseButton: some View {
+        Button { store.toggle(); Haptics.soft() } label: {
+            ZStack {
+                Circle()
+                    .fill(.white.opacity(0.16))
+                    .frame(width: 52, height: 52)
+                    .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 1))
+                if store.isLoading || (store.isBuffering && store.isPlaying) {
+                    ProgressView().tint(.white)
+                } else {
+                    Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 22, weight: .bold))
+                        .offset(x: store.isPlaying ? 0 : 2)
+                }
+            }
+            .frame(width: 64, height: 60)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     /// 模式按钮（裸图标；激活时用主色高亮）
@@ -2049,7 +2076,9 @@ struct LyricsPageView: View {
                     .frame(width: sz.width - 52)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 8)
-                    .padding(.bottom, safeBottom + 6)
+                    // 🔴 2026-11-17：用户要求歌词页的进度条 / 播放控件往上移一点。
+                    //    底部留白加大 → 整条控件上移（安全区仍完整保留）。
+                    .padding(.bottom, safeBottom + 26)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }

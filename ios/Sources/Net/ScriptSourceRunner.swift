@@ -50,6 +50,15 @@ private func jsInt(_ value: JSValue?) -> Int? {
     return Int(d)
 }
 
+/// invoke 的「同步部分是否已执行完」标记。超时回调在另一条线程上读，
+/// 必须加锁；🔴 只有同步部分都没返回（JS 死循环）才能毒化线程池。
+private final class SyncReturnFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    func markReturned() { lock.lock(); value = true; lock.unlock() }
+    var returned: Bool { lock.lock(); defer { lock.unlock() }; return value }
+}
+
 final class ScriptCompletion: NSObject, ScriptDoneBridge {
     private let lock = NSLock()
     private var finished = false
@@ -637,6 +646,11 @@ final class ScriptRuntime {
             let completion = ScriptCompletion()
             nonisolated(unsafe) let lock = NSLock()
             nonisolated(unsafe) var resumed = false
+            /// 🔴 2026-11-17：区分「JS 同步部分卡死」和「网络回包慢」。
+            /// 旧版 invoke 一超时就 markPoisoned + 永久拉黑音源，可实际上脚本
+            /// 同步段早就返回了，只是 lx.request 的网络回调慢 —— 线程池被白白毒化，
+            /// 几首歌之后所有执行器都不可用，必须重启 App 才能恢复。
+            let syncFlag = SyncReturnFlag()
 
             /// 返回 true 表示是本次调用第一次落地（用于区分真超时和迟到回调）。
             @discardableResult
@@ -687,6 +701,8 @@ final class ScriptRuntime {
                 })();
                 """)
                 Log.debug("脚本音源", "「\(self.sourceName)」musicUrl 同步部分执行完毕")
+                // 🔴 同步段已返回 → 后面的等待只是网络回调，线程是健康的。
+                syncFlag.markReturned()
                 if self.context.exception != nil || self.sawException {
                     Log.error("脚本音源", "「\(self.sourceName)」调用期间出现异常，运行时作废")
                     self.invalidate()
@@ -699,10 +715,17 @@ final class ScriptRuntime {
                 // 已经成功/失败过的调用不要再记超时，否则每次慢解析都多一条假告警
                 if resume(nil) {
                     Log.warn("脚本音源", "invoke 超过 \(Int(timeout)) 秒没有返回，按超时处理")
-                    // 卡死的线程杀不掉，标记中毒避免再分配任务给它；
-                    // 并把这条坏脚本记进黑名单，下次直接跳过、不再反复拉起卡死线程。
-                    self?.didTimeout = true
-                    self?.queue.markPoisoned()
+                    // 🔴 2026-11-17：只有「同步段都没返回」才是真的 JS 卡死 ——
+                    // 这时线程杀不掉，标记中毒 + 拉黑脚本，避免继续占用线程。
+                    // 若同步段已正常返回（等的是网络回调），线程完全健康：
+                    // 绝不毒化线程池、绝不永久拉黑，否则几首慢歌就把池耗尽，
+                    // 表现为「播几首就全部失败，重启 App 才好」。
+                    if syncFlag.returned {
+                        Log.warn("脚本音源", "同步段已返回，仅网络回调超时；保留线程池与音源")
+                    } else {
+                        self?.didTimeout = true
+                        self?.queue.markPoisoned()
+                    }
                 }
             }
         }
@@ -851,10 +874,10 @@ final class ScriptSourceRunner: @unchecked Sendable {
 
     // MARK: 熔断
 
-    /// 连续失败次数。表现为一首歌就连续失败时，阈值设低一点。
-    private let failureLimit = 3
-    /// 熔断窗口：只封 60 秒，别一断就是整个运行期——网络抖一下不至于废掉整个音源。
-    private let breakerWindow: TimeInterval = 60
+    /// 连续失败次数。网络抖一下不该立刻废掉音源，放宽到 5 次。
+    private let failureLimit = 5
+    /// 熔断窗口：封 30 秒自动恢复（旧版 60 秒太久，用户以为音源坏了要重启）。
+    private let breakerWindow: TimeInterval = 30
     private var failureCounts: [String: Int] = [:]
     private var trippedAt: [String: Date] = [:]
     private let failureLock = NSLock()
@@ -886,10 +909,27 @@ final class ScriptSourceRunner: @unchecked Sendable {
         return failureCounts[source.id, default: 0] >= failureLimit
     }
 
+    /// 🔴 2026-11-17：给音源体检用 —— 熔断中的音源只是暂时不可用，
+    /// 体检必须跳过（否则探针必然失败 → 被误判「无用」自动关闭）。
+    func isTripped(id: String) -> Bool {
+        failureLock.lock()
+        defer { failureLock.unlock() }
+        guard let tripped = trippedAt[id] else { return false }
+        if Date().timeIntervalSince(tripped) > breakerWindow {
+            trippedAt[id] = nil
+            failureCounts[id] = 0
+            return false
+        }
+        return failureCounts[id, default: 0] >= failureLimit
+    }
+
     /// 音源改动后（或用户手动重试）把熔断状态清掉。
     func resetFailures() {
         failureLock.lock()
         failureCounts.removeAll()
+        // 🔴 2026-11-17：以前只清计数、不清 trippedAt，手动「重试」后
+        // 音源仍处于熔断窗口，看起来像点了没反应。
+        trippedAt.removeAll()
         failureLock.unlock()
         // 重置时也清掉「初始化超时」黑名单，让用户手动重试能真正重新尝试。
         brokenLock.lock()

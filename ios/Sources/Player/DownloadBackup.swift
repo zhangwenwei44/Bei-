@@ -124,7 +124,10 @@ enum DownloadBackup {
     /// 先在本机生成完整备份目录，再打包成**单个 zip**。
     /// 单文件才能用系统原生的「导出 / 存储到文件」让用户选目标文件夹，
     /// 这是绕开 `UTType.folder` 文档选择器在部分 iOS 版本上不回调的关键。
-    static func createArchive() throws -> (archive: URL, summary: Summary) {
+    /// 🔴 2026-11-17：打包前先补齐缺失的封面/歌词侧车，保证备份本身就带元数据；
+    ///    并在 zip 根额外写一份 `sidecars.json`（base64），元数据目录丢失时也能还原。
+    static func createArchive() async throws -> (archive: URL, summary: Summary) {
+        await DownloadManager.shared.ensureSidecarsForDownloads()
         let fm = FileManager.default
         let local = localBackupDirectory()
         try fm.createDirectory(at: local, withIntermediateDirectories: true)
@@ -142,6 +145,25 @@ enum DownloadBackup {
         let songList = LibraryStore.shared.downloads
         if let data = try? JSONEncoder().encode(songList) {
             try? data.write(to: folder.appendingPathComponent("songs.json"), options: .atomic)
+        }
+
+        // 🔴 2026-11-17：封面 / 歌词 / 写真再以 base64 写一份到备份根。
+        //    正常备份 metadata/ 里已经有这些文件；这一份是双保险 —— 旧版备份
+        //    或用户手动整理过 zip 导致 metadata 丢失时，恢复端仍能把图/词写回去。
+        var sidecars: [String: [String: String]] = [:]
+        let metaDir = DownloadManager.metadataDirectory()
+        for song in songList {
+            let base = DownloadManager.sanitize(song.id)
+            var entry: [String: String] = [:]
+            for (key, ext) in [("art", "art.png"), ("lyrics", "lrc"), ("photo", "photo.png")] {
+                if let data = try? Data(contentsOf: metaDir.appendingPathComponent("\(base).\(ext)")) {
+                    entry[key] = data.base64EncodedString()
+                }
+            }
+            if !entry.isEmpty { sidecars[base] = entry }
+        }
+        if let data = try? JSONSerialization.data(withJSONObject: sidecars) {
+            try? data.write(to: folder.appendingPathComponent("sidecars.json"), options: .atomic)
         }
 
         var files: [(relativePath: String, url: URL)] = []
@@ -186,6 +208,27 @@ enum DownloadBackup {
             }
         }
         let summary = try restore(from: root)
+
+        // 🔴 2026-11-17：先还原 base64 侧车双保险（只补缺失，不覆盖已有）；
+        //    这样即使备份里的 metadata/ 不完整，下面的 rebuildIndexes 也能
+        //    按 songID 找到对应的封面 / 歌词 / 写真。
+        for candidate in [root.appendingPathComponent("sidecars.json"),
+                          temp.appendingPathComponent("sidecars.json")] {
+            guard let data = try? Data(contentsOf: candidate),
+                  let map = try? JSONSerialization.jsonObject(with: data) as? [String: [String: String]]
+            else { continue }
+            let targetDir = DownloadManager.metadataDirectory()
+            for (base, entry) in map {
+                for (key, ext) in [("art", "art.png"), ("lyrics", "lrc"), ("photo", "photo.png")] {
+                    guard let encoded = entry[key], let payload = Data(base64Encoded: encoded) else { continue }
+                    let target = targetDir.appendingPathComponent("\(base).\(ext)")
+                    if !fm.fileExists(atPath: target.path) {
+                        try? payload.write(to: target, options: .atomic)
+                    }
+                }
+            }
+            break
+        }
 
         // 🔴 2026-11-16：音频与元数据已拷回，但 `bootstrap()` 只认索引 json。
         //    这里读备份清单，以磁盘上的音频文件为准把缺失索引全部补齐；

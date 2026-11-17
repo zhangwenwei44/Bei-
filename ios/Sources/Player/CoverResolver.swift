@@ -150,22 +150,32 @@ enum LocalArtwork {
         return folder
     }()
 
-    /// 读音频文件的内嵌封面；没有就按歌名生成一张带首字的图。
-    static func cover(for fileURL: URL, title: String) async -> URL? {
+    /// 读音频文件的内嵌封面；没有就用用户指定的「蓝色唱片」兜底图。
+    /// - Parameter forceRefresh: true = 忽略 Caches 里的旧图重新生成
+    ///   （用于把旧版「歌名首字渐变」兜底一次性换成新图）。
+    static func cover(for fileURL: URL, title: String, forceRefresh: Bool = false) async -> URL? {
         let destination = directory.appendingPathComponent("\(stableKey(for: fileURL)).jpg")
-        if FileManager.default.fileExists(atPath: destination.path) {
+        if !forceRefresh, FileManager.default.fileExists(atPath: destination.path) {
             return destination
         }
-        let image = await extract(from: fileURL) ?? render(title: title)
-        guard let data = image.jpegData(compressionQuality: 0.85) else { return nil }
+        let image = await extract(from: fileURL) ?? fallbackImage()
+        guard let data = image?.jpegData(compressionQuality: 0.85) else { return nil }
         try? data.write(to: destination, options: .atomic)
         return destination
     }
+
+    /// 🔴 2026-11-17：用户指定的本地导入兜底图（Assets.xcassets/LocalImportFallback）。
+    static func fallbackImage() -> UIImage? { UIImage(named: "LocalImportFallback") }
 
     private static func stableKey(for url: URL) -> String {
         var hash: UInt64 = 5381
         for byte in url.path.utf8 { hash = (hash &* 33) &+ UInt64(byte) }
         return String(hash, radix: 16)
+    }
+
+    /// 读音频文件里内嵌的封面（备份恢复后没有图时优先从音频本身捞）。
+    static func extractEmbeddedArtwork(from fileURL: URL) async -> UIImage? {
+        await extract(from: fileURL)
     }
 
     private static func extract(from fileURL: URL) async -> UIImage? {

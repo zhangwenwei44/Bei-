@@ -399,12 +399,50 @@ final class DownloadManager: NSObject, ObservableObject {
     func ensureSidecarsForDownloads() async {
         let songs = LibraryStore.shared.downloads
         for song in songs {
-            // 备份清单里的 Song 常常没有时长，酷狗歌词接口会按 duration 匹配候选；
-            // 有本地文件就直接从 AVAsset 读一次真实时长，显著提高恢复后补歌词成功率。
+            // 🔴 2026-11-17：备份恢复后「有歌没图没词」的补强。
+            //    旧备份 / 索引丢失时 Song 没有 hash，单靠 saveSidecars 的
+            //    kg:<hash> 反查永远拿不到封面和歌词；这里先做两件事：
+            //    ① 从本地音频里直接抽内嵌封面（下载来的 mp3 大多带 ID3 图）；
+            //    ② 没有 hash 时按「歌手 + 歌名」搜一次酷狗，把 hash / 专辑 id
+            //       补回索引，后续歌词 / 封面 / 写真就都能正常反查。
             var resolved = song
+            let folder = DownloadManager.metadataDirectory()
+            let base = DownloadManager.sanitize(song.id)
+            let artDest = folder.appendingPathComponent("\(base).art.png")
+            let lrcDest = folder.appendingPathComponent("\(base).lrc")
+
+            // 恢复的歌 duration 常为 0，酷狗歌词按 duration 匹配候选；先读真实时长。
             if resolved.duration <= 0, let file = localURL(for: song) {
                 resolved.duration = await Self.duration(of: file)
             }
+
+            // ① 内嵌封面兜底（不需要网络）
+            if !FileManager.default.fileExists(atPath: artDest.path),
+               let file = localURL(for: song),
+               let embedded = await LocalArtwork.extractEmbeddedArtwork(from: file),
+               let data = embedded.pngData() {
+                try? data.write(to: artDest, options: .atomic)
+            }
+
+            // ② hash 缺失时按歌名搜一次，补回索引
+            if resolved.kugouHash.isEmpty, !resolved.cleanTitle.isEmpty,
+               (!FileManager.default.fileExists(atPath: artDest.path)
+                || !FileManager.default.fileExists(atPath: lrcDest.path)) {
+                let keyword = resolved.artist.isEmpty
+                    ? resolved.cleanTitle
+                    : "\(resolved.artist) \(resolved.cleanTitle)"
+                if let found = try? await KugouClient.shared.searchSongs(keyword: keyword, limit: 10),
+                   let best = found.first(where: { $0.cleanTitle.localizedCaseInsensitiveContains(resolved.cleanTitle) })
+                        ?? found.first {
+                    resolved.kugouHash = best.kugouHash
+                    resolved.kugouAlbumID = best.kugouAlbumID
+                    if resolved.artworkURL == nil { resolved.artworkURL = best.artworkURL }
+                    if let name = fileName(for: song.id) {
+                        writeIndex(song: resolved, file: name)
+                    }
+                }
+            }
+
             await saveSidecars(for: resolved, onlyIfMissing: true)
         }
     }
@@ -425,6 +463,27 @@ final class DownloadManager: NSObject, ObservableObject {
     func localArtworkURL(for song: Song) -> URL? { sidecarURL("art.png", for: song.id) }
     func localLyricsURL(for song: Song) -> URL? { sidecarURL("lrc", for: song.id) }
     func localArtistPhotoURL(for song: Song) -> URL? { sidecarURL("photo.png", for: song.id) }
+
+    /// 🔴 2026-11-17：一次性把旧版「歌名首字渐变」本地导入兜底换成用户指定的唱片图。
+    private static let localFallbackMigrationKey = "aurora.localImportFallback.v1"
+
+    private func migrateLocalImportArtworkIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: Self.localFallbackMigrationKey) else { return }
+        UserDefaults.standard.set(true, forKey: Self.localFallbackMigrationKey)
+        let targets = LibraryStore.shared.downloads.filter { $0.id.hasPrefix("local:import:") }
+        guard !targets.isEmpty else { return }
+        Task { @MainActor in
+            for song in targets {
+                guard let file = self.localURL(for: song) else { continue }
+                guard let art = await LocalArtwork.cover(for: file, title: song.title, forceRefresh: true),
+                      let data = try? Data(contentsOf: art) else { continue }
+                let sidecar = DownloadManager.metadataDirectory()
+                    .appendingPathComponent("\(DownloadManager.sanitize(song.id)).art.png")
+                try? data.write(to: sidecar, options: .atomic)
+            }
+            self.bootstrap()
+        }
+    }
 
     /// 启动时调用：重建下载列表。
     /// 优先从磁盘 .json 索引直接重建 Song 列表（绕过 LibraryStore 持久化可能不一致的问题），
@@ -472,6 +531,8 @@ final class DownloadManager: NSObject, ObservableObject {
         var restored = alive.map { DownloadItem(song: $0, progress: 1, state: .done, fileName: fileName(for: $0.id)) }
         restored.append(contentsOf: items.filter { $0.state.isActive })
         items = restored
+        // 🔴 2026-11-17：旧版本地导入歌的渐变兜底图一次性换成唱片图。
+        migrateLocalImportArtworkIfNeeded()
     }
 
     // MARK: - 查询
@@ -693,7 +754,7 @@ final class DownloadManager: NSObject, ObservableObject {
         return fromPath.isEmpty ? "mp3" : fromPath
     }
 
-    private static func sanitize(_ name: String) -> String {
+    static func sanitize(_ name: String) -> String {
         let invalid = CharacterSet(charactersIn: "/\\:*?\"<>|")
         let cleaned = name.components(separatedBy: invalid).joined(separator: "_")
         return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)

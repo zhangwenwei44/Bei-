@@ -537,7 +537,7 @@ struct DownloadCenterView: View {
         Task { @MainActor in
             let outcome = await Task.detached(priority: .userInitiated) { () -> BackupOutcome in
                 do {
-                    let (archive, summary) = try DownloadBackup.createArchive()
+                    let (archive, summary) = try await DownloadBackup.createArchive()
                     let text = "已生成备份：\(summary.songs) 首歌、\(summary.files) 个文件（\(summary.sizeText)）。"
                     return BackupOutcome(text: text, archivePath: archive.path, succeeded: true)
                 } catch {

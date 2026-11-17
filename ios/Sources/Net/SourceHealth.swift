@@ -35,6 +35,9 @@ final class SourceHealth: ObservableObject {
     private let ttl: TimeInterval = 10 * 60
     private var checkedAt: [String: Date] = [:]
     private var inflight = Set<String>()
+    /// 🔴 2026-11-17：连续体检失败次数。网络抖动 / 熔断期的一次失败不能
+    /// 直接把音源自动关掉（用户反馈「播几首歌音源就被关闭，重启才好」）。
+    private var consecutiveBad: [String: Int] = [:]
     /// 🔴 只保护 checkedAt / inflight 这两个后台线程也会碰的状态。
     /// ⚠️ 绝不能在这把锁的保护范围内写 @Published（会引发上面说的递归死锁）。
     private let lock = NSLock()
@@ -158,6 +161,14 @@ final class SourceHealth: ObservableObject {
                 set(.unknown, for: source.id)
                 continue
             }
+            // 🔴 2026-11-17：熔断中的音源只是「暂时不可用」（播几首失败后进入
+            // 30 秒冷却），此时探针必然失败。必须跳过并保持原开关状态，
+            // 否则一次网络抖动就把音源永久自动关掉，只能重启 App 恢复。
+            if ScriptSourceRunner.shared.isTripped(id: source.id) {
+                Log.warn("音源", "「\(source.name)」处于熔断冷却期，体检跳过并保持原状态")
+                set(.unknown, for: source.id)
+                continue
+            }
             // 先记一条「开始检测」，这样万一卡住，日志最后一行就能指出卡在哪个音源
             Log.info("音源", "开始检测「\(source.name)」")
             let ok = await resolveProbe(source)
@@ -165,14 +176,17 @@ final class SourceHealth: ObservableObject {
             set(result, for: source.id)
             lock.lock()
             checkedAt[source.id] = Date()
+            if ok { consecutiveBad[source.id] = 0 }
+            else { consecutiveBad[source.id, default: 0] += 1 }
+            let badStreak = consecutiveBad[source.id, default: 0]
             lock.unlock()
-            // 先只改内存（UI 立刻反映开关变化），整批跑完再统一落盘一次。
-            // 🔴 @Published 只能在主线程写，所以用 MainActor.run 同步等它落定，
-            // 否则后面 persistNow 可能把「开关还没改」的旧值写进磁盘。
+            // 🔴 连续 3 次体检都失败才自动关闭；单次失败只标红点，不动开关。
             let sourceID = source.id
-            let shouldEnable = ok
-            await MainActor.run {
-                SourceStore.shared.setEnabled(shouldEnable, id: sourceID, save: false)
+            let action: Bool? = ok ? true : (badStreak >= 3 ? false : nil)
+            if let shouldEnable = action {
+                await MainActor.run {
+                    SourceStore.shared.setEnabled(shouldEnable, id: sourceID, save: false)
+                }
             }
             Log.info("音源", "「\(source.name)」体检结果：\(ok ? "可用" : "无用")")
         }
