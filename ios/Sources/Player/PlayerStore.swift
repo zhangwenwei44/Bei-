@@ -1287,10 +1287,16 @@ final class PlayerStore: ObservableObject {
            let img = UIImage(contentsOfFile: local.path) {
             return img
         }
-        // 榜单歌曲不带封面地址，先按专辑 id 联网补一次
+        // 榜单歌曲不带封面地址，先按专辑 id / hash 联网补一次
         var url = song.artworkURL
         if url == nil {
             url = await CoverResolver.shared.resolveCover(for: song.coverFallbackKeys)
+        }
+        // 🔴 2026-11-18：resolveCover 三路全失败（第三方音源无 hash / hash<16 位反查不了）
+        //    时，最后按「歌手+歌名」搜索补真实封面，避免播放页只剩取色渐变。
+        //    带缓存+负缓存，切歌来回不会反复搜索。
+        if url == nil {
+            url = await CoverResolver.shared.resolveCoverByTitle(artist: song.artist, title: song.title)
         }
         if let url {
             // 🔴 播放页是全场最大的封面（沉浸封面主题全屏铺 ~1179px@3x），必须取高清：

@@ -197,21 +197,26 @@ struct PlayerView: View {
                                             hash: store.current?.kugouHash ?? "")
                             .frame(width: size.width, height: size.height)
                             .clipped()
-                            // 🔴 2026-11-18（二改）：用户反馈写真顶部白线仍在。
-                            //    PIL 逐行量化确认白线在【物理屏幕最顶端 y=0~1】（浅灰 147,148,151），
-                            //    不是状态栏下沿 —— 上一轮半透明渐变（0.5）压不住这条 1~2px 发丝线。
-                            //    改成顶端一小段【不透明实色】直接盖死 y=0，下面再接渐变渐隐，
-                            //    既彻底消线，又与写真顶部深色自然衔接、不留硬边。
+                            // 🔴 2026-11-18（三改）：写真顶部遮罩平滑化。
+                            //    上一轮用 4pt 不透明实色(0.94)+下层 0.62 渐变，PIL 实测
+                            //    y=0~9 是纯黑(8,8,8)、y=12 突然跳到(52,52,52) —— 形成一条明显黑线。
+                            //    改成【单条连续渐变】：顶部 0.72 足够压住物理顶端 y=0 的浅灰发丝线，
+                            //    再多级平滑降到 0，全程无实色硬边、不跳变，既没白线也没黑线。
+                            //    多色停靠点模拟 ease-out（iOS15 兼容，不用 locations）。
                             .overlay(alignment: .top) {
-                                VStack(spacing: 0) {
-                                    Color.black.opacity(0.94)
-                                        .frame(height: 4)
-                                    LinearGradient(
-                                        colors: [Color.black.opacity(0.62), Color.black.opacity(0)],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                }
+                                LinearGradient(
+                                    colors: [
+                                        Color.black.opacity(0.72),
+                                        Color.black.opacity(0.56),
+                                        Color.black.opacity(0.40),
+                                        Color.black.opacity(0.26),
+                                        Color.black.opacity(0.14),
+                                        Color.black.opacity(0.06),
+                                        Color.black.opacity(0)
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
                                 .frame(height: win.safeTop + 14)
                                 .allowsHitTesting(false)
                             }
@@ -2008,22 +2013,25 @@ struct LyricsPageView: View {
             .frame(width: sz.width, height: sz.height)
             .clipped()
             .ignoresSafeArea()
-            // 🔴 2026-11-18（二改）：用户反馈写真顶部白线仍在。PIL 逐行量化确认白线在
-            //    【物理屏幕最顶端 y=0~1】（浅灰 147,148,151），不是状态栏下沿 —— 上一轮
-            //    半透明渐变（0.5）盖不住这条 1~2px 发丝线。改成顶端 4pt 不透明实色直接
-            //    盖死 y=0，下面接渐变渐隐，既彻底消线又不留硬边。主播放页同款。
-            //    用不带 locations 的 LinearGradient（项目红线：带 locations 的是 iOS16+）。
+            // 🔴 2026-11-18（三改）：写真顶部遮罩平滑化，与主播放页同款。
+            //    上一轮 4pt 不透明实色(0.94)+下层 0.62 渐变在 y≈12px 处硬跳变 = 明显黑线。
+            //    改成单条连续渐变：顶部 0.72 压住 y=0 浅灰发丝线，多级平滑降到 0，
+            //    全程无实色硬边，既没白线也没黑线。不带 locations（iOS15 兼容）。
             .overlay(alignment: .top) {
                 if showArtistPhoto {
-                    VStack(spacing: 0) {
-                        Color.black.opacity(0.94)
-                            .frame(height: 4)
-                        LinearGradient(
-                            colors: [Color.black.opacity(0.62), Color.black.opacity(0)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    }
+                    LinearGradient(
+                        colors: [
+                            Color.black.opacity(0.72),
+                            Color.black.opacity(0.56),
+                            Color.black.opacity(0.40),
+                            Color.black.opacity(0.26),
+                            Color.black.opacity(0.14),
+                            Color.black.opacity(0.06),
+                            Color.black.opacity(0)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
                     .frame(height: safeTop + 14)
                     .allowsHitTesting(false)
                 }
