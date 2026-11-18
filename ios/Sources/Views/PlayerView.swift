@@ -665,12 +665,13 @@ struct PlayerView: View {
         return max(12, (w - side) / 2)
     }
 
-    /// 🔴 2026-11-17：写真主题拉大各块上下间距；deck 底部留白同步加大，
-    ///    把整块（含播放控件）从贴底位置往上提。
-    private var deckSpacing: CGFloat { playerPageTheme == .artistPhoto ? 10 : 6 }
-    private var deckTitleBottom: CGFloat { playerPageTheme == .artistPhoto ? 16 : 10 }
-    private var deckLyricBottom: CGFloat { playerPageTheme == .artistPhoto ? 14 : 8 }
-    private var deckActionBottom: CGFloat { playerPageTheme == .artistPhoto ? 16 : 10 }
+    /// 🔴 2026-11-18：用户要求写真主题「歌曲名 / 歌词 / 动作行上下间距改小一点」——
+    ///    四项间距从 10/16/14/16 收回到 8/12/10/12（仍略大于经典的 6/10/8/10）。
+    ///    deckBottomPadding 保持 18 不动（它决定整块上移量，用户没要求改）。
+    private var deckSpacing: CGFloat { playerPageTheme == .artistPhoto ? 8 : 6 }
+    private var deckTitleBottom: CGFloat { playerPageTheme == .artistPhoto ? 12 : 10 }
+    private var deckLyricBottom: CGFloat { playerPageTheme == .artistPhoto ? 10 : 8 }
+    private var deckActionBottom: CGFloat { playerPageTheme == .artistPhoto ? 12 : 10 }
     private var deckBottomPadding: CGFloat { playerPageTheme == .artistPhoto ? 18 : 8 }
 
     private var classicDeck: some View {
@@ -1695,6 +1696,8 @@ private struct QualityPill: View {
 private struct PlayButton: View {
     @EnvironmentObject private var store: PlayerStore
     @State private var pulse = false
+    /// 🔴 2026-11-18：圆盘直径，写真主题歌词页传更大值（用户要求播放暂停圆加大一点）。
+    var diameter: CGFloat = 52
 
     var body: some View {
         Button {
@@ -1704,7 +1707,7 @@ private struct PlayButton: View {
             ZStack {
                 Circle()
                     .fill(.white.opacity(0.16))
-                    .frame(width: 52, height: 52)
+                    .frame(width: diameter, height: diameter)
                     .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 1))
                     // 🔴 v2.7.0：圆圈**恒定可见**。
                     // 旧写法是 `.opacity(pulse ? 0 : 0.55)` —— 播放中 pulse=true
@@ -1952,6 +1955,8 @@ struct LyricsPageView: View {
     var onEnterLandscape: (() -> Void)? = nil
     /// 🔴 v2.6.2：歌词页歌手写真背景开关（设置页可关，默认开）
     @AppStorage("aurora.lyricsArtistPhoto") private var showArtistPhoto: Bool = true
+    /// 🔴 2026-11-18：写真主题歌词页「全屏按钮上移一点」，其余主题不动。
+    @AppStorage("aurora.playerPageTheme") private var playerPageTheme: PlayerPageTheme = .immersiveCover
     /// 🔴 v2.7.1：沉浸模式 —— 收起时进度条 + 播放控件 + **顶栏的返回/横屏按钮**
     /// 一起隐藏（用户要求），只留底部的展开按钮可以恢复。
     @State private var chromeHidden = false
@@ -2086,6 +2091,8 @@ struct LyricsPageView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    // 🔴 2026-11-18：用户要求写真主题歌词页「全屏按钮上移一点」，仅写真生效。
+                    .offset(y: playerPageTheme == .artistPhoto ? -8 : 0)
                     // 🔴 v2.7.1：沉浸模式时顶栏按钮一起隐藏
                     .opacity(chromeHidden ? 0 : 1)
                     .allowsHitTesting(!chromeHidden)
@@ -2269,6 +2276,8 @@ private struct LyricsBottomBar: View {
                     .foregroundStyle(.white.opacity(0.78))
                     .frame(minWidth: 38, alignment: .trailing)
             }
+            // 🔴 2026-11-18：用户要求写真主题歌词页「进度条上移一点」，仅写真生效。
+            .offset(y: playerPageTheme == .artistPhoto ? -8 : 0)
 
             // 控制键：上一首 / 播放 / 下一首（与播放页同款 PlayButton，白字白圈，任意背景可见）
             // 🔴 v2.7.0：左右两侧加「顺序模式」和「播放列表」按钮（与播放页一致）。
@@ -2295,7 +2304,7 @@ private struct LyricsBottomBar: View {
                         .frame(width: 56, height: 52)
                 }
                 Spacer(minLength: 0)
-                PlayButton()
+                PlayButton(diameter: playerPageTheme == .artistPhoto ? 62 : 52)
                 Spacer(minLength: 0)
                 Button { store.step(1) } label: {
                     Image(systemName: "forward.end.fill")

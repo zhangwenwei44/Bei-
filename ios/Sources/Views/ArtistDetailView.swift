@@ -863,10 +863,14 @@ struct ArtistDetailView: View {
                 return a == cleaned || a.contains(cleaned) || cleaned.contains(a)
             }
 
-            let existingIDs = Set(songs.map(\.id))
-            filtered.removeAll { existingIDs.contains($0.id) }
-
+            // 🔴 2026-11-18：修「歌手页进播放页返回后歌曲列表空白、拉不到歌曲」。
+            //    原逻辑在整批刷新(page=1)时也用旧 songs 去重：从播放页返回后 .task 重跑，
+            //    旧 songs 仍在，新拉的第一页全是旧歌 → 被 removeAll 删光 → songs=[] → "暂时没找到歌曲"
+            //    （而 albums 从 pageSongs 生成、不过滤，所以截图里还显示「专辑 10」）。
+            //    去重只应在【翻页 append】时做；整批刷新一律用新结果整体替换。
             if append {
+                let existingIDs = Set(songs.map(\.id))
+                filtered.removeAll { existingIDs.contains($0.id) }
                 songs.append(contentsOf: filtered)
             } else {
                 songs = filtered
@@ -1169,7 +1173,12 @@ private struct ArtistHeroLayer: UIViewRepresentable {
             //    锚点已不在当前栈顶页面里，强制摘掉浮层，杜绝返回后残留。
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
                 guard let self, self.heroView != nil, !self.popSliding else { return }
-                if self.window == nil || !self.isAnchorOnCurrentTopPage {
+                // 🔴 2026-11-18：修「歌手页进全屏播放页、返回后大图空白」。
+                //    present fullScreenCover 时底层视图 window 变 nil、topViewController 临时变成
+                //    播放页 VC —— 旧判据(window==nil || !isAnchorOnCurrentTopPage)把浮层当「已离开」
+                //    拆掉，removeHeroLayer 里 tornDown=true 后返回永不重装 → 大图永久空白。
+                //    全屏播放页是 present、不是 pop：歌手页 VC 仍在 nav 栈里，用「宿主是否还在栈」判定。
+                if !self.isAnchorInNavStack {
                     self.removeHeroLayer()
                 }
             }
@@ -1181,12 +1190,11 @@ private struct ArtistHeroLayer: UIViewRepresentable {
                 guard let self else { hero?.removeFromSuperview(); return }
                 self.dismantleScheduled = false
                 if self.startPopSlideIfNeeded() || self.popSliding { return }
-                // 🔴 强判据：hostVC 必须仍在栈里且确实是栈顶，否则一律销毁。
-                //    只凭 `window != nil && isHostOnTop` 会在 pop 后误复活。
-                if self.window != nil,
-                   let nav = self.navController, let host = self.hostVC,
-                   nav.viewControllers.contains(where: { $0 === host }),
-                   nav.topViewController === host {
+                // 🔴 2026-11-18：旧判据要求 window!=nil 且是栈顶 —— present 全屏播放页时
+                //    锚点 window 变 nil，被误判为离开 → 拆浮层 → 返回后大图永久空白。
+                //    改用「宿主 VC 是否仍在导航栈」：present 只是盖住、不弹栈，仍保留浮层；
+                //    真正 pop 才会把 hostVC 移出栈，此时才拆。
+                if self.isAnchorInNavStack {
                     self.restoreHeroBelowBar()
                     self.applyFrame()
                     return
@@ -1275,9 +1283,12 @@ private struct ArtistHeroLayer: UIViewRepresentable {
 
         /// 🔴 第二十八轮：只看锚点是否还在当前栈顶页面的视图树里，
         ///    不依赖可能已释放的 hostVC，也不带 `return true` 的乐观兜底。
-        private var isAnchorOnCurrentTopPage: Bool {
-            guard let nav = navController, let top = nav.topViewController else { return false }
-            return isDescendant(of: top.view)
+        /// 🔴 2026-11-18：宿主 VC 是否仍在导航栈里（不要求栈顶、不依赖 window）。
+        /// present 全屏播放页时歌手页被盖住、window 变 nil，但 VC 仍在栈里 —— 此时绝不能拆浮层，
+        /// 否则返回后 tornDown=true 永不重装 = 大图永久空白。真正 pop 才移出栈。
+        private var isAnchorInNavStack: Bool {
+            guard let nav = navController, let host = hostVC else { return false }
+            return nav.viewControllers.contains { $0 === host }
         }
 
         /// 低频轮询：pop 转场期间就把旧大图藏掉，用户完全看不到残留。
