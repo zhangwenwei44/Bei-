@@ -197,15 +197,22 @@ struct PlayerView: View {
                                             hash: store.current?.kugouHash ?? "")
                             .frame(width: size.width, height: size.height)
                             .clipped()
-                            // 🔴 2026-11-18：主播放页写真顶部同样盖一层深色渐变，
-                            //    遮住状态栏交界处的浅色发丝线（歌词页同款修法）。
+                            // 🔴 2026-11-18（二改）：用户反馈写真顶部白线仍在。
+                            //    PIL 逐行量化确认白线在【物理屏幕最顶端 y=0~1】（浅灰 147,148,151），
+                            //    不是状态栏下沿 —— 上一轮半透明渐变（0.5）压不住这条 1~2px 发丝线。
+                            //    改成顶端一小段【不透明实色】直接盖死 y=0，下面再接渐变渐隐，
+                            //    既彻底消线，又与写真顶部深色自然衔接、不留硬边。
                             .overlay(alignment: .top) {
-                                LinearGradient(
-                                    colors: [Color.black.opacity(0.5), Color.black.opacity(0)],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                                .frame(height: win.safeTop + 10)
+                                VStack(spacing: 0) {
+                                    Color.black.opacity(0.94)
+                                        .frame(height: 4)
+                                    LinearGradient(
+                                        colors: [Color.black.opacity(0.62), Color.black.opacity(0)],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                }
+                                .frame(height: win.safeTop + 14)
                                 .allowsHitTesting(false)
                             }
                             .allowsHitTesting(false)
@@ -2001,19 +2008,23 @@ struct LyricsPageView: View {
             .frame(width: sz.width, height: sz.height)
             .clipped()
             .ignoresSafeArea()
-            // 🔴 2026-11-18：写真主题顶部与系统状态栏交界仍有一条浅色发丝线 ——
-            //    原来的 2pt 实色条只盖住 y=0 附近，白线实际在状态栏下沿(约 y=44~59)，
-            //    所以没盖住。改成覆盖整个状态栏高度的深色渐变（顶部深、向下渐隐），
-            //    既遮住交界处任意位置的发丝线，又和写真自带的顶部遮罩自然衔接、不留硬边。
+            // 🔴 2026-11-18（二改）：用户反馈写真顶部白线仍在。PIL 逐行量化确认白线在
+            //    【物理屏幕最顶端 y=0~1】（浅灰 147,148,151），不是状态栏下沿 —— 上一轮
+            //    半透明渐变（0.5）盖不住这条 1~2px 发丝线。改成顶端 4pt 不透明实色直接
+            //    盖死 y=0，下面接渐变渐隐，既彻底消线又不留硬边。主播放页同款。
             //    用不带 locations 的 LinearGradient（项目红线：带 locations 的是 iOS16+）。
             .overlay(alignment: .top) {
                 if showArtistPhoto {
-                    LinearGradient(
-                        colors: [Color.black.opacity(0.5), Color.black.opacity(0)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: safeTop + 10)
+                    VStack(spacing: 0) {
+                        Color.black.opacity(0.94)
+                            .frame(height: 4)
+                        LinearGradient(
+                            colors: [Color.black.opacity(0.62), Color.black.opacity(0)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    }
+                    .frame(height: safeTop + 14)
                     .allowsHitTesting(false)
                 }
             }
@@ -2963,8 +2974,18 @@ private struct ImmersiveCoverBackdrop: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // 🔴 只有拿到封面才画这一层（完全不透明）；取不到封面时整层为空，
-            //    外层 immersiveBackground 的经典取色渐变自然透出 = 自动回退。
+            // 🔴 2026-11-18：用户要求「直接就显示歌曲图片」——以前取不到 artwork 时这一整层为空，
+            //    只剩外层取色渐变，要点进歌词页才看到 LyricsFallback 兜底图。
+            //    现在无封面时也铺一张固定兜底海报，主播放页一进来就有图（与歌词页一致）。
+            if artwork == nil {
+                Image("LyricsFallback")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size.width, height: size.height)
+                    .clipped()
+                    .opacity(0.9)
+            }
+            // 🔴 拿到封面时画这一层（完全不透明），盖住上面的兜底图。
             if let artwork {
                 let tone = Self.mainToneColor(from: artwork)
                 // 🔴 2026-11-10 第十一次微调：第十轮只把「下半主色」当 0.20~0.32 的薄覆盖，

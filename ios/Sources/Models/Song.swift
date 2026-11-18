@@ -84,14 +84,15 @@ enum MusicQuality: String, Codable, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// 🔴 v2.5.46：按用户要求改名（原 标准音质/较高音质/极高音质/无损音质/Hi-Res）。
+    /// 🔴 2026-11-18：用户要求「至臻母带 / 至臻2.0」改成真实音质名。
+    ///    用音源实际返回的格式名（与 sizeLabel 一致），不再用营销词。
     var title: String {
         switch self {
         case .standard: return "高品音质"
         case .higher: return "超品音质"
         case .exHigh: return "无损音质"
-        case .lossless: return "至臻母带"
-        case .hires: return "至臻2.0"
+        case .lossless: return "FLAC 无损"
+        case .hires: return "FLAC 24bit"
         }
     }
 
