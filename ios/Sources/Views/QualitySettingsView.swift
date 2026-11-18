@@ -4,14 +4,12 @@ import SwiftUI
 /// 排版再美化一下」）。保留真实码率显示与客观档位标注，不再有写死的假体积。
 ///
 /// 版式：
-/// 1. 顶部「当前选择」单卡（大字档位名 + 实测码率 + 特性说明 + 当前勾）
+/// 1. 顶部「当前选择」单卡（大字档位名 + 档位名称 + 特性说明 + 当前勾）
 /// 2. 中部「高级音质」列表（图标 + 档位 + 目标码率 + 说明 + 选中勾）
 /// 3. 底部网络环境入口 + 一条客观说明
 struct QualitySettingsView: View {
     @ObservedObject private var sourceStore = SourceStore.shared
     @ObservedObject private var network = NetworkStatus.shared
-    /// 当前播放音频的实测码率，顶部卡片如实显示。
-    @ObservedObject private var player = PlayerStore.shared
 
     // 浅色主题配色（跟随 App 的蓝色主色，不再是深色+金）
     private let accent = AppStyle.accent
@@ -162,8 +160,10 @@ struct QualitySettingsView: View {
                                 .foregroundStyle(accent)
                         }
                     }
-                    Text(player.bitrateLabel.isEmpty ? "未播放 · 上方选择期望音质" : "当前播放：\(player.bitrateLabel)")
-                        .font(.system(size: 12, design: .monospaced))
+                    // 🔴 2026-11-18（二改）：用户要求音质检测标签改回显示音质名称，
+                    //    不再展示「实测 XXX kbps」。这里直接显示当前档位名。
+                    Text("当前音质：\(q.title)")
+                        .font(.system(size: 12))
                         .foregroundStyle(textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(q.featureLine)

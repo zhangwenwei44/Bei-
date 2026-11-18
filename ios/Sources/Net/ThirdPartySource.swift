@@ -220,8 +220,9 @@ final class SourceStore: ObservableObject {
         }
         if let raw = defaults.string(forKey: qualityKey),
            let value = MusicQuality(rawValue: raw) {
-            // 🔴 2026-11-18：「至臻母带/至臻2.0」已从选择 UI 移除，老偏好降级到「无损」。
-            quality = MusicQuality.selectableCases.contains(value) ? value : .exHigh
+            // 🔴 2026-11-18（二改）：至臻母带/至臻2.0 已恢复为可选档位，老偏好直接沿用
+            //    （此前临时降级到无损的逻辑已撤销）。
+            quality = value
         } else {
             quality = .exHigh
         }

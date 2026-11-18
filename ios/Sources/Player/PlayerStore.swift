@@ -889,10 +889,11 @@ final class PlayerStore: ObservableObject {
                         self.pendingQualitySwitchSeek = nil
                         Log.info("播放", "音质切换 seek 恢复到 \(pending)s")
                     }
-                    // 🔴 2026-11-17：item 真正 ready 后探测**实测码率**，覆盖音源自称的档位。
-                    //   第三方音源常「请求至臻2.0、实际只给 128k」，旧界面却显示用户选的高档位，
-                    //   导致「界面写至臻2.0、文件 1.3MB」的假象。这里按「文件字节 / 时长」估算
-                    //   真实平均码率，让迷你条/播放页如实显示。weak + 切歌校验防串台。
+                    // 🔴 2026-11-18（二改）：用户要求音质标签改回显示音质名称，不再显示
+                    //    「实测 XXX kbps」。因此实测码率探测只保留为诊断日志，不再覆盖
+                    //    bitrateLabel —— 它保持 outcome.label（在线=音源实际档位名，
+                    //    本地="本地"），迷你条/播放页/音质页统一显示音质名称。
+                    //    探测仍能发现「标称高、实际低」的音源问题，只是不写 UI。weak + 切歌校验防串台。
                     let probeURL = url
                     let probeIsLocal = url.isFileURL
                     Task { @MainActor [weak self] in
@@ -910,11 +911,8 @@ final class PlayerStore: ObservableObject {
                             bps = await AudioQualityProbe.bitrate(remote: probeURL, duration: duration)
                         }
                         guard let bps, self.player.currentItem === item else { return }
-                        let text = AudioQualityProbe.label(bps: bps)
-                        if !text.isEmpty {
-                            self.bitrateLabel = text
-                            Log.info("播放", "实测码率 \(bps) bps → \(text)（\(self.current?.title ?? "")）")
-                        }
+                        // 只写日志，不覆盖 bitrateLabel（UI 现在显示档位名）。
+                        Log.info("播放", "实测码率 \(bps) bps（\(self.current?.title ?? "")，标签仍显示档位名）")
                     }
                 }
             }
@@ -1273,9 +1271,11 @@ final class PlayerStore: ObservableObject {
             url = await CoverResolver.shared.resolveCover(for: song.coverFallbackKeys)
         }
         if let url {
-            // 🔴 播放页是全场最大的封面（~320pt@3x ≈ 960px），必须取高清：
+            // 🔴 播放页是全场最大的封面（沉浸封面主题全屏铺 ~1179px@3x），必须取高清：
             // 旧代码走默认 300px 解码 → 放大后模糊（用户反馈"专辑图片模糊"）。
-            return await CoverLoader.downloadHiRes(url)
+            // 🔴 2026-11-18（二改）：解码上限 900→1200，与 downloadHiRes 的 /1200/ 升级候选
+            //    配套，保证拿到大图后不被 900px 上限压糊；仍远低于 OOM 风险线。
+            return await CoverLoader.downloadHiRes(url, maxPixelSize: 1200)
         }
         guard let url = DownloadManager.shared.localURL(for: song) else { return nil }
         let asset = AVURLAsset(url: url)
