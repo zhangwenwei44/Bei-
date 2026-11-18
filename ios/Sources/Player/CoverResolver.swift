@@ -77,13 +77,6 @@ final class CoverResolver {
         return nil
     }
 
-    /// 🔴 2026-11-18：resolveCover 全部失败后的最后兜底——按歌名搜索补封面。
-    ///    key 用歌名+歌手拼成稳定字符串，命中缓存/负缓存后不再重复搜索。
-    func resolveCoverByTitle(artist: String, title: String) async -> URL? {
-        let key = "title:\(artist)|\(title)"
-        return await CoverFetchCoordinator.shared.coverByTitle(artist: artist, title: title, key: key)
-    }
-
     // MARK: - 从歌曲反查
 
     /// 绑定时把实体 key 登记上（列表里的小图能直接命中）。
@@ -133,40 +126,6 @@ actor CoverFetchCoordinator {
         if let existing = inFlight[key] { return await existing.value }
         let task = Task<URL?, Never> {
             await KugouClient.shared.coverForHash(hash)
-        }
-        inFlight[key] = task
-        let url = await task.value
-        inFlight[key] = nil
-        if let url {
-            CoverResolver.shared.register(url, for: [key])
-        } else {
-            failed.insert(key)
-        }
-        return url
-    }
-
-    /// 🔴 2026-11-18：按「歌手 + 歌名」搜索补封面。
-    ///    第三方音源 / 搜索歌曲常既无 artworkURL、hash 也不合规（<16 位反查不了），
-    ///    resolveCover 三路全失败后只剩取色渐变。这里最后按歌名搜一次，
-    ///    用搜索结果里带真实图片的那首补图。结果与失败都做去重/负缓存，
-    ///    避免切歌来回时反复搜索。
-    func coverByTitle(artist: String, title: String, key: String) async -> URL? {
-        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanTitle.isEmpty else { return nil }
-        if let url = CoverResolver.shared.url(for: key) { return url }
-        if failed.contains(key) { return nil }
-        if let existing = inFlight[key] { return await existing.value }
-        let task = Task<URL?, Never> {
-            let keyword = artist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? cleanTitle
-                : "\(artist) \(cleanTitle)"
-            guard let results = try? await KugouClient.shared.searchSongs(keyword: keyword, limit: 10) else {
-                return nil
-            }
-            // 优先标题包含目标歌名的，其次直接第一首；只取带真实封面的。
-            let best = results.first(where: { $0.cleanTitle.localizedCaseInsensitiveContains(cleanTitle) && $0.artworkURL != nil })
-                ?? results.first(where: { $0.artworkURL != nil })
-            return best?.artworkURL
         }
         inFlight[key] = task
         let url = await task.value

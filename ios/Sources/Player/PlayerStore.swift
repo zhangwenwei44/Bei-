@@ -1230,8 +1230,10 @@ final class PlayerStore: ObservableObject {
 
     private func refreshArtwork(for song: Song) {
         // 🔴 2026-11-18：修「切歌后封面卡住仍显示上一首」。
-        //    loadArtwork 是异步的，加载期间若不清空，界面会一直挂着上一首的图。
-        //    这里在切到新歌（id 变化）的当场清空 artwork，绝不让上一首的图残留。
+        //    loadArtwork 是异步的，加载期间若不清空，界面会一直挂着上一首的图；
+        //    更糟的是新歌无封面时 loadArtwork 返回 nil，旧代码直接 return → 旧图永久残留。
+        //    这里在切到新歌（id 变化）的当场清空 artwork，加载失败也保持空（走兜底图），
+        //    只有真正加载成功才写回。同歌元数据刷新（id 未变）不清空，避免闪一下。
         let isNewSong = artworkTaskID != song.id
         artworkTaskID = song.id
         let seed = "\(song.artist)-\(song.title)"
@@ -1239,37 +1241,13 @@ final class PlayerStore: ObservableObject {
             artwork = nil
         }
         currentPalette = ArtworkPaletteEngine.palette(for: nil, seed: seed)
-
-        // 🔴 2026-11-18（三改）：渐进式封面「一进来就有图、从模糊到高清」。
-        //    阶段①（同步）：用歌曲自带的 artworkURL 命中共享缓存 —— 从列表页滑进播放页时
-        //    封面基本已被列表缓存过，这里瞬时命中即可秒显真实封面（偏模糊），不再空白渐变。
-        //    缓存未命中不阻塞，交给阶段②后台补。
-        if let quickURL = song.artworkURL,
-           let cached = CoverCache.shared.image(for: quickURL) {
-            artwork = cached
-            currentPalette = ArtworkPaletteEngine.palette(for: cached, seed: seed)
-        }
-
         Task { [weak self] in
-            // 阶段②a：原图 URL 快速下载一张小图（240px，刻意偏模糊以形成渐进过渡）。
-            //    request(useCache:true) 命中缓存会同步返回，不会多花一次网络。
-            //    仅当此刻仍无任何封面时写入，避免覆盖阶段①已命中的图。
-            if let quickURL = song.artworkURL {
-                let lowRes = await CoverLoader.download(quickURL, maxPixelSize: 240)
-                await MainActor.run { [weak self] in
-                    guard let self, self.artworkTaskID == song.id else { return }
-                    guard let lowRes, self.artwork == nil else { return }
-                    self.artwork = lowRes
-                    self.currentPalette = ArtworkPaletteEngine.palette(for: lowRes, seed: seed)
-                }
-            }
-            // 阶段②b：高清加载（本地侧车 / 反查 / 大尺寸升级），成功后覆盖低清。
             let image = await Self.loadArtwork(for: song)
             await MainActor.run { [weak self] in
                 guard let self, self.artworkTaskID == song.id else { return }
                 guard let image else {
-                    // 高清拿不到：保留上面已显示的当前歌曲低清图（切歌开头已清空，
-                    // 绝不可能是上一首的残留）。若连低清也没有，artwork 自然保持 nil。
+                    // 新歌确实拿不到封面：保持清空状态，绝不沿用上一首的图。
+                    self.artwork = nil
                     return
                 }
                 self.artwork = image
@@ -1287,23 +1265,15 @@ final class PlayerStore: ObservableObject {
            let img = UIImage(contentsOfFile: local.path) {
             return img
         }
-        // 榜单歌曲不带封面地址，先按专辑 id / hash 联网补一次
+        // 榜单歌曲不带封面地址，先按专辑 id 联网补一次
         var url = song.artworkURL
         if url == nil {
             url = await CoverResolver.shared.resolveCover(for: song.coverFallbackKeys)
         }
-        // 🔴 2026-11-18：resolveCover 三路全失败（第三方音源无 hash / hash<16 位反查不了）
-        //    时，最后按「歌手+歌名」搜索补真实封面，避免播放页只剩取色渐变。
-        //    带缓存+负缓存，切歌来回不会反复搜索。
-        if url == nil {
-            url = await CoverResolver.shared.resolveCoverByTitle(artist: song.artist, title: song.title)
-        }
         if let url {
-            // 🔴 播放页是全场最大的封面（沉浸封面主题全屏铺 ~1179px@3x），必须取高清：
+            // 🔴 播放页是全场最大的封面（~320pt@3x ≈ 960px），必须取高清：
             // 旧代码走默认 300px 解码 → 放大后模糊（用户反馈"专辑图片模糊"）。
-            // 🔴 2026-11-18（二改）：解码上限 900→1200，与 downloadHiRes 的 /1200/ 升级候选
-            //    配套，保证拿到大图后不被 900px 上限压糊；仍远低于 OOM 风险线。
-            return await CoverLoader.downloadHiRes(url, maxPixelSize: 1200)
+            return await CoverLoader.downloadHiRes(url)
         }
         guard let url = DownloadManager.shared.localURL(for: song) else { return nil }
         let asset = AVURLAsset(url: url)

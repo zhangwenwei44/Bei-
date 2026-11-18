@@ -956,58 +956,29 @@ enum CoverLoader {
     static func downloadHiRes(_ url: URL, maxPixelSize: CGFloat = 900) async -> UIImage? {
         let key = hiResKey(url, maxPixelSize)
         if let hit = hiResCache.object(forKey: key) { return hit }
-
-        // 🔴 2026-11-18（二改）：修「播放页大封面有时模糊」。
-        //    榜单/搜索返回的 artworkURL 常是 /100/ /150/ /200/ /240/ 这类小图，
-        //    旧 largerVariant 只认 /300/ /400/ /480/，这些小图拿不到升级 →
-        //    300pt@3x 的大封面直接放大 150px 原图 = 糊。这里按候选尺寸从大到小
-        //    依次尝试（尺寸段只认明确的 /数字/ 目录，404 会立刻回退），哪个先成功用哪个。
+        // 先试一次 CDN 的更大尺寸变体（只认明确的尺寸目录段，404 会立刻回退），
+        // 拿不到就老老实实用原地址，绝不因为升级失败让大图空白。
         var result: UIImage?
-        var resultPixels: CGFloat = 0
-        for candidate in largerVariants(of: url) {
-            guard !Task.isCancelled else { break }
-            if let img = await request(candidate, maxPixelSize: maxPixelSize, useCache: false) {
-                let pixels = max(img.size.width, img.size.height)
-                if pixels > resultPixels {
-                    result = img
-                    resultPixels = pixels
-                }
-                // 已经拿到足够喂饱目标显示尺寸的图，无需再试更大的变体。
-                if resultPixels >= maxPixelSize { break }
-            }
+        if let bigger = largerVariant(of: url) {
+            result = await request(bigger, maxPixelSize: maxPixelSize, useCache: false)
         }
-        // 原图兜底（候选里若已包含原图则跳过重复请求）
         if result == nil {
             result = await request(url, maxPixelSize: maxPixelSize, useCache: false)
         }
-        guard let result else { return nil }
-        // 🔴 只有"够清晰"的图才写 hiResCache。升级失败拿到的仍是小图（如 150px），
-        //    若也固化进缓存，之后每次进播放页都会命中这张糊图、再也不会重试升级 —— 这正是
-        //    「有时模糊且一直糊」的根因。小图仍返回显示（总比空白好），但不写高清缓存，
-        //    下次进入仍有重新升级的机会。
-        if max(result.size.width, result.size.height) >= maxPixelSize * 0.75 {
-            hiResCache.setObject(result, forKey: key)
-        }
+        if let result { hiResCache.setObject(result, forKey: key) }
         return result
     }
 
-    /// 生成大尺寸候选 URL（从大到小）：把 URL 里的「尺寸目录段」升级到更大值。
-    /// 🔴 只匹配明确的 /数字/ 目录段，文件名里恰好带数字（如 `...480001.jpg`）一律不动，
-    ///    避免改成 CDN 上不存在的路径、反而让大图空白。
-    /// 酷狗 stdmusic 常用档：90/100/120/150/200/240/300/400/480；更大试 800/1200。
-    private static func largerVariants(of url: URL) -> [URL] {
+    /// 只替换 URL 里的「尺寸目录段」（/480/ → /800/）。
+    /// 🔴 文件名里恰好带 480 的地址（如 `...480001.jpg`）一律不动，
+    ///    避免改成 CDN 上不存在的路径、反而让头图空白。
+    private static func largerVariant(of url: URL) -> URL? {
         let raw = url.absoluteString
-        let knownSizes = ["/90/", "/100/", "/120/", "/150/", "/200/", "/240/",
-                          "/300/", "/400/", "/480/", "/500/", "/800/", "/1200/"]
-        guard let token = knownSizes.first(where: { raw.contains($0) }) else { return [] }
-        // 从大到小尝试；跳过与原始段相同的目标。
-        var out: [URL] = []
-        for target in ["/1200/", "/800/", "/480/"] where target != token {
-            if let u = URL(string: raw.replacingOccurrences(of: token, with: target)) {
-                out.append(u)
-            }
+        for token in ["/480/", "/400/", "/300/"] {
+            guard raw.contains(token) else { continue }
+            return URL(string: raw.replacingOccurrences(of: token, with: "/800/"))
         }
-        return out
+        return nil
     }
 
     /// 🔴 v2.6.9：歌词页写真专用 —— 按原图分辨率解码，且**不写共享缓存**。

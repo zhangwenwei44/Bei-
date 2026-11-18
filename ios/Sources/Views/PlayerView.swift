@@ -2982,11 +2982,8 @@ private struct ImmersiveCoverBackdrop: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // 🔴 2026-11-18（三改）：撤销固定兜底海报 —— 用户明确不要假图，
-            //    要真实歌曲封面「一进来就显示、从模糊到高清」。改由 PlayerStore.refreshArtwork
-            //    做渐进加载：先用列表页已缓存的原图（模糊但真实）瞬时显示，再后台高清替换。
-            //    这里 artwork 为 nil 时不画任何图层，外层取色渐变透出；低清/高清封面
-            //    一旦到位，下面这层立即铺满。
+            // 🔴 只有拿到封面才画这一层（完全不透明）；取不到封面时整层为空，
+            //    外层 immersiveBackground 的经典取色渐变自然透出 = 自动回退。
             if let artwork {
                 let tone = Self.mainToneColor(from: artwork)
                 // 🔴 2026-11-10 第十一次微调：第十轮只把「下半主色」当 0.20~0.32 的薄覆盖，
