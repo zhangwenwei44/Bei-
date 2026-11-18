@@ -1281,23 +1281,27 @@ final class PlayerStore: ObservableObject {
     }
 
     private static func loadArtwork(for song: Song) async -> UIImage? {
-        // 🔴 v2.9.3：已下载歌曲离线优先读本地封面侧车，断网也不空白。
-        if let local = DownloadManager.shared.localArtworkURL(for: song),
-           let img = UIImage(contentsOfFile: local.path) {
-            return img
-        }
-        // 榜单歌曲不带封面地址，先按专辑 id 联网补一次
+        // 🔴 2026-11-19：修「已下载歌曲封面模糊」。
+        //    下载时侧车 art.png 是 CoverLoader.download 默认 300px 小图；旧逻辑一命中
+        //    侧车就 return，永远走不到下面的 downloadHiRes(900) → 沉浸大图放大 300px
+        //    就成了糊图（"时间你慢些走 FLAC 24bit"真机实锤）。
+        //    新顺序：先尝试联网取高清（有 artworkURL / 按 key 反查），拿到就用高清；
+        //    只有联网失败或无地址时，才回退本地侧车（断网仍有图，不空白）。
+        //    内嵌封面仍作最后兜底。
         var url = song.artworkURL
         if url == nil {
             url = await CoverResolver.shared.resolveCover(for: song.coverFallbackKeys)
         }
-        if let url {
-            // 🔴 播放页是全场最大的封面（~320pt@3x ≈ 960px），必须取高清：
-            // 旧代码走默认 300px 解码 → 放大后模糊（用户反馈"专辑图片模糊"）。
-            return await CoverLoader.downloadHiRes(url)
+        if let url, let hi = await CoverLoader.downloadHiRes(url) {
+            return hi
         }
-        guard let url = DownloadManager.shared.localURL(for: song) else { return nil }
-        let asset = AVURLAsset(url: url)
+        // 高清拿不到（离线 / 反查失败）→ 回退本地侧车，保证已下载歌曲离线不空白。
+        if let local = DownloadManager.shared.localArtworkURL(for: song),
+           let img = UIImage(contentsOfFile: local.path) {
+            return img
+        }
+        guard let fileURL = DownloadManager.shared.localURL(for: song) else { return nil }
+        let asset = AVURLAsset(url: fileURL)
         guard let metadata = try? await asset.load(.commonMetadata) else { return nil }
         for item in metadata where item.commonKey == .commonKeyArtwork {
             if let value = try? await item.load(.value), let image = value as? UIImage {
