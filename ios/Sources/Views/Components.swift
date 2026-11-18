@@ -1168,6 +1168,23 @@ struct ArtistPhotoBackdrop: View {
     /// 当前显示第几张
     @State private var currentIndex = 0
 
+    /// 🔴 2026-11-18：跟沉浸封面「切歌不闪渐变」同款修法。
+    /// 视图首次挂载（切到写真主题 / 进歌词页）时同步把已预取好的写真填进来，
+    /// 第一帧就是写真图，不露出下面的取色渐变。
+    /// 切歌时 SwiftUI 复用本视图、init 不会重跑，过渡交给 load() 处理。
+    init(artist: String, title: String, hash: String = "") {
+        self.artist = artist
+        self.title = title
+        self.hash = hash
+        let key = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !key.isEmpty {
+            let cached = ArtistPhotoCache.shared.images(for: key)
+            if !cached.isEmpty {
+                _images = State(initialValue: cached)
+            }
+        }
+    }
+
     /// 轮播间隔（秒）
     private let rotateInterval: UInt64 = 8_000_000_000
     /// 🔴 v2.7.0：一次最多展示的写真张数（用户要求 6 张轮播；
@@ -1223,13 +1240,15 @@ struct ArtistPhotoBackdrop: View {
             if !info.songname.isEmpty { titleKey = info.songname }
         }
         guard !key.isEmpty else { images = []; return }
-        images = []
-        currentIndex = 0
 
-        // 内存缓存命中：直接播
+        // 🔴 2026-11-18：切歌不再无条件 images=[] 露出底层取色渐变。
+        //  ① 新歌手的写真已在内存缓存（播放时 ArtistPhotoPrefetcher 已预取）→ 同步秒显；
+        //  ② 未命中 → 保留当前 images（上一首的真实写真）过渡，绝不出现渐变空层；
+        //     下面的下载拿到第一张再整体替换，确实取不到才在下面清空。
         let cached = ArtistPhotoCache.shared.images(for: key)
         if !cached.isEmpty {
             images = cached
+            currentIndex = 0
             return
         }
 
@@ -1245,7 +1264,11 @@ struct ArtistPhotoBackdrop: View {
             picked = [fallback]
         }
         guard !picked.isEmpty else {
+            // 确实拿不到这位歌手的写真：此刻才清空，交给调用方兜底，
+            // 不永久挂着上一首的写真。
             Log.info("歌词写真", "没取到歌手写真：\(key)")
+            images = []
+            currentIndex = 0
             return
         }
 
@@ -1257,11 +1280,19 @@ struct ArtistPhotoBackdrop: View {
             let sharp = Self.sharpened(first, context: context)
             loaded.append(sharp)
             images = loaded
+            // 🔴 新写真第一张到手：索引必须归零，否则沿用上一首的轮播位置会指向不存在的位置 = 空白。
+            currentIndex = 0
         }
         for url in picked.dropFirst() {
             guard let ui = await CoverLoader.downloadPhoto(url, maxPixelSize: Self.decodeMaxPixel) else { continue }
             loaded.append(Self.sharpened(ui, context: context))
             images = loaded
+        }
+        if loaded.isEmpty {
+            // 所有写真都下载失败：此刻才清空（兜底），不永久挂上一首的写真。
+            images = []
+            currentIndex = 0
+            return
         }
         ArtistPhotoCache.shared.store(loaded, for: key)
     }
