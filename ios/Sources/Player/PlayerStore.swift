@@ -1289,7 +1289,14 @@ final class PlayerStore: ObservableObject {
         //    只有联网失败或无地址时，才回退本地侧车（断网仍有图，不空白）。
         //    内嵌封面仍作最后兜底。
         var url = song.artworkURL
-        if url == nil {
+        // 🔴 2026-11-19：修「已下载歌曲封面仍然模糊」（上一轮只改了顺序没生效）。
+        //    下载歌曲从磁盘重建时 artworkURL 指向本地 300px 侧车（file://），
+        //    它非空 → 旧的 `if url == nil` 永远不进反查分支 → downloadHiRes(file://)
+        //    无法升级尺寸，直接返回 300px 侧车 → 沉浸大图放大成糊图。
+        //    本地侧车一律当作「没有远程高清地址」，先按 hash/albumID 联网反查真实封面
+        //    （酷狗 stdmusic/softhead 的 {size} 模板可到 1000px），拿到用高清；
+        //    反查失败再在下面回退本地侧车，离线仍有图。
+        if url?.isFileURL ?? true {
             url = await CoverResolver.shared.resolveCover(for: song.coverFallbackKeys)
         }
         if let url, let hi = await CoverLoader.downloadHiRes(url) {

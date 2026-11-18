@@ -969,14 +969,17 @@ enum CoverLoader {
         return result
     }
 
-    /// 只替换 URL 里的「尺寸目录段」（/480/ → /800/）。
+    /// 只替换 URL 里的「尺寸目录段」（/480/ → /1000/）。
     /// 🔴 文件名里恰好带 480 的地址（如 `...480001.jpg`）一律不动，
     ///    避免改成 CDN 上不存在的路径、反而让头图空白。
+    /// 🔴 2026-11-19：升级目标 800 → 1000 —— 沉浸大图 ~320pt@3x≈960px，
+    ///    800 仍会被放大；酷狗 stdmusic/softhead 模板实测支持 1000（真机核验），
+    ///    404 会立刻回退原 URL，不会让大图空白。
     private static func largerVariant(of url: URL) -> URL? {
         let raw = url.absoluteString
         for token in ["/480/", "/400/", "/300/"] {
             guard raw.contains(token) else { continue }
-            return URL(string: raw.replacingOccurrences(of: token, with: "/800/"))
+            return URL(string: raw.replacingOccurrences(of: token, with: "/1000/"))
         }
         return nil
     }

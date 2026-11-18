@@ -3557,10 +3557,12 @@ private struct PlayerThemePickerPanel: View {
     }
 }
 
-/// 🔴 2026-11-10 修复「主题选择图片两边有空白、上面还有一层黑色的」：
-/// 三张真机截图已在打包前按卡片精确比例 110:188（素材 500×854）裁好并去掉状态栏，
-/// 这里只做 scaledToFill 单图铺满 —— 不再叠高斯模糊补边层（那层 opacity 0.55
-/// 在浅色封面两侧就是两条发白的空档），也不会在顶部留下状态栏深色带。
+/// 🔴 2026-11-19 修复「主题预览图画面显示不全被裁」：
+/// 上一轮换成的三张是**完整手机截图**（500×1083，比例 0.462，含状态栏），
+/// 而卡片是 110×188（0.585）。原来的 scaledToFill 按宽度填满后，高度会到 238pt，
+/// 上下各被裁掉约 25pt —— 顶部状态栏和底部控件都被切掉。
+/// 现在主体改 scaledToFit **完整显示不裁切**；两侧留出的窄边用同一张图放大 +
+/// 大半径模糊 + 压暗铺底，避免露白边/黑边（11-10 那次模糊层发白是因为没压暗）。
 private struct PlayerThemeThumbnail: View {
     let theme: PlayerPageTheme
 
@@ -3574,11 +3576,21 @@ private struct PlayerThemeThumbnail: View {
 
     var body: some View {
         GeometryReader { geo in
-            Image(assetName)
-                .resizable()
-                .scaledToFill()
-                .frame(width: geo.size.width, height: geo.size.height)
-                .clipped()
+            ZStack {
+                // 铺底：同图放大填满 + 大半径模糊 + 压暗，左右窄边不露白/黑。
+                Image(assetName)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
+                    .blur(radius: 12)
+                    .overlay(Color.black.opacity(0.28))
+                // 主体：完整画面等比缩放，绝不裁切。
+                Image(assetName)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: geo.size.width, height: geo.size.height)
+            }
         }
     }
 }
