@@ -1230,10 +1230,8 @@ final class PlayerStore: ObservableObject {
 
     private func refreshArtwork(for song: Song) {
         // 🔴 2026-11-18：修「切歌后封面卡住仍显示上一首」。
-        //    loadArtwork 是异步的，加载期间若不清空，界面会一直挂着上一首的图；
-        //    更糟的是新歌无封面时 loadArtwork 返回 nil，旧代码直接 return → 旧图永久残留。
-        //    这里在切到新歌（id 变化）的当场清空 artwork，加载失败也保持空（走兜底图），
-        //    只有真正加载成功才写回。同歌元数据刷新（id 未变）不清空，避免闪一下。
+        //    loadArtwork 是异步的，加载期间若不清空，界面会一直挂着上一首的图。
+        //    这里在切到新歌（id 变化）的当场清空 artwork，绝不让上一首的图残留。
         let isNewSong = artworkTaskID != song.id
         artworkTaskID = song.id
         let seed = "\(song.artist)-\(song.title)"
@@ -1241,13 +1239,37 @@ final class PlayerStore: ObservableObject {
             artwork = nil
         }
         currentPalette = ArtworkPaletteEngine.palette(for: nil, seed: seed)
+
+        // 🔴 2026-11-18（三改）：渐进式封面「一进来就有图、从模糊到高清」。
+        //    阶段①（同步）：用歌曲自带的 artworkURL 命中共享缓存 —— 从列表页滑进播放页时
+        //    封面基本已被列表缓存过，这里瞬时命中即可秒显真实封面（偏模糊），不再空白渐变。
+        //    缓存未命中不阻塞，交给阶段②后台补。
+        if let quickURL = song.artworkURL,
+           let cached = CoverCache.shared.image(for: quickURL) {
+            artwork = cached
+            currentPalette = ArtworkPaletteEngine.palette(for: cached, seed: seed)
+        }
+
         Task { [weak self] in
+            // 阶段②a：原图 URL 快速下载一张小图（240px，刻意偏模糊以形成渐进过渡）。
+            //    request(useCache:true) 命中缓存会同步返回，不会多花一次网络。
+            //    仅当此刻仍无任何封面时写入，避免覆盖阶段①已命中的图。
+            if let quickURL = song.artworkURL {
+                let lowRes = await CoverLoader.download(quickURL, maxPixelSize: 240)
+                await MainActor.run { [weak self] in
+                    guard let self, self.artworkTaskID == song.id else { return }
+                    guard let lowRes, self.artwork == nil else { return }
+                    self.artwork = lowRes
+                    self.currentPalette = ArtworkPaletteEngine.palette(for: lowRes, seed: seed)
+                }
+            }
+            // 阶段②b：高清加载（本地侧车 / 反查 / 大尺寸升级），成功后覆盖低清。
             let image = await Self.loadArtwork(for: song)
             await MainActor.run { [weak self] in
                 guard let self, self.artworkTaskID == song.id else { return }
                 guard let image else {
-                    // 新歌确实拿不到封面：保持清空状态，绝不沿用上一首的图。
-                    self.artwork = nil
+                    // 高清拿不到：保留上面已显示的当前歌曲低清图（切歌开头已清空，
+                    // 绝不可能是上一首的残留）。若连低清也没有，artwork 自然保持 nil。
                     return
                 }
                 self.artwork = image
