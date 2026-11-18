@@ -197,6 +197,17 @@ struct PlayerView: View {
                                             hash: store.current?.kugouHash ?? "")
                             .frame(width: size.width, height: size.height)
                             .clipped()
+                            // 🔴 2026-11-18：主播放页写真顶部同样盖一层深色渐变，
+                            //    遮住状态栏交界处的浅色发丝线（歌词页同款修法）。
+                            .overlay(alignment: .top) {
+                                LinearGradient(
+                                    colors: [Color.black.opacity(0.5), Color.black.opacity(0)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                                .frame(height: win.safeTop + 10)
+                                .allowsHitTesting(false)
+                            }
                             .allowsHitTesting(false)
                             .transition(.opacity)
                     } else if playerPageTheme == .immersiveCover {
@@ -1992,13 +2003,20 @@ struct LyricsPageView: View {
             .frame(width: sz.width, height: sz.height)
             .clipped()
             .ignoresSafeArea()
-            // 🔴 2026-11-17：写真主题顶部与系统状态栏交界偶尔露出一条浅色发丝线，
-            //    用与写真顶部遮罩同色的 2pt 深色条盖住，不影响正文排版。
+            // 🔴 2026-11-18：写真主题顶部与系统状态栏交界仍有一条浅色发丝线 ——
+            //    原来的 2pt 实色条只盖住 y=0 附近，白线实际在状态栏下沿(约 y=44~59)，
+            //    所以没盖住。改成覆盖整个状态栏高度的深色渐变（顶部深、向下渐隐），
+            //    既遮住交界处任意位置的发丝线，又和写真自带的顶部遮罩自然衔接、不留硬边。
+            //    用不带 locations 的 LinearGradient（项目红线：带 locations 的是 iOS16+）。
             .overlay(alignment: .top) {
                 if showArtistPhoto {
-                    Rectangle()
-                        .fill(Color.black.opacity(0.42))
-                        .frame(height: 2)
+                    LinearGradient(
+                        colors: [Color.black.opacity(0.5), Color.black.opacity(0)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: safeTop + 10)
+                    .allowsHitTesting(false)
                 }
             }
             // 🔴 已移除下滑关闭手势：用户要求只用左上角返回按钮关闭歌词页（横屏同理），
@@ -3432,15 +3450,19 @@ private struct PlayerThemePickerPanel: View {
                     moreCard
                 }
                 .padding(.horizontal, 20)
-                // 🔴 顶部再留 3pt：即使描边不外扩，也不让卡片圆角贴着 ScrollView 上沿。
-                .padding(.top, 3)
+                // 🔴 2026-11-18：用户反馈主题面板顶部卡片被裁 —— 原来只留 3pt，
+                //    选中蓝框 + 卡片圆角仍会贴到 ScrollView 上沿被父级裁掉。加大到 14pt，
+                //    让卡片（含 2.5pt 蓝框）与标题区之间有明确留白，顶部完整可见。
+                .padding(.top, 14)
             }
-            // 与上面的 3pt 顶部留白同步 +3，底部可用高度不变。
-            .frame(height: PlayerThemeCardMetrics.height + 37)
+            // 与上面的 14pt 顶部留白同步，保证卡片底部/标题仍有完整空间。
+            .frame(height: PlayerThemeCardMetrics.height + 48)
 
             Spacer(minLength: 34)
         }
-        .frame(height: 312)
+        // 🔴 2026-11-18：滚动区顶部留白 +11pt，面板高度同步从 312 → 324，
+        //    避免底部 home 区被挤压、卡片显示不全。
+        .frame(height: 324)
         .frame(maxWidth: .infinity)
         // 白色再向下多铺 34pt：即使系统仍把对齐点留在安全区上沿，
         // home indicator 那一条也已经是白色，不会再露出播放页深色底。

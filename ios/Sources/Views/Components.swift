@@ -1742,7 +1742,8 @@ struct SongMoreMenu: View {
             KugouPlaylistPicker(songs: [song], title: "加入酷狗歌单")
         }
         .confirmationDialog("选择下载音质", isPresented: $showQualityPicker, titleVisibility: .visible) {
-            ForEach(MusicQuality.allCases) { quality in
+            // 🔴 2026-11-18：下载音质选择同样移除「至臻母带/至臻2.0」。
+            ForEach(MusicQuality.selectableCases) { quality in
                 Button(quality.title) {
                     // 🔴 2026-11-16：显式选了音质就要真按这个档位重下。
                     //    download() 原本遇到「已下载」会直接返回旧文件，

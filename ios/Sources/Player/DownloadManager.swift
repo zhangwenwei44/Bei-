@@ -494,7 +494,9 @@ final class DownloadManager: NSObject, ObservableObject {
         // 🔴 v2.9.14：恢复上次选的默认下载音质
         if let raw = UserDefaults.standard.string(forKey: Self.downloadQualityKey),
            let q = MusicQuality(rawValue: raw) {
-            defaultDownloadQuality = q
+            // 🔴 2026-11-18：「至臻母带/至臻2.0」已从选择 UI 移除，老偏好若仍停在
+            //    这两档，静默降级到「无损」，避免界面显示已移除的档位名。
+            defaultDownloadQuality = MusicQuality.selectableCases.contains(q) ? q : .exHigh
         }
         // 从磁盘索引文件直接重建 Song（兜底方案）
         let fromDisk = fileIndex.compactMap { songID, fileName -> Song? in

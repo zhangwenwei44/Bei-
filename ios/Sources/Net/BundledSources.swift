@@ -23,32 +23,18 @@ enum BundledSources {
 
     /// 随包发布、已确认许可的脚本。
     ///
-    /// 🔴 v2.9.22：**长青SVIP（changqing.js）已下架删除**，换成洛雪音源6
-    /// （`K×H测试` v1.7.17，作者 HYW & Koneko，**MIT 许可**）。
-    ///
-    /// 为什么这次可以进仓库：洛雪音源6 头部明确声明 `@license MIT`，
-    /// 允许再分发，所以脚本本体随仓库走（`ios/BundledSources/luoxue.js`），
-    /// CI 不再需要从 Release 资产拉 tarball。
+    /// 🔴 2026-11-18：按用户要求，移除原来的 2 个内置音源（星澜聚合音源 0_xinglan.js、
+    ///    洛雪音源6 luoxue.js），换成用户提供的「星海音乐源」v3.2.20
+    ///    （文件名 0_gaopin.js，GDAPI 聚合 + ChKSz，作者 万去了了/科学大魔王）。
+    ///    列表里这类音源统一显示「默认音源」，不暴露脚本文案。
     private static let known: [Preset] = [
-        // 🔴 2026-11-17：星澜聚合音源排第一（文件名 0_xinglan.js 保证 scriptURLs()
-        //    排序最前，串行解析时优先命中）。实测它是唯一「换音质真分档」的内置源：
-        //    同一首歌 128k≈4.1MB / 320k≈10.3MB / flac≈30MB，三档 MD5 全不同；
-        //    而旧洛雪脚本的酷狗接口（念心）对 128k 和 flac 返回的是同一份 1.6MB 假无损。
-        //    来源 https://github.com/pdone/lx-music-source，MIT 许可，v4.0.2。
-        Preset(scriptName: "0_xinglan",
-              displayName: "星澜聚合音源",
-              version: "4.0.2",
-              author: "星澜团队",
-              license: "MIT",
-              homepage: "https://github.com/pdone/lx-music-source",
-              notes: "多源聚合，酷狗/QQ真分档无损，支持母带/全景声"),
-        Preset(scriptName: "luoxue",
-              displayName: "洛雪音源6",
-              version: "1.7.17",
-              author: "HYW & Koneko",
-              license: "MIT",
-              homepage: "https://github.com/Miao-moe",
-              notes: "多源聚合 + 多链路回退，支持网易云/QQ/酷我/酷狗/咪咕")
+        Preset(scriptName: "0_gaopin",
+              displayName: "星海高品音源",
+              version: "v3.2.20",
+              author: "万去了了 / 科学大魔王",
+              license: "仅供学习交流",
+              homepage: "https://zddyr.top/",
+              notes: "GDAPI 聚合 + ChKSz，全平台支持 24bit FLAC，酷狗/QQ/网易最高母带")
     ]
 
     /// 历史上随包发过的音源。设备上已经装过的要在启动时清掉，
@@ -59,6 +45,9 @@ enum BundledSources {
         "独家音源",
         // 长青SVIP 已下架（脚本无 license 声明，且已从包内移除）
         "长青SVIP音源(二改修复版)",
+        // 🔴 2026-11-18：原来的 2 个内置音源按用户要求移除，老用户升级后自动清掉。
+        "星澜聚合音源",
+        "洛雪音源6",
     ]
 
     /// 已下架、**永远不要再注册**的脚本文件名。
@@ -71,6 +60,10 @@ enum BundledSources {
     /// 按文件名硬拦，顺序问题就不存在了。
     private static let retiredScriptNames: Set<String> = [
         "changqing",
+        // 🔴 2026-11-18：旧的 2 个内置脚本文件已从包内移除，按文件名硬拦，
+        //    防止 CI 从旧 Release tarball 解包后又被重新注册。
+        "0_xinglan",
+        "luoxue",
     ]
 
     /// 包里所有能读到的音源脚本（含本地放的）。
@@ -126,10 +119,9 @@ enum BundledSources {
         }
         let existing = Set(store.sources.map(\.name))
         var added = 0
-        // 🔴 2026-11-17：逆序遍历 available + 新增源插到最前。
-        // available 已按文件名排序（0_xinglan.js 在前 = 星澜优先），逆序后
-        // 逐个 insert(at: 0) 得到的最终顺序正好和 available 一致（星澜在前）。
-        // 串行解析「第一个成功者胜出」，真分档的星澜必须先于假分档的旧洛雪。
+        // 逆序遍历 available + 新增源插到最前，保证最终顺序与 available 一致。
+        // 🔴 2026-11-18：现在只内置 1 个音源（0_gaopin.js 星海高品），顺序逻辑保留
+        //    以兼容用户未来手动添加多个源的场景（串行解析，第一个成功者胜出）。
         for preset in available.reversed() {
             guard let fresh = makeSource(preset) else { continue }
             if !existing.contains(preset.displayName) {

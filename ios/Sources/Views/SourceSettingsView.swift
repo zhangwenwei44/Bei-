@@ -27,9 +27,19 @@ struct SourceSettingsView: View {
     @State private var sheet: Sheet?
     @State private var importMessage: String?
     @State private var isImportingFiles = false
+    /// 🔴 2026-11-18：音源排序入口。List 的 .onMove 只有进入编辑模式才可拖动，
+    ///    系统 EditButton 不够醒目，这里额外绑一个明确的「排序/完成」按钮。
+    @Environment(\.editMode) private var editMode
 
     var body: some View {
         pageContent
+    }
+
+    /// @Environment(\.editMode) 的 wrappedValue 本身是 EditMode?，加上环境可选是双可选，
+    /// 直接 == .active 会让编译器类型推断失败。这里显式扁平化成 Bool。
+    private var isEditing: Bool {
+        guard let mode = editMode?.wrappedValue else { return false }
+        return mode == .active
     }
 
     /// 页面本体。
@@ -86,11 +96,30 @@ struct SourceSettingsView: View {
                     }
                 }
             } header: {
-                Text("音源列表")
-                    .font(.system(size: 12))
-                    .foregroundStyle(AppStyle.tertiaryText)
+                HStack {
+                    Text("音源列表")
+                        .font(.system(size: 12))
+                        .foregroundStyle(AppStyle.tertiaryText)
+                    Spacer(minLength: 8)
+                    // 🔴 2026-11-18：明确的排序开关。编辑模式下每行左侧出现拖动把手，
+                    //    配合下面 ForEach 的 .onMove 调整优先级；再次点击退出。
+                    if !store.sources.isEmpty {
+                        Button {
+                            withAnimation {
+                                editMode?.wrappedValue = isEditing ? .inactive : .active
+                            }
+                        } label: {
+                            Text(isEditing ? "完成" : "排序")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(AppStyle.accent)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             } footer: {
-                Text("从上到下不是硬性顺序：所有启用的音源会并发请求，谁先返回可用地址就用谁。圆点＝健康状态：绿=可用，红=无用（已被跳过）。")
+                // 🔴 2026-11-18：音源是串行解析、第一个成功者胜出，顺序直接影响优先级。
+                //    旧文案写「并发请求、不是硬性顺序」是错的，会让用户以为拖动没用。
+                Text("从上到下为解析优先级：排在前面的音源先尝试，成功即用。点右上角「排序」后拖动可调整顺序。圆点＝健康状态：绿=可用，红=无用（已被跳过）。")
                     .font(.system(size: 11))
                     .foregroundStyle(AppStyle.tertiaryText)
             }
@@ -474,9 +503,11 @@ private struct SourceRow: View {
     }
 
     private var detail: String {
-        if source.isScript { return "JS 脚本 · 音质 \(source.quality)" }
+        let support = source.supportedQualityLabels
+        let supportText = support.isEmpty ? "默认 \(source.quality)" : "支持 \(support.joined(separator: "·"))"
+        if source.isScript { return "JS 脚本 · \(supportText)" }
         let host = URL(string: source.template)?.host ?? "地址无效"
-        return "\(host) · 音质 \(source.quality)"
+        return "\(host) · \(supportText)"
     }
 }
 

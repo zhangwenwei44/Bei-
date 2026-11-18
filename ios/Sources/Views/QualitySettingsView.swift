@@ -35,7 +35,9 @@ struct QualitySettingsView: View {
                 sectionHeader(title: "高级音质", trailing: "按音源实际支持的档位播放", top: 24, diamond: true)
 
                 VStack(spacing: 0) {
-                    ForEach(MusicQuality.allCases) { quality in
+                    // 🔴 2026-11-18：只展示用户可选的三个档位（高品/超品/无损），
+                    //    「至臻母带」「至臻2.0」按用户要求从所有选择 UI 移除。
+                    ForEach(MusicQuality.selectableCases) { quality in
                         Button {
                             sourceStore.quality = quality
                             Haptics.light()
@@ -43,7 +45,7 @@ struct QualitySettingsView: View {
                             qualityRow(quality)
                         }
                         .buttonStyle(.plain)
-                        if quality != MusicQuality.allCases.last {
+                        if quality != MusicQuality.selectableCases.last {
                             Divider()
                                 .background(divider)
                                 .padding(.leading, 62)

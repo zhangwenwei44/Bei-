@@ -28,6 +28,12 @@ enum MusicQuality: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var id: String { rawValue }
 
+    /// 🔴 2026-11-18：用户要求音质页移除「至臻母带」（lossless）与「至臻2.0」（hires）。
+    ///    保留枚举 case 本身（脚本回传的 flac / flac24bit 仍需能被识别、下载索引兼容旧数据），
+    ///    只在**所有用户可见的档位选择 UI**里用这个子集，避免连锁改动 fallbackChain / lxTypes /
+    ///    fromSourceValue 等解析逻辑。当前可选：高品 / 超品 / 无损。
+    static let selectableCases: [MusicQuality] = [.standard, .higher, .exHigh]
+
     /// 🔴 2026-11-17：从音源脚本回传的档位字符串反查枚举。
     ///    脚本内部有 `QUALITY_FALLBACK` 静默降级链（选 flac24bit 最终可能只给 128k），
     ///    以前 App 拿不到这个结果、直接把「请求的档位」当成「实际档位」显示/入库，

@@ -268,7 +268,8 @@ struct DownloadCenterView: View {
                                 downloads.defaultDownloadQuality = nil
                                 Haptics.light()
                             }
-                            ForEach(MusicQuality.allCases) { quality in
+                            // 🔴 2026-11-18：默认下载音质菜单同样移除「至臻母带/至臻2.0」。
+                            ForEach(MusicQuality.selectableCases) { quality in
                                 Button(quality.title) {
                                     downloads.defaultDownloadQuality = quality
                                     Haptics.light()

@@ -91,6 +91,33 @@ struct ThirdPartySource: Identifiable, Codable, Hashable {
         return !(requiresAPIKey && apiKeys.isEmpty)
     }
 
+    /// 🔴 2026-11-18：音源列表展示「支持的音质」。从脚本/配置正文里扫描被引号包裹的
+    ///    档位标记（洛雪脚本约定用 `'128k'` / `"flac"` 这种写法声明支持位），映射成简短中文。
+    ///    这是客观能力描述，不受「音质选择页移除至臻两档」影响。
+    var supportedQualityLabels: [String] {
+        let text = isScript ? script : (template + " " + headers.values.joined(separator: " "))
+        // flac24bit 必须排在 flac 前判断（虽然精确引号匹配不冲突，保险起见）。
+        let table: [(token: String, label: String)] = [
+            ("flac24bit", "FLAC24"),
+            ("128k", "高品"),
+            ("192k", "超品"),
+            ("320k", "无损"),
+            ("flac", "FLAC"),
+            ("hires", "Hi-Res"),
+            ("atmos_plus", "全景声+"),
+            ("atmos", "全景声"),
+            ("master", "母带"),
+            ("spatial", "空间音频"),
+        ]
+        var result: [String] = []
+        for entry in table {
+            if text.contains("'\(entry.token)'") || text.contains("\"\(entry.token)\"") {
+                result.append(entry.label)
+            }
+        }
+        return result
+    }
+
     static func == (lhs: ThirdPartySource, rhs: ThirdPartySource) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
@@ -193,7 +220,8 @@ final class SourceStore: ObservableObject {
         }
         if let raw = defaults.string(forKey: qualityKey),
            let value = MusicQuality(rawValue: raw) {
-            quality = value
+            // 🔴 2026-11-18：「至臻母带/至臻2.0」已从选择 UI 移除，老偏好降级到「无损」。
+            quality = MusicQuality.selectableCases.contains(value) ? value : .exHigh
         } else {
             quality = .exHigh
         }
