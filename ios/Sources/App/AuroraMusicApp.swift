@@ -23,6 +23,12 @@ struct AuroraMusicApp: App {
     init() {
         // 必须最先装：播放闪退时全靠它把现场写进运行日志
         CrashGuard.install()
+        // 🔴 2026-11-20：下载歌曲按字母排序默认关闭。
+        // 只在用户没手动改过这个开关时回落到关闭，不覆盖用户自己的选择。
+        let defaults = UserDefaults.standard
+        if !defaults.bool(forKey: "aurora.downloadSortUserSet") {
+            defaults.set(false, forKey: "aurora.downloadAlphabeticalSort")
+        }
         HighRefreshController.shared.install()
         Log.info("启动", "App 启动，版本 \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?")), iOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
         AudioSessionController.activate()

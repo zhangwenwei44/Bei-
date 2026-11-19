@@ -445,7 +445,8 @@ struct PlayerView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         // 🔴 2026-11-19：实验室布局微调（歌曲名位置）
-        .offset(x: layout.titleX, y: layout.titleY)
+        .offset(x: layoutTargeted ? layout.titleX : 0,
+                y: layoutTargeted ? layout.titleY : 0)
     }
 
     // MARK: 封面区：专辑封面方图（弹性填充，歌词已移到底部 deck）
@@ -669,6 +670,9 @@ struct PlayerView: View {
         return max(12, (w - side) / 2)
     }
 
+    /// 🔴 2026-11-20：实验室布局微调只对选中的播放器主题生效。
+    private var layoutTargeted: Bool { playerPageTheme == layout.targetTheme }
+
     /// 🔴 2026-11-18：用户要求写真主题「歌曲名 / 歌词 / 动作行上下间距改小一点」——
     ///    四项间距从 10/16/14/16 收回到 8/12/10/12（仍略大于经典的 6/10/8/10）。
     ///    deckBottomPadding 保持 18 不动（它决定整块上移量，用户没要求改）。
@@ -688,7 +692,8 @@ struct PlayerView: View {
             // 🔴 主题只换背景、不改版式：三个主题的歌词都留在 deck 里歌名下方。
             lyricPill()
                 // 🔴 2026-11-19：实验室布局微调（歌词行位置）
-                .offset(x: layout.lyricX, y: layout.lyricY)
+                .offset(x: layoutTargeted ? layout.lyricX : 0,
+                        y: layoutTargeted ? layout.lyricY : 0)
                 .padding(.bottom, deckLyricBottom)
 
             // 动作行：喜欢 / 下载 / 音质 / 歌词 / ⋯（纯图标均分）
@@ -696,7 +701,8 @@ struct PlayerView: View {
             classicActionRow
                 .padding(.horizontal, -10)
                 // 🔴 2026-11-19：实验室布局微调（动作行位置，只作用于竖屏 deck）
-                .offset(x: layout.actionX, y: layout.actionY)
+                .offset(x: layoutTargeted ? layout.actionX : 0,
+                        y: layoutTargeted ? layout.actionY : 0)
                 .padding(.bottom, deckActionBottom)
 
             // 进度行：已播时间 —— 细白进度条 —— 总时长
@@ -712,7 +718,8 @@ struct PlayerView: View {
                 ImmersiveCoverProgressBlock(playback: store.playback)
                     .frame(height: 34)
                     // 🔴 2026-11-19：实验室布局微调（进度条位置）
-                    .offset(x: layout.progressX, y: layout.progressY)
+                    .offset(x: layoutTargeted ? layout.progressX : 0,
+                            y: layoutTargeted ? layout.progressY : 0)
                     // 🔴 控件行因圆盘加大从 54→66，这里同步把下方留白 16→4，
                     //    deck 总高不变 → 歌名 / 歌词 / 动作行的位置保持原样，
                     //    不会因为「按钮加大」把上半屏内容又往上顶。
@@ -721,7 +728,8 @@ struct PlayerView: View {
                 classicProgressBlock
                     .frame(height: 34)
                     // 🔴 2026-11-19：实验室布局微调（进度条位置）
-                    .offset(x: layout.progressX, y: layout.progressY)
+                    .offset(x: layoutTargeted ? layout.progressX : 0,
+                            y: layoutTargeted ? layout.progressY : 0)
                     // 🔴 2026-11-19：方形(经典)主题「歌名 / 歌词 / 动作行 / 进度条上移，
                     //    播放控件行不动」—— 在进度条与控件行之间加留白，deck 变高 →
                     //    弹性封面区缩小 → 上方各块整体上移；控件行仍在 deck 底部不动。
@@ -734,20 +742,22 @@ struct PlayerView: View {
             // 🔴 2026-11-13：圆盘加大到 64pt，行高跟着 54→66（否则圆会被切）。
             //    经典封面 / 歌手写真主题保持原来的 classicDeckControls 不变。
             if playerPageTheme == .immersiveCover {
-                KugouControlsRow(playSize: layout.playSize)
-                    .frame(height: max(66, layout.playSize + 2))
+                KugouControlsRow(playSize: layoutTargeted ? layout.playSize : 64)
+                    .frame(height: max(66, (layoutTargeted ? layout.playSize : 64) + 2))
                     .padding(.horizontal, -10)
                     // 🔴 2026-11-18：沉浸主题控件行单独下移一点（动作行/进度条不动）。
                     // 🔴 2026-11-19：叠加实验室布局微调（控件行位置）。
-                    .offset(x: layout.controlsX, y: 8 + layout.controlsY)
+                    .offset(x: layoutTargeted ? layout.controlsX : 0,
+                            y: 8 + (layoutTargeted ? layout.controlsY : 0))
             } else {
                 classicDeckControls
-                    .frame(height: max(54, layout.playSize + 2))
+                    .frame(height: max(54, (layoutTargeted ? layout.playSize : 62) + 2))
                     .padding(.horizontal, -10)
                     // 🔴 2026-11-18：写真主题控件行跟沉浸主题一样下移一点；经典主题不动。
                     // 🔴 2026-11-19：叠加实验室布局微调（控件行位置）。
-                    .offset(x: layout.controlsX,
-                            y: (playerPageTheme == .artistPhoto ? 8 : 0) + layout.controlsY)
+                    .offset(x: layoutTargeted ? layout.controlsX : 0,
+                            y: (playerPageTheme == .artistPhoto ? 8 : 0)
+                                + (layoutTargeted ? layout.controlsY : 0))
             }
         }
         // 🔴 v2.5.45：左右间距与专辑封面齐平（之前固定 15，导致信息区比专辑更宽）
@@ -794,7 +804,7 @@ struct PlayerView: View {
     /// 🔴 2026-11-17：歌手写真主题的播放/暂停与歌词页同款 —— 半透明白圆盘 + 描边。
     ///    经典主题仍用无圆底的 classicPlayPauseButton（用户只要求写真主题改）。
     private var circledPlayPauseButton: some View {
-        let d = layout.playSize
+        let d = layoutTargeted ? layout.playSize : 62
         return Button { store.toggle(); Haptics.soft() } label: {
             ZStack {
                 Circle()
@@ -863,7 +873,7 @@ struct PlayerView: View {
 
     /// 播放暂停（参考图：大白图标，无圆底）；加载/缓冲时转圈
     private var classicPlayPauseButton: some View {
-        let d = layout.playSize
+        let d = layoutTargeted ? layout.playSize : 62
         return Button { store.toggle(); Haptics.soft() } label: {
             ZStack {
                 // 🔴 同上：缓冲态只在"正在播放"时才画转圈
@@ -1976,6 +1986,8 @@ struct LyricsPageView: View {
     /// 歌词高亮独立订阅 —— store.currentLyricIndex 是转发计算属性不触发刷新。
     /// 这个视图没有注入链，直接从单例取同一个实例。
     @ObservedObject private var lyricState = PlayerStore.shared.lyricState
+    /// 🔴 2026-11-20：实验室歌词页布局微调。
+    @ObservedObject private var layout = PlayerLayoutSettings.shared
     @Binding var isShown: Bool
     /// 🔴 v2.5.49：右上角「横屏」按钮回调（由 PlayerView 注入，处理方向切换时序）。
     var onEnterLandscape: (() -> Void)? = nil
@@ -2105,6 +2117,8 @@ struct LyricsPageView: View {
                     .frame(maxWidth: .infinity)
                     .opacity(0.62)   // 🔴 v2.6.7：只让标题文字低调，按钮保持清晰
                     .padding(.horizontal, 8)
+                    // 🔴 2026-11-20：实验室歌词页布局微调（歌名位置）
+                    .offset(x: layout.lyricsTitleX, y: layout.lyricsTitleY)
 
                     Spacer()
 
@@ -2143,6 +2157,8 @@ struct LyricsPageView: View {
                     .frame(maxHeight: .infinity)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 12)
+                    // 🔴 2026-11-20：实验室歌词页布局微调（歌词正文位置）
+                    .offset(x: layout.lyricsTextX, y: layout.lyricsTextY)
 
                 // 底部播放控件条：进度 + 上一首/播放/下一首（固定高度，安全区内置，不挤出屏幕）
                 LyricsBottomBar(chromeHidden: $chromeHidden)
@@ -2221,6 +2237,8 @@ private struct LyricsBottomBar: View {
     @ObservedObject private var playback = PlayerStore.shared.playback
     /// 🔴 2026-11-18：写真主题歌词页控件行跟沉浸主题一样下移一点；经典主题不动。
     @AppStorage("aurora.playerPageTheme") private var playerPageTheme: PlayerPageTheme = .immersiveCover
+    /// 🔴 2026-11-20：实验室歌词页布局微调（进度条 / 控件 / 播放按钮大小）。
+    @ObservedObject private var layout = PlayerLayoutSettings.shared
     @State private var isScrubbing = false
     @State private var scrubValue: Double = 0
 
@@ -2303,7 +2321,9 @@ private struct LyricsBottomBar: View {
                     .frame(minWidth: 38, alignment: .trailing)
             }
             // 🔴 2026-11-18：用户要求写真主题歌词页「进度条上移一点」，仅写真生效。
-            .offset(y: playerPageTheme == .artistPhoto ? -8 : 0)
+            // 🔴 2026-11-20：叠加实验室歌词页进度条位置微调。
+            .offset(x: layout.lyricsProgressX,
+                    y: (playerPageTheme == .artistPhoto ? -8 : 0) + layout.lyricsProgressY)
 
             // 控制键：上一首 / 播放 / 下一首（与播放页同款 PlayButton，白字白圈，任意背景可见）
             // 🔴 v2.7.0：左右两侧加「顺序模式」和「播放列表」按钮（与播放页一致）。
@@ -2330,7 +2350,9 @@ private struct LyricsBottomBar: View {
                         .frame(width: 56, height: 52)
                 }
                 Spacer(minLength: 0)
-                PlayButton(diameter: playerPageTheme == .artistPhoto ? 62 : 52)
+                PlayButton(diameter: layout.lyricsPlaySizeOverridden
+                           ? layout.lyricsPlaySize
+                           : (playerPageTheme == .artistPhoto ? 62 : 52))
                 Spacer(minLength: 0)
                 Button { store.step(1) } label: {
                     Image(systemName: "forward.end.fill")
@@ -2357,7 +2379,9 @@ private struct LyricsBottomBar: View {
             }
             .buttonStyle(.plain)
             // 🔴 2026-11-18：写真主题歌词页控件行下移一点（进度条不受影响）。
-            .offset(y: playerPageTheme == .artistPhoto ? 8 : 0)
+            // 🔴 2026-11-20：叠加实验室歌词页控件行位置微调。
+            .offset(x: layout.lyricsControlsX,
+                    y: (playerPageTheme == .artistPhoto ? 8 : 0) + layout.lyricsControlsY)
             }   // 🔴 v2.7.1：if !chromeHidden 结束（收起时整块不占位）
         }
         .foregroundStyle(.white)
@@ -3622,6 +3646,8 @@ struct KugouLyricsPage: View {
     @ObservedObject private var lyricState = PlayerStore.shared.lyricState
     @ObservedObject private var playback = PlayerStore.shared.playback
     @ObservedObject private var soundEffect = SoundEffectSetting.shared
+    /// 🔴 2026-11-20：实验室歌词页布局微调。
+    @ObservedObject private var layout = PlayerLayoutSettings.shared
     @Binding var isShown: Bool
     var onEnterLandscape: (() -> Void)? = nil
 
@@ -3655,6 +3681,8 @@ struct KugouLyricsPage: View {
                     topBar
                     songHeader
                         .padding(.top, 18)
+                        // 🔴 2026-11-20：实验室歌词页布局微调（歌名位置）
+                        .offset(x: layout.lyricsTitleX, y: layout.lyricsTitleY)
                     BigLyricsView(lyrics: store.lyrics,
                                   currentIndex: lyricState.currentIndex,
                                   showsTranslation: store.showTranslation,
@@ -3665,6 +3693,8 @@ struct KugouLyricsPage: View {
                         .frame(maxHeight: .infinity)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 8)
+                        // 🔴 2026-11-20：实验室歌词页布局微调（歌词正文位置）
+                        .offset(x: layout.lyricsTextX, y: layout.lyricsTextY)
 
                     collapseButton
                         .padding(.bottom, 2)
@@ -3675,12 +3705,17 @@ struct KugouLyricsPage: View {
                             .padding(.bottom, 16)
                         progressBlock
                             .padding(.horizontal, 24)
-                        KugouControlsRow()
+                            // 🔴 2026-11-20：实验室歌词页布局微调（进度条位置）
+                            .offset(x: layout.lyricsProgressX, y: layout.lyricsProgressY)
+                        KugouControlsRow(playSize: layout.lyricsPlaySizeOverridden
+                                         ? layout.lyricsPlaySize : 64)
                             .padding(.horizontal, 24)
                             .padding(.top, 6)
                             // 🔴 2026-11-18：沉浸主题歌词页控件行单独下移一点
                             //    （动作行 / 进度条保持原位，只动这一排）。
-                            .offset(y: 8)
+                            // 🔴 2026-11-20：叠加实验室歌词页控件行位置微调。
+                            .offset(x: layout.lyricsControlsX,
+                                    y: 8 + layout.lyricsControlsY)
                     }
 
                     // 🔴 2026-11-10 用户要求「动作行、进度条、播放控件行往上移点」：

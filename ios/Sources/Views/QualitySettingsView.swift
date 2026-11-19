@@ -51,6 +51,11 @@ struct QualitySettingsView: View {
                     .padding(.bottom, 16)
                 }
 
+                // 🔴 2026-11-20：当前音质卡片回到顶部，底部客观说明移除。
+                currentQualityCard
+                    .padding(.horizontal, 16)
+                    .padding(.top, onDismiss == nil ? 16 : 0)
+
                 // ── 档位列表：移除「音质选择 / 高级音质 / 当前音源支持的档位」标题 ──
                 VStack(spacing: 0) {
                     ForEach(supportedQualities) { quality in
@@ -74,24 +79,12 @@ struct QualitySettingsView: View {
                         .stroke(divider, lineWidth: 0.5)
                 )
                 .padding(.horizontal, 16)
-                .padding(.top, onDismiss == nil ? 16 : 0)
-
-                // 🔴 2026-11-19：当前音质卡片挪到原「不同网络环境下的音质」位置；
-                //    网络环境设置入口移到设置页（见 ProfileView）。
-                currentQualityCard
-                    .padding(.horizontal, 16)
-                    .padding(.top, 18)
-
-                Text("说明：实际播放音质取决于音源本身是否提供该档位，选择更高档位不会凭空提升码率。")
-                    .font(.system(size: 11))
-                    .foregroundStyle(textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
+                .padding(.top, 18)
             }
             .padding(.bottom, 30)
         }
+        // 🔴 2026-11-20：从播放器打开的音质页固定约半屏高；设置页 push 仍占满整屏。
+        .frame(height: onDismiss == nil ? nil : UIScreen.main.bounds.height * 0.56)
         .background(pageBg.ignoresSafeArea())
         .navigationTitle(onDismiss == nil ? "音质" : "")
         .navigationBarTitleDisplayMode(.inline)

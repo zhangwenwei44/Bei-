@@ -136,7 +136,11 @@ final class PlayerStore: ObservableObject {
 
     /// 🔴 匹配歌词行/驱动卡拉OK填充统一使用的"歌词时间" = 实时播放头 − 用户微调。
     /// 延后 0.5s 时，同一句歌词要在播放头多走 0.5s 后才高亮/开始填充。
-    var lyricDisplayTime: Double { preciseTime - lyricOffsetSeconds }
+    var lyricDisplayTime: Double {
+        // seek 未落到目标前用目标时间，避免逐字填充被旧播放头拖回去。
+        let base = lyricSeekTarget ?? preciseTime
+        return base - lyricOffsetSeconds
+    }
 
     /// 迷你播放条专用状态 —— 第二个高频隔离对象。
     ///
@@ -158,6 +162,12 @@ final class PlayerStore: ObservableObject {
     /// 打断（「关闭播放页后 TabBar 点不动，暂停就能点」的根因）。
     /// 拆出来后只有播放页的歌词视图订阅它。详见 LyricState 文档。
     let lyricState = LyricState()
+
+    /// 🔴 2026-11-20：seek 期间用目标时间锁住歌词高亮与逐字填充，
+    /// 防止 AVPlayer 异步 seek 未完成时 10fps 观察器把旧播放头时间重新写回。
+    private var lyricSeekTarget: Double?
+    private var lyricSeekDeadline: Date?
+    private var seekSerial: UInt64 = 0
 
     /// 兼容旧读取点：内部逻辑仍可用 `store.currentLyricIndex`。
     /// 🔴 转发计算属性，不触发 PlayerStore 的订阅刷新 ——
@@ -1059,9 +1069,40 @@ final class PlayerStore: ObservableObject {
     func seek(to seconds: Double) {
         let upper = duration > 0 ? duration : seconds
         let target = max(0, min(seconds, upper))
-        player.seek(to: CMTime(seconds: target, preferredTimescale: 600))
+
+        // 🔴 2026-11-20：拖动/快进后歌词不同步的根治。
+        // AVPlayer 的 seek 是异步的：旧代码刚把进度条设到 target、歌词高亮算到 target，
+        // 下一个 0.1s 观察器就可能拿到还没跳过去的旧播放头，把高亮又拉回旧行。
+        // 这里用 seekSerial + lyricSeekTarget 做门闩，直到 seek 完成（或超时）前，
+        // 进度条和歌词都只认 target。
+        seekSerial &+= 1
+        let serial = seekSerial
+        lyricSeekTarget = target
+        lyricSeekDeadline = Date().addingTimeInterval(2.5)
+
         playback.setCurrentTime(target)
-        refreshLyric()
+        refreshLyric(at: target)
+
+        let time = CMTime(seconds: target, preferredTimescale: 600)
+        player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+            guard finished else { return }
+            DispatchQueue.main.async {
+                guard let self, self.seekSerial == serial else { return }
+                self.lyricSeekTarget = nil
+                self.lyricSeekDeadline = nil
+                self.playback.setCurrentTime(target)
+                self.refreshLyric(at: target)
+            }
+        }
+        // 极端情况（seek 完成回调没来 / 暂停中观察器不推进）也要解除门闩，
+        // 否则 lyricDisplayTime 会一直停在 target。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            guard let self, self.seekSerial == serial, self.lyricSeekTarget != nil else { return }
+            self.lyricSeekTarget = nil
+            self.lyricSeekDeadline = nil
+            self.playback.setCurrentTime(target)
+            self.refreshLyric(at: target)
+        }
     }
 
     func skip(by seconds: Double) {
@@ -1344,6 +1385,21 @@ final class PlayerStore: ObservableObject {
             guard let self else { return }
             let rawTime = time.seconds.isFinite ? max(0, time.seconds) : 0
 
+            // 🔴 2026-11-20：seek 未真正落到目标前，AVPlayer 可能仍报旧播放头。
+            // 这时进度条和歌词都只认 seek 目标，避免「快进后歌词跳回旧行」。
+            var syncTime = rawTime
+            if let target = self.lyricSeekTarget {
+                let reached = abs(rawTime - target) <= 0.30
+                let expired = (self.lyricSeekDeadline?.timeIntervalSinceNow ?? -1) <= 0
+                if reached || expired {
+                    self.lyricSeekTarget = nil
+                    self.lyricSeekDeadline = nil
+                    syncTime = reached ? rawTime : target
+                } else {
+                    syncTime = target
+                }
+            }
+
             // 🔴 v2.9.8：真的开始出声了 → 「连续播不了就跳过」计数清零。
             // 这样只有真正连续的坏歌才会触发上限，正常歌播起来就恢复计数。
             if rawTime > 0.3, self.consecutiveSkipFailures > 0 {
@@ -1359,8 +1415,8 @@ final class PlayerStore: ObservableObject {
             // 四个主页面订阅的是 PlayerStore，不受 currentTime 影响（见 PlaybackProgress 文档）。
             // 🔴 观察器提到 10fps 后，currentTime 的发布仍按 ~0.2s 节流：
             // 进度条/缓冲条不需要 10fps，节流后主线程重建工作量不上升。
-            if abs(rawTime - self.playback.currentTime) > 0.2 {
-                self.playback.setCurrentTime(rawTime)
+            if abs(syncTime - self.playback.currentTime) > 0.2 {
+                self.playback.setCurrentTime(syncTime)
             }
 
             // duration：AVPlayerItem ready 后才会有精准值，即时 publish（变化只在切歌时发生一次）
@@ -1371,9 +1427,9 @@ final class PlayerStore: ObservableObject {
                 }
             }
 
-            // 歌词刷新继续用原始时间 —— LRCParser.index 现在是二分 O(log n)，
-            // 4fps 下每次只做 7 次比较（100 行歌词），完全不是瓶颈
-            self.refreshLyric(at: rawTime)
+            // 歌词刷新用对齐后的时间（seek 门闩期间为 target）—— LRCParser.index 是二分 O(log n)，
+            // 10fps 下每次只做 7 次比较（100 行歌词），完全不是瓶颈
+            self.refreshLyric(at: syncTime)
 
             // 🔴 v2.8.3：今日听歌统计 —— 正在播放就按 tick（0.1s）累加时长，
             // 切换到一首新歌时首数 +1。「当前歌曲 id」变化即视为换歌，

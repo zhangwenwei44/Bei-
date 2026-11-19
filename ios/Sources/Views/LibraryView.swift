@@ -613,7 +613,7 @@ private struct KugouLibraryPage: View {
     /// 下载歌曲分组：开关开启时按首字母（拼音首字母）分组 + A–Z 索引；
     /// 关闭时按下载顺序平铺（单组、无索引）。
     /// 开关只留在「设置」页；「我的音乐」这一行已按用户要求改成搜索框（2026-11-09）。
-    @AppStorage("aurora.downloadAlphabeticalSort") private var downloadAlphabeticalSort = true
+    @AppStorage("aurora.downloadAlphabeticalSort") private var downloadAlphabeticalSort = false
     /// 🔴 2026-11-09：只搜索**当前下载列表**的关键词（不触发网络搜索、不影响其它板块）。
     @State private var downloadQuery = ""
     /// 🔴 2026-11-17：导入入口合并进「下载歌曲」板块（用户要求不再单独分页）。

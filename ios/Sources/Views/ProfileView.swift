@@ -19,8 +19,9 @@ struct ProfileView: View {
     @AppStorage("aurora.autoPrecache") private var autoPrecacheEnabled: Bool = true
     /// 🔴 v2.6.2：歌词页歌手写真背景开关（歌词页背景默认用当前歌手的写真）
     @AppStorage("aurora.lyricsArtistPhoto") private var lyricsArtistPhoto: Bool = true
-    /// 🔴 v2.9.11：下载歌曲（我的音乐）是否按字母（拼音首字母）排序；开启=分组+右侧 A–Z 索引，关闭=按下载顺序平铺。
-    @AppStorage("aurora.downloadAlphabeticalSort") private var downloadAlphabeticalSort: Bool = true
+    /// 🔴 2026-11-20：下载歌曲（我的音乐）是否按字母（拼音首字母）排序；
+    /// 默认关闭=按下载顺序平铺，用户手动切换后才记住自己的选择。
+    @AppStorage("aurora.downloadAlphabeticalSort") private var downloadAlphabeticalSort: Bool = false
     // 🔴 v2.5.39：播放器主题精简为唯一的「经典封面」，主题选择器已移除（保留旧键不影响）。
     private var autoPrecacheBinding: Binding<Bool> {
         Binding(get: { autoPrecacheEnabled },
@@ -549,6 +550,10 @@ struct ProfileView: View {
             }
         }
         .listStyle(.insetGrouped)
+        // 🔴 2026-11-20：用户手动改过排序开关后，后续启动不再帮他回落到默认关闭。
+        .onChange(of: downloadAlphabeticalSort) { _ in
+            UserDefaults.standard.set(true, forKey: "aurora.downloadSortUserSet")
+        }
         .compatScrollContentBackground(.hidden)
         // 🔴 v2.9.6(修正)：顶部淡蓝渐变钉在列表顶部，上滑不消失（与主页一致）。
         .kugouPinnedTopFade(height: 280)
