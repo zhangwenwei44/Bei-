@@ -11,6 +11,10 @@ struct QualitySettingsView: View {
     @ObservedObject private var sourceStore = SourceStore.shared
     @ObservedObject private var network = NetworkStatus.shared
 
+    /// 从播放器「更多」以 sheet 打开时传入：顶部改为横条，点横条/下滑关闭。
+    /// 从设置页 push 进来时为 nil，保留系统导航栏与返回按钮。
+    var onDismiss: (() -> Void)? = nil
+
     // 浅色主题配色（跟随 App 的蓝色主色，不再是深色+金）
     private let accent = AppStyle.accent
     // 🔴 2026-11-19：背景改成跟顶栏一致的纯白（用户要求）。
@@ -33,16 +37,21 @@ struct QualitySettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
 
-                // ── 顶部：当前选择音质卡片 ───────────────────────────
-                // 🔴 2026-11-19：右上角改成显示当前使用的音源名。
-                sectionHeader(title: "音质选择", trailing: currentSource?.name ?? "当前播放音质", top: 16)
-                currentQualityCard
-                    .padding(.horizontal, 16)
+                // 🔴 2026-11-19：播放器 sheet 顶部不再显示「音质 / 完成」，
+                //    改成居中横条（点一下也能关闭），与系统拖拽指示条视觉一致。
+                if onDismiss != nil {
+                    Button { onDismiss?() } label: {
+                        Capsule()
+                            .fill(Color(uiColor: UIColor(white: 0.78, alpha: 1)))
+                            .frame(width: 38, height: 5)
+                    }
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 8)
+                    .padding(.bottom, 16)
+                }
 
-                // ── 中部：高级音质列表 ───────────────────────────────
-                // 🔴 2026-11-19：只列出当前音源支持的档位，点击即选择该档。
-                sectionHeader(title: "高级音质", trailing: "当前音源支持的档位", top: 24, diamond: true)
-
+                // ── 档位列表：移除「音质选择 / 高级音质 / 当前音源支持的档位」标题 ──
                 VStack(spacing: 0) {
                     ForEach(supportedQualities) { quality in
                         Button {
@@ -65,46 +74,13 @@ struct QualitySettingsView: View {
                         .stroke(divider, lineWidth: 0.5)
                 )
                 .padding(.horizontal, 16)
+                .padding(.top, onDismiss == nil ? 16 : 0)
 
-                // ── 底部：按网络环境设置 ──────────────────────────────
-                NavigationLink {
-                    NetworkQualityView()
-                } label: {
-                    HStack(spacing: 12) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(accent.opacity(0.12))
-                            Image(systemName: "wifi")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(accent)
-                        }
-                        .frame(width: 30, height: 30)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("不同网络环境下的音质")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(textPrimary)
-                            // 🔴 2026-11-19：改成显示当前选择的音质档位。
-                            Text("当前：\(sourceStore.quality.title)")
-                                .font(.system(size: 11))
-                                .foregroundStyle(textTertiary)
-                        }
-                        Spacer(minLength: 6)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(textTertiary)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                    .background(cardBg, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(divider, lineWidth: 0.5)
-                    )
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 16)
-                .padding(.top, 18)
+                // 🔴 2026-11-19：当前音质卡片挪到原「不同网络环境下的音质」位置；
+                //    网络环境设置入口移到设置页（见 ProfileView）。
+                currentQualityCard
+                    .padding(.horizontal, 16)
+                    .padding(.top, 18)
 
                 Text("说明：实际播放音质取决于音源本身是否提供该档位，选择更高档位不会凭空提升码率。")
                     .font(.system(size: 11))
@@ -117,31 +93,11 @@ struct QualitySettingsView: View {
             .padding(.bottom, 30)
         }
         .background(pageBg.ignoresSafeArea())
-        .navigationTitle("音质")
+        .navigationTitle(onDismiss == nil ? "音质" : "")
         .navigationBarTitleDisplayMode(.inline)
         // 🔴 白底页必须强制浅色，否则系统深色模式下 AppStyle 动态色会解析成白字。
         .preferredColorScheme(.light)
         .kugouNavigationBarBackground(UIColor.white, titleColor: UIColor(white: 0.12, alpha: 1))
-    }
-
-    private func sectionHeader(title: String, trailing: String, top: CGFloat, diamond: Bool = false) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(title)
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(textPrimary)
-            if diamond {
-                Image(systemName: "diamond.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(accent)
-            }
-            Spacer(minLength: 8)
-            Text(trailing)
-                .font(.system(size: 11))
-                .foregroundStyle(textTertiary)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, top)
-        .padding(.bottom, 10)
     }
 
     // MARK: - 顶部当前选择卡片
@@ -170,9 +126,8 @@ struct QualitySettingsView: View {
                                 .foregroundStyle(accent)
                         }
                     }
-                    // 🔴 2026-11-18（二改）：用户要求音质检测标签改回显示音质名称，
-                    //    不再展示「实测 XXX kbps」。这里直接显示当前档位名。
-                    Text("当前音质：\(q.title)")
+                    // 🔴 2026-11-19：星海高品音源等「当前音源」信息从顶部标题挪到这张卡片里。
+                    Text("当前音源：\(currentSource?.name ?? "未知音源")")
                         .font(.system(size: 12))
                         .foregroundStyle(textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -310,7 +265,7 @@ extension MusicQuality {
 }
 
 /// 按网络环境设置（从音质页 push 进来，白色主题）。
-private struct NetworkQualityView: View {
+struct NetworkQualityView: View {
     @ObservedObject private var sourceStore = SourceStore.shared
     @ObservedObject private var network = NetworkStatus.shared
 
@@ -333,7 +288,7 @@ private struct NetworkQualityView: View {
                     .font(.system(size: 12))
             }
         }
-        .navigationTitle("按网络环境")
+        .navigationTitle("不同网络环境下的音质")
         .navigationBarTitleDisplayMode(.inline)
         .preferredColorScheme(.light)
         .kugouNavigationBarBackground(UIColor.white,

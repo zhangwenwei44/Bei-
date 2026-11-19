@@ -12,8 +12,7 @@ struct AuroraMusicApp: App {
     @StateObject private var updater = AppUpdater.shared
     // 🔴 v2.9.0：一机一码授权 —— 未激活时在整 App 之上盖授权锁屏
     @StateObject private var license = LicenseManager.shared
-    // 🔴 v2.5.41：用户要求移除「启动公告」与「免责声明」——App 直接进入主界面，
-    // QQ 群入口改到「设置」页（见 ProfileView 的「加入 QQ 交流群」）。
+    // 🔴 v2.5.41：用户要求移除「启动公告」与「免责声明」——App 直接进入主界面。
     /// 🔴 注入 AppDelegate：接管 supportedInterfaceOrientations，配合 OrientationLock
     /// 实现「平时锁竖屏、横屏播放器时强制横屏」。
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate

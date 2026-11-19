@@ -60,15 +60,9 @@ struct PlayerMoreSheetView: View {
             case .addToPlaylist:
                 addToPlaylistPage
             case .quality:
-                CompatNavigationStack {
-                    QualitySettingsView()
-                        .navigationBarTitleDisplayMode(.inline)
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button("完成") { dismiss() }
-                            }
-                        }
-                }
+                // 🔴 2026-11-19：音质页去掉「音质 / 完成」文字，顶部改成横条；
+                //    直接闭包 dismiss，横条本身也可点按关闭。
+                QualitySettingsView(onDismiss: { dismiss() })
             default:
                 settingsPage
             }

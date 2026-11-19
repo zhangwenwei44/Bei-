@@ -42,6 +42,8 @@ struct PlayerView: View {
     /// 🔴 v2.9.26：订阅音效设置，使动作行「OFF/ON」角标随预设切换实时刷新
     /// （PlayerActionIcon 内部读 SoundEffectSetting.shared，但只有订阅方重渲染才会反映）。
     @ObservedObject private var soundEffectSetting = SoundEffectSetting.shared
+    /// 🔴 2026-11-19：实验室「播放器布局微调」参数（位置/按钮大小），真机对齐用。
+    @ObservedObject private var layout = PlayerLayoutSettings.shared
     /// 🔴 刻意用 `let` 不用 @ObservedObject（v2.5.35 关键修复）：
     /// playback.currentTime 播放时 4fps 变化，若 PlayerView 订阅它，整棵播放页树
     /// （含横屏全部按钮/进度/歌词）每秒被重建 4 次 —— SwiftUI 在持续 re-diff 期间
@@ -442,6 +444,8 @@ struct PlayerView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // 🔴 2026-11-19：实验室布局微调（歌曲名位置）
+        .offset(x: layout.titleX, y: layout.titleY)
     }
 
     // MARK: 封面区：专辑封面方图（弹性填充，歌词已移到底部 deck）
@@ -683,12 +687,16 @@ struct PlayerView: View {
             // 歌词两行：当前句（卡拉OK逐字）+ 下一句（暗）
             // 🔴 主题只换背景、不改版式：三个主题的歌词都留在 deck 里歌名下方。
             lyricPill()
+                // 🔴 2026-11-19：实验室布局微调（歌词行位置）
+                .offset(x: layout.lyricX, y: layout.lyricY)
                 .padding(.bottom, deckLyricBottom)
 
             // 动作行：喜欢 / 下载 / 音质 / 歌词 / ⋯（纯图标均分）
             // 🔴 v2.5.47：动作行左右间距再收窄 10pt（比封面更宽一档）
             classicActionRow
                 .padding(.horizontal, -10)
+                // 🔴 2026-11-19：实验室布局微调（动作行位置，只作用于竖屏 deck）
+                .offset(x: layout.actionX, y: layout.actionY)
                 .padding(.bottom, deckActionBottom)
 
             // 进度行：已播时间 —— 细白进度条 —— 总时长
@@ -703,6 +711,8 @@ struct PlayerView: View {
             if playerPageTheme == .immersiveCover {
                 ImmersiveCoverProgressBlock(playback: store.playback)
                     .frame(height: 34)
+                    // 🔴 2026-11-19：实验室布局微调（进度条位置）
+                    .offset(x: layout.progressX, y: layout.progressY)
                     // 🔴 控件行因圆盘加大从 54→66，这里同步把下方留白 16→4，
                     //    deck 总高不变 → 歌名 / 歌词 / 动作行的位置保持原样，
                     //    不会因为「按钮加大」把上半屏内容又往上顶。
@@ -710,6 +720,8 @@ struct PlayerView: View {
             } else {
                 classicProgressBlock
                     .frame(height: 34)
+                    // 🔴 2026-11-19：实验室布局微调（进度条位置）
+                    .offset(x: layout.progressX, y: layout.progressY)
                     // 🔴 2026-11-19：方形(经典)主题「歌名 / 歌词 / 动作行 / 进度条上移，
                     //    播放控件行不动」—— 在进度条与控件行之间加留白，deck 变高 →
                     //    弹性封面区缩小 → 上方各块整体上移；控件行仍在 deck 底部不动。
@@ -722,17 +734,20 @@ struct PlayerView: View {
             // 🔴 2026-11-13：圆盘加大到 64pt，行高跟着 54→66（否则圆会被切）。
             //    经典封面 / 歌手写真主题保持原来的 classicDeckControls 不变。
             if playerPageTheme == .immersiveCover {
-                KugouControlsRow()
-                    .frame(height: 66)
+                KugouControlsRow(playSize: layout.playSize)
+                    .frame(height: max(66, layout.playSize + 2))
                     .padding(.horizontal, -10)
                     // 🔴 2026-11-18：沉浸主题控件行单独下移一点（动作行/进度条不动）。
-                    .offset(y: 8)
+                    // 🔴 2026-11-19：叠加实验室布局微调（控件行位置）。
+                    .offset(x: layout.controlsX, y: 8 + layout.controlsY)
             } else {
                 classicDeckControls
-                    .frame(height: 54)
+                    .frame(height: max(54, layout.playSize + 2))
                     .padding(.horizontal, -10)
                     // 🔴 2026-11-18：写真主题控件行跟沉浸主题一样下移一点；经典主题不动。
-                    .offset(y: playerPageTheme == .artistPhoto ? 8 : 0)
+                    // 🔴 2026-11-19：叠加实验室布局微调（控件行位置）。
+                    .offset(x: layout.controlsX,
+                            y: (playerPageTheme == .artistPhoto ? 8 : 0) + layout.controlsY)
             }
         }
         // 🔴 v2.5.45：左右间距与专辑封面齐平（之前固定 15，导致信息区比专辑更宽）
@@ -779,24 +794,25 @@ struct PlayerView: View {
     /// 🔴 2026-11-17：歌手写真主题的播放/暂停与歌词页同款 —— 半透明白圆盘 + 描边。
     ///    经典主题仍用无圆底的 classicPlayPauseButton（用户只要求写真主题改）。
     private var circledPlayPauseButton: some View {
-        Button { store.toggle(); Haptics.soft() } label: {
+        let d = layout.playSize
+        return Button { store.toggle(); Haptics.soft() } label: {
             ZStack {
                 Circle()
                     .fill(.white.opacity(0.16))
-                    // 🔴 2026-11-19：写真主题播放圆加大到 62pt，与歌词页 PlayButton 一致
-                    //    （用户要求「和歌词页一样大」）。
-                    .frame(width: 62, height: 62)
+                    // 🔴 2026-11-19：写真主题播放圆默认 62pt（与歌词页一致），
+                    //    实验室里可按真机需要继续调整按钮大小。
+                    .frame(width: d, height: d)
                     .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 1))
                 if store.isLoading || (store.isBuffering && store.isPlaying) {
                     ProgressView().tint(.white)
                 } else {
                     Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 24, weight: .bold))
+                        .font(.system(size: max(18, d * 0.39), weight: .bold))
                         .foregroundStyle(.white)
                         .offset(x: store.isPlaying ? 0 : 2)
                 }
             }
-            .frame(width: 72, height: 68)
+            .frame(width: d + 10, height: d + 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -847,19 +863,20 @@ struct PlayerView: View {
 
     /// 播放暂停（参考图：大白图标，无圆底）；加载/缓冲时转圈
     private var classicPlayPauseButton: some View {
-        Button { store.toggle(); Haptics.soft() } label: {
+        let d = layout.playSize
+        return Button { store.toggle(); Haptics.soft() } label: {
             ZStack {
                 // 🔴 同上：缓冲态只在"正在播放"时才画转圈
                 if store.isLoading || (store.isBuffering && store.isPlaying) {
                     ProgressView().tint(.white)
                 } else {
                     Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 38, weight: .medium))
+                        .font(.system(size: max(24, d * 0.59), weight: .medium))
                         .foregroundStyle(.white)
                         .offset(x: store.isPlaying ? 0 : 2)
                 }
             }
-            .frame(width: 64, height: 60)
+            .frame(width: d + 2, height: d - 2)
             .contentShape(Rectangle())
             .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
         }

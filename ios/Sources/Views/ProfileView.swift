@@ -36,8 +36,6 @@ struct ProfileView: View {
     /// 🔴 2026-11-08：运行日志改成隐藏入口（长按「版本」标题 1.5 秒进入），
     /// 列表里不再显示这一行；用隐藏 NavigationLink 保持原来的 push 行为。
     @State private var diagnosticsActive = false
-    /// QQ 交流群弹层（v2.5.41：启动公告取消后，入口改为设置页这一行）
-    @State private var showQQGroup = false
     // MARK: 🔴 2026-11-10 本地歌曲导入（入口从「我的音乐 → 下载歌曲」搬到设置页）
     @State private var importNotice: String?
 
@@ -358,6 +356,27 @@ struct ProfileView: View {
                     }
                 }
 
+                // 🔴 2026-11-19：不同网络环境下的音质从音质页挪进设置页。
+                NavigationLink {
+                    NetworkQualityView()
+                } label: {
+                    HStack {
+                        Label {
+                            Text("不同网络环境下的音质")
+                        } icon: {
+                            Image(systemName: "wifi")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(AppStyle.secondaryText)
+                        }
+                        Spacer()
+                        Text(sourceStore.cellularFallback ? "蜂窝省流已开启" : "已关闭")
+                            .foregroundStyle(AppStyle.tertiaryText)
+                        LucideIcon(icon: .chevronRight, size: 12, color: AppStyle.tertiaryText)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                    }
+                }
+
                 HStack {
                     Label {
                         Text("睡眠定时")
@@ -527,30 +546,7 @@ struct ProfileView: View {
                     .foregroundStyle(AppStyle.primaryText)
                 }
 
-                // 🔴 v2.5.41：QQ 群入口从「启动公告弹窗」挪到设置页（启动时不再弹任何公告）
-                Button {
-                    showQQGroup = true
-                } label: {
-                    HStack {
-                        Label {
-                            Text("加入 QQ 交流群")
-                        } icon: {
-                            LucideIcon(icon: .users, size: 18, color: AppStyle.secondaryText)
-                        }
-                        Spacer()
-                        Text(QQAnnouncementView.groupNumber)
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(AppStyle.tertiaryText)
-                        LucideIcon(icon: .chevronRight, size: 12, color: AppStyle.tertiaryText)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(AppStyle.tertiaryText)
-                    }
-                    .foregroundStyle(AppStyle.primaryText)
-                }
             }
-        }
-        .sheet(isPresented: $showQQGroup) {
-            QQAnnouncementView()
         }
         .listStyle(.insetGrouped)
         .compatScrollContentBackground(.hidden)

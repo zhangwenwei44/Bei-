@@ -141,6 +141,8 @@ struct KugouQueueGlyph: View {
 /// 与主播放页 classicDeckControls 完全等价的功能，只换外观。
 struct KugouControlsRow: View {
     @EnvironmentObject private var store: PlayerStore
+    /// 🔴 2026-11-19：实验室布局微调可调整沉浸主题的播放键大小（默认沿用 64pt）。
+    var playSize: CGFloat = 64
 
     var body: some View {
         HStack(spacing: 0) {
@@ -165,7 +167,7 @@ struct KugouControlsRow: View {
             Button { store.toggle(); Haptics.soft() } label: {
                 KugouPlayGlyph(isPlaying: store.isPlaying,
                                isLoading: store.isLoading || (store.isBuffering && store.isPlaying))
-                    .frame(width: 64, height: 64)
+                    .frame(width: playSize, height: playSize)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

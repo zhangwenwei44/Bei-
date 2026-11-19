@@ -807,10 +807,25 @@ struct CoverImage: View {
         //    域名被 ATS 拦），就再也不走 fallbackKeys，卡片永远停在灰白占位。
         //    这里在首选地址失败后按歌曲 hash / 专辑 id 反查一张真实封面，
         //    并把结果登记进 CoverResolver，同一首歌在别处也能直接命中。
-        guard !fallbackKeys.isEmpty else { return }
+        guard !fallbackKeys.isEmpty else {
+            installFallbackIfNeeded()
+            return
+        }
         guard let fallback = await CoverResolver.shared.resolveCover(for: fallbackKeys),
-              fallback.absoluteString != primary?.absoluteString else { return }
+              fallback.absoluteString != primary?.absoluteString else {
+            installFallbackIfNeeded()
+            return
+        }
         _ = await loadFrom(fallback)
+        installFallbackIfNeeded()
+    }
+
+    /// 🔴 2026-11-19：所有歌曲列表卡片在「联网反查也拿不到图」时，
+    ///    统一换成用户指定的蓝色唱片兜底图，不再留灰白音符占位块。
+    ///    沉浸式大图传了 fallbackColor（深色/透明），保持原逻辑不被兜底图覆盖。
+    private func installFallbackIfNeeded() {
+        guard !Task.isCancelled, image == nil, fallbackColor == nil else { return }
+        image = LocalArtwork.fallbackImage()
     }
 
     private func loadFrom(_ target: URL) async -> Bool {

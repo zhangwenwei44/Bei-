@@ -790,7 +790,8 @@ struct LabView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     bannerSection
                     cardSection
-                    Text("横幅与卡片背景都只保存在本机，不会上传到服务器。")
+                    PlayerLayoutLabSection()
+                    Text("横幅、卡片背景与播放器布局都只保存在本机，不会上传到服务器。")
                         .font(.system(size: 11))
                         .foregroundStyle(AppStyle.tertiaryText)
                 }

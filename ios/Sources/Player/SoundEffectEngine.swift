@@ -6,14 +6,16 @@ import Combine
 
 // MARK: - 音效预设
 
-/// 音效预设（三频段 tone control + 总增益）。
+/// 音效预设（10 段 peaking EQ + 总增益）。
 /// 全部自绘 UI 选择，默认「关闭」，选了预设才挂到 AVPlayerItem.audioMix。
+/// 🔴 2026-11-19：新增 `.custom`（均衡器自定义），频段参数由 SoundEffectSetting 持久化。
 enum SoundEffectPreset: String, CaseIterable, Identifiable {
     case off        // 关闭（不挂 audioMix，零影响）
     case bass       // 超重低音
     case vocal      // 清澈人声
     case surround   // 环绕立体
     case live       // 现场 Live
+    case custom     // 自定义均衡器
 
     var id: String { rawValue }
 
@@ -24,6 +26,7 @@ enum SoundEffectPreset: String, CaseIterable, Identifiable {
         case .vocal:      return "清澈人声"
         case .surround:   return "环绕立体"
         case .live:       return "现场 Live"
+        case .custom:     return "自定义音效"
         }
     }
 
@@ -35,17 +38,32 @@ enum SoundEffectPreset: String, CaseIterable, Identifiable {
         case .vocal:      return "突出人声，弱化两端"
         case .surround:   return "提升空间感与高频细节"
         case .live:       return "整体增益，临场氛围更浓"
+        case .custom:     return "10 段均衡器，按你的听感调节"
         }
     }
 
-    /// (低音dB, 中音dB, 高音dB, 总增益dB)
-    var eq: (bass: Float, mid: Float, treble: Float, master: Float) {
+    /// 均衡器频点（Hz）。
+    static let bandFrequencies: [Float] = [31, 62, 125, 250, 500,
+                                           1000, 2000, 4000, 8000, 16000]
+
+    /// 每个频点的增益（dB）。custom 的实际值来自 SoundEffectSetting。
+    var bands: [Float] {
         switch self {
-        case .off:        return (0, 0, 0, 0)
-        case .bass:       return (9, 0, -1, 1)
-        case .vocal:      return (-3, 4, 3, 1)
-        case .surround:   return (2, 1, 5, 0)
-        case .live:       return (3, 2, 4, 1)
+        case .off:        return Array(repeating: 0, count: Self.bandFrequencies.count)
+        case .bass:       return [12, 10, 7, 4, 1, -1, -2, -3, -3, -4]
+        case .vocal:      return [-5, -4, -2, 1, 4, 6, 6, 4, 2, 0]
+        case .surround:   return [0, -1, -2, -1, 1, 3, 5, 7, 6, 4]
+        case .live:       return [3, 3, 2, 1, 2, 3, 4, 4, 5, 4]
+        case .custom:     return Array(repeating: 0, count: Self.bandFrequencies.count)
+        }
+    }
+
+    /// 总增益（dB）。
+    var master: Float {
+        switch self {
+        case .off: return 0
+        case .bass, .vocal, .live: return 1
+        case .surround, .custom: return 0
         }
     }
 }
@@ -59,89 +77,159 @@ final class SoundEffectSetting: ObservableObject {
     static let didChange = Notification.Name("aurora.soundEffectDidChange")
 
     private let key = "aurora.soundEffectPreset"
+    private let bandsKey = "aurora.soundEffectCustomBands"
+    private let masterKey = "aurora.soundEffectCustomMaster"
 
     /// 当前预设（@Published 保证面板即时刷新；didSet 负责持久化 + 通知播放器）
     @Published var current: SoundEffectPreset = .off {
         didSet {
             guard oldValue != current else { return }
             UserDefaults.standard.set(current.rawValue, forKey: key)
-            // 🔴 切换预设时通知播放器：重新把 audioMix 挂到当前曲目。
-            NotificationCenter.default.post(name: SoundEffectSetting.didChange, object: nil)
+            notify()
         }
+    }
+
+    /// 自定义均衡器 10 段增益（dB）。
+    @Published private(set) var customBands: [Float] = SoundEffectSetting.defaultBands {
+        didSet { UserDefaults.standard.set(customBands.map { Double($0) }, forKey: bandsKey) }
+    }
+
+    /// 自定义总增益（dB）。
+    @Published private(set) var customMaster: Float = 0 {
+        didSet { UserDefaults.standard.set(Double(customMaster), forKey: masterKey) }
     }
 
     private init() {
         let raw = UserDefaults.standard.string(forKey: key) ?? SoundEffectPreset.off.rawValue
         current = SoundEffectPreset(rawValue: raw) ?? .off
+
+        let stored = UserDefaults.standard.array(forKey: bandsKey) as? [NSNumber] ?? []
+        if stored.count == SoundEffectPreset.bandFrequencies.count {
+            customBands = stored.map { min(12, max(-12, $0.floatValue)) }
+        }
+        let storedMaster = UserDefaults.standard.object(forKey: masterKey) as? NSNumber
+        if let storedMaster = storedMaster {
+            customMaster = min(6, max(-6, storedMaster.floatValue))
+        }
+    }
+
+    static var defaultBands: [Float] {
+        Array(repeating: 0, count: SoundEffectPreset.bandFrequencies.count)
+    }
+
+    func bands(for preset: SoundEffectPreset) -> [Float] {
+        preset == .custom ? customBands : preset.bands
+    }
+
+    func master(for preset: SoundEffectPreset) -> Float {
+        preset == .custom ? customMaster : preset.master
+    }
+
+    /// 保存并启用自定义均衡器参数。
+    func applyCustom(bands newBands: [Float], master newMaster: Float) {
+        let clamped = newBands.map { min(12, max(-12, $0)) }
+        let changedToCustom = current != .custom
+        customBands = clamped
+        customMaster = min(6, max(-6, newMaster))
+        if changedToCustom {
+            current = .custom          // didSet 会通知播放器
+        } else {
+            notify()                   // 参数变了也要重挂 tap
+        }
+    }
+
+    func resetCustom() {
+        customBands = Self.defaultBands
+        customMaster = 0
+        if current == .custom { notify() }
+    }
+
+    private func notify() {
+        NotificationCenter.default.post(name: SoundEffectSetting.didChange, object: nil)
     }
 }
 
-// MARK: - 实时 DSP（纯 Swift 处理 PCM 浮点采样，三频段 tone control）
+// MARK: - 实时 DSP（10 段 peaking EQ + 总增益）
 
-/// 每个 tap 实例持有一份处理状态；按声道保存一阶 IIR 状态。
+/// RBJ peaking EQ 双二阶滤波器。
+private struct Biquad {
+    var b0: Float
+    var b1: Float
+    var b2: Float
+    var a1: Float
+    var a2: Float
+    var x1: Float = 0
+    var x2: Float = 0
+    var y1: Float = 0
+    var y2: Float = 0
+
+    init(gainDb: Float, frequency: Float, sampleRate: Float, q: Float = 1.4) {
+        let a = powf(10, gainDb / 40)
+        let w0 = 2 * Float.pi * frequency / sampleRate
+        let alpha = sin(w0) / (2 * q)
+        let c = cos(w0)
+        let a0 = 1 + alpha / a
+        b0 = (1 + alpha * a) / a0
+        b1 = (-2 * c) / a0
+        b2 = (1 - alpha * a) / a0
+        a1 = (-2 * c) / a0
+        a2 = (1 - alpha / a) / a0
+    }
+
+    mutating func process(_ x: Float) -> Float {
+        let y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+        x2 = x1; x1 = x
+        y2 = y1; y1 = y
+        return y
+    }
+}
+
+/// 每个 tap 实例持有一份处理状态；按声道保存一组滤波器状态。
 ///
-/// 🔴 v2.9.23 重写 **格式兼容**：原来 `process` 里有 `guard ... isFloat else { return }`，
-/// 而 iOS 上 AAC/MP3 经 MTAudioProcessingTap 交付的往往是 **16-bit 整型 LPCM**（不是 Float32），
-/// 于是 `isFloat == false` → 每个预设的处理都提前 return → **切任何音效都听不到变化**。
-/// 现在不依赖浮点交付：先按交付格式把样本读成 Float，在 Float 域做三频段处理，再按原格式量化写回，
-/// 整型 / 浮点 / 交错 / 非交错一律正确处理。
+/// 🔴 v2.9.23 重写 **格式兼容**：iOS 上 AAC/MP3 经 MTAudioProcessingTap 交付的往往是
+/// 16-bit 整型 LPCM（不是 Float32），所以先按交付格式读成 Float，在 Float 域处理，
+/// 再按原格式量化写回；整型 / 浮点、交错 / 非交错一律正确处理。
 private final class SoundEffectProcessor {
-    let preset: SoundEffectPreset
-    private let bg: Float
-    private let mg: Float
-    private let tg: Float
+    private let bands: [Float]
     private let master: Float
-    private var lpA: Float = 0   // 低通系数
-    private var hpA: Float = 0   // 高通系数
-    /// 每声道状态：[低通y, 高通y, 高通x1]
-    private var st: [[Float]] = [[]]
+    private var sampleRate: Float = 44100
+    /// 每声道一组 10 段滤波器。
+    private var filters: [[Biquad]] = []
     // 交付格式（prepare 里探明，process 据此读写；兼容整型/浮点、交错/非交错）
     private var fmtIsFloat = true
     private var fmtIsSigned = true
     private var fmtBitDepth = 32
 
-    init(preset: SoundEffectPreset) {
-        self.preset = preset
-        let e = preset.eq
-        bg = SoundEffectProcessor.gain(e.bass)
-        mg = SoundEffectProcessor.gain(e.mid)
-        tg = SoundEffectProcessor.gain(e.treble)
-        master = SoundEffectProcessor.gain(e.master)
+    init(bands: [Float], master: Float) {
+        self.bands = bands
+        self.master = powf(10, master / 20)
     }
 
-    private static func gain(_ db: Float) -> Float {
-        pow(10, db / 20)
+    private static func makeFilters(bands: [Float], sampleRate: Float) -> [Biquad] {
+        let freqs = SoundEffectPreset.bandFrequencies
+        return freqs.indices.map { i in
+            let gain = i < bands.count ? bands[i] : 0
+            return Biquad(gainDb: gain, frequency: freqs[i], sampleRate: sampleRate)
+        }
     }
 
     func prepare(description: AudioStreamBasicDescription) {
-        let sr = description.mSampleRate
-        guard sr > 0 else { return }
-        let dt = 1.0 / Float(sr)
-        // 低通 ~200Hz，高通 ~3500Hz
-        let rcLP = 1.0 / (2 * Float.pi * 200)
-        lpA = min(0.999, dt / (rcLP + dt))
-        let rcHP = 1.0 / (2 * Float.pi * 3500)
-        hpA = min(0.999, rcHP / (rcHP + dt))
+        sampleRate = description.mSampleRate > 0 ? Float(description.mSampleRate) : 44100
         fmtIsFloat = (description.mFormatFlags & kAudioFormatFlagIsFloat) != 0
         fmtIsSigned = (description.mFormatFlags & kAudioFormatFlagIsSignedInteger) != 0
         fmtBitDepth = Int(description.mBitsPerChannel)
     }
 
-    // MARK: - 三频段处理（Float 域）
+    // MARK: - 10 段 EQ（Float 域）
 
-    /// 单样本三频段 tone control + 总增益 + 软裁剪（内部统一在 Float 域计算）。
     private func processSample(_ s: inout Float, channel c: Int) {
-        var lpY = st[c][0], hpY = st[c][1], hpX1 = st[c][2]
-        lpY += lpA * (s - lpY)
-        let hp = hpA * (s - hpX1 + hpY)
-        hpY = hp
-        hpX1 = s
-        let mid = s - lpY - hpY
-        var out = (lpY * bg + mid * mg + hpY * tg) * master
-        // 软裁剪，防止增益叠加爆音
+        guard filters.indices.contains(c) else { s = 0; return }
+        var out = s
+        for i in filters[c].indices { out = filters[c][i].process(out) }
+        out *= master
+        // 软裁剪，防止多段增益叠加爆音
         if out > 1 { out = 1 } else if out < -1 { out = -1 }
         out = Float(tanh(Double(out)))
-        st[c][0] = lpY; st[c][1] = hpY; st[c][2] = hpX1
         s = out
     }
 
@@ -221,9 +309,8 @@ private final class SoundEffectProcessor {
         }
     }
 
-    /// 在音频 buffer 上做三频段处理：兼容任意 LPCM 交付格式（整型/浮点、交错/非交错）。
+    /// 在音频 buffer 上做 10 段 EQ：兼容任意 LPCM 交付格式（整型/浮点、交错/非交错）。
     func process(_ abl: UnsafeMutablePointer<AudioBufferList>, frames: CMItemCount) {
-        guard preset != .off else { return }
         let n = Int(frames)
         guard n > 0 else { return }
         let buffers = UnsafeMutableAudioBufferListPointer(abl)
@@ -231,7 +318,9 @@ private final class SoundEffectProcessor {
         let interleaved = (buffers.count == 1 && buffers[0].mNumberChannels > 1)
         let totalCh = interleaved ? Int(buffers[0].mNumberChannels) : buffers.count
         guard totalCh > 0 else { return }
-        if st.count != totalCh { st = (0..<totalCh).map { _ in [Float](repeating: 0, count: 3) } }
+        if filters.count != totalCh {
+            filters = (0..<totalCh).map { _ in Self.makeFilters(bands: bands, sampleRate: sampleRate) }
+        }
 
         if interleaved {
             guard let raw = buffers[0].mData else { return }
@@ -258,7 +347,11 @@ private final class SoundEffectProcessor {
 enum SoundEffectEngine {
     static func audioMix(for preset: SoundEffectPreset) -> AVAudioMix? {
         guard preset != .off else { return nil }
-        let proc = SoundEffectProcessor(preset: preset)
+        let setting = SoundEffectSetting.shared
+        let proc = SoundEffectProcessor(
+            bands: setting.bands(for: preset),
+            master: setting.master(for: preset)
+        )
 
         // 把 processor 的 retained 指针放进 clientInfo 字段，
         // 并在 init 回调里转存到 tap storage，供 prepare/process/finalize 取回。

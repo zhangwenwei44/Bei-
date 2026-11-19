@@ -36,7 +36,7 @@ struct LockScreenView: View {
                         Text("AuroraMusic")
                             .font(.system(size: 26, weight: .bold))
                             .foregroundStyle(.white)
-                        Text("本应用采用一机一码授权")
+                        Text("本应用不对外分发，仅供个人学习")
                             .font(.system(size: 13))
                             .foregroundStyle(.white.opacity(0.7))
                     }
@@ -108,32 +108,6 @@ struct LockScreenView: View {
                     .buttonStyle(.plain)
                     .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-                    // 🔴 v2.9.2：QQ 群获取授权码提示（点一下复制群号）
-                    VStack(spacing: 10) {
-                        Button {
-                            UIPasteboard.general.string = "1124217335"
-                            Haptics.light()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "person.2.fill")
-                                    .font(.system(size: 12))
-                                Text("加 QQ 群 1124217335 获取授权码")
-                                    .font(.system(size: 13, weight: .medium))
-                                Image(systemName: "doc.on.doc")
-                                    .font(.system(size: 11))
-                            }
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(.white.opacity(0.14), in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        Text("把上方设备码发到群里即可。\n一个设备码对应一个授权码，换手机需重新获取。")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.white.opacity(0.5))
-                            .multilineTextAlignment(.center)
-                    }
-
                     Spacer(minLength: 24)
                 }
                 .padding(.horizontal, 24)
@@ -153,7 +127,7 @@ struct LockScreenView: View {
         if license.activate(code: code) {
             errorMessage = nil
         } else {
-            errorMessage = "授权码无效，请核对设备码后重新获取"
+            errorMessage = "授权码无效，请检查后重试"
             Haptics.light()
             withAnimation(.default) { shake = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { shake = false }
