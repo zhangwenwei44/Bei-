@@ -13,29 +13,38 @@ struct QualitySettingsView: View {
 
     // 浅色主题配色（跟随 App 的蓝色主色，不再是深色+金）
     private let accent = AppStyle.accent
-    private let pageBg = Color(uiColor: UIColor(white: 0.97, alpha: 1))
+    // 🔴 2026-11-19：背景改成跟顶栏一致的纯白（用户要求）。
+    private let pageBg = Color.white
     private let cardBg = Color.white
     private let divider = Color(uiColor: UIColor(white: 0.90, alpha: 1))
     private let textPrimary = AppStyle.primaryText
     private let textSecondary = AppStyle.secondaryText
     private let textTertiary = AppStyle.tertiaryText
 
+    /// 当前使用的音源（最高优先级可用音源）。
+    private var currentSource: ThirdPartySource? { sourceStore.currentSource }
+    /// 当前音源支持的档位；检测不到标记时回退到全部可选档位。
+    private var supportedQualities: [MusicQuality] {
+        let list = currentSource?.supportedQualities ?? []
+        return list.isEmpty ? MusicQuality.selectableCases : list
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
 
                 // ── 顶部：当前选择音质卡片 ───────────────────────────
-                sectionHeader(title: "音质选择", trailing: "当前播放音质", top: 16)
+                // 🔴 2026-11-19：右上角改成显示当前使用的音源名。
+                sectionHeader(title: "音质选择", trailing: currentSource?.name ?? "当前播放音质", top: 16)
                 currentQualityCard
                     .padding(.horizontal, 16)
 
                 // ── 中部：高级音质列表 ───────────────────────────────
-                sectionHeader(title: "高级音质", trailing: "按音源实际支持的档位播放", top: 24, diamond: true)
+                // 🔴 2026-11-19：只列出当前音源支持的档位，点击即选择该档。
+                sectionHeader(title: "高级音质", trailing: "当前音源支持的档位", top: 24, diamond: true)
 
                 VStack(spacing: 0) {
-                    // 🔴 2026-11-18：只展示用户可选的三个档位（高品/超品/无损），
-                    //    「至臻母带」「至臻2.0」按用户要求从所有选择 UI 移除。
-                    ForEach(MusicQuality.selectableCases) { quality in
+                    ForEach(supportedQualities) { quality in
                         Button {
                             sourceStore.quality = quality
                             Haptics.light()
@@ -43,7 +52,7 @@ struct QualitySettingsView: View {
                             qualityRow(quality)
                         }
                         .buttonStyle(.plain)
-                        if quality != MusicQuality.selectableCases.last {
+                        if quality != supportedQualities.last {
                             Divider()
                                 .background(divider)
                                 .padding(.leading, 62)
@@ -74,7 +83,8 @@ struct QualitySettingsView: View {
                             Text("不同网络环境下的音质")
                                 .font(.system(size: 15, weight: .medium))
                                 .foregroundStyle(textPrimary)
-                            Text(network.isCellular ? "当前：蜂窝网络" : "当前：非蜂窝网络")
+                            // 🔴 2026-11-19：改成显示当前选择的音质档位。
+                            Text("当前：\(sourceStore.quality.title)")
                                 .font(.system(size: 11))
                                 .foregroundStyle(textTertiary)
                         }

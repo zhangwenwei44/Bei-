@@ -911,8 +911,13 @@ final class PlayerStore: ObservableObject {
                             bps = await AudioQualityProbe.bitrate(remote: probeURL, duration: duration)
                         }
                         guard let bps, self.player.currentItem === item else { return }
-                        // 只写日志，不覆盖 bitrateLabel（UI 现在显示档位名）。
-                        Log.info("播放", "实测码率 \(bps) bps（\(self.current?.title ?? "")，标签仍显示档位名）")
+                        if probeIsLocal {
+                            // 🔴 2026-11-19：本地导入歌曲按实测码率显示真实音质档位
+                            //    （旧代码写死「本地」，用户看不到真实音质）。
+                            let realQuality = AudioQualityProbe.qualityLabel(bps: bps)
+                            if !realQuality.isEmpty { self.bitrateLabel = realQuality }
+                        }
+                        Log.info("播放", "实测码率 \(bps) bps（\(self.current?.title ?? "")）")
                     }
                 }
             }
@@ -1266,9 +1271,12 @@ final class PlayerStore: ObservableObject {
             await MainActor.run { [weak self] in
                 guard let self, self.artworkTaskID == song.id else { return }
                 guard let image else {
-                    // 新歌所有反查都失败：此刻才清空，绝不沿用上一首的图（避免永久残留）。
-                    self.artwork = nil
-                    self.currentPalette = ArtworkPaletteEngine.palette(for: nil, seed: seed)
+                    // 🔴 2026-11-19：新歌所有反查都失败时，用用户指定的兜底图
+                    //    （LocalImportFallback 蓝色音符唱片），而不是清空/沿用上一首。
+                    //    这样播放页 / 沉浸大图 / 歌词页都统一显示兜底图，不再空白。
+                    let fallback = CoverResolver.fallbackImage()
+                    self.artwork = fallback
+                    self.currentPalette = ArtworkPaletteEngine.palette(for: fallback, seed: seed)
                     return
                 }
                 self.artwork = image

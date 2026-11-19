@@ -310,6 +310,25 @@ final class KugouClient {
         return nil
     }
 
+    /// 🔴 2026-11-19：搜索框输入联想。用正式搜索接口第 1 页取前几条歌名，
+    /// 只用 songname（轻量、不补封面），输入时防抖调用。返回去重后的联想词（最多 8 条）。
+    func searchSuggestions(keyword: String) async -> [String] {
+        let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        guard let json = try? await searchSongJSON(keyword: trimmed, page: 1, pageSize: 12),
+              let info = json["data"] as? [String: Any],
+              let rows = info["info"] as? [[String: Any]] else { return [] }
+        var result: [String] = []
+        var seen = Set<String>()
+        for row in rows {
+            guard let name = Self.string(row["songname"]), !name.isEmpty else { continue }
+            let key = name.lowercased()
+            if seen.insert(key).inserted { result.append(name) }
+            if result.count >= 8 { break }
+        }
+        return result
+    }
+
     /// 核心实现：只翻 mixedSearch 第 1 页。
     /// cursor=1/2/3 在 mixedSearch 上返回的是完全相同的第一页数据（酷狗把 cursor 用在
     /// 搜索建议而非正式搜索），之前翻 3 页纯属浪费请求和发热，现在砍到只翻 1 页。

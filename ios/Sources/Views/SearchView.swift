@@ -29,6 +29,10 @@ struct SearchView: View {
     @State private var history: [String] = []
     @FocusState private var isFieldFocused: Bool
 
+    // 🔴 2026-11-19：输入联想。输入文字（未提交）时防抖拉建议词，点击即搜。
+    @State private var suggestions: [String] = []
+    @State private var suggestionTask: Task<Void, Never>?
+
     // 分页无限滚动
     @State private var songPage = 1
     @State private var albumPage = 1
@@ -48,7 +52,12 @@ struct SearchView: View {
             // 单曲和专辑现在合成一份连续列表（先单曲、再专辑）。
             Group {
                 if submitted.isEmpty {
-                    historyView
+                    // 🔴 2026-11-19：输入中（有文字未提交）显示联想，否则显示历史/热搜。
+                    if !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        suggestionView
+                    } else {
+                        historyView
+                    }
                 } else if isLoading {
                     LoadingRow()
                 } else if let errorMessage, results.isEmpty {
@@ -167,6 +176,10 @@ struct SearchView: View {
                     .focused($isFieldFocused)
                     .submitLabel(.search)
                     .onSubmit { runSearch(keyword) }
+                    // 🔴 2026-11-19：输入变化触发防抖联想（0.35s），只在未提交时拉建议。
+                    .onChange(of: keyword) { newValue in
+                        scheduleSuggestions(for: newValue)
+                    }
                     .autocorrectionDisabled()
                     .overlay(alignment: .leading) {
                         if keyword.isEmpty && !isFieldFocused {
@@ -221,6 +234,8 @@ struct SearchView: View {
         isSelecting = false
         selectedIDs.removeAll()
         isFieldFocused = false
+        suggestionTask?.cancel()
+        suggestions = []
         // 回到空闲页后轮显继续（下一拍自己会切到下一首）。
     }
 
@@ -541,12 +556,62 @@ struct SearchView: View {
         Haptics.soft()
     }
 
+    // MARK: - 输入联想（2026-11-19）
+
+    /// 防抖拉联想词：0.35s 内没有新输入才发请求；空词/已提交时不拉。
+    private func scheduleSuggestions(for text: String) {
+        suggestionTask?.cancel()
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, submitted.isEmpty else {
+            suggestions = []
+            return
+        }
+        suggestionTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            let words = await KugouClient.shared.searchSuggestions(keyword: trimmed)
+            guard !Task.isCancelled else { return }
+            suggestions = words
+        }
+    }
+
+    private var suggestionView: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(suggestions, id: \.self) { word in
+                    Button {
+                        runSearch(word)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 13))
+                                .foregroundStyle(AppStyle.tertiaryText)
+                            Text(word)
+                                .font(.system(size: 14))
+                                .foregroundStyle(AppStyle.primaryText)
+                                .lineLimit(1)
+                            Spacer(minLength: 8)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Color(uiColor: UIColor.separator))
+                        .padding(.leading, 38)
+                }
+            }
+        }
+    }
+
     private func runSearch(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         keyword = trimmed
         submitted = trimmed
         isFieldFocused = false
+        suggestionTask?.cancel()
+        suggestions = []
         history = [trimmed] + history.filter { $0 != trimmed }
         if history.count > 20 { history.removeLast(history.count - 20) }
         Self.saveHistory(history)

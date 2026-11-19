@@ -118,6 +118,26 @@ struct ThirdPartySource: Identifiable, Codable, Hashable {
         return result
     }
 
+    /// 🔴 2026-11-19：当前音源**支持的音质档位**（映射成 App 的 MusicQuality），
+    /// 供音质页「高级音质」区只列出该音源真正支持的档位、可点击选择。
+    /// 扫描脚本/模板正文里的档位标记（'128k' / "flac" 等），按洛雪约定映射到档位。
+    /// 返回空表示「没检测到明确标记」，调用方据此回退显示全部可选档位，避免空列表。
+    var supportedQualities: [MusicQuality] {
+        let text = isScript ? script : (template + " " + headers.values.joined(separator: " "))
+        func has(_ token: String) -> Bool {
+            text.contains("'\(token)'") || text.contains("\"\(token)\"") || text.contains(token)
+        }
+        var result: [MusicQuality] = []
+        // 由高到低排，保持与 selectableCases 一致的展示顺序（低→高在下面统一排序）。
+        if has("flac24bit") || has("hires") || has("master") { result.append(.hires) }
+        if has("flac") || has("lossless") { result.append(.lossless) }
+        if has("320k") { result.append(.exHigh) }
+        if has("192k") { result.append(.higher) }
+        if has("128k") { result.append(.standard) }
+        // 按 selectableCases 顺序返回（低→高）。
+        return MusicQuality.selectableCases.filter { result.contains($0) }
+    }
+
     static func == (lhs: ThirdPartySource, rhs: ThirdPartySource) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
@@ -212,6 +232,10 @@ final class SourceStore: ObservableObject {
     var enabledSources: [ThirdPartySource] {
         sources.filter { $0.enabled && $0.isUsable }
     }
+
+    /// 🔴 2026-11-19：当前使用的音源（解析优先级最高的第一个可用音源）。
+    /// 音质页据此显示「当前音源」及它支持的档位。
+    var currentSource: ThirdPartySource? { enabledSources.first }
 
     private init() {
         if let data = defaults.data(forKey: storeKey),

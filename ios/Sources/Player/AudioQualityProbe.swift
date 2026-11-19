@@ -58,4 +58,18 @@ enum AudioQualityProbe {
         }
         return "实测 \(Int(kbps.rounded())) kbps"
     }
+
+    /// 🔴 2026-11-19：把本地文件实测码率映射成**真实音质档位名**。
+    /// 本地导入歌曲没有音源返回的档位，旧代码一律写死「本地」/跟随全局选择档位，
+    /// 用户看到的是假音质。这里按实测平均码率如实标注，供播放页音质胶囊显示。
+    /// 阈值贴近常见编码：128/192/320 kbps MP3、~900k~1.4M AAC、FLAC(>1M)、24bit(>2M)。
+    static func qualityLabel(bps: Int?) -> String {
+        guard let bps, bps > 0 else { return "" }
+        let kbps = Double(bps) / 1000.0
+        if kbps >= 2000 { return "FLAC 24bit" }
+        if kbps >= 900 { return "FLAC 无损" }
+        if kbps >= 300 { return "超品音质" }
+        if kbps >= 150 { return "高品音质" }
+        return "普通音质"
+    }
 }

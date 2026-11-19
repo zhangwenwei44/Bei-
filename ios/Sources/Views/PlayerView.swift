@@ -710,6 +710,10 @@ struct PlayerView: View {
             } else {
                 classicProgressBlock
                     .frame(height: 34)
+                    // 🔴 2026-11-19：方形(经典)主题「歌名 / 歌词 / 动作行 / 进度条上移，
+                    //    播放控件行不动」—— 在进度条与控件行之间加留白，deck 变高 →
+                    //    弹性封面区缩小 → 上方各块整体上移；控件行仍在 deck 底部不动。
+                    .padding(.bottom, playerPageTheme == .classic ? 20 : 0)
             }
 
             // 🔴 v2.5.47：播放控制行左右间距与动作行一致（收窄 10pt）
@@ -779,18 +783,20 @@ struct PlayerView: View {
             ZStack {
                 Circle()
                     .fill(.white.opacity(0.16))
-                    .frame(width: 52, height: 52)
+                    // 🔴 2026-11-19：写真主题播放圆加大到 62pt，与歌词页 PlayButton 一致
+                    //    （用户要求「和歌词页一样大」）。
+                    .frame(width: 62, height: 62)
                     .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 1))
                 if store.isLoading || (store.isBuffering && store.isPlaying) {
                     ProgressView().tint(.white)
                 } else {
                     Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 22, weight: .bold))
+                        .font(.system(size: 24, weight: .bold))
                         .foregroundStyle(.white)
                         .offset(x: store.isPlaying ? 0 : 2)
                 }
             }
-            .frame(width: 64, height: 60)
+            .frame(width: 72, height: 68)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1667,11 +1673,14 @@ private struct QualityPill: View {
     var onTap: () -> Void
 
     @ObservedObject private var sourceStore = SourceStore.shared
+    @EnvironmentObject private var store: PlayerStore
 
     private var title: String {
         if !statusText.isEmpty { return statusText }
-        // 🔴 2026-11-18（二改）：用户要求音质检测标签改回显示音质名称，
-        //    不再显示「实测 XXX kbps」。直接展示当前所选档位名。
+        // 🔴 2026-11-19：优先显示本首歌的真实音质（bitrateLabel：在线=音源档位名，
+        //    本地=按实测码率推断的档位，如「FLAC 无损」「超品音质」）。
+        //    为空（还没解析）时才回退到全局选择档位名。
+        if !store.bitrateLabel.isEmpty, store.bitrateLabel != "本地" { return store.bitrateLabel }
         return sourceStore.quality.title
     }
 
@@ -3557,12 +3566,9 @@ private struct PlayerThemePickerPanel: View {
     }
 }
 
-/// 🔴 2026-11-19 修复「主题预览图画面显示不全被裁」：
-/// 上一轮换成的三张是**完整手机截图**（500×1083，比例 0.462，含状态栏），
-/// 而卡片是 110×188（0.585）。原来的 scaledToFill 按宽度填满后，高度会到 238pt，
-/// 上下各被裁掉约 25pt —— 顶部状态栏和底部控件都被切掉。
-/// 现在主体改 scaledToFit **完整显示不裁切**；两侧留出的窄边用同一张图放大 +
-/// 大半径模糊 + 压暗铺底，避免露白边/黑边（11-10 那次模糊层发白是因为没压暗）。
+/// 🔴 2026-11-19（二改）：用户要求「预览图左右两边灰色弄掉，直接图片铺满」——
+/// 去掉上一轮的 scaledToFit + 模糊铺底，改回 scaledToFill 单图铺满整个卡片，
+/// 不再有左右灰边。图片已换成 1125×2436 原始高清图，铺满裁切后依然清晰。
 private struct PlayerThemeThumbnail: View {
     let theme: PlayerPageTheme
 
@@ -3576,21 +3582,11 @@ private struct PlayerThemeThumbnail: View {
 
     var body: some View {
         GeometryReader { geo in
-            ZStack {
-                // 铺底：同图放大填满 + 大半径模糊 + 压暗，左右窄边不露白/黑。
-                Image(assetName)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped()
-                    .blur(radius: 12)
-                    .overlay(Color.black.opacity(0.28))
-                // 主体：完整画面等比缩放，绝不裁切。
-                Image(assetName)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: geo.size.width, height: geo.size.height)
-            }
+            Image(assetName)
+                .resizable()
+                .scaledToFill()
+                .frame(width: geo.size.width, height: geo.size.height)
+                .clipped()
         }
     }
 }
