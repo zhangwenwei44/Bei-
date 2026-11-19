@@ -1274,7 +1274,7 @@ final class PlayerStore: ObservableObject {
                     // 🔴 2026-11-19：新歌所有反查都失败时，用用户指定的兜底图
                     //    （LocalImportFallback 蓝色音符唱片），而不是清空/沿用上一首。
                     //    这样播放页 / 沉浸大图 / 歌词页都统一显示兜底图，不再空白。
-                    let fallback = CoverResolver.fallbackImage()
+                    let fallback = LocalArtwork.fallbackImage()
                     self.artwork = fallback
                     self.currentPalette = ArtworkPaletteEngine.palette(for: fallback, seed: seed)
                     return

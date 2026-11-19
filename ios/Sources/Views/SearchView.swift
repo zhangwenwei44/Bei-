@@ -660,7 +660,8 @@ struct SearchView: View {
                 async let songsTask = try client.searchSongs(keyword: text, page: 1)
                 async let plsTask = client.searchPlaylists(keyword: text, page: 1)
                 async let albumsTask = client.searchAlbums(keyword: text, page: 1)
-                let (found, pls, albums) = try await (songsTask, plsTask, albumsTask)
+                // 🔴 综合搜索的专辑列表改用「从歌曲反推的 albumHints」，这里 albums 不直接使用。
+                let (found, pls, _) = try await (songsTask, plsTask, albumsTask)
                 var seen = Set<String>()
                 let songs = found.filter { seen.insert($0.id).inserted }
                 hasMoreSongs = found.count >= 30
