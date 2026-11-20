@@ -95,6 +95,7 @@ enum Lucide: String, CaseIterable {
     case listVideo  // 更多菜单·下一首播放（列表+播放三角）
     case listMusic  // 更多菜单·加入播放列表（列表+音符）
     case slidersHorizontal  // 动作行·音效（三条横线 + 滑块，Lucide sliders-horizontal）
+    case fileHeadphone  // 动作行·音源（文档折角 + 耳机，Lucide file-headphone）
 
     /// 在给定 rect 内构造该图标的 Path（描边路径，未闭合填充由调用方决定）。
     func path(in rect: CGRect) -> Path {
@@ -1113,6 +1114,55 @@ enum Lucide: String, CaseIterable {
             p.move(to: g.p(12.000, 19.000)); p.addLine(to: g.p(3.000, 19.000))
             p.move(to: g.p(21.000, 19.000)); p.addLine(to: g.p(16.000, 19.000))
             p.move(to: g.p(16.000, 17.000)); p.addLine(to: g.p(16.000, 21.000))
+
+        case .fileHeadphone:  // 音源 — file-headphone（文档折角 + 耳机）
+            // 文档外框（左/顶/右/底 + 右上折角）
+            p.move(to: g.p(4.000, 6.835)); p.addLine(to: g.p(4.000, 4.000))
+            p.addLine(to: g.p(4.098, 3.382)); p.addLine(to: g.p(4.382, 2.824))
+            p.addLine(to: g.p(4.824, 2.382)); p.addLine(to: g.p(5.382, 2.098))
+            p.addLine(to: g.p(6.000, 2.000)); p.addLine(to: g.p(14.000, 2.000))
+            p.addLine(to: g.p(14.471, 2.045)); p.addLine(to: g.p(14.924, 2.182))
+            p.addLine(to: g.p(15.341, 2.405)); p.addLine(to: g.p(15.706, 2.706))
+            p.addLine(to: g.p(19.294, 6.294)); p.addLine(to: g.p(19.595, 6.659))
+            p.addLine(to: g.p(19.818, 7.076)); p.addLine(to: g.p(19.955, 7.529))
+            p.addLine(to: g.p(20.000, 8.000)); p.addLine(to: g.p(20.000, 20.000))
+            p.addLine(to: g.p(19.902, 20.618)); p.addLine(to: g.p(19.618, 21.176))
+            p.addLine(to: g.p(19.176, 21.618)); p.addLine(to: g.p(18.618, 21.902))
+            p.addLine(to: g.p(18.000, 22.000)); p.addLine(to: g.p(17.657, 22.000))
+            // 折角短线（14,2 → 14,7 → 20,8）
+            p.move(to: g.p(14.000, 2.000)); p.addLine(to: g.p(14.000, 7.000))
+            p.addLine(to: g.p(14.049, 7.309)); p.addLine(to: g.p(14.191, 7.588))
+            p.addLine(to: g.p(14.412, 7.809)); p.addLine(to: g.p(14.691, 7.951))
+            p.addLine(to: g.p(15.000, 8.000)); p.addLine(to: g.p(20.000, 8.000))
+            // 耳机左耳罩
+            p.move(to: g.p(2.000, 19.000)); p.addLine(to: g.p(2.121, 18.316))
+            p.addLine(to: g.p(2.468, 17.714)); p.addLine(to: g.p(3.000, 17.268))
+            p.addLine(to: g.p(3.653, 17.030)); p.addLine(to: g.p(4.347, 17.030))
+            p.addLine(to: g.p(5.000, 17.268)); p.addLine(to: g.p(5.532, 17.714))
+            p.addLine(to: g.p(5.879, 18.316)); p.addLine(to: g.p(6.000, 19.000))
+            p.addLine(to: g.p(6.000, 20.000)); p.addLine(to: g.p(5.879, 20.684))
+            p.addLine(to: g.p(5.532, 21.286)); p.addLine(to: g.p(5.000, 21.732))
+            p.addLine(to: g.p(4.347, 21.970)); p.addLine(to: g.p(3.653, 21.970))
+            p.addLine(to: g.p(3.000, 21.732)); p.addLine(to: g.p(2.468, 21.286))
+            p.addLine(to: g.p(2.121, 20.684)); p.addLine(to: g.p(2.000, 20.000))
+            p.addLine(to: g.p(2.000, 16.000))
+            // 耳机头梁（拱形）
+            p.addLine(to: g.p(2.362, 13.948)); p.addLine(to: g.p(3.404, 12.143))
+            p.addLine(to: g.p(5.000, 10.804)); p.addLine(to: g.p(6.958, 10.091))
+            p.addLine(to: g.p(9.042, 10.091)); p.addLine(to: g.p(11.000, 10.804))
+            p.addLine(to: g.p(12.596, 12.143)); p.addLine(to: g.p(13.638, 13.948))
+            p.addLine(to: g.p(14.000, 16.000)); p.addLine(to: g.p(14.000, 20.000))
+            // 耳机右耳罩
+            p.addLine(to: g.p(13.879, 20.684)); p.addLine(to: g.p(13.532, 21.286))
+            p.addLine(to: g.p(13.000, 21.732)); p.addLine(to: g.p(12.347, 21.970))
+            p.addLine(to: g.p(11.653, 21.970)); p.addLine(to: g.p(11.000, 21.732))
+            p.addLine(to: g.p(10.468, 21.286)); p.addLine(to: g.p(10.121, 20.684))
+            p.addLine(to: g.p(10.000, 20.000)); p.addLine(to: g.p(10.000, 19.000))
+            p.addLine(to: g.p(10.121, 18.316)); p.addLine(to: g.p(10.468, 17.714))
+            p.addLine(to: g.p(11.000, 17.268)); p.addLine(to: g.p(11.653, 17.030))
+            p.addLine(to: g.p(12.347, 17.030)); p.addLine(to: g.p(13.000, 17.268))
+            p.addLine(to: g.p(13.532, 17.714)); p.addLine(to: g.p(13.879, 18.316))
+            p.addLine(to: g.p(14.000, 19.000))
 
         }
         return p

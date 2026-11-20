@@ -1,11 +1,13 @@
 import SwiftUI
 
-/// 🔴 2026-11-20：播放器动作行「音源」按钮弹出的半屏音源面板。
+/// 2026-11-20：播放器动作行「音源」按钮弹出的半屏音源面板。
 ///
 /// 需求：点击弹出弹窗显示音源，可对音源开关、调整顺序。
 /// 复用 `SourceStore.setEnabled` / `reorder`，数据与实际解析优先级完全一致；
 /// 只做「开关 + 拖动排序 + 健康状态」，不暴露编辑/导入/删除等高级入口（那些留在设置页）。
-/// 顶部横条点击 / 下滑均可关闭，风格与音质页半屏弹窗一致。
+/// 🔴 2026-11-21：嵌在 `CompactPanelOverlay` 里，横条/背景/圆角由外层统一提供；
+///    列表高度按音源行数自适应 —— 修复旧版固定 0.55 屏高「上下大片留白」。
+///    深色模式跟随 App 主题（去掉强制浅色）。
 struct SourcePickerSheet: View {
     @ObservedObject private var store = SourceStore.shared
     @ObservedObject private var health = SourceHealth.shared
@@ -17,12 +19,15 @@ struct SourcePickerSheet: View {
         return mode == .active
     }
 
+    /// 每行高度（含分隔线），用于让 List 高度贴合内容而非撑满屏幕。
+    private let rowHeight: CGFloat = 60
+
     var body: some View {
         VStack(spacing: 0) {
             // 顶部拖拽指示条（点击也能关闭）
             Button { onDismiss() } label: {
                 Capsule()
-                    .fill(Color(uiColor: UIColor(white: 0.78, alpha: 1)))
+                    .fill(AppStyle.stroke)
                     .frame(width: 38, height: 5)
             }
             .buttonStyle(.plain)
@@ -73,6 +78,8 @@ struct SourcePickerSheet: View {
             }
             .listStyle(.plain)
             .compatScrollContentBackground(.hidden)
+            // 🔴 高度贴合内容：行数 × 行高（最多给 6 行，再多交给面板整体高度）
+            .frame(height: min(CGFloat(max(1, store.sources.count)) * rowHeight + 8, rowHeight * 6 + 8))
 
             Text("从上到下为解析优先级，排在前面的先尝试。绿点＝可用，红点＝无用。")
                 .font(.system(size: 11))
@@ -81,9 +88,8 @@ struct SourcePickerSheet: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 6)
         }
-        .frame(height: UIScreen.main.bounds.height * 0.55)
-        .background(Color(uiColor: .systemBackground).ignoresSafeArea())
-        .preferredColorScheme(.light)
+        // 🔴 2026-11-21：去掉固定 0.55 屏高，高度由内容决定；背景透明，交给外层面板按深浅模式绘制。
+        .background(Color.clear)
     }
 
     @ViewBuilder

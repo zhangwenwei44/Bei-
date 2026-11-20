@@ -9,14 +9,14 @@ import SwiftUI
 /// 现在所有字形都撑到画布的 ~75%~88%，与酷狗动作行图标视觉尺寸对齐。
 enum PlayerActionGlyph {
     case favorite   // 喜欢（心形；激活时填充红）
-    case download   // 下载（Lucide download：向下箭头 + 底部托盘）
+    case download   // 下载（外框 + 向下箭头 + VIP 角标，2026-11-21 改回旧版）
     case quality    // 音质（静噪强音：大圆环 + 两空心小圆 + 中心 N 形波形）
     case lyric      // 歌词（六边形 + 「词」）
     case translate  // 翻译（「文」字骨架）
     case more       // 更多（三个实心圆点，竖排）
-    case downloaded // 已下载（同款下载箭头，保留角标区分状态）
+    case downloaded // 已下载（同款下载外框，角标「已下载」）
     case soundEffect // 音效（Lucide sliders-horizontal：三条横线 + 滑块）
-    case source     // 音源（Lucide list-music：列表 + 音符）— 2026-11-20 替换歌词位
+    case source     // 音源（文档折角 + 耳机 file-headphone）— 2026-11-21 按参考图
 }
 
 /// 统一规格的动作图标：24×24 画布坐标 → 实际 size，线宽随 size 等比缩放。
@@ -46,8 +46,16 @@ struct PlayerActionIcon: View {
                 // 🔴 Lucide 心形（项目图标源 lucide-icons）：选中(filled)填红、未选描边。
                 LucideIcon(icon: .heart, size: size, color: tint, filled: active)
             case .download:
-                // 🔴 2026-11-20：按用户给的参考图改成 Lucide download（箭头+托盘），去掉 VIP 角标。
-                LucideIcon(icon: .download, size: size, color: tint)
+                // 🔴 2026-11-21：用户要求改回旧版「外框+箭头+VIP 角标」。
+                ZStack {
+                    DownloadBox().stroke(tint, style: stroke)
+                    DownloadArrow().stroke(tint, style: stroke)
+                    Text("VIP")
+                        .font(.system(size: size * 0.23, weight: .heavy))
+                        .italic()
+                        .foregroundStyle(tint)
+                        .offset(x: size * 0.28, y: size * 0.20)
+                }
             case .quality:
                 ZStack {
                     QualityGlyph().stroke(tint, style: stroke)
@@ -71,9 +79,10 @@ struct PlayerActionIcon: View {
             case .more:
                 MoreGlyph().fill(tint)
             case .downloaded:
-                // 🔴 2026-11-20：与「未下载」同款 Lucide download，角标保留「已下载」以区分状态。
+                // 🔴 2026-11-21：与「未下载」同款外框+箭头，角标「已下载」区分状态。
                 ZStack {
-                    LucideIcon(icon: .download, size: size, color: tint)
+                    DownloadBox().stroke(tint, style: stroke)
+                    DownloadArrow().stroke(tint, style: stroke)
                     Text("已下载")
                         .font(.system(size: size * 0.19, weight: .heavy))
                         .italic()
@@ -81,8 +90,8 @@ struct PlayerActionIcon: View {
                         .offset(x: size * 0.22, y: size * 0.22)
                 }
             case .source:
-                // 🔴 2026-11-20：音源按钮（替换原「歌词」位），Lucide list-music。
-                LucideIcon(icon: .listMusic, size: size, color: tint)
+                // 🔴 2026-11-21：音源按钮按参考图换成 file-headphone（文档折角 + 耳机）。
+                LucideIcon(icon: .fileHeadphone, size: size, color: tint)
             }
         }
         .frame(width: size, height: size)

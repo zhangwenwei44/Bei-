@@ -1,26 +1,26 @@
 import SwiftUI
 
-/// 🔴 2026-11-17：音质选择页改为**白色背景 + 蓝色主色**（用户要求「改成白色背景，
-/// 排版再美化一下」）。保留真实码率显示与客观档位标注，不再有写死的假体积。
+/// 音质选择页：浅色 = 白色 + 蓝色主色；🔴 2026-11-21 深色模式跟随 App 主题（不再强制浅色）。
 ///
-/// 版式：
-/// 1. 顶部「当前选择」单卡（大字档位名 + 档位名称 + 特性说明 + 当前勾）
-/// 2. 中部「高级音质」列表（图标 + 档位 + 目标码率 + 说明 + 选中勾）
-/// 3. 底部网络环境入口 + 一条客观说明
+/// 两种呈现方式：
+/// 1. 设置页 push（embeddedInPanel = false，onDismiss = nil）：整页 + 系统导航栏。
+/// 2. 播放器底部面板（embeddedInPanel = true）：只输出内容，横条/背景/圆角由 `CompactPanelOverlay` 统一提供，
+///    高度随内容自适应 —— 🔴 修复旧版固定 0.60 屏高导致的「上下大片留白」。
 struct QualitySettingsView: View {
     @ObservedObject private var sourceStore = SourceStore.shared
     @ObservedObject private var network = NetworkStatus.shared
 
-    /// 从播放器「更多」以 sheet 打开时传入：顶部改为横条，点横条/下滑关闭。
-    /// 从设置页 push 进来时为 nil，保留系统导航栏与返回按钮。
+    /// 从播放器「更多」以 sheet 打开时传入（兼容旧调用）：顶部横条 + 横条关闭。
     var onDismiss: (() -> Void)? = nil
+    /// 🔴 2026-11-21：嵌在 `CompactPanelOverlay` 里时为 true —— 只输出纯内容，
+    ///    不画横条/背景/导航栏、不限高，交给外层面板贴合内容高度。
+    var embeddedInPanel: Bool = false
 
-    // 浅色主题配色（跟随 App 的蓝色主色，不再是深色+金）
+    // 🔴 2026-11-21：全部改用 AppStyle 动态语义色，深色模式自动变深色卡片。
     private let accent = AppStyle.accent
-    // 🔴 2026-11-19：背景改成跟顶栏一致的纯白（用户要求）。
-    private let pageBg = Color.white
-    private let cardBg = Color.white
-    private let divider = Color(uiColor: UIColor(white: 0.90, alpha: 1))
+    private let pageBg = AppStyle.background
+    private let cardBg = AppStyle.surface
+    private let divider = AppStyle.stroke
     private let textPrimary = AppStyle.primaryText
     private let textSecondary = AppStyle.secondaryText
     private let textTertiary = AppStyle.tertiaryText
@@ -34,63 +34,68 @@ struct QualitySettingsView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+        Group {
+            if embeddedInPanel {
+                // 面板内：纯内容，高度自适应（外层已包横条 + 圆角背景 + 点击关闭）
+                pageContent
+                    .padding(.bottom, 8)
+            } else {
+                ScrollView {
+                    pageContent
+                }
+                .frame(height: onDismiss == nil ? nil : UIScreen.main.bounds.height * 0.60)
+                .background(pageBg.ignoresSafeArea())
+                .navigationTitle(onDismiss == nil ? "音质" : "")
+                .navigationBarTitleDisplayMode(.inline)
+                .kugouNavigationBarBackground()
+            }
+        }
+    }
 
-                // 🔴 2026-11-19：播放器 sheet 顶部不再显示「音质 / 完成」，
-                //    改成居中横条（点一下也能关闭），与系统拖拽指示条视觉一致。
-                if onDismiss != nil {
-                    Button { onDismiss?() } label: {
-                        Capsule()
-                            .fill(Color(uiColor: UIColor(white: 0.78, alpha: 1)))
-                            .frame(width: 38, height: 5)
+    /// 纯内容（横条 + 当前卡片 + 档位列表）。横条仅在非面板模式、从 sheet 打开时显示。
+    private var pageContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if onDismiss != nil {
+                Button { onDismiss?() } label: {
+                    Capsule()
+                        .fill(divider)
+                        .frame(width: 38, height: 5)
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 6)
+                .padding(.bottom, 10)
+            }
+
+            currentQualityCard
+                .padding(.horizontal, 16)
+                .padding(.top, onDismiss == nil ? 16 : 0)
+
+            VStack(spacing: 0) {
+                ForEach(supportedQualities) { quality in
+                    Button {
+                        sourceStore.quality = quality
+                        Haptics.light()
+                    } label: {
+                        qualityRow(quality)
                     }
                     .buttonStyle(.plain)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 6)
-                    .padding(.bottom, 10)
-                }
-
-                // 🔴 2026-11-20：当前音质卡片回到顶部，底部客观说明移除。
-                currentQualityCard
-                    .padding(.horizontal, 16)
-                    .padding(.top, onDismiss == nil ? 16 : 0)
-
-                // ── 档位列表：移除「音质选择 / 高级音质 / 当前音源支持的档位」标题 ──
-                VStack(spacing: 0) {
-                    ForEach(supportedQualities) { quality in
-                        Button {
-                            sourceStore.quality = quality
-                            Haptics.light()
-                        } label: {
-                            qualityRow(quality)
-                        }
-                        .buttonStyle(.plain)
-                        if quality != supportedQualities.last {
-                            Divider()
-                                .background(divider)
-                                .padding(.leading, 62)
-                        }
+                    if quality != supportedQualities.last {
+                        Divider()
+                            .background(divider)
+                            .padding(.leading, 62)
                     }
                 }
-                .background(cardBg, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(divider, lineWidth: 0.5)
-                )
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
             }
-            .padding(.bottom, 12)
+            .background(cardBg, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(divider, lineWidth: 0.5)
+            )
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
         }
-        // 🔴 2026-11-20：从播放器打开的音质页弹出 60% 屏高；设置页 push 仍占满整屏。
-        .frame(height: onDismiss == nil ? nil : UIScreen.main.bounds.height * 0.60)
-        .background(pageBg.ignoresSafeArea())
-        .navigationTitle(onDismiss == nil ? "音质" : "")
-        .navigationBarTitleDisplayMode(.inline)
-        // 🔴 白底页必须强制浅色，否则系统深色模式下 AppStyle 动态色会解析成白字。
-        .preferredColorScheme(.light)
-        .kugouNavigationBarBackground(UIColor.white, titleColor: UIColor(white: 0.12, alpha: 1))
+        .padding(.bottom, 12)
     }
 
     // MARK: - 顶部当前选择卡片
@@ -119,7 +124,6 @@ struct QualitySettingsView: View {
                                 .foregroundStyle(accent)
                         }
                     }
-                    // 🔴 2026-11-19：星海高品音源等「当前音源」信息从顶部标题挪到这张卡片里。
                     Text("当前音源：\(currentSource?.name ?? "未知音源")")
                         .font(.system(size: 12))
                         .foregroundStyle(textSecondary)
@@ -162,7 +166,7 @@ struct QualitySettingsView: View {
         return HStack(spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(selected ? accent.opacity(0.12) : Color(uiColor: UIColor(white: 0.95, alpha: 1)))
+                    .fill(selected ? accent.opacity(0.12) : AppStyle.surfaceHigh)
                 Image(systemName: quality.icon)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(selected ? accent : textSecondary)
@@ -257,7 +261,7 @@ extension MusicQuality {
     }
 }
 
-/// 按网络环境设置（从音质页 push 进来，白色主题）。
+/// 按网络环境设置（从音质页 push 进来，跟随深浅主题）。
 struct NetworkQualityView: View {
     @ObservedObject private var sourceStore = SourceStore.shared
     @ObservedObject private var network = NetworkStatus.shared
@@ -283,8 +287,6 @@ struct NetworkQualityView: View {
         }
         .navigationTitle("不同网络环境下的音质")
         .navigationBarTitleDisplayMode(.inline)
-        .preferredColorScheme(.light)
-        .kugouNavigationBarBackground(UIColor.white,
-                                      titleColor: UIColor(white: 0.12, alpha: 1))
+        .kugouNavigationBarBackground()
     }
 }

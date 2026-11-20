@@ -61,12 +61,16 @@ struct PlayerMoreSheetView: View {
             case .addToPlaylist:
                 addToPlaylistPage
             case .quality:
-                // 🔴 2026-11-19：音质页去掉「音质 / 完成」文字，顶部改成横条；
-                //    直接闭包 dismiss，横条本身也可点按关闭。
-                QualitySettingsView(onDismiss: { dismiss() })
+                // 🔴 2026-11-21：改用贴合内容高度的底部面板 —— 修复 sheet 全屏容器
+                //    导致的「上下大片留白」。embeddedInPanel 只输出内容，横条/背景/圆角由面板提供。
+                CompactPanelOverlay(onDismiss: { dismiss() }) {
+                    QualitySettingsView(embeddedInPanel: true, onDismiss: { dismiss() })
+                }
             case .source:
-                // 🔴 2026-11-20：动作行「音源」按钮 → 音源管理弹窗（开关 + 拖动排序）。
-                SourcePickerSheet(onDismiss: { dismiss() })
+                // 🔴 2026-11-21：同上，音源弹窗改成贴合内容的底部面板（开关 + 拖动排序）。
+                CompactPanelOverlay(onDismiss: { dismiss() }) {
+                    SourcePickerSheet(onDismiss: { dismiss() })
+                }
             default:
                 settingsPage
             }
