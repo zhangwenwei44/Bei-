@@ -64,7 +64,7 @@ struct PlayerMoreSheetView: View {
                 // 🔴 2026-11-21：改用贴合内容高度的底部面板 —— 修复 sheet 全屏容器
                 //    导致的「上下大片留白」。embeddedInPanel 只输出内容，横条/背景/圆角由面板提供。
                 CompactPanelOverlay(onDismiss: { dismiss() }) {
-                    QualitySettingsView(embeddedInPanel: true, onDismiss: { dismiss() })
+                    QualitySettingsView(onDismiss: { dismiss() }, embeddedInPanel: true)
                 }
             case .source:
                 // 🔴 2026-11-21：同上，音源弹窗改成贴合内容的底部面板（开关 + 拖动排序）。
