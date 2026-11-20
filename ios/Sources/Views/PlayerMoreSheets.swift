@@ -257,3 +257,42 @@ struct PlayerMoreSheetView: View {
     }
 
 }
+
+// MARK: - 🔴 2026-11-21：音质 / 音源弹窗的 overlay 宿主
+//
+// 这两个弹窗以前走全屏 `.sheet`：iOS 15 sheet 容器恒为整屏且背景不透明（白底），
+// 叠上半透明遮罩就是截图里的「大片灰白」。改成 `.overlay` 挂在播放页上后，
+// 遮罩层露出播放页原样，卡片色一直铺到屏幕底，彻底消除上下灰白。
+// 用 ViewModifier 封装，PlayerView / 歌词页 body 只需加一行，避免内联大视图。
+struct CompactPanelHost: ViewModifier {
+    @Binding var item: PlayerMoreSheet?
+
+    private var isPresented: Bool {
+        item == .quality || item == .source
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                if isPresented {
+                    CompactPanelOverlay(onDismiss: { item = nil }) {
+                        panelContent
+                    }
+                    .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: isPresented)
+    }
+
+    @ViewBuilder
+    private var panelContent: some View {
+        switch item {
+        case .quality:
+            QualitySettingsView(onDismiss: { item = nil }, embeddedInPanel: true)
+        case .source:
+            SourcePickerSheet(onDismiss: { item = nil })
+        default:
+            EmptyView()
+        }
+    }
+}

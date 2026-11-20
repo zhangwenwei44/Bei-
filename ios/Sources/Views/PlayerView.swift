@@ -84,6 +84,18 @@ struct PlayerView: View {
     /// 🔴 第二十三轮：更多面板里 6 个二级页共用的单个 sheet（iOS 15 链式 sheet 只认最后一个）。
     @State private var moreSheet: PlayerMoreSheet?
 
+    /// 🔴 2026-11-21：音质/音源改走 overlay（消除 sheet 灰白底），
+    ///    这里把这两项从 sheet 里过滤掉，其余二级页仍走同一个 sheet(item:)。
+    private var filteredMoreSheet: Binding<PlayerMoreSheet?> {
+        Binding(
+            get: {
+                if moreSheet == .quality || moreSheet == .source { return nil }
+                return moreSheet
+            },
+            set: { moreSheet = $0 }
+        )
+    }
+
     /// 参数顺序必须与属性声明顺序一致：playback / lyricState 在 isExpanded 之前。
     init(playback: PlaybackProgress, lyricState: LyricState, isExpanded: Binding<Bool>) {
         self.playback = playback
@@ -286,10 +298,13 @@ struct PlayerView: View {
         // 🔴 第二十三轮：分享 + 更多面板的所有二级页 + 音质页统一走**同一个**
         //    `.sheet(item:)`。iOS 15 链式多个 .sheet 只有最后一个生效（项目既有红线），
         //    以前「分享」「音质」各挂一个，新增更多面板后会互相顶掉。
-        .sheet(item: $moreSheet) { sheet in
+        .sheet(item: filteredMoreSheet) { sheet in
             PlayerMoreSheetView(item: sheet, shareItems: shareItems ?? [])
                 .environmentObject(PlayerStore.shared)
         }
+        // 🔴 2026-11-21：音质/音源弹窗改走 overlay —— sheet 的不透明白底叠遮罩
+        //    会造成「上下大片灰白」，overlay 直接盖在播放页上，卡片色铺到屏幕底。
+        .modifier(CompactPanelHost(item: $moreSheet))
         // 🔴 2026-11-10：主题选择从系统 confirmationDialog 文字列表改成酷狗同款
         //    「我的播放器」横向卡片预览面板。用自定义 overlay 而不是 sheet：
         //    ① iOS 15 链式多个 .sheet(isPresented:) 只有最后一个生效（项目既有红线）；
@@ -3658,6 +3673,16 @@ struct KugouLyricsPage: View {
     @State private var showPhoto = false
     /// 🔴 第二十三轮：歌词页所有弹出页（分享 + 更多面板的二级页）共用同一个 sheet(item:)。
     @State private var activeSheet: PlayerMoreSheet?
+    /// 🔴 2026-11-21：音质/音源改走 overlay（消除 sheet 灰白底），从 sheet 里过滤掉。
+    private var filteredActiveSheet: Binding<PlayerMoreSheet?> {
+        Binding(
+            get: {
+                if activeSheet == .quality || activeSheet == .source { return nil }
+                return activeSheet
+            },
+            set: { activeSheet = $0 }
+        )
+    }
     @State private var shareItems: [Any] = []
     @State private var showMore = false
     /// 音效面板（与竖屏播放器动作行一致，点音效图标全屏打开）
@@ -3751,10 +3776,12 @@ struct KugouLyricsPage: View {
         .animation(.easeInOut(duration: 0.22), value: chromeHidden)
         .animation(.easeInOut(duration: 0.22), value: notice)
         .modifier(LyricsStatusBarHider(hidden: chromeHidden))
-        .sheet(item: $activeSheet) { sheet in
+        .sheet(item: filteredActiveSheet) { sheet in
             PlayerMoreSheetView(item: sheet, shareItems: shareItems)
                 .environmentObject(PlayerStore.shared)
         }
+        // 🔴 2026-11-21：音质/音源弹窗改走 overlay，消除 sheet 白底叠遮罩的上下灰白。
+        .modifier(CompactPanelHost(item: $activeSheet))
         .overlay { lyricsMoreOverlay }
         .animation(.easeInOut(duration: 0.24), value: showMore)
         .onChange(of: notice) { text in
