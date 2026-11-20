@@ -32,6 +32,9 @@ struct SearchView: View {
     // 🔴 2026-11-19：输入联想。输入文字（未提交）时防抖拉建议词，点击即搜。
     @State private var suggestions: [String] = []
     @State private var suggestionTask: Task<Void, Never>?
+    /// 🔴 2026-11-20：搜索主任务引用。快速切换关键词/歌单分类时取消旧任务，
+    /// 避免多个 search() 并发写同一个 results 造成结果错乱与表格更新崩溃。
+    @State private var searchTask: Task<Void, Never>?
 
     // 分页无限滚动
     @State private var songPage = 1
@@ -235,6 +238,7 @@ struct SearchView: View {
         selectedIDs.removeAll()
         isFieldFocused = false
         suggestionTask?.cancel()
+        searchTask?.cancel()
         suggestions = []
         // 回到空闲页后轮显继续（下一拍自己会切到下一首）。
     }
@@ -615,13 +619,19 @@ struct SearchView: View {
         history = [trimmed] + history.filter { $0 != trimmed }
         if history.count > 20 { history.removeLast(history.count - 20) }
         Self.saveHistory(history)
-        Task { await search(trimmed) }
+        // 🔴 2026-11-20：取消上一次搜索，避免并发写 results / isLoading 造成卡死与表格更新崩溃。
+        searchTask?.cancel()
+        searchTask = Task { await search(trimmed) }
     }
 
     private func search(_ text: String) async {
+        // 🔴 2026-11-20：旧任务被取消后直接退出，不再碰任何共享状态。
+        guard !Task.isCancelled else { return }
         isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
+        // 只有「仍是当前关键词且未被取消」的任务才复位 isLoading，
+        // 避免旧任务先结束把新任务的加载态提前关掉。
+        defer { if submitted == text { isLoading = false } }
 
         // 重置分页状态
         songPage = 1; albumPage = 1
@@ -636,7 +646,7 @@ struct SearchView: View {
                 let found = firstPage.filter { seen.insert($0.id).inserted }
                 hasMoreSongs = firstPage.count >= 30
                 Log.info("搜索", "keyword=\(text)[单曲] page=1 found=\(found.count) hasMore=\(hasMoreSongs)")
-                guard submitted == text else { return }
+                guard !Task.isCancelled, submitted == text else { return }
                 results = SearchResults(songs: found, playlists: [], artists: [], albums: [])
                 if results.isEmpty { errorMessage = "换个关键词试试" }
             } catch {
@@ -645,13 +655,13 @@ struct SearchView: View {
         case .playlist:
             let (pls, total) = await client.searchPlaylists(keyword: text, page: 1)
             Log.info("搜索", "keyword=\(text)[歌单] \(pls.count)/\(total)")
-            guard submitted == text else { return }
+            guard !Task.isCancelled, submitted == text else { return }
             results = SearchResults(songs: [], playlists: pls, artists: [], albums: [])
             if results.isEmpty { errorMessage = "换个关键词试试" }
         case .album:
             let albums = await client.searchAlbums(keyword: text, page: 1)
             Log.info("搜索", "keyword=\(text)[专辑] \(albums.count)")
-            guard submitted == text else { return }
+            guard !Task.isCancelled, submitted == text else { return }
             results = SearchResults(songs: [], playlists: [], artists: [], albums: albums)
             hasMoreAlbums = albums.count >= 30
             if results.isEmpty { errorMessage = "换个关键词试试" }
@@ -669,7 +679,7 @@ struct SearchView: View {
                 let albumList = Self.albumHints(from: songs)
                 hasMoreAlbums = albumList.count >= 20
                 Log.info("搜索", "keyword=\(text)[综合] songs=\(songs.count) playlists=\(pls.playlists.count) albums=\(albumList.count)")
-                guard submitted == text else { return }
+                guard !Task.isCancelled, submitted == text else { return }
                 results = SearchResults(songs: songs, playlists: pls.playlists, artists: artists, albums: albumList)
                 if results.isEmpty { errorMessage = "换个关键词试试" }
             } catch {
@@ -680,11 +690,16 @@ struct SearchView: View {
 
     /// 无限滚动加载下一页歌曲
     private func loadMoreSongs() async {
+        // 🔴 2026-11-20：锁定本次关键词与页码，请求返回后核对仍处在同一搜索结果里，
+        //    否则丢弃——避免切歌单/改关键词后旧页数据 append 到新 results 造成表格更新崩溃。
         guard !isLoadingMore, hasMoreSongs, !submitted.isEmpty else { return }
+        let keywordAtStart = submitted
+        let pageAtStart = songPage
+        let next = pageAtStart + 1
         isLoadingMore = true; defer { isLoadingMore = false }
-        let next = songPage + 1
         let client = KugouClient.shared
-        guard let more = try? await client.searchSongs(keyword: submitted, page: next) else { return }
+        guard let more = try? await client.searchSongs(keyword: keywordAtStart, page: next) else { return }
+        guard submitted == keywordAtStart, songPage == pageAtStart else { return }
         var seen = Set(results.songs.map(\.id))
         let newItems = more.filter { seen.insert($0.id).inserted }
         results.songs.append(contentsOf: newItems)

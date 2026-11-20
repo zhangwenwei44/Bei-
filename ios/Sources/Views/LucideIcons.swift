@@ -94,6 +94,7 @@ enum Lucide: String, CaseIterable {
     case disc  // 更多菜单·加入酷狗歌单（唱片）
     case listVideo  // 更多菜单·下一首播放（列表+播放三角）
     case listMusic  // 更多菜单·加入播放列表（列表+音符）
+    case slidersHorizontal  // 动作行·音效（三条横线 + 滑块，Lucide sliders-horizontal）
 
     /// 在给定 rect 内构造该图标的 Path（描边路径，未闭合填充由调用方决定）。
     func path(in rect: CGRect) -> Path {
@@ -1101,6 +1102,17 @@ enum Lucide: String, CaseIterable {
             p.move(to: g.p(21.000, 16.000))
             p.addLine(to: g.p(21.000, 5.000))
             p.addEllipse(in: g.e(18.000, 16.000, 3.000))
+
+        case .slidersHorizontal:  // 动作行·音效 — sliders-horizontal（三条横线 + 滑块）
+            p.move(to: g.p(10.000, 5.000)); p.addLine(to: g.p(3.000, 5.000))
+            p.move(to: g.p(21.000, 5.000)); p.addLine(to: g.p(14.000, 5.000))
+            p.move(to: g.p(14.000, 3.000)); p.addLine(to: g.p(14.000, 7.000))
+            p.move(to: g.p(8.000, 12.000)); p.addLine(to: g.p(3.000, 12.000))
+            p.move(to: g.p(21.000, 12.000)); p.addLine(to: g.p(12.000, 12.000))
+            p.move(to: g.p(12.000, 10.000)); p.addLine(to: g.p(12.000, 14.000))
+            p.move(to: g.p(12.000, 19.000)); p.addLine(to: g.p(3.000, 19.000))
+            p.move(to: g.p(21.000, 19.000)); p.addLine(to: g.p(16.000, 19.000))
+            p.move(to: g.p(16.000, 17.000)); p.addLine(to: g.p(16.000, 21.000))
 
         }
         return p

@@ -276,9 +276,9 @@ extension Song {
                       ?? "")
     }
 
-    /// 剥掉酷狗搜索结果里的 `<em>` 高亮标签。
+    /// 剥掉酷狗搜索结果里的 `<em>` 高亮标签，并解码常见 HTML 实体。
     static func stripHighlight(_ text: String) -> String {
-        guard text.contains("<") else { return text.trimmingCharacters(in: .whitespaces) }
+        // 🔴 2026-11-20：搜索联想也复用本方法，歌名可能带 &amp; / &quot; 等实体。
         var out = ""
         var inside = false
         for ch in text {
@@ -286,6 +286,14 @@ extension Song {
             if ch == ">" { inside = false; continue }
             if !inside { out.append(ch) }
         }
+        // 常见实体解码（歌名里最常出现的是 & 与引号）。
+        out = out.replacingOccurrences(of: "&amp;", with: "&")
+        out = out.replacingOccurrences(of: "&quot;", with: "\"")
+        out = out.replacingOccurrences(of: "&#39;", with: "'")
+        out = out.replacingOccurrences(of: "&apos;", with: "'")
+        out = out.replacingOccurrences(of: "&lt;", with: "<")
+        out = out.replacingOccurrences(of: "&gt;", with: ">")
+        out = out.replacingOccurrences(of: "&nbsp;", with: " ")
         return out.trimmingCharacters(in: .whitespaces)
     }
 }

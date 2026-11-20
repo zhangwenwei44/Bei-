@@ -10,7 +10,7 @@ import AVFoundation
 // 竖屏播放页与歌词页共用这套页面，行为完全一致。
 
 enum PlayerMoreSheet: String, Identifiable {
-    case addToPlaylist, sleepTimer, playerStyle, lyricsFontSize, speedPitch, quality, share
+    case addToPlaylist, sleepTimer, playerStyle, lyricsFontSize, speedPitch, quality, share, source
 
     var id: String { rawValue }
 
@@ -18,11 +18,12 @@ enum PlayerMoreSheet: String, Identifiable {
         switch self {
         case .addToPlaylist: return "添加到酷狗歌单"
         case .sleepTimer:    return "定时关闭"
-        case .playerStyle:   return "播放器样式"
+        case .playerStyle:   return "主题"
         case .lyricsFontSize: return "歌词字号"
-        case .speedPitch:    return "调速·升降调"
+        case .speedPitch:    return "调速"
         case .quality:       return "音质选择"
         case .share:         return "分享"
+        case .source:        return "音源"
         }
     }
 }
@@ -63,6 +64,9 @@ struct PlayerMoreSheetView: View {
                 // 🔴 2026-11-19：音质页去掉「音质 / 完成」文字，顶部改成横条；
                 //    直接闭包 dismiss，横条本身也可点按关闭。
                 QualitySettingsView(onDismiss: { dismiss() })
+            case .source:
+                // 🔴 2026-11-20：动作行「音源」按钮 → 音源管理弹窗（开关 + 拖动排序）。
+                SourcePickerSheet(onDismiss: { dismiss() })
             default:
                 settingsPage
             }

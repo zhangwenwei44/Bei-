@@ -21,9 +21,9 @@ enum PlayerMoreAction: String, CaseIterable, Identifiable {
         case .addToPlaylist:  return "加到歌单"
         case .sleepTimer:     return "定时关闭"
         case .download:       return "下载"
-        case .playerStyle:    return "播放器样式"
+        case .playerStyle:    return "主题"
         case .lyricsFontSize: return "歌词字号"
-        case .speedPitch:     return "调速·升降调"
+        case .speedPitch:     return "调速"
         case .quality:        return "音质选择"
         case .soundEffect:    return "音效"
         }
@@ -201,10 +201,16 @@ struct PlayerMorePanel: View {
                         onSelect(item)
                     } label: {
                         VStack(spacing: 7) {
-                            Image(systemName: item.symbol)
-                                .font(.system(size: 23, weight: .light))
-                                .foregroundStyle(Color.black.opacity(0.78))
-                                .frame(height: 27)
+                            // 🔴 2026-11-20：下载图标改成用户给的 Lucide download（与动作行同款）。
+                            if item == .download {
+                                LucideIcon(icon: .download, size: 25, color: Color.black.opacity(0.78))
+                                    .frame(height: 27)
+                            } else {
+                                Image(systemName: item.symbol)
+                                    .font(.system(size: 23, weight: .light))
+                                    .foregroundStyle(Color.black.opacity(0.78))
+                                    .frame(height: 27)
+                            }
                             Text(item.title)
                                 .font(.system(size: 11))
                                 .foregroundStyle(Color.black.opacity(0.78))

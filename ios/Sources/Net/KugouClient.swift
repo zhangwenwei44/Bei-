@@ -321,7 +321,11 @@ final class KugouClient {
         var result: [String] = []
         var seen = Set<String>()
         for row in rows {
-            guard let name = Self.string(row["songname"]), !name.isEmpty else { continue }
+            guard let rawName = Self.string(row["songname"]), !rawName.isEmpty else { continue }
+            // 🔴 2026-11-20：搜索接口 highlight=em 会在 songname 里塞 <em> 高亮标签，
+            //    联想区直接显示会露出「<em>爱</em>」——这里剥掉标签，同时把 HTML 实体解码成正常字符。
+            let name = Song.stripHighlight(rawName)
+            guard !name.isEmpty else { continue }
             let key = name.lowercased()
             if seen.insert(key).inserted { result.append(name) }
             if result.count >= 8 { break }

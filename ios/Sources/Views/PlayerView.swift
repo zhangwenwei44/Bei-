@@ -464,7 +464,8 @@ struct PlayerView: View {
                 // 🔴 2026-11-09：歌手写真主题下移除中间的方形专辑封面 —— 写真本身就是主视觉。
                 //    保留「同尺寸透明占位」：header / deck 的弹性几何、deck 左右内缩、
                 //    左右滑切歌的手势命中区全部原样不动（不重算布局 = 不碰安全区红线）。
-                //    经典封面主题仍显示原封面；歌词页入口由动作行的「歌词」按钮提供。
+                //    经典封面主题仍显示原封面；歌词页入口为点封面 / LyricPill
+                //    （🔴 2026-11-20：动作行原「歌词」位已改为「音源」按钮）。
                 classicCoverVisual(side: side)
                     .offset(x: classicSwipeOffset)
                     .opacity(CGFloat(1) - min(abs(classicSwipeOffset) / 260, 0.35))
@@ -592,8 +593,8 @@ struct PlayerView: View {
             }
             .buttonStyle(.plain)
             Spacer(minLength: 0)
-            // ④ 歌词页
-            classicActionButton(glyph: .lyric) { openLyricsPage() }
+            // ④ 音源（🔴 2026-11-20：原「歌词」位改为音源按钮，点击弹出音源开关/排序面板）
+            classicActionButton(glyph: .source) { moreSheet = .source }
             Spacer(minLength: 0)
             // ⑤ 更多（横屏 / 歌词翻译 / 歌词微调）
             classicActionButton(glyph: .more) { showMoreMenu = true }

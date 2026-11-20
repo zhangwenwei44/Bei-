@@ -9,13 +9,14 @@ import SwiftUI
 /// 现在所有字形都撑到画布的 ~75%~88%，与酷狗动作行图标视觉尺寸对齐。
 enum PlayerActionGlyph {
     case favorite   // 喜欢（心形；激活时填充红）
-    case download   // 下载（圆角方框 + 从顶边插入的箭头 + VIP 角标）
+    case download   // 下载（Lucide download：向下箭头 + 底部托盘）
     case quality    // 音质（静噪强音：大圆环 + 两空心小圆 + 中心 N 形波形）
     case lyric      // 歌词（六边形 + 「词」）
     case translate  // 翻译（「文」字骨架）
     case more       // 更多（三个实心圆点，竖排）
-    case downloaded // 已下载（同一下载方框，把箭头换成对勾）
-    case soundEffect // 音效（三条竖轨 + 横向滑块手柄 + OFF 角标）
+    case downloaded // 已下载（同款下载箭头，保留角标区分状态）
+    case soundEffect // 音效（Lucide sliders-horizontal：三条横线 + 滑块）
+    case source     // 音源（Lucide list-music：列表 + 音符）— 2026-11-20 替换歌词位
 }
 
 /// 统一规格的动作图标：24×24 画布坐标 → 实际 size，线宽随 size 等比缩放。
@@ -45,20 +46,8 @@ struct PlayerActionIcon: View {
                 // 🔴 Lucide 心形（项目图标源 lucide-icons）：选中(filled)填红、未选描边。
                 LucideIcon(icon: .heart, size: size, color: tint, filled: active)
             case .download:
-                // 外框（左「Γ」+ 右「¬」+ 底横条）+ 贯穿箭头 + 右下角斜体 VIP
-                ZStack {
-                    // 🔴 v2.9.22：按参考图 8658 逐像素量出的几何，
-                    // 圆角改为**显式三次贝塞尔**（不再用 addArc，详见 downloadFramePath）。
-                    DownloadBox().stroke(tint, style: stroke)
-                    DownloadArrow().stroke(tint, style: stroke)
-                    // VIP 角标位置按参考图量：底边与外框底横条大致齐平，
-                    // 右缘略微穿出右边框（参考图 VIP 右缘 x=63 > 外框右缘 x=59）
-                    Text("VIP")
-                        .font(.system(size: size * 0.23, weight: .heavy))
-                        .italic()
-                        .foregroundStyle(tint)
-                        .offset(x: size * 0.28, y: size * 0.20)
-                }
+                // 🔴 2026-11-20：按用户给的参考图改成 Lucide download（箭头+托盘），去掉 VIP 角标。
+                LucideIcon(icon: .download, size: size, color: tint)
             case .quality:
                 ZStack {
                     QualityGlyph().stroke(tint, style: stroke)
@@ -67,17 +56,8 @@ struct PlayerActionIcon: View {
                     QualityRings().stroke(tint, style: stroke)
                 }
             case .soundEffect:
-                ZStack {
-                    SoundEffectGlyph().stroke(tint, style: stroke)
-                    SoundEffectHandles().stroke(tint, style: stroke)
-                    // 右下角状态角标：**实心粗体斜体**，字号与下载「VIP」一致。
-                    // 未开音效显示 OFF，开启后显示 ON（由调用方显式传入 soundEffectOn）。
-                    Text(soundEffectOn ? "ON" : "OFF")
-                        .font(.system(size: size * 0.23, weight: .heavy))
-                        .italic()
-                        .foregroundStyle(tint)
-                        .offset(x: size * 0.30, y: size * 0.20)
-                }
+                // 🔴 2026-11-20：按用户给的参考图改成 Lucide sliders-horizontal，去掉 OFF/ON 角标。
+                LucideIcon(icon: .slidersHorizontal, size: size, color: tint)
             case .lyric:
                 // 大圆角正方形外框 + 中间「词」字（参考图 6ccb467 同款）
                 ZStack {
@@ -91,18 +71,18 @@ struct PlayerActionIcon: View {
             case .more:
                 MoreGlyph().fill(tint)
             case .downloaded:
-                // 🔴 v2.9.26：已下载图标改成与「未下载」完全同款（同一外框 + 同一箭头），
-                // 不再用对勾版本；区别只靠角标文字：未下载是「VIP」，已下载是「已下载」。
-                // v2.9.27：角标文字右移一点，与图标右侧更贴合（用户要求）。
+                // 🔴 2026-11-20：与「未下载」同款 Lucide download，角标保留「已下载」以区分状态。
                 ZStack {
-                    DownloadBox().stroke(tint, style: stroke)
-                    DownloadArrow().stroke(tint, style: stroke)
+                    LucideIcon(icon: .download, size: size, color: tint)
                     Text("已下载")
                         .font(.system(size: size * 0.19, weight: .heavy))
                         .italic()
                         .foregroundStyle(tint)
                         .offset(x: size * 0.22, y: size * 0.22)
                 }
+            case .source:
+                // 🔴 2026-11-20：音源按钮（替换原「歌词」位），Lucide list-music。
+                LucideIcon(icon: .listMusic, size: size, color: tint)
             }
         }
         .frame(width: size, height: size)

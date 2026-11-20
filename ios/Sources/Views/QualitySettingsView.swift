@@ -47,8 +47,8 @@ struct QualitySettingsView: View {
                     }
                     .buttonStyle(.plain)
                     .frame(maxWidth: .infinity)
-                    .padding(.top, 8)
-                    .padding(.bottom, 16)
+                    .padding(.top, 6)
+                    .padding(.bottom, 10)
                 }
 
                 // 🔴 2026-11-20：当前音质卡片回到顶部，底部客观说明移除。
@@ -79,12 +79,12 @@ struct QualitySettingsView: View {
                         .stroke(divider, lineWidth: 0.5)
                 )
                 .padding(.horizontal, 16)
-                .padding(.top, 18)
+                .padding(.top, 12)
             }
-            .padding(.bottom, 30)
+            .padding(.bottom, 12)
         }
-        // 🔴 2026-11-20：从播放器打开的音质页固定约半屏高；设置页 push 仍占满整屏。
-        .frame(height: onDismiss == nil ? nil : UIScreen.main.bounds.height * 0.56)
+        // 🔴 2026-11-20：从播放器打开的音质页弹出 60% 屏高；设置页 push 仍占满整屏。
+        .frame(height: onDismiss == nil ? nil : UIScreen.main.bounds.height * 0.60)
         .background(pageBg.ignoresSafeArea())
         .navigationTitle(onDismiss == nil ? "音质" : "")
         .navigationBarTitleDisplayMode(.inline)

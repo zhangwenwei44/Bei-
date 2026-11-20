@@ -29,7 +29,7 @@ struct ProfileView: View {
     }
     /// 「检查更新」和「关于」点了完全没反应，只有排在最后的更新日志能弹出来。
     private enum Sheet: String, Identifiable {
-        case about, update, changelog, kugouLogin, licenseMaker, banner
+        case about, update, changelog, kugouLogin, licenseMaker, banner, qqGroup
         var id: String { rawValue }
     }
 
@@ -547,6 +547,27 @@ struct ProfileView: View {
                     .foregroundStyle(AppStyle.primaryText)
                 }
 
+                // 🔴 2026-11-20：恢复 QQ 交流群入口（群号 146570002）
+                Button {
+                    sheet = .qqGroup
+                } label: {
+                    HStack {
+                        Label {
+                            Text("加入 QQ 交流群")
+                        } icon: {
+                            LucideIcon(icon: .users, size: 18, color: AppStyle.secondaryText)
+                        }
+                        Spacer()
+                        Text("146570002")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                        LucideIcon(icon: .chevronRight, size: 12, color: AppStyle.tertiaryText)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(AppStyle.tertiaryText)
+                    }
+                    .foregroundStyle(AppStyle.primaryText)
+                }
+
             }
         }
         .listStyle(.insetGrouped)
@@ -576,6 +597,7 @@ struct ProfileView: View {
             case .kugouLogin: KugouLoginSheet()
             case .licenseMaker: LicenseGeneratorView(requireCloudLogin: false)  // 仅「版本」连点 7 次隐藏入口
             case .banner: LabView()                // 🔴 实验室：横幅 + 我的音乐卡片背景（已开放）
+            case .qqGroup: QQAnnouncementView()   // 🔴 2026-11-20：QQ 交流群（群号 146570002）
             }
         }
         // 🔴 2026-11-08：运行日志的隐藏 NavigationLink（列表里不显示任何一行），
